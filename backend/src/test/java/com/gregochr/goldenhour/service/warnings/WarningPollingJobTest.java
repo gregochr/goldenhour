@@ -533,4 +533,69 @@ class WarningPollingJobTest {
 
         assertThat(run().summary()).startsWith("1 new warning version stored");
     }
+
+    // ── A wanted snapshot stays pending until one is actually ingested ──────────
+
+    @Test
+    @DisplayName("a snapshot that answered 404 is retried next poll, even though the first poll stored real rows "
+            + "and the poll counted as a success; once ingested it is not asked for again")
+    void snapshotNotFoundIsRetried() {
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getIssued(REAL_ISSUED_ID)).thenThrow(clientError(404))
+                .thenReturn(fixture("issued-snapshot.json"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("real/updated-1.json"));
+
+        assertThat(run().status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(status.lastAttempt().stored()).isEqualTo(1);
+        when(repository.existsBySimulatedFalse()).thenReturn(true);
+        run();
+        assertThat(status.lastAttempt().stored()).isEqualTo(2);
+        run();
+
+        verify(client, times(2)).getIssued(REAL_ISSUED_ID);
+    }
+
+    @Test
+    @DisplayName("an unreadable snapshot body leaves the snapshot pending, and it is retried")
+    void unreadableSnapshotIsRetried() {
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getIssued(REAL_ISSUED_ID)).thenReturn("{not json").thenReturn(fixture("real/issued.json"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("real/issued.json"));
+
+        run();
+        when(repository.existsBySimulatedFalse()).thenReturn(true);
+        run();
+        run();
+
+        verify(client, times(2)).getIssued(REAL_ISSUED_ID);
+    }
+
+    @Test
+    @DisplayName("a feed without a snapshot link keeps the snapshot pending until a feed names one")
+    void pendingSurvivesAFeedWithoutALink() {
+        String noLink = "<feed xmlns=\"http://www.w3.org/2005/Atom\"><entry><id>urn:uuid:" + REAL_UPDATE_ID
+                + "</id></entry></feed>";
+        when(client.getFeed()).thenReturn(noLink).thenReturn(fixture("real/feed.xml"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("real/issued.json"));
+        when(client.getIssued(REAL_ISSUED_ID)).thenReturn(fixture("real/issued.json"));
+
+        run();
+        verify(client, never()).getIssued(REAL_ISSUED_ID);
+        run();
+
+        verify(client).getIssued(REAL_ISSUED_ID);
+    }
+
+    @Test
+    @DisplayName("a failed snapshot fetch also leaves it pending")
+    void failedSnapshotStaysPending() {
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getIssued(REAL_ISSUED_ID)).thenThrow(serverError(500)).thenReturn(fixture("real/issued.json"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("real/issued.json"));
+
+        run();
+        run();
+
+        verify(client, times(2)).getIssued(REAL_ISSUED_ID);
+    }
 }

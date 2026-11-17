@@ -84,6 +84,13 @@ public class WarningPollingJob {
     /** Change-event uuids already processed (fetched and stored, or expired); pruned to the ids still in the feed. */
     private final Set<String> seenEntryIds = ConcurrentHashMap.newKeySet();
 
+    /**
+     * Set when a snapshot is wanted and cleared only once one has actually been ingested (a readable document), so a
+     * 404, an unreadable body, a failure, or a feed without a snapshot link keeps asking on the next poll, however
+     * many real rows later polls store.
+     */
+    private final AtomicBoolean snapshotPending = new AtomicBoolean(false);
+
     /** Guards against overlap: the schedule and Run Now can both call {@link #poll()}. */
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -169,8 +176,15 @@ public class WarningPollingJob {
         tally.feedEntries = feed.updateIds().size() + feed.malformed();
         tally.malformed = feed.malformed();
         String failure = null;
-        if (needsSnapshot(started) && feed.issuedId() != null) {
-            failure = fetchAndIngest(() -> client.getIssued(feed.issuedId()), tally);
+        if (snapshotPending.get() || needsSnapshot(started)) {
+            snapshotPending.set(true);
+            if (feed.issuedId() != null) {
+                int documentsBefore = tally.documents;
+                failure = fetchAndIngest(() -> client.getIssued(feed.issuedId()), tally);
+                if (tally.documents > documentsBefore) {
+                    snapshotPending.set(false);
+                }
+            }
         }
         if (failure == null || !isAccessFailure(failure)) {
             String updatesFailure = processUpdates(feed, tally);
@@ -246,6 +260,7 @@ public class WarningPollingJob {
             tally.malformed++;
             return null;
         }
+        tally.documents++;
         tally.malformed += parsed.malformed();
         for (WeatherWarningVersionEntity row : parsed.warnings()) {
             store(row, tally);
@@ -303,6 +318,7 @@ public class WarningPollingJob {
     /** Counters for one poll. */
     private static final class Tally {
         private int feedEntries;
+        private int documents;
         private int stored;
         private int alreadyStored;
         private int gone;

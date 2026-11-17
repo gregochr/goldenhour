@@ -258,6 +258,26 @@ class WarningFeedParserTest {
     }
 
     @Test
+    @DisplayName("an unparseable or out-of-range version skips the feature; out-of-range likelihood becomes null")
+    void unreadableVersionsAndRanges() {
+        String ok = "\"warningStatus\":\"ISSUED\",\"warningLevel\":\"RED\",\"validToDate\":\"2026-12-02T12:00:00Z\"";
+        String doc = "{\"features\":["
+                + "{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"1..0\"," + ok + "}},"
+                + "{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"-1.0\"," + ok + "}},"
+                + "{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"1e3\"," + ok + "}},"
+                + "{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"12345678.0\"," + ok + "}},"
+                + "{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"1.0\",\"warningLikelihood\":123,"
+                + "\"warningImpact\":-1," + ok + "}}]}";
+
+        WarningFeedParser.WarningParse parse = parser.parseWarnings(doc);
+
+        assertThat(parse.malformed()).isEqualTo(4);
+        assertThat(parse.warnings()).hasSize(1);
+        assertThat(parse.warnings().get(0).getLikelihood()).isNull();
+        assertThat(parse.warnings().get(0).getImpact()).isNull();
+    }
+
+    @Test
     @DisplayName("a live warning without a level or an end time is skipped; an ended one needs neither")
     void liveNeedsLevelAndEnd() {
         String live = "{\"features\":[{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"1.0\","

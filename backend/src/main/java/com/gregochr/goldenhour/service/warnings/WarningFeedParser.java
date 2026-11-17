@@ -72,8 +72,8 @@ public class WarningFeedParser {
     private static final int MAX_ID_LENGTH = 100;
     private static final Pattern UUID_PATTERN =
             Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
-    private static final Pattern VERSION_PATTERN = Pattern.compile("\\d{1,7}(\\.\\d{1,2})?");
-    private static final Pattern SMALL_INT_PATTERN = Pattern.compile("\\d{1,2}");
+    private static final int MAX_VERSION_INTEGER_DIGITS = 7;
+    private static final int MAX_SMALL_INT = 99;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -235,10 +235,20 @@ public class WarningFeedParser {
     }
 
     private static BigDecimal version(String value) {
-        if (value == null || !VERSION_PATTERN.matcher(value).matches()) {
+        if (value == null) {
             throw new WarningFeedException("Warning feature has no usable warningVersion");
         }
-        return new BigDecimal(value).setScale(VERSION_SCALE);
+        BigDecimal parsed;
+        try {
+            parsed = new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            throw new WarningFeedException("Warning feature has an unreadable warningVersion", e);
+        }
+        if (parsed.signum() < 0 || parsed.scale() < 0 || parsed.scale() > VERSION_SCALE
+                || parsed.precision() - parsed.scale() > MAX_VERSION_INTEGER_DIGITS) {
+            throw new WarningFeedException("Warning feature has an out-of-range warningVersion");
+        }
+        return parsed.setScale(VERSION_SCALE);
     }
 
     private static String upper(String value) {
@@ -247,7 +257,15 @@ public class WarningFeedParser {
 
     private static Integer smallInt(JsonNode properties, String field) {
         String value = text(properties, field);
-        return value != null && SMALL_INT_PATTERN.matcher(value).matches() ? Integer.valueOf(value) : null;
+        if (value == null) {
+            return null;
+        }
+        try {
+            int parsed = Integer.parseInt(value);
+            return parsed < 0 || parsed > MAX_SMALL_INT ? null : parsed;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** The region codes of the {@code affectedAreas} objects as JSON array text, without duplicates; null if none. */
