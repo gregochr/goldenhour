@@ -4,6 +4,7 @@ import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.gregochr.goldenhour.client.MetOfficeWarningClient;
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoArchiveApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
@@ -295,6 +296,25 @@ public class AppConfig {
                 .build();
         return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
                 .build().createClient(OpenMeteoMarineApi.class);
+    }
+
+    /**
+     * Proxy for the Met Office NSWWS warnings API backed by {@link RestClient}, built from
+     * {@link #restClientBuilder()} so it carries the shared timeouts. The API key rides only in the
+     * {@code x-api-key} default header and is read once at startup. No Resilience4j retry: the next poll is the retry.
+     *
+     * @param properties the warnings configuration (supplies the API key)
+     * @return a typed proxy implementing {@link MetOfficeWarningClient}
+     */
+    @Bean
+    MetOfficeWarningClient metOfficeWarningClient(WarningsProperties properties) {
+        RestClient.Builder builder = restClientBuilder();
+        String key = properties.getApiKey();
+        if (key != null && !key.isBlank()) {
+            builder.defaultHeader("x-api-key", key);
+        }
+        return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(builder.build()))
+                .build().createClient(MetOfficeWarningClient.class);
     }
 
     /**

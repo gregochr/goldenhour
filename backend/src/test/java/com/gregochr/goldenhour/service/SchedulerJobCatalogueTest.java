@@ -111,9 +111,10 @@ class SchedulerJobCatalogueTest {
     }
 
     @Test
-    @DisplayName("the catalogue describes the 29 jobs, every one with copy and none naming an editable schedule")
+    @DisplayName("the catalogue describes the 30 jobs, every one with copy and none naming an editable schedule")
     void realCatalogue_everyEntryHasCopyAndNoEditableSchedule() {
-        assertThat(SchedulerJobCatalogue.keys()).hasSize(29).contains("scheduler_fire_log_cleanup");
+        assertThat(SchedulerJobCatalogue.keys()).hasSize(30)
+                .contains("scheduler_fire_log_cleanup", "weather_warning_poll");
         for (String key : SchedulerJobCatalogue.keys()) {
             Entry entry = SchedulerJobCatalogue.find(key).orElseThrow();
             assertThat(entry.alias()).as(key).isNotBlank();

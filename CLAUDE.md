@@ -79,6 +79,7 @@ Still never done by a session: creating or deleting tags, cutting a release (the
 | Key architecture decisions (Jackson graphs, backend-heavy and the licensed client derivations, cloud sampling, virtual threads, tide axes, hot topics, Gate 4, `daysAhead`, honesty filter …) | `docs/engineering/reference/architecture-decisions.md` |
 | Where a rating lives (`cached_evaluation` / `forecast_score` / `forecast_evaluation`), retraction, submission-order writes | `docs/engineering/reference/ratings-stores.md` |
 | Every API endpoint, with its role gate and status codes | `docs/engineering/reference/api-endpoints.md` |
+| Met Office weather warnings (ingest, `WarningTimeline`, coverage, `/api/warnings`; plan: `docs/engineering/weather-warnings-plan.md`) | `docs/engineering/reference/weather-warnings.md` |
 | Roles, freemium split, role gating UI pattern, planned features | `docs/engineering/reference/roles-and-gating.md` |
 | Notable migrations | `docs/engineering/reference/database-migrations.md` |
 | Configuration keys (`photocast.*`, scheduler, Ask) | `docs/engineering/reference/configuration.md` |

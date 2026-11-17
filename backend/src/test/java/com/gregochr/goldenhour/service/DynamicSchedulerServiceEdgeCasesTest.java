@@ -336,4 +336,40 @@ class DynamicSchedulerServiceEdgeCasesTest {
         assertThat(aurora.getStatus()).isEqualTo(SchedulerJobStatus.ACTIVE);
         verify(repository, never()).save(aurora);
     }
+
+    @Test
+    @DisplayName("weather_warning_poll already disabled by config stays untouched while its flag is off")
+    void initSchedules_warningsJobAlreadyDisabledAndFlagOff_isUntouched() {
+        SchedulerJobConfigEntity poll = job(ScheduleType.FIXED_DELAY).jobKey("weather_warning_poll")
+                .fixedDelayMs(300_000L).status(SchedulerJobStatus.DISABLED_BY_CONFIG)
+                .configSource("photocast.warnings.enabled").build();
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
+
+        service.initSchedules();
+
+        assertThat(poll.getStatus()).isEqualTo(SchedulerJobStatus.DISABLED_BY_CONFIG);
+        verify(repository, never()).save(poll);
+    }
+
+    @Test
+    @DisplayName("an ACTIVE weather_warning_poll whose flag is on is scheduled and not re-saved")
+    void initSchedules_warningsJobActiveAndFlagOn_isNotResaved() {
+        com.gregochr.goldenhour.config.WarningsProperties warnings =
+                new com.gregochr.goldenhour.config.WarningsProperties();
+        warnings.setEnabled(true);
+        DynamicSchedulerService warned = new DynamicSchedulerService(repository, fireLog, taskScheduler,
+                auroraProperties, warnings, solarTriggers, solarCatchUp, Clock.fixed(NOW, ZoneOffset.UTC));
+        SchedulerJobConfigEntity poll = job(ScheduleType.FIXED_DELAY).jobKey("weather_warning_poll")
+                .fixedDelayMs(300_000L).status(SchedulerJobStatus.ACTIVE)
+                .configSource("photocast.warnings.enabled").build();
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
+        when(taskScheduler.scheduleWithFixedDelay(org.mockito.ArgumentMatchers.any(Runnable.class),
+                eq(Duration.ofMillis(300_000L)))).thenReturn(mock(ScheduledFuture.class));
+        warned.registerJobTarget("weather_warning_poll", () -> { });
+
+        warned.initSchedules();
+
+        assertThat(poll.getStatus()).isEqualTo(SchedulerJobStatus.ACTIVE);
+        verify(repository, never()).save(poll);
+    }
 }

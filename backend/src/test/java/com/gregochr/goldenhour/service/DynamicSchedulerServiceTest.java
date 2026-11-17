@@ -121,6 +121,68 @@ class DynamicSchedulerServiceTest {
     }
 
     @Test
+    @DisplayName("initSchedules disables weather_warning_poll while photocast.warnings.enabled is false")
+    void initSchedules_disablesWarningsJobWhenWarningsOff() {
+        com.gregochr.goldenhour.config.WarningsProperties warnings =
+                new com.gregochr.goldenhour.config.WarningsProperties();
+        DynamicSchedulerService warned = new DynamicSchedulerService(repository, fireLog, taskScheduler,
+                auroraProperties, warnings, solarTriggers, solarCatchUp,
+                java.time.Clock.fixed(Instant.parse("2031-01-01T00:00:00Z"), java.time.ZoneOffset.UTC));
+        SchedulerJobConfigEntity poll = fixedDelayJob("weather_warning_poll", 300000L,
+                SchedulerJobStatus.ACTIVE);
+        poll.setConfigSource("photocast.warnings.enabled");
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
+
+        warned.initSchedules();
+
+        assertThat(poll.getStatus()).isEqualTo(SchedulerJobStatus.DISABLED_BY_CONFIG);
+        assertThat(poll.getStatusBeforeConfigDisable()).isEqualTo(SchedulerJobStatus.ACTIVE);
+        verify(repository).save(poll);
+        verify(taskScheduler, never()).scheduleWithFixedDelay(any(Runnable.class), any(Duration.class));
+    }
+
+    @Test
+    @DisplayName("initSchedules restores weather_warning_poll to ACTIVE and schedules it once the flag is on")
+    void initSchedules_enablesWarningsJobWhenWarningsOn() {
+        com.gregochr.goldenhour.config.WarningsProperties warnings =
+                new com.gregochr.goldenhour.config.WarningsProperties();
+        warnings.setEnabled(true);
+        DynamicSchedulerService warned = new DynamicSchedulerService(repository, fireLog, taskScheduler,
+                auroraProperties, warnings, solarTriggers, solarCatchUp,
+                java.time.Clock.fixed(Instant.parse("2031-01-01T00:00:00Z"), java.time.ZoneOffset.UTC));
+        SchedulerJobConfigEntity poll = fixedDelayJob("weather_warning_poll", 300000L,
+                SchedulerJobStatus.DISABLED_BY_CONFIG);
+        poll.setConfigSource("photocast.warnings.enabled");
+        poll.setStatusBeforeConfigDisable(SchedulerJobStatus.ACTIVE);
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
+        when(taskScheduler.scheduleWithFixedDelay(any(Runnable.class), any(Duration.class)))
+                .thenReturn(mock(ScheduledFuture.class));
+        warned.registerJobTarget("weather_warning_poll", () -> { });
+
+        warned.initSchedules();
+
+        assertThat(poll.getStatus()).isEqualTo(SchedulerJobStatus.ACTIVE);
+        assertThat(poll.getStatusBeforeConfigDisable()).isNull();
+    }
+
+    @Test
+    @DisplayName("a warnings-gated job is not touched by the aurora flag")
+    void initSchedules_auroraFlagDoesNotGateWarningsJob() {
+        SchedulerJobConfigEntity poll = fixedDelayJob("weather_warning_poll", 300000L,
+                SchedulerJobStatus.PAUSED);
+        poll.setConfigSource("photocast.warnings.enabled");
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
+
+        service.initSchedules();
+
+        org.mockito.Mockito.verifyNoInteractions(auroraProperties);
+        // The default (7-argument) constructor leaves warnings off, so this job is warnings-disabled,
+        // and remembered as the PAUSED it was; the aurora flag played no part.
+        assertThat(poll.getStatus()).isEqualTo(SchedulerJobStatus.DISABLED_BY_CONFIG);
+        assertThat(poll.getStatusBeforeConfigDisable()).isEqualTo(SchedulerJobStatus.PAUSED);
+    }
+
+    @Test
     @DisplayName("a deliberately-PAUSED job is remembered as PAUSED when the config disables it")
     void initSchedules_disablingPausedJob_remembersPausedStatus() {
         when(auroraProperties.isEnabled()).thenReturn(false);
