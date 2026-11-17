@@ -116,6 +116,49 @@ class WarningTimelineTest {
     }
 
     @Test
+    @DisplayName("a later area-only version keeps the upgrade flag for 24 h from the raising version, then drops it")
+    void laterEditKeepsFlagUntilWindowEnds() {
+        var v1 = version("W", 1, "Yellow", "2031-03-10T06:00:00Z", "2031-03-14T00:00:00Z");
+        var v2 = version("W", 2, "Amber", "2031-03-10T08:00:00Z", "2031-03-14T00:00:00Z");
+        var v3 = version("W", 3, "Amber", "2031-03-10T08:30:00Z", "2031-03-15T00:00:00Z");
+
+        ActiveWarning within = at("2031-03-10T09:00:00Z").active(List.of(v1, v2, v3), false).get(0);
+        ActiveWarning after = at("2031-03-11T09:00:00Z").active(List.of(v1, v2, v3), false).get(0);
+
+        assertThat(within.version().getWarningVersion()).isEqualTo(3);
+        assertThat(within.upgradedFrom()).isEqualTo("Yellow");
+        assertThat(within.upgradedAt()).isEqualTo(Instant.parse("2031-03-10T08:00:00Z"));
+        assertThat(after.upgradedFrom()).isNull();
+        assertThat(after.upgradedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("a later downgrade below the raised level clears the flag; a later Red keeps it")
+    void laterDowngradeClearsFlag() {
+        var v1 = version("W", 1, "Yellow", "2031-03-10T06:00:00Z", "2031-03-14T00:00:00Z");
+        var v2 = version("W", 2, "Amber", "2031-03-10T08:00:00Z", "2031-03-14T00:00:00Z");
+        var down = version("W", 3, "Yellow", "2031-03-10T08:30:00Z", "2031-03-14T00:00:00Z");
+        var up = version("W", 3, "Red", "2031-03-10T08:30:00Z", "2031-03-14T00:00:00Z");
+
+        ActiveWarning downgraded = at("2031-03-10T09:00:00Z").active(List.of(v1, v2, down), false).get(0);
+        ActiveWarning raisedAgain = at("2031-03-10T09:00:00Z").active(List.of(v1, v2, up), false).get(0);
+
+        assertThat(downgraded.upgradedFrom()).isNull();
+        assertThat(raisedAgain.upgradedFrom()).isEqualTo("Amber");
+        assertThat(raisedAgain.upgradedAt()).isEqualTo(Instant.parse("2031-03-10T08:30:00Z"));
+    }
+
+    @Test
+    @DisplayName("a stale old upgrade is not resurrected by a later downgrade then edit")
+    void staleRaiseStopsSearch() {
+        var v1 = version("W", 1, "Yellow", "2031-03-09T06:00:00Z", "2031-03-14T00:00:00Z");
+        var v2 = version("W", 2, "Amber", "2031-03-09T08:00:00Z", "2031-03-14T00:00:00Z");
+        var v3 = version("W", 3, "Amber", "2031-03-10T08:30:00Z", "2031-03-14T00:00:00Z");
+
+        assertThat(at("2031-03-10T09:00:00Z").active(List.of(v1, v2, v3), false).get(0).upgradedFrom()).isNull();
+    }
+
+    @Test
     @DisplayName("a downgrade and an area-only edit carry no upgrade flag")
     void downgradeAndEditUnflagged() {
         var amber = version("D", 1, "Amber", "2031-03-10T06:00:00Z", "2031-03-14T00:00:00Z");

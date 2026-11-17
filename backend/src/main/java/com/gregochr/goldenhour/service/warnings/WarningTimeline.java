@@ -22,9 +22,11 @@ import java.util.Optional;
  *
  * <p>Active at T is the latest version (by version number) with {@code received_at <= T}, whose status is not
  * CANCELLED and whose {@code valid_to > T}. A warning whose only stored version is a cancellation shows nothing.
- * A version whose level rank rises over the version before it carries {@code upgradedFrom} and {@code upgradedAt}
- * for {@link #UPGRADE_FLAG_HOURS} after that version's {@code received_at}; downgrades and area or time-only edits
- * carry none. Simulated rows are ignored altogether unless the caller asks for them.
+ * The latest version whose level rank rose over its predecessor's raises the flag ({@code upgradedFrom} is the
+ * predecessor's level, {@code upgradedAt} the raising version's {@code received_at}) for {@link #UPGRADE_FLAG_HOURS}
+ * after that receipt. A later area- or time-only version keeps the flag; a later downgrade below the raised level
+ * clears it. Downgrades and edits alone never raise it. Simulated rows are ignored altogether unless the caller
+ * asks for them.
  */
 @Component
 public class WarningTimeline {
@@ -109,12 +111,17 @@ public class WarningTimeline {
                 || latest.getValidTo() == null || !latest.getValidTo().isAfter(now)) {
             return Optional.empty();
         }
-        if (history.size() > 1) {
-            WeatherWarningVersionEntity previous = history.get(history.size() - 2);
-            boolean raised = levelRank(latest.getWarningLevel()) > levelRank(previous.getWarningLevel());
-            boolean fresh = now.isBefore(latest.getReceivedAt().plus(UPGRADE_FLAG_WINDOW));
-            if (raised && fresh) {
-                return Optional.of(new ActiveWarning(latest, previous.getWarningLevel(), latest.getReceivedAt()));
+        for (int i = history.size() - 1; i > 0; i--) {
+            WeatherWarningVersionEntity raising = history.get(i);
+            WeatherWarningVersionEntity before = history.get(i - 1);
+            if (levelRank(raising.getWarningLevel()) > levelRank(before.getWarningLevel())) {
+                boolean fresh = now.isBefore(raising.getReceivedAt().plus(UPGRADE_FLAG_WINDOW));
+                boolean held = levelRank(latest.getWarningLevel()) >= levelRank(raising.getWarningLevel());
+                if (fresh && held) {
+                    return Optional.of(new ActiveWarning(latest, before.getWarningLevel(),
+                            raising.getReceivedAt()));
+                }
+                break;
             }
         }
         return Optional.of(new ActiveWarning(latest, null, null));

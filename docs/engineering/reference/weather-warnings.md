@@ -63,8 +63,10 @@ received", not what the Met Office had published.
 
 **Upgrade flag:** when the active version's level **rank** (Yellow 1, Amber 2, Red 3, anything else 0) is higher
 than the version before it, it carries `upgradedFrom` (the previous level) and `upgradedAt` (that version's
-`received_at`) for 24 h after `received_at`, against the injected clock. Downgrades and area- or time-only edits are
-unflagged. Simulated rows are excluded entirely unless the caller asks (admin). Results are ordered most severe
+`received_at`) for 24 h after `received_at`, against the injected clock. The flag belongs to the **latest raising
+version**: a later area- or time-only version keeps it until the 24 h end, a later downgrade below the raised level
+clears it, and downgrades and edits alone never raise it. `stale` also uses the injected clock, so a rewound admin
+normally sees `stale: true` (known and accepted). Simulated rows are excluded entirely unless the caller asks (admin). Results are ordered most severe
 first, then by warning id. Levels and weather types are strings, never enums.
 
 ## Coverage (`WarningCoverage`)
