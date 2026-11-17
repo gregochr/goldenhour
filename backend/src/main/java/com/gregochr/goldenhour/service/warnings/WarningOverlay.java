@@ -150,15 +150,19 @@ public class WarningOverlay {
             return summary;
         }
         Instant at = event.toInstant(ZoneOffset.UTC);
-        List<String> ids = snapshot.idsAt(at);
-        if (ids.isEmpty()) {
-            return summary;
-        }
         List<String> regionNames = new ArrayList<>();
         for (BriefingRegion region : summary.regions()) {
             regionNames.add(region.regionName());
         }
-        return summary.withWindow(window.withWarnings(ids, snapshot.countsAt(at, regionNames)));
+        // Counts first; the ids are derived from them, so the two can never disagree. A window that lists no region
+        // (unregioned slots only) carries nothing: we cannot say where it is.
+        List<WarningPlaceCount> counts = snapshot.countsAt(at, regionNames);
+        if (counts.isEmpty()) {
+            return summary;
+        }
+        List<String> ids = new ArrayList<>(new LinkedHashSet<>(counts.stream().map(WarningPlaceCount::warningId)
+                .toList()));
+        return summary.withWindow(window.withWarnings(ids, counts));
     }
 
     private static Snapshot build(List<WeatherWarningVersionEntity> versions, Map<String, Set<Long>> covered,
@@ -222,22 +226,6 @@ public class WarningOverlay {
          */
         public boolean isEmpty() {
             return entries.isEmpty();
-        }
-
-        /**
-         * The ids of the warnings that span the instant, most severe first (the timeline's order).
-         *
-         * @param at the instant, normally a window's event time
-         * @return the ids; empty when none
-         */
-        List<String> idsAt(Instant at) {
-            Set<String> ids = new LinkedHashSet<>();
-            for (Entry e : entries) {
-                if (e.spans(at)) {
-                    ids.add(e.warningId());
-                }
-            }
-            return List.copyOf(ids);
         }
 
         /**

@@ -104,7 +104,9 @@ in force covers an enabled place, or when the lookup throws (fail-soft, logged a
 expired warnings never appear, for any role. "Now" is the injected `Clock`, so Rewind shows the warnings as we had them.
 
 - **Briefing windows.** `BriefingWindow` gains `warningIds` (ids of the warnings in force whose `[validFrom, validTo]`
-  spans the window's event time and that cover at least one enabled place, most severe first) and
+  spans the window's event time and that cover at least one enabled place **in a region the window lists**, derived from
+  the same data as the counts so the two never disagree; a window listing no region, unregioned slots only, carries none
+  because we cannot say where it is; most severe first) and
   `warningPlaceCounts` (`{warningId, regionName, covered, total}` per warning and per region the window lists, only
   where `covered > 0`; `total` is **all enabled places in that region**, so "N of M places in this area" is non-personal
   and never the reader's reach). The event time is the window's `eventTime`, else the event summary's

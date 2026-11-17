@@ -253,16 +253,45 @@ class WarningOverlayTest {
     }
 
     @Test
-    @DisplayName("a place with no region still counts for the window ids but not for a region count")
+    @DisplayName("a place with no region cannot place a warning in a window: no ids, no counts")
     void placeWithoutRegion() {
         LocationEntity lone = place(4L, "Lone", null, 54.5, -2.5);
         when(repository.findAllVersionsOfWarningsValidAfter(NOW))
                 .thenReturn(List.of(warning("W1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", false)));
         when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(lone));
-        DailyBriefingResponse out = overlay.overlay(briefing(window(EVENT), "Dales"));
+        DailyBriefingResponse in = briefing(window(EVENT), "Dales");
 
-        assertThat(windowOf(out).warningIds()).containsExactly("W1");
-        assertThat(windowOf(out).warningPlaceCounts()).isEmpty();
+        assertThat(overlay.overlay(in)).isSameAs(in);
+    }
+
+    @Test
+    @DisplayName("a warning covering only region B does not tag a window listing only region A")
+    void otherRegionWarningDoesNotTag() {
+        stubWorld(warning("W1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", false));
+        DailyBriefingResponse in = briefing(window(EVENT), "Northumberland");
+
+        assertThat(overlay.overlay(in)).isSameAs(in);
+    }
+
+    @Test
+    @DisplayName("a window listing A and B is tagged with counts for the covered region only; ids match the counts")
+    void idsMatchCounts() {
+        stubWorld(warning("W1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", false));
+
+        BriefingWindow w = windowOf(overlay.overlay(briefing(window(EVENT), "Northumberland", "Dales")));
+
+        assertThat(w.warningPlaceCounts()).containsExactly(new WarningPlaceCount("W1", "Dales", 1, 2));
+        assertThat(w.warningIds()).containsExactlyElementsOf(
+                w.warningPlaceCounts().stream().map(WarningPlaceCount::warningId).distinct().toList());
+    }
+
+    @Test
+    @DisplayName("a window listing no region (unregioned slots only) carries no warning")
+    void noRegionsNoWarning() {
+        stubWorld(warning("W1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", false));
+        DailyBriefingResponse in = briefing(window(EVENT));
+
+        assertThat(overlay.overlay(in)).isSameAs(in);
     }
 
     @Test
