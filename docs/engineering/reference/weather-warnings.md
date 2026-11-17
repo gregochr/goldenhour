@@ -4,8 +4,8 @@ Behaviour as built in phases W1a, W1b and W1c of `docs/engineering/weather-warni
 amendments remain the product and design record). W1a is **backend only**: ingest, storage, the active-at-T rule,
 location coverage and three endpoints. W1b adds the serve-time `warningIds` overlay (briefing windows and
 `/api/forecast` location rows) and the Operations panel. Nothing here touches a rating, verdict, Best pick, count,
-heat field or Claude prompt (no Claude calls at all). **No user-facing warning UI exists yet** (W2 onward): the ids are
-served and unused by any reader screen.
+heat field or Claude prompt (no Claude calls at all). The first reader-facing UI is W2 (chips on the location sheet and the
+map callout, "The client, W2" below); the popup, lanes and Coming up are later phases.
 
 W1c (this revision) rewrote the feed handling to the **real NSWWS v1.1 shape** recorded in plan section 11 and applied
 the style-guide rules of section 12 (ordering, the Updated flag, the configured Met Office link and attribution).
@@ -203,3 +203,32 @@ Fixtures under `backend/src/test/resources/warnings/`: `real/` holds the **real 
 its URL and header wiring are proven against a loopback server. The migrations are proven only in CI
 (`WeatherWarningVersionMigrationTest` for V224 and `WeatherWarningRealFeedShapeMigrationTest` for V225, Testcontainers;
 no Docker locally).
+
+## The client, W2 (chips on the location sheet and the map callout)
+
+Phase W2 is the first reader-facing UI. It stays dark while `photocast.warnings.enabled` is false: the server then answers
+`enabled: false` with no warnings and the client prints nothing (not even the attribution).
+
+| Piece | Role |
+|---|---|
+| `api/warningsApi.js` | `getWarnings()`: `GET /api/warnings` through `getMemoised` (same object for an unchanged body). 401, 403 and 404 answer null; other failures throw. |
+| `context/WarningsContext.jsx` | `WarningsProvider` (mounted in `App.jsx`'s authenticated tree under the rewind-keyed `AuroraStatusProvider`, so a Rewind remounts it) polls every **2 minutes while the page is visible** (`useVisiblePoll`, refetch on focus after a minute). Poller 5 min plus the 30 s briefing memo plus this 2 min keeps a new or cancelled warning inside the licence's 10 minutes. Answers apply in request order; a failed poll keeps the last answer. `useWarnings()` returns `NO_WARNINGS` outside a provider, before the first answer, on a refusal and when the feature is off, so every consumer degrades to nothing. No role is read: Lite sees what Pro sees. |
+| `utils/warnings.js` | Display only: level words and the official colours (`#ca0a37` white ink, `#ff9900` and `#ffe923` black ink), `warningLabel` ("Yellow warning of wind and rain"), `warningName` (adds ", updated"), the style-guide order (`compareWarnings`: level, impact, likelihood, `validFrom`, id), `resolveWarnings` (ids to warnings), `warningsForPlaceAt` and `warningsForWindow`, `staleLead`. |
+| `components/WarningChip.jsx` | `WarningChip` (text in the level colour, the level word always printed, "Updated" for the server's `updated` flag, a link to `metOfficeUrl` with `target=_blank rel="noopener noreferrer"`, no icon or logo), `WarningChips` (a labelled group), `WarningFooter` (attribution plus source link, and the stale line). |
+| `components/WarningStrip.jsx` | Chips plus footer for one window (the callout). Prints nothing when off, and nothing for a clear window on a fresh feed. |
+
+**Where the ids come from.** The window's stored forecast row (`ForecastListDto.warningIds`, reached through the roster record's
+`forecastsByDate`) names its own warnings and is trusted whole, absent meaning none. Only a window with **no stored row** is matched on
+the client against `GET /api/warnings` (`locationIds` plus the validity span at the slot's event instant): the doc's own door for that case,
+and the one client derivation in the series. Nothing here re-derives a verdict, a pick or a count.
+
+**Provider health.** If no poll has succeeded for ten minutes (`WARNINGS_CLIENT_STALE_MS`) the provider reports `stale: true` with the time of
+its own last good reply, so a withdrawn warning cannot linger unannounced on a reader whose polls fail. While the last reply said the feature
+is off it polls every 30 minutes instead of two. The stale line names the day (`Fri 14 Aug, 14:05`) when the last check was not today's UK date.
+
+**Rules held.** A chip is never inside a rating, a disclosure button or the star row; no marker or map geometry; the stale line replaces any
+"none" state (the surfaces never say "no warnings"); an unknown level is printed neutral with its own word; an unknown type is rendered from the
+served value. Chips open nothing of ours (no popup yet, W3); the only action is the Met Office link. The two surfaces:
+`LocationFourDaySheet` (every shown row, stood-down, unscored and travel days included: one rule with the callout) and `MapCallout` (live solar windows only, travel days included; its repaint effect is keyed on the stale flag and the chip ids so the card is re-placed when a poll changes the strip).
+Tests: `warnings.test.js`, `WarningChip.test.jsx`, `WarningsContext.test.jsx`, `warningsApi.test.js`,
+`LocationFourDaySheetWarnings.test.jsx`, `MapCalloutWarnings.test.jsx`.

@@ -895,6 +895,10 @@ export function buildLocationSheet(spot, windows, {
         || formatTime(card.away ? null : eventInstantOf(score, card.targetType))
         || card.time,
       away: Boolean(card.away),
+      // This place's own event instant as served (UTC), which the sheet matches against `GET /api/warnings` for the
+      // weather-warning chips. A travel day has no score lookup, so only the briefing slot can name its instant.
+      eventInstant: slot?.eventTime
+        ?? (card.away ? null : (eventInstantOf(score, card.targetType) ?? null)),
       stateLabel: card.verdictLabel,
       rating,
       // The word for a row with no rating once the ratings response has arrived — chosen HERE, by

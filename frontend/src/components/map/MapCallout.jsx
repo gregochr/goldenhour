@@ -35,6 +35,9 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { PEEK_HEIGHT } from '../../utils/askPeek.js';
 import { GLANCE_SHORT_LABEL } from '../../utils/tabLabels.js';
+import { useWarnings } from '../../context/WarningsContext.jsx';
+import { warningsForWindow } from '../../utils/warnings.js';
+import WarningStrip from '../WarningStrip.jsx';
 
 /** The desktop/tablet card width (README §7: "286px (266px mobile)"). */
 const CALLOUT_WIDTH = 286;
@@ -356,6 +359,8 @@ export default function MapCallout({
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
+  // The shared Met Office warnings (a hook, so above the early return below); read where the callout builds its window.
+  const served = useWarnings();
   const calloutWidth = isMobile ? CALLOUT_WIDTH_MOBILE : CALLOUT_WIDTH;
   const [stripOpen, setStripOpen] = useState(false);
   // The rating block's two layout states are OWNED here, not by the block (outcome-rating-plan.md §1
@@ -536,6 +541,30 @@ export default function MapCallout({
     ? `${adminOpen ? 'o' : 'c'}${slotRatings.loading ? 'l' : ''}${slotRatings.failed ? 'f' : ''}:${slotRatings.rows?.length ?? '-'}:${(slotRatings.rows ?? []).filter((r) => seenLabel(r.seen)).length}`
     : null;
 
+  // Met Office warnings for this window (weather-warnings-plan.md W2), hoisted above the early return because the
+  // chip strip changes the card's height and the repaint effect below must see it. Solar windows only (the server
+  // keys a warning to a sunrise or sunset) and not for a window already gone; travel days included (what is
+  // happening is never silenced). Always matched against the polled served list, never the stored row's ids, which
+  // only refresh with /api/forecast (the licence's 10-minute bound).
+  const warnSlot = event?.kind === 'solar' && location
+    ? lookupForWindow(slotIndex, location.id, location.name, event.date, event.eventType) : null;
+  const warnScore = event?.kind === 'solar' && location
+    ? lookupForWindow(scoreIndex, location.id, location.name, event.date, event.eventType) : null;
+  const warningRow = event?.kind === 'solar' && location
+    ? (location.forecastsByDate?.get(event.date)?.[String(event.eventType).toLowerCase()] ?? null)
+    : null;
+  const windowWarnings = event?.kind === 'solar' && !event.past && location
+    ? warningsForWindow(served, {
+      row: warningRow,
+      locationId: location.id ?? null,
+      eventIso: warnSlot?.eventTime ?? eventInstantOf(warnScore, event.eventType),
+    })
+    : [];
+  // The strip's height changes when a chip arrives or leaves or the stale line flips, with nothing else moving.
+  const warningLayout = served.enabled
+    ? `${served.stale ? 's' : 'f'}:${windowWarnings.map((w) => `${w.warningId}${w.updated ? 'u' : ''}`).join(',')}`
+    : '';
+
   // Repaint on anything that is not a map event but can change the anchor point or the card's own
   // size: a new selection, a different active window (content/height changes), or the strip's own
   // disclosure toggling. `paint`'s identity already moves with `location`; `stripOpen` and
@@ -619,7 +648,7 @@ export default function MapCallout({
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
     tideAlignmentIndex, tideStripHeight, topicStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
-    adminLayout, travelDay, auroraAlertLevel, repaintNow,
+    adminLayout, travelDay, auroraAlertLevel, warningLayout, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -998,6 +1027,12 @@ export default function MapCallout({
             </span>
           )}
         </div>
+        )}
+        {/* Met Office weather warnings for this window, on their own line UNDER the verdict row and apart from
+            the rating badge (a warning never changes a rating, and the two must not read as one claim). Solar
+            windows only; prints nothing while the feature is off. */}
+        {event?.kind === 'solar' && !event.past && (
+          <WarningStrip warnings={windowWarnings} testId="map-callout-warnings" />
         )}
         {/* Overlay convergence C2 — the aurora alert level, the one word the popup's aurora block
             carried that the callout's stars did not. Its own line UNDER the verdict row rather than

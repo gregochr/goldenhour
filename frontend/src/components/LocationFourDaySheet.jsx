@@ -20,6 +20,9 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { isWildlifeOnly } from '../utils/locationTypes.js';
 import { hourlyDaysOf } from '../utils/hourlyComfort.js';
 import HourlyComfortTable from './HourlyComfortTable.jsx';
+import { WarningChips, WarningFooter } from './WarningChip.jsx';
+import { useWarnings } from '../context/WarningsContext.jsx';
+import { warningsForWindow } from '../utils/warnings.js';
 
 /**
  * The sentence in the block above the rows of a place outside the reader's sub-regions (handoff task 5). With no
@@ -342,6 +345,19 @@ export default function LocationFourDaySheet({
     && sheet.rows.every((row) => row.rating == null);
   const hourlyBody = isHide || hidePending;
   const shownRows = hourlyBody ? [] : sheet.rows;
+  // Met Office weather warnings, per window (weather-warnings-plan.md W2): the place matched against the polled
+  // served list at the window's event time, so stood-down, unscored and travel-day rows keep theirs (a warning is not
+  // a rating). Never read by, or written to, a rating.
+  const served = useWarnings();
+  const warningsOfRow = (row) => {
+    const forecastRow = location?.forecastsByDate?.get(row.date)?.[row.targetType.toLowerCase()] ?? null;
+    // A travel day is matched like any other (what is happening is never silenced), from the roster's own event time.
+    return warningsForWindow(served, {
+      row: forecastRow, locationId: spot?.id ?? location?.id ?? null, eventIso: row.eventInstant,
+    });
+  };
+  const rowWarnings = served.enabled ? shownRows.map(warningsOfRow) : shownRows.map(() => []);
+  const anyRowWarning = rowWarnings.some((list) => list.length > 0);
   // The days listed: every day that has rows, plus the days the sheet's own windows span, so a day
   // the forecast covers but the hourly job has not written yet says so instead of not existing.
   const hourlyDays = useMemo(
@@ -701,6 +717,14 @@ export default function LocationFourDaySheet({
                     {expanded ? '▲' : '▾'}
                   </span>
                 </button>
+                {/* The row's Met Office warnings, outside the disclosure button (a chip is a link) and on
+                    their own line, so they are never read as part of the rating beside them. */}
+                <WarningChips
+                  warnings={rowWarnings[rowIndex]}
+                  href={served.metOfficeUrl}
+                  testId="location-sheet-warnings"
+                  className="px-2.5 pb-2"
+                />
                 {/* Always mounted, hidden by attribute: an accordion that unmounts its body makes
                     `aria-controls` point at nothing for every closed row, which is what the
                     attribute exists to avoid. */}
@@ -827,6 +851,17 @@ export default function LocationFourDaySheet({
             );
           })}
         </div>
+
+        {served.enabled && (
+          <WarningFooter
+            showAttribution={anyRowWarning}
+            stale={served.stale}
+            lastCheckedAt={served.lastCheckedAt}
+            attribution={served.attribution}
+            href={served.metOfficeUrl}
+            className="px-3 pt-2"
+          />
+        )}
 
         <div className="wf-sheet-foot font-mono">
           {/* ⚠️ CLOSE-THEN-MOVE, and the two calls are in this order deliberately (D-4, M4.3). The
