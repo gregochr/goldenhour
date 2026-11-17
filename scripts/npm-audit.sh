@@ -93,7 +93,7 @@ allowlisted_only() {
     local report rc
     report=$(mktemp)
     # `npm audit --json` exits non-zero when it finds anything, so judge it by whether it produced a report.
-    npx --yes "$NPM_SPEC" audit --json --fetch-timeout=90000 >"$report" 2>/dev/null
+    npx --yes --ignore-scripts "$NPM_SPEC" audit --json --fetch-timeout=90000 >"$report" 2>/dev/null
     if ! grep -q '"vulnerabilities"' "$report"; then
         rm -f "$report"
         return 1
@@ -108,7 +108,7 @@ allowlisted_only() {
 # The first CI run of this script still printed the registry's "this endpoint is being retired"
 # notice, which npm 11 should never provoke — so either npx resolved something else, or the notice
 # rides a response npm 11 does ask for. Either way the log has to answer it without a re-run.
-audit_npm_version=$(npx --yes "$NPM_SPEC" --version 2>/dev/null || echo "unknown")
+audit_npm_version=$(npx --yes --ignore-scripts "$NPM_SPEC" --version 2>/dev/null || echo "unknown")
 echo "npm-audit: auditing with npm ${audit_npm_version} (runner default: $(npm --version 2>/dev/null || echo unknown))"
 
 attempt=1
@@ -122,7 +122,7 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     # Three attempts at that default would be a sixteen-minute step. Ninety seconds is well beyond
     # a healthy bulk request (measured in single-digit seconds) and turns the bad path from
     # sixteen minutes into about five.
-    if output=$(npx --yes "$NPM_SPEC" audit --audit-level="$AUDIT_LEVEL" --fetch-timeout=90000 2>&1); then
+    if output=$(npx --yes --ignore-scripts "$NPM_SPEC" audit --audit-level="$AUDIT_LEVEL" --fetch-timeout=90000 2>&1); then
         printf '%s\n' "$output"
         exit 0
     fi
