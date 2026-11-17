@@ -7,7 +7,7 @@
  * flag is off; or a chip rewrites what the row says about the rating.
  */
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, within } from '@testing-library/react';
 
 vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
@@ -46,6 +46,7 @@ const slot = (date, targetType, eventTime) => ({
 const SLOTS = buildSlotIndex([
   { date: '2026-08-14', eventSummaries: [slot('2026-08-14', 'SUNSET', '2026-08-14T19:41:00')] },
   { date: '2026-08-15', eventSummaries: [slot('2026-08-15', 'SUNRISE', '2026-08-15T04:38:00'), slot('2026-08-15', 'SUNSET', '2026-08-15T19:39:00')] },
+  { date: '2026-08-16', eventSummaries: [slot('2026-08-16', 'SUNRISE', '2026-08-16T04:40:00')] },
 ]);
 
 const YELLOW = warning({ warningId: 'y', level: 'YELLOW', weatherTypes: ['WIND'], validFrom: '2026-08-14T00:00:00Z', validTo: '2026-08-17T00:00:00Z' });
@@ -86,6 +87,7 @@ const row = (key) => screen.getAllByTestId('location-sheet-row').find((el) => el
 
 describe('LocationFourDaySheet warnings', () => {
   beforeEach(() => { getWarnings.mockReset(); });
+  afterEach(() => { vi.useRealTimers(); });
 
   it('draws a row\'s named warnings as chips, most severe first, with the level word printed', async () => {
     await mount(response([YELLOW, RED]));
@@ -106,7 +108,27 @@ describe('LocationFourDaySheet warnings', () => {
     await mount(response([YELLOW, RED]));
     const stood = row('2026-08-15:SUNRISE');
     expect(within(stood).getByTestId('location-sheet-state')).toHaveTextContent('Stood down');
-    expect(within(stood).getByTestId('warning-chip')).toHaveTextContent('Red warning of rain');
+    expect(within(stood).getAllByTestId('warning-chip').map((c) => c.dataset.level)).toEqual(['RED', 'YELLOW']);
+  });
+
+  it('draws a travel day\'s warning too (one rule with the callout)', async () => {
+    await mount(response([YELLOW, RED]));
+    expect(within(row('2026-08-16:SUNRISE')).getAllByTestId('warning-chip')).toHaveLength(2);
+  });
+
+  it('shows a warning the roster row does not name yet once the polled list covers the place', async () => {
+    await mount(response([YELLOW]), { location: { ...LOCATION, forecastsByDate: new Map() } });
+    expect(within(row('2026-08-14:SUNSET')).getByTestId('warning-chip')).toBeInTheDocument();
+  });
+
+  it('drops a warning the roster row still names once the polled list no longer covers the place', async () => {
+    await mount(response([warning({ warningId: 'y', locationIds: [99] })]));
+    expect(screen.queryByTestId('warning-chip')).toBeNull();
+  });
+
+  it('takes the place id from the roster record when the spot carries none', async () => {
+    await mount(response([YELLOW]), { spot: { name: 'Bamburgh', regionName: 'Northumberland' } });
+    expect(within(row('2026-08-14:SUNSET')).getByTestId('warning-chip')).toBeInTheDocument();
   });
 
   it('keeps an unscored row\'s warning', async () => {
@@ -137,11 +159,6 @@ describe('LocationFourDaySheet warnings', () => {
     expect(within(row('2026-08-14:SUNSET')).getByTestId('warning-chip')).toBeInTheDocument();
   });
 
-  it('draws nothing on a travel day', async () => {
-    await mount(response([YELLOW, RED]));
-    expect(within(row('2026-08-16:SUNRISE')).queryByTestId('warning-chip')).toBeNull();
-  });
-
   it('keeps the chips outside the disclosure button, so a chip is never a control inside a control', async () => {
     await mount(response([YELLOW, RED]));
     const r = row('2026-08-14:SUNSET');
@@ -170,7 +187,9 @@ describe('LocationFourDaySheet warnings', () => {
   });
 
   it('shows the stale line and no "none" claim when the feed is stale with no warning', async () => {
-    await mount(response([], { stale: true }));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-14T15:00:00Z'));
+    await mount(response([], { stale: true, lastCheckedAt: '2026-08-14T13:05:00Z' }));
     expect(screen.queryByTestId('warning-chip')).toBeNull();
     expect(screen.getByTestId('warning-stale')).toHaveTextContent('Warnings last checked 14:05');
     expect(screen.queryByTestId('warning-attribution')).toBeNull();

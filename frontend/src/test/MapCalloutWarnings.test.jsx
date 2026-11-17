@@ -157,8 +157,8 @@ describe('MapCallout warnings', () => {
     expect(screen.getAllByTestId('warning-chip')).toHaveLength(2);
   });
 
-  it('draws nothing for a row that names no warning', async () => {
-    const quiet = { ...LOCATION, forecastsByDate: new Map([[TODAY, { sunset: { solarEventTime: `${TODAY}T20:10:00` } }]]) };
+  it('draws nothing for a place the polled warnings do not cover, whatever its stored row names', async () => {
+    const quiet = { ...LOCATION, id: 99 };
     await mount(response([YELLOW, RED]), { location: quiet });
     expect(screen.queryByTestId('warning-chip')).toBeNull();
     expect(screen.queryByTestId('warning-footer')).toBeNull();
@@ -187,6 +187,22 @@ describe('MapCallout warnings', () => {
     expect(screen.getByTestId('warning-chip')).toBeInTheDocument();
   });
 
+  it('shows a warning the stored row does not name yet once the polled list covers the place (no /api/forecast refetch)', async () => {
+    const unnamed = { ...LOCATION, forecastsByDate: new Map([[TODAY, { sunset: { solarEventTime: `${TODAY}T20:10:00` } }]]) };
+    await mount(response([YELLOW]), { location: unnamed });
+    expect(screen.getByTestId('warning-chip')).toHaveTextContent('Yellow warning of wind');
+  });
+
+  it('drops a warning the stored row still names once the polled list no longer covers the place', async () => {
+    await mount(response([warning({ warningId: 'y', locationIds: [99], validFrom: `${TODAY}T00:00:00Z`, validTo: `${TODAY}T23:59:00Z` })]));
+    expect(screen.queryByTestId('warning-chip')).toBeNull();
+  });
+
+  it('keeps the chip on a travel day (what is happening is never silenced)', async () => {
+    await mount(response([YELLOW, RED]), { travelDay: true });
+    expect(screen.getAllByTestId('warning-chip')).toHaveLength(2);
+  });
+
   it('draws nothing for a past window', async () => {
     await mount(response([YELLOW, RED]), { event: { ...EVENT, past: true } });
     expect(screen.queryByTestId('warning-chip')).toBeNull();
@@ -204,8 +220,8 @@ describe('MapCallout warnings', () => {
   });
 
   it('shows only the stale line, never a "none" claim, when the feed is stale and the window has no warning', async () => {
-    const quiet = { ...LOCATION, forecastsByDate: new Map([[TODAY, { sunset: { solarEventTime: `${TODAY}T20:10:00` } }]]) };
-    await mount(response([YELLOW], { stale: true }), { location: quiet });
+    const quiet = { ...LOCATION, id: 99 };
+    await mount(response([YELLOW], { stale: true, lastCheckedAt: `${TODAY}T13:05:00Z` }), { location: quiet });
     expect(screen.queryByTestId('warning-chip')).toBeNull();
     expect(screen.getByTestId('warning-stale')).toHaveTextContent('Warnings last checked 14:05');
   });
@@ -214,6 +230,44 @@ describe('MapCallout warnings', () => {
     await mount(response([YELLOW, RED], { enabled: false, stale: true }));
     expect(screen.queryByTestId('warning-strip')).toBeNull();
     expect(screen.queryByTestId('warning-chip')).toBeNull();
+  });
+
+  it('re-places the card when a poll adds a chip (the strip changes its height)', async () => {
+    getWarnings.mockResolvedValueOnce(response([]));
+    getWarnings.mockResolvedValue(response([YELLOW]));
+    await act(async () => {
+      render(
+        <WarningsProvider>
+          <MapCallout location={LOCATION} event={EVENT} rating={4} ratingKnown scoresKnown />
+        </WarningsProvider>,
+      );
+    });
+    expect(screen.queryByTestId('warning-chip')).toBeNull();
+    const spy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const before = spy.mock.calls.length;
+    // The next visible-page poll lands: past the minimum gap, the window regains focus.
+    vi.setSystemTime(new Date(NOW.getTime() + 3 * 60 * 1000));
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(screen.getByTestId('warning-chip')).toBeInTheDocument();
+    expect(spy.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('re-places the card when the stale line appears', async () => {
+    getWarnings.mockResolvedValueOnce(response([YELLOW]));
+    getWarnings.mockResolvedValue(response([YELLOW], { stale: true }));
+    await act(async () => {
+      render(
+        <WarningsProvider>
+          <MapCallout location={LOCATION} event={EVENT} rating={4} ratingKnown scoresKnown />
+        </WarningsProvider>,
+      );
+    });
+    const spy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const before = spy.mock.calls.length;
+    vi.setSystemTime(new Date(NOW.getTime() + 3 * 60 * 1000));
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(screen.getByTestId('warning-stale')).toBeInTheDocument();
+    expect(spy.mock.calls.length).toBeGreaterThan(before);
   });
 
   it('renders as before outside any provider', async () => {

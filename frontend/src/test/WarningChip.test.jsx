@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 
 vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
@@ -97,6 +97,11 @@ describe('WarningFooter', () => {
   const base = {
     stale: false, lastCheckedAt: '2026-08-14T13:05:00Z', attribution: ATTRIBUTION, href: METOFFICE_URL,
   };
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-14T15:00:00Z'));
+  });
+  afterEach(() => { vi.useRealTimers(); });
 
   it('prints the attribution and the Met Office link where warnings are shown', () => {
     render(<WarningFooter {...base} showAttribution />);

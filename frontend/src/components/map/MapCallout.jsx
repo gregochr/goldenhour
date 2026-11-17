@@ -541,6 +541,30 @@ export default function MapCallout({
     ? `${adminOpen ? 'o' : 'c'}${slotRatings.loading ? 'l' : ''}${slotRatings.failed ? 'f' : ''}:${slotRatings.rows?.length ?? '-'}:${(slotRatings.rows ?? []).filter((r) => seenLabel(r.seen)).length}`
     : null;
 
+  // Met Office warnings for this window (weather-warnings-plan.md W2), hoisted above the early return because the
+  // chip strip changes the card's height and the repaint effect below must see it. Solar windows only (the server
+  // keys a warning to a sunrise or sunset) and not for a window already gone; travel days included (what is
+  // happening is never silenced). Always matched against the polled served list, never the stored row's ids, which
+  // only refresh with /api/forecast (the licence's 10-minute bound).
+  const warnSlot = event?.kind === 'solar' && location
+    ? lookupForWindow(slotIndex, location.id, location.name, event.date, event.eventType) : null;
+  const warnScore = event?.kind === 'solar' && location
+    ? lookupForWindow(scoreIndex, location.id, location.name, event.date, event.eventType) : null;
+  const warningRow = event?.kind === 'solar' && location
+    ? (location.forecastsByDate?.get(event.date)?.[String(event.eventType).toLowerCase()] ?? null)
+    : null;
+  const windowWarnings = event?.kind === 'solar' && !event.past && location
+    ? warningsForWindow(served, {
+      row: warningRow,
+      locationId: location.id ?? null,
+      eventIso: warnSlot?.eventTime ?? eventInstantOf(warnScore, event.eventType),
+    })
+    : [];
+  // The strip's height changes when a chip arrives or leaves or the stale line flips, with nothing else moving.
+  const warningLayout = served.enabled
+    ? `${served.stale ? 's' : 'f'}:${windowWarnings.map((w) => `${w.warningId}${w.updated ? 'u' : ''}`).join(',')}`
+    : '';
+
   // Repaint on anything that is not a map event but can change the anchor point or the card's own
   // size: a new selection, a different active window (content/height changes), or the strip's own
   // disclosure toggling. `paint`'s identity already moves with `location`; `stripOpen` and
@@ -624,7 +648,7 @@ export default function MapCallout({
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
     tideAlignmentIndex, tideStripHeight, topicStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
-    adminLayout, travelDay, auroraAlertLevel, repaintNow,
+    adminLayout, travelDay, auroraAlertLevel, warningLayout, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -752,20 +776,6 @@ export default function MapCallout({
   const reasonRegion = regionReason != null ? (location.regionName ?? null) : null;
 
   const eventTimeIso = eventInstantOf(scoreEntry, event?.eventType);
-  // Met Office warnings for this window (weather-warnings-plan.md W2): solar windows only (the server keys a warning
-  // to a sunrise or sunset), and not for a window already gone. The place's stored forecast row names its own
-  // warnings (an unscored or stood-down one included: a warning is not a rating); with no stored row the place is
-  // matched against the served list at the window's event time.
-  const warningRow = event?.kind === 'solar'
-    ? (location.forecastsByDate?.get(event.date)?.[String(event.eventType).toLowerCase()] ?? null)
-    : null;
-  const windowWarnings = event?.kind === 'solar' && !event.past
-    ? warningsForWindow(served, {
-      row: warningRow,
-      locationId: location.id ?? null,
-      eventIso: slotEntry?.eventTime ?? eventTimeIso,
-    })
-    : [];
   const facts = calloutFacts({
     driveMinutes,
     distanceMiles,

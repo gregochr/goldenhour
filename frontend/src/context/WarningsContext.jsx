@@ -11,13 +11,22 @@ import { DEFAULT_ATTRIBUTION, DEFAULT_MET_OFFICE_URL, orderWarnings } from '../u
  */
 export const WARNINGS_POLL_MS = 2 * 60 * 1000;
 
+/** While the last answer said the feature is off, ask this often (a flag flip needs a restart anyway). */
+export const WARNINGS_POLL_OFF_MS = 30 * 60 * 1000;
+
+/**
+ * How long without a successful reply before the provider calls its own data stale, whatever the last reply said:
+ * the licence's ten-minute bound is the reason a warning that was withdrawn must not linger unannounced on a reader
+ * whose polls keep failing. It reads the real clock: it measures elapsed polling health, not the app's date.
+ */
+export const WARNINGS_CLIENT_STALE_MS = 10 * 60 * 1000;
+
 /** What every consumer reads until the first answer, outside a provider, and when the feature is off. */
 export const NO_WARNINGS = Object.freeze({
   enabled: false,
   stale: false,
   lastCheckedAt: null,
   warnings: Object.freeze([]),
-  byId: new Map(),
   metOfficeUrl: DEFAULT_MET_OFFICE_URL,
   attribution: DEFAULT_ATTRIBUTION,
 });
@@ -36,6 +45,10 @@ const WarningsContext = createContext(NO_WARNINGS);
  */
 export function WarningsProvider({ children }) {
   const [response, setResponse] = useState(null);
+  // The real-clock instant of the last successful reply, and whether the client has gone without one too long.
+  const lastOkAtRef = useRef(null);
+  const [lastOkAt, setLastOkAt] = useState(null);
+  const [clientStale, setClientStale] = useState(false);
   const requestedRef = useRef(0);
   const appliedRef = useRef(0);
 
@@ -46,27 +59,35 @@ export function WarningsProvider({ children }) {
       const data = await getWarnings();
       if (request < appliedRef.current) return;
       appliedRef.current = request;
+      lastOkAtRef.current = Date.now();
+      setLastOkAt(lastOkAtRef.current);
+      setClientStale(false);
       setResponse(data);
     } catch {
-      // Transient: keep what is on screen. The next poll is the retry.
+      // Transient: keep what is on screen, but once no reply has landed for too long say so (stale line).
+      if (lastOkAtRef.current != null && Date.now() - lastOkAtRef.current > WARNINGS_CLIENT_STALE_MS) {
+        setClientStale(true);
+      }
     }
   }, []);
 
-  useVisiblePoll(fetchWarnings, WARNINGS_POLL_MS);
+  useVisiblePoll(fetchWarnings, response?.enabled === false ? WARNINGS_POLL_OFF_MS : WARNINGS_POLL_MS);
 
   const value = useMemo(() => {
     if (!response || typeof response !== 'object' || response.enabled !== true) return NO_WARNINGS;
     const warnings = orderWarnings(response.warnings);
     return {
       enabled: true,
-      stale: response.stale === true,
-      lastCheckedAt: response.lastCheckedAt ?? null,
+      stale: response.stale === true || clientStale,
+      // When the client itself went quiet, the honest "last checked" is its own last good reply.
+      lastCheckedAt: clientStale && lastOkAt != null
+        ? new Date(lastOkAt).toISOString()
+        : (response.lastCheckedAt ?? null),
       warnings,
-      byId: new Map(warnings.map((w) => [w.warningId, w])),
       metOfficeUrl: response.metOfficeUrl || DEFAULT_MET_OFFICE_URL,
       attribution: response.attribution || DEFAULT_ATTRIBUTION,
     };
-  }, [response]);
+  }, [response, clientStale, lastOkAt]);
 
   return <WarningsContext.Provider value={value}>{children}</WarningsContext.Provider>;
 }
@@ -79,7 +100,7 @@ WarningsProvider.propTypes = {
  * The shared warnings. Outside a provider, before the first answer and with the feature off it is
  * {@link NO_WARNINGS}, so every consumer degrades to showing nothing.
  *
- * @returns {{enabled: boolean, stale: boolean, lastCheckedAt: ?string, warnings: object[], byId: Map,
+ * @returns {{enabled: boolean, stale: boolean, lastCheckedAt: ?string, warnings: object[],
  *            metOfficeUrl: string, attribution: string}}
  */
 export function useWarnings() {

@@ -5,7 +5,9 @@ import { act, render, screen } from '@testing-library/react';
 vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
 
 import { getWarnings } from '../api/warningsApi.js';
-import { NO_WARNINGS, useWarnings, WarningsProvider } from '../context/WarningsContext.jsx';
+import {
+  NO_WARNINGS, useWarnings, WARNINGS_CLIENT_STALE_MS, WARNINGS_POLL_MS, WARNINGS_POLL_OFF_MS, WarningsProvider,
+} from '../context/WarningsContext.jsx';
 import { ATTRIBUTION, METOFFICE_URL, response, warning } from './warningsFixture.js';
 
 function Probe() {
@@ -15,7 +17,6 @@ function Probe() {
       <span data-testid="enabled">{String(w.enabled)}</span>
       <span data-testid="stale">{String(w.stale)}</span>
       <span data-testid="ids">{w.warnings.map((x) => x.warningId).join(',')}</span>
-      <span data-testid="by-id">{[...w.byId.keys()].join(',')}</span>
       <span data-testid="url">{w.metOfficeUrl}</span>
       <span data-testid="attr">{w.attribution}</span>
       <span data-testid="checked">{String(w.lastCheckedAt)}</span>
@@ -48,7 +49,6 @@ describe('WarningsProvider', () => {
     expect(screen.getByTestId('enabled')).toHaveTextContent('true');
     expect(screen.getByTestId('stale')).toHaveTextContent('true');
     expect(screen.getByTestId('ids')).toHaveTextContent('r,y');
-    expect(screen.getByTestId('by-id')).toHaveTextContent('r,y');
     expect(screen.getByTestId('url')).toHaveTextContent(METOFFICE_URL);
     expect(screen.getByTestId('attr')).toHaveTextContent(ATTRIBUTION);
     expect(screen.getByTestId('checked')).toHaveTextContent('2026-08-14T13:05:00Z');
@@ -105,5 +105,53 @@ describe('WarningsProvider', () => {
     expect(screen.getByTestId('ids')).toHaveTextContent('newer');
     await act(async () => { resolveFirst(response([warning({ warningId: 'older' })])); });
     expect(screen.getByTestId('ids')).toHaveTextContent('newer');
+  });
+
+  it('calls its own data stale, with its last good reply time, once polls have failed for ten minutes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-14T13:00:00Z'));
+    getWarnings.mockResolvedValueOnce(response([warning({ warningId: 'keep' })], { lastCheckedAt: '2026-08-14T12:59:00Z' }));
+    getWarnings.mockRejectedValue(new Error('network'));
+    render(<WarningsProvider><Probe /></WarningsProvider>);
+    await act(async () => {});
+    expect(screen.getByTestId('stale')).toHaveTextContent('false');
+    // One failed poll inside the bound changes nothing.
+    await act(async () => { await vi.advanceTimersByTimeAsync(WARNINGS_POLL_MS + 10); });
+    expect(screen.getByTestId('stale')).toHaveTextContent('false');
+    // Failures continuing past the bound flip it, still showing the warning, with our own last good time.
+    await act(async () => { await vi.advanceTimersByTimeAsync(WARNINGS_CLIENT_STALE_MS); });
+    expect(screen.getByTestId('stale')).toHaveTextContent('true');
+    expect(screen.getByTestId('ids')).toHaveTextContent('keep');
+    expect(screen.getByTestId('checked')).toHaveTextContent('2026-08-14T13:00:00.000Z');
+  });
+
+  it('clears the client stale flag when a poll succeeds again', async () => {
+    vi.useFakeTimers();
+    getWarnings.mockResolvedValueOnce(response([]));
+    getWarnings.mockRejectedValueOnce(new Error('network'));
+    getWarnings.mockRejectedValueOnce(new Error('network'));
+    getWarnings.mockRejectedValueOnce(new Error('network'));
+    getWarnings.mockRejectedValueOnce(new Error('network'));
+    getWarnings.mockRejectedValueOnce(new Error('network'));
+    getWarnings.mockRejectedValueOnce(new Error('network'));
+    getWarnings.mockResolvedValue(response([]));
+    render(<WarningsProvider><Probe /></WarningsProvider>);
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(WARNINGS_CLIENT_STALE_MS + WARNINGS_POLL_MS); });
+    expect(screen.getByTestId('stale')).toHaveTextContent('true');
+    await act(async () => { await vi.advanceTimersByTimeAsync(WARNINGS_POLL_MS); });
+    expect(screen.getByTestId('stale')).toHaveTextContent('false');
+  });
+
+  it('polls far less often while the feature is off', async () => {
+    vi.useFakeTimers();
+    getWarnings.mockResolvedValue(response([], { enabled: false }));
+    render(<WarningsProvider><Probe /></WarningsProvider>);
+    await act(async () => {});
+    const settled = getWarnings.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(WARNINGS_POLL_MS * 5); });
+    expect(getWarnings.mock.calls.length).toBe(settled);
+    await act(async () => { await vi.advanceTimersByTimeAsync(WARNINGS_POLL_OFF_MS); });
+    expect(getWarnings.mock.calls.length).toBeGreaterThan(settled);
   });
 });

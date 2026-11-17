@@ -222,9 +222,13 @@ Phase W2 is the first reader-facing UI. It stays dark while `photocast.warnings.
 the client against `GET /api/warnings` (`locationIds` plus the validity span at the slot's event instant): the doc's own door for that case,
 and the one client derivation in the series. Nothing here re-derives a verdict, a pick or a count.
 
+**Provider health.** If no poll has succeeded for ten minutes (`WARNINGS_CLIENT_STALE_MS`) the provider reports `stale: true` with the time of
+its own last good reply, so a withdrawn warning cannot linger unannounced on a reader whose polls fail. While the last reply said the feature
+is off it polls every 30 minutes instead of two. The stale line names the day (`Fri 14 Aug, 14:05`) when the last check was not today's UK date.
+
 **Rules held.** A chip is never inside a rating, a disclosure button or the star row; no marker or map geometry; the stale line replaces any
 "none" state (the surfaces never say "no warnings"); an unknown level is printed neutral with its own word; an unknown type is rendered from the
 served value. Chips open nothing of ours (no popup yet, W3); the only action is the Met Office link. The two surfaces:
-`LocationFourDaySheet` (every shown row, stood-down and unscored included, travel days none) and `MapCallout` (live solar windows only).
+`LocationFourDaySheet` (every shown row, stood-down, unscored and travel days included: one rule with the callout) and `MapCallout` (live solar windows only, travel days included; its repaint effect is keyed on the stale flag and the chip ids so the card is re-placed when a poll changes the strip).
 Tests: `warnings.test.js`, `WarningChip.test.jsx`, `WarningsContext.test.jsx`, `warningsApi.test.js`,
 `LocationFourDaySheetWarnings.test.jsx`, `MapCalloutWarnings.test.jsx`.

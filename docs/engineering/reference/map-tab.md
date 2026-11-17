@@ -165,4 +165,4 @@ opening) behaves as before, so the fix needs no phone or desktop split. Proved b
 
 ## Met Office warning chips on the callout (weather-warnings W2, 2026-11-17)
 
-`MapCallout` renders a `WarningStrip` (chips plus the attribution line) directly **under** the verdict row and apart from the rating badge, for a live solar window only (not past, not a night, not High water). Ids come from the place's stored forecast row for the window, else the served list matched by place and event time (`warningsForWindow`). No geometry on the map in this series (plan section 12); the Map chip toggle and legend entry are W4. See `weather-warnings.md` ("The client, W2").
+`MapCallout` renders a `WarningStrip` (chips plus the attribution line) directly **under** the verdict row and apart from the rating badge, for a live solar window only (not past, not a night, not High water). The chips are the polled served list matched by place and event time (`warningsForWindow`); travel days included. No geometry on the map in this series (plan section 12); the Map chip toggle and legend entry are W4. See `weather-warnings.md` ("The client, W2").

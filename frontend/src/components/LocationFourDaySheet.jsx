@@ -345,14 +345,16 @@ export default function LocationFourDaySheet({
     && sheet.rows.every((row) => row.rating == null);
   const hourlyBody = isHide || hidePending;
   const shownRows = hourlyBody ? [] : sheet.rows;
-  // Met Office weather warnings, per window (weather-warnings-plan.md W2). A stored forecast row names its own
-  // warnings (stood-down and unscored rows included: a warning is not a rating); a window with no stored row is
-  // matched against the served list. Never read by, or written to, a rating.
+  // Met Office weather warnings, per window (weather-warnings-plan.md W2): the place matched against the polled
+  // served list at the window's event time, so stood-down, unscored and travel-day rows keep theirs (a warning is not
+  // a rating). Never read by, or written to, a rating.
   const served = useWarnings();
   const warningsOfRow = (row) => {
-    if (row.away) return [];
     const forecastRow = location?.forecastsByDate?.get(row.date)?.[row.targetType.toLowerCase()] ?? null;
-    return warningsForWindow(served, { row: forecastRow, locationId: spot?.id, eventIso: row.eventInstant });
+    // A travel day is matched like any other (what is happening is never silenced), from the roster's own event time.
+    return warningsForWindow(served, {
+      row: forecastRow, locationId: spot?.id ?? location?.id ?? null, eventIso: row.eventInstant,
+    });
   };
   const rowWarnings = served.enabled ? shownRows.map(warningsOfRow) : shownRows.map(() => []);
   const anyRowWarning = rowWarnings.some((list) => list.length > 0);

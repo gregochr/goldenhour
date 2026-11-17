@@ -1,4 +1,6 @@
-import { formatEventTimeUk } from './conversions.js';
+import { formatDayClockUk, formatEventTimeUk } from './conversions.js';
+import { ukDateStr } from './mapDates.js';
+import { appNow } from './rewind.js';
 
 /**
  * Met Office weather warnings, display helpers (weather-warnings-plan.md §2, §12, §13).
@@ -152,27 +154,6 @@ export function orderWarnings(warnings) {
   return (Array.isArray(warnings) ? warnings.filter(Boolean) : []).slice().sort(compareWarnings);
 }
 
-/**
- * Looks served warning ids up in the served list, once each, in the style guide's order. An id the list does not
- * hold (a poll between two serves) is dropped rather than drawn without its words.
- *
- * @param {?Array<string>} ids the served {@code warningIds}
- * @param {?Map<string, object>} byId warnings by id
- * @returns {object[]}
- */
-export function resolveWarnings(ids, byId) {
-  if (!Array.isArray(ids) || !byId) return [];
-  const seen = new Set();
-  const out = [];
-  for (const id of ids) {
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const warning = byId.get(id);
-    if (warning && warningLabel(warning) != null) out.push(warning);
-  }
-  return orderWarnings(out);
-}
-
 /** A served instant (bare UTC or Z-suffixed) as epoch milliseconds, or NaN. */
 function instantMs(value) {
   if (typeof value !== 'string' || value === '') return Number.NaN;
@@ -194,7 +175,7 @@ export function warningsForPlaceAt(warnings, locationId, eventIso) {
   if (locationId == null || Number.isNaN(at) || !Array.isArray(warnings)) return [];
   return orderWarnings(warnings.filter((w) => {
     const ids = Array.isArray(w?.locationIds) ? w.locationIds : [];
-    return ids.includes(locationId)
+    return ids.some((id) => Number(id) === Number(locationId))
       && instantMs(w.validFrom) <= at
       && at <= instantMs(w.validTo)
       && warningLabel(w) != null;
@@ -204,19 +185,21 @@ export function warningsForPlaceAt(warnings, locationId, eventIso) {
 /**
  * The warnings to draw for one window of one place.
  *
- * <p>A stored forecast row names its warnings itself ({@code warningIds}, absent meaning none), so that is
- * trusted whole, stood-down and unscored rows included (a warning is not a rating and survives a stand-down). With no
- * row for the window the server has nothing to carry the ids, so the place is matched against the served list.
+ * <p>Always matched against the polled {@code GET /api/warnings} list ({@code locationIds} the server computed, and
+ * the validity span), never against the stored forecast row's {@code warningIds}: that row only refreshes when
+ * {@code /api/forecast} is fetched again, which can be hours, while the warnings list is polled every two minutes
+ * (the licence's ten-minute bound for new, changed and cancelled warnings). This stays a filter over served facts.
+ * The instant is the stored row's own {@code solarEventTime} when a row exists, else the slot or score instant.
+ * Stood-down, unscored and travel-day windows are matched the same way: a warning is not a rating.
  *
- * @param {{warnings: object[], byId: Map}} served the shared warnings (the context value)
+ * @param {{warnings: object[]}} served the shared warnings (the context value)
  * @param {{row: ?object, locationId: *, eventIso: ?string}} window the window's stored forecast row (or null), the
- *        place's id and the window's event instant as served
+ *        place's id and the fallback event instant as served
  * @returns {object[]} in the style guide's order
  */
 export function warningsForWindow(served, { row, locationId, eventIso }) {
   if (!served || !Array.isArray(served.warnings) || served.warnings.length === 0) return [];
-  if (row) return resolveWarnings(row.warningIds, served.byId);
-  return warningsForPlaceAt(served.warnings, locationId, eventIso);
+  return warningsForPlaceAt(served.warnings, locationId, row?.solarEventTime ?? eventIso);
 }
 
 /**
@@ -227,6 +210,12 @@ export function warningsForWindow(served, { row, locationId, eventIso }) {
  * @returns {string}
  */
 export function staleLead(lastCheckedAt) {
-  const time = lastCheckedAt ? formatEventTimeUk(lastCheckedAt) : null;
-  return time ? `Warnings last checked ${time}` : 'Warnings have not been checked yet';
+  if (!lastCheckedAt) return 'Warnings have not been checked yet';
+  const checked = new Date(lastCheckedAt);
+  if (Number.isNaN(checked.getTime())) return 'Warnings have not been checked yet';
+  // Today's clock alone is unambiguous; an earlier day needs its day named, or "14:05" reads as today.
+  const text = ukDateStr(checked) === ukDateStr(appNow())
+    ? formatEventTimeUk(lastCheckedAt)
+    : formatDayClockUk(lastCheckedAt);
+  return `Warnings last checked ${text}`;
 }

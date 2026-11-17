@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  compareWarnings, joinWords, levelWord, orderWarnings, resolveWarnings, staleLead, typeWords,
+  compareWarnings, joinWords, levelWord, orderWarnings, staleLead, typeWords,
   warningLabel, warningName, warningsForPlaceAt, warningsForWindow, WARNING_LEVELS,
 } from '../utils/warnings.js';
 import { warning } from './warningsFixture.js';
@@ -95,24 +95,6 @@ describe('warnings utils', () => {
     });
   });
 
-  describe('resolveWarnings', () => {
-    const byId = new Map([
-      ['y', warning({ warningId: 'y' })],
-      ['r', warning({ warningId: 'r', level: 'RED' })],
-      ['nolevel', warning({ warningId: 'nolevel', level: null })],
-    ]);
-
-    it('looks ids up once each, in the style guide order, dropping unknown ones', () => {
-      expect(resolveWarnings(['y', 'r', 'y', 'gone', 'nolevel'], byId).map((w) => w.warningId))
-        .toEqual(['r', 'y']);
-    });
-
-    it('is empty for no ids or no map', () => {
-      expect(resolveWarnings(undefined, byId)).toEqual([]);
-      expect(resolveWarnings(['y'], null)).toEqual([]);
-    });
-  });
-
   describe('warningsForPlaceAt', () => {
     const w = warning({ locationIds: [7, 9] });
 
@@ -145,32 +127,63 @@ describe('warnings utils', () => {
 
   describe('warningsForWindow', () => {
     const w = warning({ locationIds: [7] });
-    const served = { warnings: [w], byId: new Map([[w.warningId, w]]) };
+    const served = { warnings: [w] };
 
-    it('trusts a stored row\'s own ids, and an absent field means none', () => {
-      expect(warningsForWindow(served, { row: { warningIds: [w.warningId] }, locationId: 7, eventIso: null }))
-        .toHaveLength(1);
-      expect(warningsForWindow(served, { row: {}, locationId: 7, eventIso: '2026-08-15T05:38:00' }))
-        .toEqual([]);
+    it('matches the polled list by place and instant, whatever the stored row says', () => {
+      // A row that names nothing (a stale /api/forecast) still gets what the polled list says covers the place.
+      expect(warningsForWindow(served, { row: {}, locationId: 7, eventIso: '2026-08-15T05:38:00' })).toHaveLength(1);
+      // A row that names the warning does not keep it once the polled list no longer covers the place.
+      const withdrawn = { warnings: [warning({ locationIds: [8] })] };
+      expect(warningsForWindow(withdrawn, {
+        row: { warningIds: [w.warningId] }, locationId: 7, eventIso: '2026-08-15T05:38:00',
+      })).toEqual([]);
     });
 
-    it('matches the place against the served list when there is no row', () => {
-      expect(warningsForWindow(served, { row: null, locationId: 7, eventIso: '2026-08-15T05:38:00' }))
-        .toHaveLength(1);
-      expect(warningsForWindow(served, { row: null, locationId: 8, eventIso: '2026-08-15T05:38:00' }))
-        .toEqual([]);
+    it('uses the stored row\'s own solarEventTime when there is one, else the fallback instant', () => {
+      const narrow = {
+        warnings: [warning({ locationIds: [7], validFrom: '2026-08-15T19:00:00Z', validTo: '2026-08-15T21:00:00Z' })],
+      };
+      expect(warningsForWindow(narrow, {
+        row: { solarEventTime: '2026-08-15T19:39:00' }, locationId: 7, eventIso: '2026-08-15T04:38:00',
+      })).toHaveLength(1);
+      expect(warningsForWindow(narrow, { row: null, locationId: 7, eventIso: '2026-08-15T04:38:00' })).toEqual([]);
     });
 
-    it('is empty with nothing served', () => {
+    it('compares ids as numbers (a string id still matches)', () => {
+      expect(warningsForWindow(served, { row: null, locationId: '7', eventIso: '2026-08-15T05:38:00' }))
+        .toHaveLength(1);
+    });
+
+    it('is empty with nothing served or for another place', () => {
       expect(warningsForWindow(null, { row: null, locationId: 7, eventIso: '2026-08-15T05:38:00' })).toEqual([]);
-      expect(warningsForWindow({ warnings: [], byId: new Map() }, { row: null, locationId: 7, eventIso: null }))
-        .toEqual([]);
+      expect(warningsForWindow({ warnings: [] }, { row: null, locationId: 7, eventIso: null })).toEqual([]);
+      expect(warningsForWindow(served, { row: null, locationId: 8, eventIso: '2026-08-15T05:38:00' })).toEqual([]);
     });
   });
 
-  it('words the stale line from the UK clock, or admits no check yet', () => {
-    // 13:05Z on 14 August is 14:05 BST.
-    expect(staleLead('2026-08-14T13:05:00Z')).toBe('Warnings last checked 14:05');
-    expect(staleLead(null)).toBe('Warnings have not been checked yet');
+  describe('staleLead', () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('words today\'s check as the UK clock alone, or admits no check yet', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-08-14T15:00:00Z'));
+      // 13:05Z on 14 August is 14:05 BST.
+      expect(staleLead('2026-08-14T13:05:00Z')).toBe('Warnings last checked 14:05');
+      expect(staleLead(null)).toBe('Warnings have not been checked yet');
+      expect(staleLead('garbage')).toBe('Warnings have not been checked yet');
+    });
+
+    it('names the day when the last check was not today (UK date)', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-08-16T09:00:00Z'));
+      expect(staleLead('2026-08-14T13:05:00Z')).toBe('Warnings last checked Fri 14 Aug, 14:05');
+    });
+
+    it('compares on the UK calendar, not UTC', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // 23:30Z on the 14th is 00:30 BST on the 15th; "now" is 08:00 BST on the 15th: the same UK day.
+      vi.setSystemTime(new Date('2026-08-15T07:00:00Z'));
+      expect(staleLead('2026-08-14T23:30:00Z')).toBe('Warnings last checked 00:30');
+    });
   });
 });
