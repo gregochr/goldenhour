@@ -57,6 +57,13 @@ readonly AUDIT_DIR="${1:-frontend}"
 readonly AUDIT_LEVEL="${2:-high}"
 readonly NPM_SPEC="npm@11"
 readonly MAX_ATTEMPTS=3
+# Overridable so the shell tests can run without real waits, a fixed date, or a fixture allowlist.
+readonly BACKOFF_UNIT="${NPM_AUDIT_BACKOFF_UNIT:-15}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+readonly ALLOWLIST="${NPM_AUDIT_ALLOWLIST:-${SCRIPT_DIR}/npm-audit-allowlist.txt}"
+TODAY="${NPM_AUDIT_TODAY:-$(date -u +%Y-%m-%d)}"
+readonly TODAY
 
 cd "$AUDIT_DIR" || {
     echo "npm-audit: no such directory: $AUDIT_DIR" >&2
@@ -77,6 +84,24 @@ is_transport_error() {
         *"429 Too Many Requests"*)            return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# Called ONLY after a non-transport audit failure. Re-runs the audit as JSON and passes only when every
+# vulnerability at or above the level is explained solely by live scripts/npm-audit-allowlist.txt
+# entries (temporary, owner-approved, each with an expiry). A transport error here is a failure, never a pass.
+allowlisted_only() {
+    local report rc
+    report=$(mktemp)
+    # `npm audit --json` exits non-zero when it finds anything, so judge it by whether it produced a report.
+    npx --yes "$NPM_SPEC" audit --json --fetch-timeout=90000 >"$report" 2>/dev/null
+    if ! grep -q '"vulnerabilities"' "$report"; then
+        rm -f "$report"
+        return 1
+    fi
+    node "${SCRIPT_DIR}/npm-audit-allowlist.js" "$report" "$ALLOWLIST" "$AUDIT_LEVEL" "$TODAY"
+    rc=$?
+    rm -f "$report"
+    return "$rc"
 }
 
 # ⚠️ STATE WHICH npm ACTUALLY RAN, rather than trusting that `npx npm@11` did what it looks like.
@@ -107,12 +132,17 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     if ! is_transport_error "$output"; then
         # A real finding, or a genuinely broken tree. Fail now: this is the
         # gate doing its job, and repeating it would only delay the same answer.
+        # The one exception is a finding explained entirely by the temporary allowlist.
+        if allowlisted_only; then
+            echo "npm-audit: passing ONLY because every finding is on the temporary allowlist."
+            exit 0
+        fi
         echo "npm-audit: audit reported findings — failing without retry." >&2
         exit 1
     fi
 
     if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
-        backoff=$(( attempt * 15 ))
+        backoff=$(( attempt * BACKOFF_UNIT ))
         echo "::warning::npm audit could not reach the registry (attempt ${attempt}/${MAX_ATTEMPTS}); retrying in ${backoff}s"
         sleep "$backoff"
     fi
