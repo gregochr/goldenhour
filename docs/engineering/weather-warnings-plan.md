@@ -164,4 +164,4 @@ The Met Office replied (Brandon Birch, Data Provisioning) with a pointer, not an
 - **Q3 scope:** only warnings covering at least one enabled location; global, not per reader.
 - **Q4 likelihood/impact:** shown only in the window popup row ("medium likelihood · low impact"); chips and lanes stay level plus type.
 - **W0 request:** API key, licence, attribution and icon permission requested from the Met Office on 2026-11-17 (asked for a 30-minute poll in the message; we intend 5, adjust to their reply). Awaiting the reply.
-- **Still to confirm:** the "N of M places in this area" copy (replacing "in reach").
+- **Popup copy:** "N of M places in this area" (replacing "in reach"), approved by the owner 2026-11-17.
