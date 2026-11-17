@@ -232,3 +232,58 @@ served value. Chips open nothing of ours (no popup yet, W3); the only action is 
 `LocationFourDaySheet` (every shown row, stood-down, unscored and travel days included: one rule with the callout) and `MapCallout` (live solar windows only, travel days included; its repaint effect is keyed on the stale flag and the chip ids so the card is re-placed when a poll changes the strip).
 Tests: `warnings.test.js`, `WarningChip.test.jsx`, `WarningsContext.test.jsx`, `warningsApi.test.js`,
 `LocationFourDaySheetWarnings.test.jsx`, `MapCalloutWarnings.test.jsx`.
+
+## The client, W3 (the At a Glance lane, the card marker and the window popup row)
+
+Phase W3 adds the three Plan-matrix surfaces. All of them read `useWarnings()` (the W2 provider), print nothing while the
+feature is off and never read a role.
+
+| Piece | Role |
+|---|---|
+| `utils/warnings.js` | `warningsForCard(served, card)` (which warnings belong to a window), `buildWarningLanes(days, warningsOfCard)`, the matrix (`MATRIX_GRID`, `MATRIX_COLOURS`, `matrixCell`, `matrixValue`, `matrixText`), `placeCountLines`, `validityText` (UK time), `cardMarker`. |
+| `components/WindowGlanceLanes.jsx` | The warning lanes, **first in the lanes grid** (rows 1 to k, then the source line, then the topic lanes shifted down by k + 1; topic rows are untouched when no warning applies), plus the phone's per-day cell. |
+| `components/WarningChip.jsx` `WarningCardMarker` | The text marker in a Plan window card's top row. |
+| `components/WindowWarningRow.jsx` | The popup's WARNING row (`window-sheet-warnings`), above the topic rows, below the field and rail. |
+| `components/WarningMatrix.jsx` | The Met Office likelihood and impact matrix as an SVG drawn from values. |
+
+**Which warnings belong to a window.** Matched against the **polled** `GET /api/warnings` list, never trusted from the stored
+briefing (the briefing refetches only every 10 minutes; the warnings poll is 2). A polled warning belongs to a card when it is in
+force at the card's `eventIso` (the window's `eventTime`, else a slot's `solarEventTime`, bare UTC) and either the server named it
+on the window (`BriefingWindow.warningIds`, W1b) or its `locationIds` include one of the window's own places (`card.placeIds`, from
+`allSpots`). The second door lets a warning that arrived after the briefing reach its window inside the licence's ten minutes;
+the polled list alone decides whether the warning still exists, its level and its text, so a withdrawn warning leaves at the next
+poll even though the window still names it. This extends the W2 client door (place against `locationIds`) from one place to a
+window's places; it is display matching over served facts, not a verdict or count. Away (travel) cards are never matched.
+`windowFirstCards` carries `eventIso`, `warningIds` and `warningPlaceCounts` on every card and `windowFirstStrip` folds `eventIso`,
+`warningIds` and `placeIds` onto the strip cards.
+
+**The lane.** One lane per warning per run of consecutive live matrix columns where it applies to a window; warnings are placed
+in the style-guide order (level, impact, likelihood, `validFrom`), first fit, so a Red takes the top row before span is
+considered. Text in the official level colour, level word always printed, "Updated" for the served flag, no icon, triangle or
+glyph. A lane is a button opening the first covered window's popup (`onGoToPlanWindow(key)`, no topic emphasis) when the strip can
+open it, else plain text; its name is built from its content. The source line (attribution plus Met Office link) sits under the
+lanes; the stale admission replaces any "none" state (the surfaces never say "no warnings"). On the phone each day's cell gets that
+day's lanes first and the stale line is printed on the first day only.
+
+**The card marker.** The plan's "card triangle" is **text** because the style guide forbids a Met Office icon or triangle without
+agreement: the most severe level word plus "+N" ("Amber warning +1") in its colour, one line, ellipsised, `aria-hidden`. The
+card's one spoken sentence names every warning in full ("Amber warning of snow, updated"), after the forecast's claims and before
+the pick words. Not drawn on an away cell.
+
+**The popup row.** Per warning, in order: the chip (with Updated), the headline, "Update" (`updateDescription`, only on an
+`updated` warning), "What to expect" (every line), "What should I do", "Further details", validity in UK time ("Valid Fri 14 Aug,
+12:00 to Sat 15 Aug, 08:30 (UK time)"), the places count per region from the window's served `warningPlaceCounts` ("Northumberland:
+4 of 12 places in this area", only where something is covered, omitted when the served counts lack the warning), and the matrix.
+Beneath all warnings: the optional "What should I do" link (the style guide's own target), the attribution and the Met Office link.
+No stars or verdict colours; a warning never changes the header.
+
+**The matrix.** Verified against page 9 of the Met Office style guide v1.4 (rendered from the PDF, 2026-11-18): plan §12.1's grid is
+correct, likelihood 4 at the top, impact 1 at the left (rows 4 to 1: green yellow amber red / green yellow amber amber / green green
+yellow amber / green green yellow yellow), the matrix green `#c4e90c`, axis labels exactly "Likelihood" (arrow up) and "Impact"
+(arrow right), and a tick on the warning's cell. Drawn from `MATRIX_GRID`; no artwork is copied. Text alternative "Likelihood 3
+of 4, impact 2 of 4"; nothing is drawn for a missing or out-of-range value, and no word such as medium or minor is ever invented.
+The served `warningLevel` always wins: the grid only locates the cell, and `warningsW3.test.js` asserts the real recorded warning
+(likelihood 3, impact 2, Yellow) agrees with it (the hand-made synthetic fixtures are not evidence and do not all agree).
+
+Tests: `warningsW3.test.js`, `WarningMatrix.test.jsx`, `WindowWarningRow.test.jsx`, `WindowGlanceLanesWarnings.test.jsx`,
+`WindowFirstHeatStripWarnings.test.jsx`, `WindowSheetDialogWarnings.test.jsx`, `windowFirstWarningsModel.test.js`.

@@ -172,6 +172,14 @@ export function buildHeatStripCards(
       // Empty on an away day: there is no card, so there is no pool, and the away cell draws
       // neither element rather than an empty histogram claiming nothing is in reach.
       pool: card?.pool ?? [],
+      // Met Office weather warnings (weather-warnings-plan.md W3), folded from the card only when there is one (none on
+      // an away day, where nothing is matched): the window's event instant, the served overlay ids and the ids of the
+      // window's own places. The strip's lanes and marker match these against the polled list; a rating never reads them.
+      ...(card ? {
+        eventIso: card.eventIso ?? null,
+        warningIds: card.warningIds ?? [],
+        placeIds: (card.allSpots ?? []).map((spot) => spot?.locationId).filter((id) => id != null),
+      } : {}),
       // A shaped (Lite) body's two facts about the places outside the picks, folded from the card and present only
       // there (S5b-1): the Best row asks `picksScoped` to tell a pool emptied by the picks from one emptied by the
       // reach tier, and the thumbnail names how many lie outside. Never on a Pro, Admin or flag-off card.

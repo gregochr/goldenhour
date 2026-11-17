@@ -991,6 +991,13 @@ export function buildWindowCards(
       // give it a control with nothing to reveal. It is the same array `reachTotal` counts, so the
       // sheet and the strip footer can never describe two different populations.
       allSpots,
+      // Met Office weather warnings (weather-warnings-plan.md W3): the window's event instant (as served, bare UTC),
+      // and the served overlay ids and per-region place counts. Carried verbatim and never read by a rating or a
+      // verdict: the warning surfaces match the polled `GET /api/warnings` list against `allSpots`, and use the served
+      // ids and counts only for the "N of M places" line. A rating never reads these.
+      eventIso: win?.eventTime || (es ? getEventTime(es) : null) || null,
+      warningIds: Array.isArray(win?.warningIds) ? win.warningIds : [],
+      warningPlaceCounts: Array.isArray(win?.warningPlaceCounts) ? win.warningPlaceCounts : [],
       /**
        * Whether the reach axis COULD act on this window — is there a drive time anywhere in scope.
        *

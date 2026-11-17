@@ -214,7 +214,7 @@ The guide is binding for third parties; items marked "Required by the Licence" a
 
 ### 12.1 The impact matrix (owner supplied PDF page 9, 2026-11-17): supersedes the "no likelihood/impact in v1" decision in §12
 
-The Met Office matrix carries **no words**: a 4×4 colour grid, axis labels "Likelihood" (vertical arrow up) and "Impact" (horizontal arrow right), and a tick on the warning's cell. So the Q4 owner decision stands in a compliant form: **show the matrix graphic in the window popup row only**, with the tick at (`warningLikelihood`, `warningImpact`), axis labels exactly "Likelihood" and "Impact", and an accessible text alternative ("Likelihood 3 of 4, impact 2 of 4"). Never invent words like "medium" or "minor". The grid (read from the page image; **verify against the PDF before the W3 build**; likelihood 1 bottom to 4 top, impact 1 left to 4 right), using the level palette plus matrix green `#c4e90c`:
+The Met Office matrix carries **no words**: a 4×4 colour grid, axis labels "Likelihood" (vertical arrow up) and "Impact" (horizontal arrow right), and a tick on the warning's cell. So the Q4 owner decision stands in a compliant form: **show the matrix graphic in the window popup row only**, with the tick at (`warningLikelihood`, `warningImpact`), axis labels exactly "Likelihood" and "Impact", and an accessible text alternative ("Likelihood 3 of 4, impact 2 of 4"). Never invent words like "medium" or "minor". The grid (read from the page image; **verified against the PDF page 9 at the W3 build, 2026-11-18: correct, no change**; likelihood 1 bottom to 4 top, impact 1 left to 4 right), using the level palette plus matrix green `#c4e90c`:
 
 | Likelihood | Impact 1 | Impact 2 | Impact 3 | Impact 4 |
 |---|---|---|---|---|

@@ -219,3 +219,186 @@ export function staleLead(lastCheckedAt) {
     : formatDayClockUk(lastCheckedAt);
   return `Warnings last checked ${text}`;
 }
+
+/**
+ * The warnings to draw on one Plan window card, matched against the polled {@code GET /api/warnings} list (the W2
+ * rule: never trusted from a stored row, so a withdrawn or changed warning changes at the next poll, not at the next
+ * briefing fetch).
+ *
+ * <p>A warning belongs to the card when it is in force at the window's event instant and either the server named it
+ * on the window ({@code card.warningIds}, W1b) or it covers one of the window's own places ({@code card.placeIds}, or
+ * the ids of {@code card.allSpots}, against the warning's {@code locationIds}). The second door is what lets a warning that arrived after the
+ * briefing was built reach its window inside the licence's ten minutes. The polled list still decides whether the
+ * warning is in force, its level and its text. Nothing here reads or writes a rating.
+ *
+ * @param {{warnings: object[]}} served the shared warnings (the context value)
+ * @param {?object} card a window card from {@code buildWindowCards}
+ * @returns {object[]} in the style guide's order
+ */
+export function warningsForCard(served, card) {
+  if (!served || !Array.isArray(served.warnings) || served.warnings.length === 0 || !card || card.away) return [];
+  const at = instantMs(card.eventIso);
+  const named = new Set(Array.isArray(card.warningIds) ? card.warningIds : []);
+  const placeIds = Array.isArray(card.placeIds)
+    ? card.placeIds
+    : (Array.isArray(card.allSpots) ? card.allSpots : []).map((spot) => spot?.locationId);
+  const ids = new Set(placeIds.filter((id) => id != null).map(Number));
+  return orderWarnings(served.warnings.filter((w) => {
+    if (warningLabel(w) == null) return false;
+    if (Number.isNaN(at)) return named.has(w.warningId);
+    if (!(instantMs(w.validFrom) <= at && at <= instantMs(w.validTo))) return false;
+    const covered = Array.isArray(w.locationIds) && w.locationIds.some((id) => ids.has(Number(id)));
+    return named.has(w.warningId) || covered;
+  }));
+}
+
+/**
+ * The At a Glance warning lanes: one lane per run of consecutive live matrix columns in which a warning applies to a
+ * window, most severe warning first (the style guide's order, so a Red takes the top row before span is considered).
+ * Presentation only: which warning applies to which card is {@code warningsOfCard}'s answer.
+ *
+ * @param {Array<{date: string, am: ?object, pm: ?object}>} days the matrix days, one per grid column
+ * @param {function(object): object[]} warningsOfCard the warnings of one window card (away cards answer none)
+ * @returns {Array<{key: string, warning: object, startCol: number, endCol: number, row: number, dates: string[],
+ *          firstCardKey: string}>} in DOM order (row, then start column)
+ */
+export function buildWarningLanes(days, warningsOfCard) {
+  const byId = new Map();
+  days.forEach((day, index) => {
+    [day.am, day.pm].forEach((card) => {
+      if (!card || card.away) return;
+      warningsOfCard(card).forEach((warning) => {
+        if (!byId.has(warning.warningId)) byId.set(warning.warningId, { warning, columns: new Map() });
+        const entry = byId.get(warning.warningId);
+        // The newest copy wins within one poll; a column keeps the first card (sunrise before sunset) it applies to.
+        if (!entry.columns.has(index)) entry.columns.set(index, card.key);
+      });
+    });
+  });
+  const lanes = [];
+  const rows = [];
+  orderWarnings([...byId.values()].map((entry) => entry.warning)).forEach((warning) => {
+    const { columns } = byId.get(warning.warningId);
+    const sorted = [...columns.keys()].sort((a, b) => a - b);
+    const runs = [];
+    sorted.forEach((index) => {
+      const last = runs[runs.length - 1];
+      if (last && last[last.length - 1] === index - 1) last.push(index);
+      else runs.push([index]);
+    });
+    runs.forEach((run) => {
+      const startCol = run[0] + 1;
+      const endCol = run[run.length - 1] + 1;
+      let row = rows.findIndex((taken) => {
+        for (let c = startCol; c <= endCol; c += 1) if (taken.has(c)) return false;
+        return true;
+      });
+      if (row < 0) { rows.push(new Set()); row = rows.length - 1; }
+      for (let c = startCol; c <= endCol; c += 1) rows[row].add(c);
+      lanes.push({
+        key: `${warning.warningId}@${days[run[0]].date}`,
+        warning,
+        startCol,
+        endCol,
+        row: row + 1,
+        dates: run.map((index) => days[index].date),
+        firstCardKey: columns.get(run[0]),
+      });
+    });
+  });
+  return lanes.sort((a, b) => a.row - b.row || a.startCol - b.startCol);
+}
+
+/**
+ * The Met Office impact matrix (style guide v1.4, page 9; plan §12.1), read from the PDF and verified against it:
+ * a 4 by 4 grid, likelihood 4 at the top to 1 at the bottom, impact 1 on the left to 4 on the right. The words are
+ * the guide's colour names; the served {@code warningLevel} always wins, the grid only draws a cell.
+ */
+export const MATRIX_GRID = [
+  ['green', 'yellow', 'amber', 'red'], // likelihood 4
+  ['green', 'yellow', 'amber', 'amber'], // likelihood 3
+  ['green', 'green', 'yellow', 'amber'], // likelihood 2
+  ['green', 'green', 'yellow', 'yellow'], // likelihood 1
+];
+
+/** The matrix palette: the level colours plus the guide's matrix-only green. */
+export const MATRIX_COLOURS = {
+  green: '#c4e90c',
+  yellow: WARNING_LEVELS.YELLOW.hex,
+  amber: WARNING_LEVELS.AMBER.hex,
+  red: WARNING_LEVELS.RED.hex,
+};
+
+/** A served likelihood or impact when it is an integer from 1 to 4, else null (no graphic, never a guess). */
+export function matrixValue(value) {
+  return Number.isInteger(value) && value >= 1 && value <= 4 ? value : null;
+}
+
+/**
+ * The grid's colour name at a cell.
+ *
+ * @param {number} likelihood 1 to 4
+ * @param {number} impact 1 to 4
+ * @returns {?string} 'green', 'yellow', 'amber' or 'red'; null outside the grid
+ */
+export function matrixCell(likelihood, impact) {
+  const l = matrixValue(likelihood);
+  const i = matrixValue(impact);
+  return l == null || i == null ? null : MATRIX_GRID[4 - l][i - 1];
+}
+
+/**
+ * The text alternative for the matrix graphic: "Likelihood 3 of 4, impact 2 of 4". Never a word such as medium.
+ *
+ * @returns {?string} the sentence, or null when either value is absent or out of range
+ */
+export function matrixText(likelihood, impact) {
+  const l = matrixValue(likelihood);
+  const i = matrixValue(impact);
+  return l == null || i == null ? null : `Likelihood ${l} of 4, impact ${i} of 4`;
+}
+
+/**
+ * The served per-region counts for one warning on one window, as printed lines: "Northumberland: 4 of 12 places in
+ * this area". Counts are non-personal (every enabled place in the region), never the reader's reach.
+ *
+ * @param {?Array<{warningId: string, regionName: string, covered: number, total: number}>} counts the window's
+ *        served {@code warningPlaceCounts}
+ * @param {string} warningId the warning
+ * @returns {Array<{region: string, text: string}>}
+ */
+export function placeCountLines(counts, warningId) {
+  return (Array.isArray(counts) ? counts : [])
+    .filter((c) => c?.warningId === warningId && Number.isFinite(c.covered) && Number.isFinite(c.total) && c.covered > 0)
+    .map((c) => ({ region: c.regionName, text: `${c.covered} of ${c.total} places in this area` }));
+}
+
+/**
+ * The warning's validity as one UK-time sentence: "Valid Fri 14 Aug, 14:05 to Sat 15 Aug, 09:00 (UK time)".
+ *
+ * @param {object} warning a served {@code WarningDto}
+ * @returns {?string} null when either instant is missing or unreadable
+ */
+export function validityText(warning) {
+  if (!warning || Number.isNaN(instantMs(warning.validFrom)) || Number.isNaN(instantMs(warning.validTo))) return null;
+  return `Valid ${formatDayClockUk(warning.validFrom)} to ${formatDayClockUk(warning.validTo)} (UK time)`;
+}
+
+/**
+ * The text marker on a Plan window card: the most severe level word and a count, never a glyph.
+ *
+ * @param {object[]} warnings the card's warnings in the style guide's order
+ * @returns {?{text: string, name: string, level: string}} text printed, the full accessible phrase, top level
+ */
+export function cardMarker(warnings) {
+  if (!Array.isArray(warnings) || warnings.length === 0) return null;
+  const top = warnings[0];
+  const word = levelWord(top.level);
+  if (word == null) return null;
+  const extra = warnings.length - 1;
+  return {
+    text: extra > 0 ? `${word} warning +${extra}` : `${word} warning`,
+    name: warnings.map(warningName).filter(Boolean).join('; '),
+    level: top.level,
+  };
+}

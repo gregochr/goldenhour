@@ -2199,6 +2199,71 @@ div.wf-hc:where([data-control]).on:hover {
 .wf-hstrip-rows .wf-hcards > .wf-hc-away .wf-hc-pls {
   column-gap: 8px;
 }
+/* Met Office warning lanes (weather-warnings-plan.md W3), first in the stack: text in the official level colour from
+   `utils/warnings.js` (Tailwind classes on the element), the level word always printed, no icon or triangle (style guide
+   v1.4). Not a `.wf-lane`: that class paints its fill on a `::before` layer. */
+.wf-wlane {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+button.wf-wlane {
+  cursor: pointer;
+}
+button.wf-wlane:hover {
+  filter: brightness(1.08);
+}
+button.wf-wlane:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-wlane-upd {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+/* The source line under the warning lanes spans the whole lane grid. */
+.wf-warnfoot {
+  min-width: 0;
+}
+.wf-hstrip.wf-hstrip-rows .wf-lanes > .wf-warnfoot {
+  grid-column: 1 / -1;
+}
+/* The text marker on a Plan window card (never a glyph). One line in the top row, clipped with an ellipsis rather than
+   wrapping, so the card's rows keep their baselines; the title carries the full phrase and the sentence names every
+   warning. */
+.wf-hc-wm {
+  margin-left: auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (forced-colors: active) {
+  .wf-wlane, .wf-hc-wm { border: 1px solid CanvasText; }
+}
 .wf-hc-top {
   display: flex;
   align-items: center;

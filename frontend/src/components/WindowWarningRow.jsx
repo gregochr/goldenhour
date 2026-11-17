@@ -1,0 +1,146 @@
+import React, { useMemo } from 'react';
+import PropTypes from 'prop-types';
+import { useWarnings } from '../context/WarningsContext.jsx';
+import { placeCountLines, validityText, warningsForCard } from '../utils/warnings.js';
+import WarningChip, { WarningFooter } from './WarningChip.jsx';
+import WarningMatrix from './WarningMatrix.jsx';
+
+/** The Met Office's own advice page, the only target the style guide allows for the optional link. */
+export const WHAT_SHOULD_I_DO_URL = 'https://www.metoffice.gov.uk/weather/warnings-and-advice/seasonal-advice';
+
+/** A labelled block of Met Office text: shown whole, never truncated. */
+function TextBlock({ title, testId, children }) {
+  return (
+    <div data-testid={testId} className="flex flex-col gap-0.5">
+      <h4 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-plex-text-secondary">
+        {title}
+      </h4>
+      {children}
+    </div>
+  );
+}
+
+TextBlock.propTypes = {
+  title: PropTypes.string.isRequired,
+  testId: PropTypes.string.isRequired,
+  children: PropTypes.node.isRequired,
+};
+
+/** One warning in full: the style guide's required text, status, validity, places and the matrix. */
+function WarningDetail({ warning, counts = null }) {
+  const lines = placeCountLines(counts, warning.warningId);
+  const expect = Array.isArray(warning.whatToExpect) ? warning.whatToExpect.filter((t) => t && t.trim()) : [];
+  const validity = validityText(warning);
+  const body = 'whitespace-pre-line text-[12.5px] leading-snug text-plex-text';
+  return (
+    <article
+      data-testid="window-warning"
+      data-level={warning.level}
+      data-warning-id={warning.warningId}
+      className="flex flex-wrap items-start gap-x-4 gap-y-2 rounded border border-plex-border-light p-2.5"
+    >
+      <div className="flex min-w-[14rem] flex-1 flex-col gap-2">
+        <div><WarningChip warning={warning} /></div>
+        {warning.headline && (
+          <p data-testid="window-warning-headline" className="text-[13px] font-semibold leading-snug text-plex-text">
+            {warning.headline}
+          </p>
+        )}
+        {warning.updated === true && warning.updateDescription && (
+          <TextBlock title="Update" testId="window-warning-update">
+            <p className={body}>{warning.updateDescription}</p>
+          </TextBlock>
+        )}
+        {expect.length > 0 && (
+          <TextBlock title="What to expect" testId="window-warning-expect">
+            <ul className="list-disc pl-4 text-[12.5px] leading-snug text-plex-text">
+              {expect.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}
+            </ul>
+          </TextBlock>
+        )}
+        {warning.whatShouldIDo && (
+          <TextBlock title="What should I do" testId="window-warning-advice">
+            <p className={body}>{warning.whatShouldIDo}</p>
+          </TextBlock>
+        )}
+        {warning.furtherDetails && (
+          <TextBlock title="Further details" testId="window-warning-further">
+            <p className={body}>{warning.furtherDetails}</p>
+          </TextBlock>
+        )}
+        {validity && (
+          <p data-testid="window-warning-validity" className="font-mono text-[11px] text-plex-text-secondary">
+            {validity}
+          </p>
+        )}
+        {lines.length > 0 && (
+          <ul data-testid="window-warning-places" className="font-mono text-[11px] text-plex-text-secondary">
+            {lines.map((line) => <li key={line.region}>{`${line.region}: ${line.text}`}</li>)}
+          </ul>
+        )}
+      </div>
+      <WarningMatrix likelihood={warning.likelihood} impact={warning.impact} />
+    </article>
+  );
+}
+
+WarningDetail.propTypes = {
+  warning: PropTypes.object.isRequired,
+  counts: PropTypes.arrayOf(PropTypes.object),
+};
+
+/**
+ * The window popup's WARNING row (weather-warnings-plan.md W3): every Met Office warning that applies to the window,
+ * in full, in the style guide's order, with the attribution and the Met Office link. Visually and structurally apart
+ * from every rating: no stars, no verdict colour, and a warning never changes either. Prints nothing while the
+ * feature is off, and nothing for a window with no warning on a fresh feed. A stale feed prints its admission, never
+ * an "all clear".
+ *
+ * @param {object} props
+ * @param {object} props.card the window card the popup is about
+ */
+export default function WindowWarningRow({ card }) {
+  const served = useWarnings();
+  const warnings = useMemo(() => warningsForCard(served, card), [served, card]);
+  if (!served.enabled) return null;
+  if (warnings.length === 0 && !served.stale) return null;
+  const showAttribution = warnings.length > 0;
+  return (
+    <section
+      data-testid="window-sheet-warnings"
+      aria-label="Met Office weather warnings"
+      className="mt-3 flex flex-col gap-2 border-t border-plex-border-light pt-3"
+    >
+      <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-plex-text-secondary">
+        Warning
+      </h3>
+      {warnings.map((warning) => (
+        <WarningDetail key={warning.warningId} warning={warning} counts={card.warningPlaceCounts} />
+      ))}
+      {showAttribution && (
+        <p className="font-mono text-[10px] leading-snug text-plex-text-secondary">
+          <a
+            data-testid="window-warning-advice-link"
+            className="underline"
+            href={WHAT_SHOULD_I_DO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            What should I do: if you would like further advice and guidance on what to do in severe weather, click here
+          </a>
+        </p>
+      )}
+      <WarningFooter
+        showAttribution={showAttribution}
+        stale={served.stale}
+        lastCheckedAt={served.lastCheckedAt}
+        attribution={served.attribution}
+        href={served.metOfficeUrl}
+      />
+    </section>
+  );
+}
+
+WindowWarningRow.propTypes = {
+  card: PropTypes.object.isRequired,
+};

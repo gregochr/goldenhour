@@ -40,6 +40,9 @@ import { tideRun } from '../utils/windowFirstTideRun.js';
 import { stoodFieldPointsFor, stoodPhrase } from '../utils/mapStandDown.js';
 import TideWave from './map/TideWave.jsx';
 import WindowGlanceLanes from './WindowGlanceLanes.jsx';
+import { WarningCardMarker } from './WarningChip.jsx';
+import { useWarnings } from '../context/WarningsContext.jsx';
+import { buildWarningLanes, warningName, warningsForCard } from '../utils/warnings.js';
 import ProUpsellDoor, {
   BEST_BETS_UPSELL_BODY, BEST_BETS_UPSELL_HEADING, BEST_BETS_UPSELL_LABEL,
 } from './shared/ProUpsell.jsx';
@@ -867,6 +870,40 @@ export default function WindowFirstHeatStrip({
     todayStr, hotTopics, comingUpEntries, renderedEntryIds, openableKeys, forecastDates, hasMapDoor,
     onGoToPlanWindow, matrix,
   ]);
+  // Met Office weather warnings (weather-warnings-plan.md W3): per window card, matched against the polled served list
+  // (never a stored row), so a withdrawn or changed warning changes within the poll. Display only: a warning never
+  // reads or changes a rating, verdict or count. Empty while the feature is off, so every surface below is today's.
+  const servedWarnings = useWarnings();
+  const cardWarnings = useMemo(() => {
+    const byKey = new Map();
+    if (!servedWarnings.enabled) return byKey;
+    cards.forEach((card) => byKey.set(card.key, warningsForCard(servedWarnings, card)));
+    return byKey;
+  }, [cards, servedWarnings]);
+  const warningLanes = useMemo(
+    () => buildWarningLanes(matrix.days, (card) => cardWarnings.get(card.key) ?? [])
+      .map((lane) => ({
+        ...lane,
+        tappable: typeof onGoToPlanWindow === 'function'
+          && (openableKeys instanceof Set ? openableKeys.has(lane.firstCardKey) : true),
+      })),
+    [matrix, cardWarnings, onGoToPlanWindow, openableKeys],
+  );
+  const tapWarning = (lane) => onGoToPlanWindow?.(lane.firstCardKey);
+  const firstMatrixDate = matrix.days[0]?.date ?? null;
+  /** The source line for the whole lane grid (desktop), or for one day's cell (phone: the stale line on day one only). */
+  const warningFooterFor = (dayDate) => {
+    if (!servedWarnings.enabled) return null;
+    const lanesHere = dayDate == null ? warningLanes : warningLanes.filter((lane) => lane.dates.includes(dayDate));
+    const showStale = servedWarnings.stale && (dayDate == null || dayDate === firstMatrixDate);
+    return {
+      showAttribution: lanesHere.length > 0,
+      stale: showStale,
+      lastCheckedAt: servedWarnings.lastCheckedAt,
+      attribution: servedWarnings.attribution,
+      href: servedWarnings.metOfficeUrl,
+    };
+  };
   /**
    * What a lane's press does, first match wins — the old "Next four days" block's four routes (a topic with no
    * almanac counterpart, such as aurora or any weather topic, has no Coming up row to open, so the handoff's
@@ -1561,6 +1598,8 @@ export default function WindowFirstHeatStrip({
     const stoodWords = notScored && stoodHere.length > 0 && poolTotal > 0;
     const spreadStood = stoodWords && !stoodUnrated && facts.spread.rated === 0 && !facts.state.bars;
     const bestStood = stoodWords && facts.best && facts.best.rating == null && !facts.best.beyond;
+    const warningsHere = card.away ? [] : (cardWarnings.get(card.key) ?? []);
+    const cardWarningNames = warningsHere.map(warningName).filter(Boolean);
     const accessibleName = [card.label, card.time, card.verdictLabel]
       // The scope follows the verdict word directly, in the long form the qualifier speaks.
       .concat(scopeSpoken ? [scopeSpoken] : [])
@@ -1605,6 +1644,9 @@ export default function WindowFirstHeatStrip({
       // divider is `aria-hidden`, so "Lunar eclipse at 05:13" is this sentence's only route to a
       // screen reader, built from the SAME `chipClock` read the visible chip renders from.
       .concat(card.away ? [] : facts.topics.map(({ badge }) => `${badge.label} at ${chipClock(badge)}`))
+      // Met Office warnings sit after the forecast's own claims and before the pick words: what is happening, named in
+      // full (the visible marker prints only the top level and a count).
+      .concat(cardWarningNames)
       .concat(card.pickKind === 'best' ? ['best bet'] : [])
       .concat(card.pickKind === 'also' ? ['also good'] : [])
       // Said last, after the forecast's own claims, so it reads as what it is: Ask's pick, not the
@@ -1644,6 +1686,7 @@ export default function WindowFirstHeatStrip({
           <span data-testid="wf-heat-sun" className={`wf-hc-sun ${card.sunrise ? 'am' : 'pm'}`}>
             {card.sunrise ? 'SUNRISE' : 'SUNSET'}
           </span>
+          <WarningCardMarker warnings={warningsHere} />
           {/* The pick's rank, in the top row beside the word (F5): the gold border alone is the open
               card's own look, so this circle is what says "Ask's pick" rather than "the open one". IN the
               row's flow and not hung over the card's edge like the pick legend: measured in a browser, a
@@ -2196,6 +2239,9 @@ export default function WindowFirstHeatStrip({
                   lanes={glanceLanes}
                   date={day.date}
                   onTap={tapTopic}
+                  warningLanes={warningLanes}
+                  onWarningTap={tapWarning}
+                  warningFooter={warningFooterFor(day.date)}
                 />
                 {day.am
                   ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
@@ -2219,7 +2265,13 @@ export default function WindowFirstHeatStrip({
           </div>
           {/* A NON-sticky grid between the pinned date chips and the cards: inside `.wf-dhrow` the lanes would
               pin a taller band over the cards (see `.wf-lanes`). One track per matrix column, away ones included. */}
-          <WindowGlanceLanes lanes={glanceLanes} onTap={tapTopic} />
+          <WindowGlanceLanes
+            lanes={glanceLanes}
+            onTap={tapTopic}
+            warningLanes={warningLanes}
+            onWarningTap={tapWarning}
+            warningFooter={warningFooterFor(null)}
+          />
           <div className="wf-hrow">
             {renderRail(true)}
             <div data-testid="wf-heat-cards" className="wf-hcards">
