@@ -549,6 +549,18 @@ three-line lockfile edit leaves `npm ci` refusing the tree (`Missing: brace-expa
 per `minimatch`), and an audit run over an EMPTY `node_modules` then reports 0 vulnerabilities,
 which is not evidence of anything.
 
+⚠️ **Temporary audit allowlist (`scripts/npm-audit-allowlist.txt`).** CI runs `scripts/npm-audit.sh frontend high`,
+not bare `npm audit`. When an advisory has no patched release (nothing to pin), the owner can approve a
+narrow exception: one line, `GHSA-id | expires YYYY-MM-DD | reason`. When the audit fails with a finding (never
+a transport error, which still retries and then fails), the script re-reads the report as JSON and passes only if
+every vulnerability at or above the level, direct or transitive, is explained solely by live allowlisted
+advisory ids (a dependent that merely lists the package by name is explained only if everything it points at
+is). Any other advisory still fails, and a pass prints a `::warning::` naming each tolerated advisory and its
+expiry. An entry past its expiry date is ignored and prints an `::error::`, so the gate goes red again: fix the
+dependency or have the owner renew the line. Never add an entry without the owner's explicit approval; the
+logic lives in `scripts/npm-audit-allowlist.js`, tested by `scripts/test/npm-audit.test.sh`. First entry:
+GHSA-fc5q-39xc-vjpf (picomatch ReDoS, build-time tooling only), expires 2026-12-17.
+
 **Gate values are published.** When a gate value changes (`vite.config.js` coverage thresholds, the JaCoCo minimum, the SpotBugs threshold, `failBuildOnCVSS`, PIT `mutationThreshold`, the ZAP gate's risk level, or the required checks on `main`), update `landing/engineering.html` and its "Last checked" date in the same PR.
 
 The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean — and gate each rung on the exit code, not on what the output appears to say. ⚠️ Every rung that reaches the full `test` phase must carry `-Dtest='!**/integration/**'`, because there is no local Docker and never will be; without it you get a Testcontainers stack trace instead of a test failure. The integration classes run in CI.
