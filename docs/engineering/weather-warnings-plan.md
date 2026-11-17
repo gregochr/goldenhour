@@ -224,3 +224,13 @@ The Met Office matrix carries **no words**: a 4×4 colour grid, axis labels "Lik
 | 1 | green | green | yellow | yellow |
 
 Consistency check against the recorded feed sample: likelihood 3, impact 2 is yellow, matching that warning's `warningLevel` YELLOW. A test asserts that the served level agrees with this grid for the fixtures (never recolour a warning from the grid; the served `warningLevel` always wins, the grid only draws the cell). The same grid orders overlapping warnings by impact then likelihood (§12 ordering). The page image is in the owner's PDF; do not copy Met Office artwork into the repo, draw the grid from these values.
+
+## 13. W0 closed with defaults (owner, 2026-11-17): no further Met Office contact
+
+The owner chose to proceed on sensible defaults rather than wait for the Met Office. Defaults, all reversible:
+- **Marks:** text chips in the official level colours (§12). No triangle, no type glyphs, no Met Office logo (all need their agreement). W2/W3 build the chip as text plus colour only; the accessible name is the full phrase ("Yellow warning of wind").
+- **Ratings beside warnings:** unchanged (principle 1). For Amber and Red the warning is the more prominent element on its row and card; ratings are never altered or hidden. Revisit only if the Met Office objects to clause 3.1c.
+- **Licence:** the owner subscribed on Weather DataHub (accepting its terms). The "business use only" remark stays unverified; the production flag-on remains the owner's decision, taken with the Open Licence in hand.
+- **Likelihood/impact:** the Met Office matrix graphic in the popup row only (§12.1).
+- **Map:** chip only, no geometry (§12).
+- **Attribution and links:** exactly as §12.
