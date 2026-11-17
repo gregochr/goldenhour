@@ -12,14 +12,13 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.WeatherWarningVersionRepository;
+import com.gregochr.goldenhour.service.SolarEventFreshness;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -38,7 +37,6 @@ import static org.mockito.Mockito.when;
  * Unit tests for {@link WarningOverlay}: windows and places carry the ids and counts, and nothing else moves.
  */
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class WarningOverlayTest {
 
     private static final Instant NOW = Instant.parse("2026-10-08T08:00:00Z");
@@ -52,6 +50,8 @@ class WarningOverlayTest {
     private WeatherWarningVersionRepository repository;
     @Mock
     private LocationRepository locations;
+    @Mock
+    private SolarEventFreshness solarEventFreshness;
 
     private WarningsProperties properties;
     private WarningOverlay overlay;
@@ -64,7 +64,7 @@ class WarningOverlayTest {
         properties = new WarningsProperties();
         properties.setEnabled(true);
         overlay = new WarningOverlay(repository, new WarningTimeline(CLOCK), new WarningCoverage(), locations,
-                properties, CLOCK);
+                properties, CLOCK, solarEventFreshness);
         RegionEntity dales = RegionEntity.builder().id(1L).name("Dales").build();
         RegionEntity coast = RegionEntity.builder().id(2L).name("Northumberland").build();
         hawes = place(1L, "Hawes", dales, 54.3, -2.2);
@@ -112,8 +112,13 @@ class WarningOverlayTest {
         return new BriefingWindow(eventTime, DisplayVerdict.AWAITING, null, null, null, List.of(), null);
     }
 
-    private void stubWorld(WeatherWarningVersionEntity... versions) {
+    /** Warnings only: for tests where nothing survives the timeline, so coverage never reads the roster. */
+    private void stubWarningsOnly(WeatherWarningVersionEntity... versions) {
         when(repository.findAllVersionsOfWarningsValidAfter(NOW)).thenReturn(List.of(versions));
+    }
+
+    private void stubWorld(WeatherWarningVersionEntity... versions) {
+        stubWarningsOnly(versions);
         when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(hawes, askrigg, bamburgh));
     }
 
@@ -182,7 +187,7 @@ class WarningOverlayTest {
     @Test
     @DisplayName("a simulated warning is excluded for everyone")
     void simulatedExcluded() {
-        stubWorld(warning("SIM-1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", true));
+        stubWarningsOnly(warning("SIM-1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", true));
         DailyBriefingResponse in = briefing(window(EVENT), "Dales");
 
         assertThat(overlay.overlay(in)).isSameAs(in);
@@ -206,7 +211,7 @@ class WarningOverlayTest {
         WeatherWarningVersionEntity cancel = warning("W1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", false);
         cancel.setWarningVersion(2);
         cancel.setStatus(WeatherWarningVersionEntity.STATUS_CANCELLED);
-        stubWorld(v1, cancel);
+        stubWarningsOnly(v1, cancel);
         DailyBriefingResponse in = briefing(window(EVENT), "Dales");
 
         assertThat(overlay.overlay(in)).isSameAs(in);

@@ -46,7 +46,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -338,40 +337,11 @@ public class ForecastController {
         // place gets that row gated, past days included; the body is then no-store (it reveals the picks).
         PickScope scope = litePickShaper.scopeFor(auth);
         if (!scope.shaped()) {
-            return withWarnings(dtos, enabled);
+            return warningOverlay.overlayRows(dtos, enabled);
         }
         LitePickShaper.markNoStore(scope);
-        return withWarnings(dtos.stream().map(dto -> litePickShaper.shapeListRow(dto, scope)).toList(), enabled);
-    }
-
-    /**
-     * Attaches the weather-warning overlay (docs/engineering/weather-warnings-plan.md) to every row: the ids of the
-     * warnings covering the row's place at the row's own event time. Runs LAST, after role and sub-region shaping,
-     * and touches nothing but {@code warningIds}, so a gated, unscored or stood-down row keeps its id (a warning is
-     * not a rating) and Lite, Pro and Admin read the same warnings. A row for a place with no stored slot has nothing
-     * to carry it.
-     */
-    private List<ForecastListDto> withWarnings(List<ForecastListDto> dtos, List<LocationEntity> enabled) {
-        WarningOverlay.Snapshot snapshot = warningOverlay.snapshot();
-        if (snapshot.isEmpty()) {
-            return dtos;
-        }
-        Map<String, LocationEntity> byName = new HashMap<>();
-        for (LocationEntity location : enabled) {
-            byName.put(location.getName(), location);
-        }
-        List<ForecastListDto> out = new ArrayList<>(dtos.size());
-        for (ForecastListDto dto : dtos) {
-            LocationEntity location = byName.get(dto.locationName());
-            LocalDateTime event = dto.solarEventTime();
-            if (location != null && event == null && dto.targetDate() != null && dto.targetType() != null) {
-                event = solarEventFreshness.eventTime(location, dto.targetDate(), dto.targetType());
-            }
-            List<String> ids = location == null || event == null ? List.of()
-                    : snapshot.idsFor(location.getId(), event.toInstant(ZoneOffset.UTC));
-            out.add(ids.isEmpty() ? dto : dto.withWarningIds(ids));
-        }
-        return out;
+        return warningOverlay.overlayRows(
+                dtos.stream().map(dto -> litePickShaper.shapeListRow(dto, scope)).toList(), enabled);
     }
 
     /** A passed slot and what the reader had been shown for it at its event. */

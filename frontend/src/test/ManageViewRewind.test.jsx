@@ -3,6 +3,13 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import ManageView from '../components/ManageView.jsx';
 
 vi.mock('../api/waitlistApi.js', () => ({ getWaitlist: vi.fn().mockResolvedValue([]) }));
+vi.mock('../api/warningsAdminApi.js', () => ({
+  getWarningsStatus: vi.fn().mockResolvedValue({
+    enabled: false, apiKeyConfigured: false, feedUrlConfigured: false, lastAttempt: null, lastSuccessAt: null,
+    stale: true, storedVersions: 0, simulatedVersions: 0, unknownTypes: {}, activeWarnings: [],
+  }),
+  simulateWarning: vi.fn(),
+}));
 vi.mock('../api/rewindApi.js', () => ({
   getRewindEvents: vi.fn().mockResolvedValue({ now: '2026-10-04T09:30:00Z', briefingGeneratedAt: null, events: [] }),
 }));
@@ -46,5 +53,28 @@ describe('ManageView — Rewind tab', () => {
     window.location.hash = '#manage/rewind';
     render(<ManageView onComplete={vi.fn()} />);
     expect(await screen.findByTestId('rewind-view')).toBeInTheDocument();
+  });
+});
+
+describe('ManageView — Warnings tab', () => {
+  beforeEach(() => {
+    window.location.hash = '';
+  });
+
+  it('is a Testing sub-tab that mounts the warnings panel and sets its hash', async () => {
+    render(<ManageView onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('manage-group-testing'));
+    const tab = screen.getByTestId('manage-tab-warnings');
+    expect(tab).toHaveTextContent('Warnings');
+    fireEvent.click(tab);
+    expect(await screen.findByTestId('warnings-admin-panel')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#manage/warnings');
+  });
+
+  it('#manage/warnings deep-links straight to it, in the Testing group', async () => {
+    window.location.hash = '#manage/warnings';
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(await screen.findByTestId('warnings-admin-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('manage-group-testing').className).toContain('text-plex-gold');
   });
 });

@@ -99,10 +99,10 @@ export default function WarningsAdminPanel() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      await load();
-    })();
-  }, [load]);
+    getWarningsStatus()
+      .then(setStatus)
+      .catch(() => setError('Failed to load the warnings status'));
+  }, []);
 
   const setField = (name) => (event) => setForm((f) => ({ ...f, [name]: event.target.value }));
 

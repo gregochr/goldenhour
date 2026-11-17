@@ -9,6 +9,8 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.BriefingWindow.WarningPlaceCount;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.ForecastListDto;
+import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.WeatherWarningVersionRepository;
 import org.slf4j.Logger;
@@ -49,6 +51,7 @@ public class WarningOverlay {
     private final LocationRepository locations;
     private final WarningsProperties properties;
     private final Clock clock;
+    private final SolarEventFreshness solarEventFreshness;
 
     /**
      * Creates the overlay.
@@ -59,16 +62,19 @@ public class WarningOverlay {
      * @param locations  the location store
      * @param properties warnings configuration (the master flag)
      * @param clock      the injected clock (rewound for a rewound admin GET)
+     * @param solarEventFreshness each place's own solar event, for a location row with no event time
      */
     @Autowired
     public WarningOverlay(WeatherWarningVersionRepository repository, WarningTimeline timeline,
-            WarningCoverage coverage, LocationRepository locations, WarningsProperties properties, Clock clock) {
+            WarningCoverage coverage, LocationRepository locations, WarningsProperties properties, Clock clock,
+            SolarEventFreshness solarEventFreshness) {
         this.repository = repository;
         this.timeline = timeline;
         this.coverage = coverage;
         this.locations = locations;
         this.properties = properties;
         this.clock = clock;
+        this.solarEventFreshness = solarEventFreshness;
     }
 
     /**
@@ -78,7 +84,7 @@ public class WarningOverlay {
      * @return a disabled overlay
      */
     public static WarningOverlay disabled() {
-        return new WarningOverlay(null, null, null, null, new WarningsProperties(), Clock.systemUTC());
+        return new WarningOverlay(null, null, null, null, new WarningsProperties(), Clock.systemUTC(), null);
     }
 
     /**
@@ -138,6 +144,42 @@ public class WarningOverlay {
             changed |= dayChanged;
         }
         return changed ? response.withDays(days) : response;
+    }
+
+    /**
+     * Attaches {@code warningIds} to every location row: the ids of the warnings covering the row's place at the row's
+     * own event time (or the place's own solar event for that date and type when the row has none). Touches nothing
+     * but {@code warningIds}, so a gated, unscored or stood-down row keeps its id. Callers run it last, after role
+     * and sub-region shaping.
+     *
+     * @param rows    the shaped rows
+     * @param enabled the enabled locations, to resolve a row's place by name
+     * @return the same list when nothing applies, otherwise copies carrying the ids
+     */
+    public List<ForecastListDto> overlayRows(List<ForecastListDto> rows, List<LocationEntity> enabled) {
+        if (!properties.isEnabled()) {
+            return rows;
+        }
+        Snapshot snapshot = snapshot();
+        if (snapshot.isEmpty()) {
+            return rows;
+        }
+        Map<String, LocationEntity> byName = new HashMap<>();
+        for (LocationEntity location : enabled) {
+            byName.put(location.getName(), location);
+        }
+        List<ForecastListDto> out = new ArrayList<>(rows.size());
+        for (ForecastListDto row : rows) {
+            LocationEntity location = byName.get(row.locationName());
+            LocalDateTime event = row.solarEventTime();
+            if (location != null && event == null && row.targetDate() != null && row.targetType() != null) {
+                event = solarEventFreshness.eventTime(location, row.targetDate(), row.targetType());
+            }
+            List<String> ids = location == null || event == null ? List.of()
+                    : snapshot.idsFor(location.getId(), event.toInstant(ZoneOffset.UTC));
+            out.add(ids.isEmpty() ? row : row.withWarningIds(ids));
+        }
+        return out;
     }
 
     private static BriefingEventSummary overlay(BriefingEventSummary summary, Snapshot snapshot) {

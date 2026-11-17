@@ -29,8 +29,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
 
@@ -43,10 +41,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -54,7 +49,6 @@ import static org.mockito.Mockito.when;
  * The location rows of {@code GET /api/forecast} carry {@code warningIds}, attached last and changing nothing else.
  */
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class ForecastControllerWarningOverlayTest {
 
     private static final Instant NOW_AT = Instant.parse("2026-10-15T12:00:00Z");
@@ -97,18 +91,6 @@ class ForecastControllerWarningOverlayTest {
         inside = LocationEntity.builder().id(10L).name("Hartside").lat(54.7).lon(-2.4).region(region).build();
         outside = LocationEntity.builder().id(11L).name("Hexham").lat(54.9).lon(-1.5).region(region).build();
         when(locationService.findAllEnabled()).thenReturn(List.of(inside, outside));
-        when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(inside, outside));
-        when(warnings.findAllVersionsOfWarningsValidAfter(NOW_AT)).thenReturn(List.of(active("W-ACT")));
-        when(dtoMapper.toListDtoList(anyList(), anyBoolean())).thenAnswer(call -> {
-            List<ForecastEvaluationEntity> rows = call.getArgument(0);
-            List<ForecastListDto> out = new ArrayList<>();
-            for (ForecastEvaluationEntity e : rows) {
-                out.add(new ForecastListDto(e.getId(), e.getLocationName(), null, null, e.getTargetDate(),
-                        e.getTargetType(), e.getForecastRunAt(), e.getSolarEventTime(), null, e.getRating(), null,
-                        null, null, null, null, null, null, null, null, null, null));
-            }
-            return out;
-        });
     }
 
     private static WeatherWarningVersionEntity active(String id) {
@@ -124,9 +106,15 @@ class ForecastControllerWarningOverlayTest {
         return w;
     }
 
+    /** The warnings world: one Amber warning over the box, and the roster the overlay matches against. */
+    private void warningsInForce() {
+        when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(inside, outside));
+        when(warnings.findAllVersionsOfWarningsValidAfter(NOW_AT)).thenReturn(List.of(active("W-ACT")));
+    }
+
     private ForecastController controller() {
         WarningOverlay overlay = new WarningOverlay(warnings, new WarningTimeline(NOW), new WarningCoverage(),
-                locations, properties, NOW);
+                locations, properties, NOW, solarEventFreshness);
         return new ForecastController(repository, locationService, scheduledForecastService, dtoMapper,
                 evaluationViewService, progressTracker, Runnable::run, NOW, resolver, solarEventFreshness,
                 new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()), overlay);
@@ -139,8 +127,18 @@ class ForecastControllerWarningOverlayTest {
     }
 
     private void rows(ForecastEvaluationEntity... entities) {
-        when(repository.findLatestRunPerSlotByLocationIds(anyCollection(), eq(TODAY.minusDays(2)),
-                eq(TODAY.plusDays(5)))).thenReturn(List.of(entities));
+        when(repository.findLatestRunPerSlotByLocationIds(List.of(10L, 11L), TODAY.minusDays(2),
+                TODAY.plusDays(5))).thenReturn(List.of(entities));
+        List<ForecastEvaluationEntity> list = List.of(entities);
+        List<ForecastListDto> dtos = new ArrayList<>();
+        for (ForecastEvaluationEntity e : entities) {
+            dtos.add(new ForecastListDto(e.getId(), e.getLocationName(), null, null, e.getTargetDate(),
+                    e.getTargetType(), e.getForecastRunAt(), e.getSolarEventTime(), null, e.getRating(), null,
+                    null, null, null, null, null, null, null, null, null, null));
+        }
+        // Lite and Pro/Admin readers ask the mapper with a different flag; each test uses one or both.
+        lenient().when(dtoMapper.toListDtoList(list, true)).thenReturn(dtos);
+        lenient().when(dtoMapper.toListDtoList(list, false)).thenReturn(dtos);
     }
 
     private static ForecastListDto byId(List<ForecastListDto> out, long id) {
@@ -150,6 +148,7 @@ class ForecastControllerWarningOverlayTest {
     @Test
     @DisplayName("a covered place's row carries the id; an uncovered place's row does not; ratings are untouched")
     void coveredRowCarriesTheId() {
+        warningsInForce();
         rows(row(1L, inside, 4, TOMORROW_SUNSET), row(2L, outside, 3, TOMORROW_SUNSET));
         Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
 
@@ -164,6 +163,7 @@ class ForecastControllerWarningOverlayTest {
     @Test
     @DisplayName("an unscored (stood-down) row still carries the id: a warning is not a rating")
     void unscoredRowStillCarriesTheId() {
+        warningsInForce();
         rows(row(1L, inside, null, TOMORROW_SUNSET));
         Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
 
@@ -177,6 +177,7 @@ class ForecastControllerWarningOverlayTest {
     @Test
     @DisplayName("Lite, Pro and Admin are served the same warning ids")
     void everyRoleReadsTheSameIds() {
+        warningsInForce();
         rows(row(1L, inside, 4, TOMORROW_SUNSET));
         List<List<String>> seen = new ArrayList<>();
         for (String role : List.of("ROLE_LITE_USER", "ROLE_PRO_USER", "ROLE_ADMIN")) {
@@ -190,8 +191,9 @@ class ForecastControllerWarningOverlayTest {
     @Test
     @DisplayName("a row with no event time uses the place's own solar event for that date and type")
     void fallsBackToThePlacesEventTime() {
+        warningsInForce();
         rows(row(1L, inside, 4, null));
-        when(solarEventFreshness.eventTime(inside, TOMORROW, TargetType.SUNSET)).thenReturn(TOMORROW_SUNSET);
+        lenient().when(solarEventFreshness.eventTime(inside, TOMORROW, TargetType.SUNSET)).thenReturn(TOMORROW_SUNSET);
         Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
 
         assertThat(controller().getForecasts(pro).get(0).warningIds()).containsExactly("W-ACT");
@@ -200,6 +202,7 @@ class ForecastControllerWarningOverlayTest {
     @Test
     @DisplayName("a row with no event time and no solar event gets no id rather than a guess")
     void noEventTimeNoId() {
+        warningsInForce();
         rows(row(1L, inside, 4, null));
         Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
 
@@ -209,6 +212,7 @@ class ForecastControllerWarningOverlayTest {
     @Test
     @DisplayName("an event outside the warning's validity gets no id")
     void outsideValidityNoId() {
+        warningsInForce();
         rows(row(1L, inside, 4, LocalDateTime.of(2026, 10, 18, 17, 0)));
         Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
 

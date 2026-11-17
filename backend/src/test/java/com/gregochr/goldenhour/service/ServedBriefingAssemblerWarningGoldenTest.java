@@ -24,8 +24,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -49,7 +47,6 @@ import static org.mockito.Mockito.when;
  * only permitted difference is the warning fields (docs/engineering/weather-warnings-plan.md, principle 1).
  */
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class ServedBriefingAssemblerWarningGoldenTest {
 
     private static final LocalDate D = LocalDate.of(2026, 10, 11);
@@ -74,6 +71,8 @@ class ServedBriefingAssemblerWarningGoldenTest {
     private WeatherWarningVersionRepository warningRepository;
     @Mock
     private LocationRepository locationRepository;
+    @Mock
+    private SolarEventFreshness solarEventFreshness;
 
     private ServedBriefingAssembler plain;
     private ServedBriefingAssembler warned;
@@ -89,13 +88,17 @@ class ServedBriefingAssemblerWarningGoldenTest {
         WarningsProperties on = new WarningsProperties();
         on.setEnabled(true);
         WarningOverlay overlay = new WarningOverlay(warningRepository, new WarningTimeline(CLOCK),
-                new WarningCoverage(), locationRepository, on, CLOCK);
+                new WarningCoverage(), locationRepository, on, CLOCK, solarEventFreshness);
         plain = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService, windowTideRollupBuilder,
                 evaluationViewService, CLOCK, (days, resolver, triaged) -> days, locationPointProvider, guard,
                 new NeighbourGuardLog(line -> { }), bigSeasBuilder);
         warned = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService, windowTideRollupBuilder,
                 evaluationViewService, CLOCK, (days, resolver, triaged) -> days, locationPointProvider, guard,
                 new NeighbourGuardLog(line -> { }), bigSeasBuilder, overlay);
+    }
+
+    /** Stubs the roster the coverage matcher reads; only for tests where a warning survives the timeline. */
+    private void rosterWithHawes() {
         RegionEntity dales = RegionEntity.builder().id(1L).name("Dales").build();
         LocationEntity hawes = new LocationEntity();
         hawes.setId(1L);
@@ -169,6 +172,7 @@ class ServedBriefingAssemblerWarningGoldenTest {
             + "version and every other field are identical, stood-down and verdict-blanked windows included")
     void onlyTheWarningFieldsDiffer() {
         worldWith(version("W-ACT", 1, WeatherWarningVersionEntity.STATUS_ACTIVE, false));
+        rosterWithHawes();
 
         DailyBriefingResponse base = plain.assembleForPlan(snapshot(), 0.5);
         DailyBriefingResponse served = warned.assembleForPlan(snapshot(), 0.5);
@@ -202,6 +206,7 @@ class ServedBriefingAssemblerWarningGoldenTest {
     @DisplayName("the stored snapshot is never given warning fields: the overlay is serve-time only")
     void snapshotNeverCarriesWarnings() {
         worldWith(version("W-ACT", 1, WeatherWarningVersionEntity.STATUS_ACTIVE, false));
+        rosterWithHawes();
         DailyBriefingResponse cached = snapshot();
 
         warned.assembleForPlan(cached, 0.5);
@@ -214,6 +219,7 @@ class ServedBriefingAssemblerWarningGoldenTest {
     @DisplayName("Lite, Pro and Admin read identical warning ids and counts, kept on gated slots")
     void roleShapersPassWarningsThrough() {
         worldWith(version("W-ACT", 1, WeatherWarningVersionEntity.STATUS_ACTIVE, false));
+        rosterWithHawes();
         DailyBriefingResponse served = warned.assembleForPlan(snapshot(), 0.5);
         LitePickShaper picks = new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties());
         // Nobody is picked, so every slot is gated; a warning is not a rating and must survive.
@@ -240,6 +246,7 @@ class ServedBriefingAssemblerWarningGoldenTest {
         WeatherWarningVersionEntity w = version("W-LATE", 1, WeatherWarningVersionEntity.STATUS_ACTIVE, false);
         w.setValidFrom(Instant.parse("2026-10-11T09:00:00Z"));
         worldWith(w);
+        rosterWithHawes();
 
         DailyBriefingResponse served = warned.assembleForPlan(snapshot(), 0.5);
 
