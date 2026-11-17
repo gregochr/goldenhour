@@ -35,6 +35,9 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { PEEK_HEIGHT } from '../../utils/askPeek.js';
 import { GLANCE_SHORT_LABEL } from '../../utils/tabLabels.js';
+import { useWarnings } from '../../context/WarningsContext.jsx';
+import { warningsForWindow } from '../../utils/warnings.js';
+import WarningStrip from '../WarningStrip.jsx';
 
 /** The desktop/tablet card width (README §7: "286px (266px mobile)"). */
 const CALLOUT_WIDTH = 286;
@@ -356,6 +359,8 @@ export default function MapCallout({
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
+  // The shared Met Office warnings (a hook, so above the early return below); read where the callout builds its window.
+  const served = useWarnings();
   const calloutWidth = isMobile ? CALLOUT_WIDTH_MOBILE : CALLOUT_WIDTH;
   const [stripOpen, setStripOpen] = useState(false);
   // The rating block's two layout states are OWNED here, not by the block (outcome-rating-plan.md §1
@@ -747,6 +752,20 @@ export default function MapCallout({
   const reasonRegion = regionReason != null ? (location.regionName ?? null) : null;
 
   const eventTimeIso = eventInstantOf(scoreEntry, event?.eventType);
+  // Met Office warnings for this window (weather-warnings-plan.md W2): solar windows only (the server keys a warning
+  // to a sunrise or sunset), and not for a window already gone. The place's stored forecast row names its own
+  // warnings (an unscored or stood-down one included: a warning is not a rating); with no stored row the place is
+  // matched against the served list at the window's event time.
+  const warningRow = event?.kind === 'solar'
+    ? (location.forecastsByDate?.get(event.date)?.[String(event.eventType).toLowerCase()] ?? null)
+    : null;
+  const windowWarnings = event?.kind === 'solar' && !event.past
+    ? warningsForWindow(served, {
+      row: warningRow,
+      locationId: location.id ?? null,
+      eventIso: slotEntry?.eventTime ?? eventTimeIso,
+    })
+    : [];
   const facts = calloutFacts({
     driveMinutes,
     distanceMiles,
@@ -998,6 +1017,12 @@ export default function MapCallout({
             </span>
           )}
         </div>
+        )}
+        {/* Met Office weather warnings for this window, on their own line UNDER the verdict row and apart from
+            the rating badge (a warning never changes a rating, and the two must not read as one claim). Solar
+            windows only; prints nothing while the feature is off. */}
+        {event?.kind === 'solar' && !event.past && (
+          <WarningStrip warnings={windowWarnings} testId="map-callout-warnings" />
         )}
         {/* Overlay convergence C2 — the aurora alert level, the one word the popup's aurora block
             carried that the callout's stars did not. Its own line UNDER the verdict row rather than

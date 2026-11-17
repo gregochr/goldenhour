@@ -895,6 +895,12 @@ export function buildLocationSheet(spot, windows, {
         || formatTime(card.away ? null : eventInstantOf(score, card.targetType))
         || card.time,
       away: Boolean(card.away),
+      // This place's own event instant as served (UTC), for the weather-warning fallback: a window with no stored
+      // forecast row cannot carry `warningIds`, so the sheet matches the place against `GET /api/warnings` at this
+      // instant. Null on an away day (nothing was forecast, so no warning is drawn).
+      eventInstant: card.away
+        ? null
+        : (slot?.eventTime ?? eventInstantOf(score, card.targetType) ?? null),
       stateLabel: card.verdictLabel,
       rating,
       // The word for a row with no rating once the ratings response has arrived — chosen HERE, by

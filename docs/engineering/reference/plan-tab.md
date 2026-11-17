@@ -310,3 +310,7 @@ over the places in reach from its base, and a pick is kept only where it names t
 control's key) follows the tier's top-region mean.
 
 The empty-pool "in reach" words (`nothing in reach`, `Nothing within reach for this one.`) need a tier that acted: `reachActed(card)` = measured reader, a finite tier, and `reachTotal > 0`. `card.reachMeasured` alone is reader-level and would otherwise blame the tier on an empty window under Any. The stood-down Spread tooltip carries the same `N places have no route` clause as the ordinary one.
+
+## Met Office warning chips on the location sheet (weather-warnings W2, 2026-11-17)
+
+`LocationFourDaySheet` draws `WarningChips` (`components/WarningChip.jsx`) on its own line under each window row, **outside** the disclosure button (a chip is a link) and apart from the star badge. The ids come from the roster record's stored forecast row for the window (`location.forecastsByDate.get(date)[sunrise|sunset].warningIds`, absent meaning none), so a stood-down or unscored row keeps its chip. A window with no stored row is matched against `GET /api/warnings` (`locationIds` and the validity span at the slot's event time) by `utils/warnings.js` `warningsForWindow`; a travel (away) day draws none. One attribution and source-link footer (`WarningFooter`) sits above the sheet footer; when the feed is stale it adds "Warnings last checked HH:MM, check the Met Office" and the "none" state is never drawn. All roles see the same chips. See `weather-warnings.md` ("The client, W2").
