@@ -8,6 +8,7 @@ import apiClient from '../api/axiosClient.js';
 import {
   getUsers, createUser, resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled,
   deleteUser, resendVerification, getUserSubRegions, saveUserSubRegions, clearUserSubRegionLock,
+  optOutUserMarketing,
 } from '../api/userApi.js';
 
 describe('userApi', () => {
@@ -40,6 +41,12 @@ describe('userApi', () => {
     apiClient.put.mockResolvedValue({ data: { message: 'ok' } });
     expect(await fn(7, value)).toEqual({ message: 'ok' });
     expect(apiClient.put).toHaveBeenCalledWith(url, body);
+  });
+
+  it('optOutUserMarketing PUTs with no body and returns the body', async () => {
+    apiClient.put.mockResolvedValue({ data: { marketingEmailOptIn: false } });
+    expect(await optOutUserMarketing(7)).toEqual({ marketingEmailOptIn: false });
+    expect(apiClient.put).toHaveBeenCalledWith('/api/users/7/marketing-opt-out');
   });
 
   it('deleteUser DELETEs the user and returns the body', async () => {

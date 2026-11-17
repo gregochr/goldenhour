@@ -3,6 +3,7 @@ import { render, screen, fireEvent, within, waitFor } from '@testing-library/rea
 import UserReaderPanel from '../components/users/UserReaderPanel.jsx';
 import {
   getUserSubRegions, resetUserPassword, updateUserEnabled, deleteUser, resendVerification, clearUserSubRegionLock,
+  optOutUserMarketing,
 } from '../api/userApi.js';
 
 vi.mock('../api/userApi.js', () => ({
@@ -11,6 +12,7 @@ vi.mock('../api/userApi.js', () => ({
   updateUserEmail: vi.fn(),
   updateUserRole: vi.fn(),
   updateUserEnabled: vi.fn(),
+  optOutUserMarketing: vi.fn(),
   deleteUser: vi.fn(),
   resendVerification: vi.fn(),
   clearUserSubRegionLock: vi.fn(),
@@ -98,6 +100,72 @@ describe('UserReaderPanel — failure paths and edge renderings', () => {
     expect(await screen.findByTestId('panel-action-error')).toHaveTextContent('Failed to enable anna_r.');
     expect(updateUserEnabled).toHaveBeenCalledWith(1, true);
     expect(handlers.onToast).not.toHaveBeenCalled();
+  });
+
+  describe('marketing opt-out', () => {
+    const TITLE = 'Stop marketing emails to anna_r?';
+
+    it('offers Opt out only while the user is opted in', async () => {
+      renderPanel({ user: makeUser({ marketingEmailOptIn: false }) });
+      expect(await screen.findByTestId('marketing-emails-1')).toHaveTextContent('No');
+      expect(screen.queryByTestId('marketing-opt-out-1')).not.toBeInTheDocument();
+    });
+
+    it('shows Yes with the Opt out button when opted in, even while awaiting verification', async () => {
+      renderPanel({ user: makeUser({ marketingEmailOptIn: true, enabled: false, awaitingVerification: true }) });
+      expect(await screen.findByTestId('marketing-emails-1')).toHaveTextContent('Yes');
+      expect(screen.getByTestId('marketing-opt-out-1')).toBeInTheDocument();
+    });
+
+    it('confirming calls the API with the id, refetches the list and toasts', async () => {
+      optOutUserMarketing.mockResolvedValue({ marketingEmailOptIn: false });
+      const { handlers } = renderPanel({ user: makeUser({ marketingEmailOptIn: true }) });
+
+      fireEvent.click(await screen.findByTestId('marketing-opt-out-1'));
+      const dialog = await screen.findByRole('dialog', { name: TITLE });
+      expect(within(dialog).getByText('Only they can opt back in, from their own Settings.')).toBeInTheDocument();
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Opt out' }));
+
+      await waitFor(() => expect(handlers.onToast).toHaveBeenCalledWith('Opted anna_r out of marketing emails.'));
+      expect(optOutUserMarketing).toHaveBeenCalledTimes(1);
+      expect(optOutUserMarketing).toHaveBeenCalledWith(1);
+      expect(handlers.onUsersChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancelling makes no call', async () => {
+      const { handlers } = renderPanel({ user: makeUser({ marketingEmailOptIn: true }) });
+
+      fireEvent.click(await screen.findByTestId('marketing-opt-out-1'));
+      const dialog = await screen.findByRole('dialog', { name: TITLE });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: TITLE })).not.toBeInTheDocument());
+      expect(optOutUserMarketing).not.toHaveBeenCalled();
+      expect(handlers.onUsersChanged).not.toHaveBeenCalled();
+      expect(handlers.onToast).not.toHaveBeenCalled();
+    });
+
+    it('shows the server message when it fails, and does not toast', async () => {
+      optOutUserMarketing.mockRejectedValue({ response: { data: { error: 'User not found: 1' } } });
+      const { handlers } = renderPanel({ user: makeUser({ marketingEmailOptIn: true }) });
+
+      fireEvent.click(await screen.findByTestId('marketing-opt-out-1'));
+      await confirm(TITLE, 'Opt out');
+
+      expect(await screen.findByTestId('panel-action-error')).toHaveTextContent('User not found: 1');
+      expect(handlers.onToast).not.toHaveBeenCalled();
+    });
+
+    it('falls back to a plain message when the failure has no server text', async () => {
+      optOutUserMarketing.mockRejectedValue(new Error('boom'));
+      renderPanel({ user: makeUser({ marketingEmailOptIn: true }) });
+
+      fireEvent.click(await screen.findByTestId('marketing-opt-out-1'));
+      await confirm(TITLE, 'Opt out');
+
+      expect(await screen.findByTestId('panel-action-error'))
+        .toHaveTextContent('Failed to opt anna_r out of marketing emails.');
+    });
   });
 
   it('shows a message and does not report deletion when the delete fails', async () => {

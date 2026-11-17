@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.UserSubRegionService;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.util.EmailValidator;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import com.gregochr.goldenhour.util.UniqueViolation;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -142,6 +143,26 @@ public class UserController {
         try {
             userService.setEnabled(id, enabled);
             return ResponseEntity.ok(Map.of("message", "Updated"));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    /**
+     * Withdraws a user's marketing-email consent. Admin action; takes no body and can only ever write
+     * {@code false}: consent is the user's own act, so an admin may withdraw it, never give it. Idempotent.
+     *
+     * @param id        the user's primary key
+     * @param principal the authenticated admin (named in the log)
+     * @return 200 with {@code {"marketingEmailOptIn": false}}, or 400 if the user is not found
+     */
+    @PutMapping("/{id}/marketing-opt-out")
+    public ResponseEntity<Object> optOutOfMarketing(@PathVariable Long id, Principal principal) {
+        try {
+            userService.optOutOfMarketing(id);
+            LOG.info("Admin '{}' opted user id={} out of marketing emails",
+                    LogSanitizer.sanitize(principal.getName()), id);
+            return ResponseEntity.ok(Map.of("marketingEmailOptIn", false));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         }
