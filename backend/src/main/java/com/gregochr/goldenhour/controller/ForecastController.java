@@ -22,6 +22,7 @@ import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.util.Authorities;
+import com.gregochr.goldenhour.service.warnings.WarningOverlay;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +46,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -81,6 +83,7 @@ public class ForecastController {
     private final AsOfEventResolver asOfEventResolver;
     private final SolarEventFreshness solarEventFreshness;
     private final LitePickShaper litePickShaper;
+    private final WarningOverlay warningOverlay;
 
     /**
      * Constructs a {@code ForecastController}.
@@ -97,6 +100,7 @@ public class ForecastController {
      * @param asOfEventResolver         what the reader had been shown for a passed slot at its event
      * @param solarEventFreshness       each place's own sunrise or sunset, for "has this slot passed"
      * @param litePickShaper            strips ratings outside a Lite reader's sub-region picks
+     * @param warningOverlay            the weather-warning overlay, attached last to every row
      */
     public ForecastController(ForecastEvaluationRepository repository,
             LocationService locationService,
@@ -104,7 +108,8 @@ public class ForecastController {
             ForecastDtoMapper dtoMapper, EvaluationViewService evaluationViewService,
             RunProgressTracker progressTracker, Executor forecastExecutor,
             Clock clock, AsOfEventResolver asOfEventResolver,
-            SolarEventFreshness solarEventFreshness, LitePickShaper litePickShaper) {
+            SolarEventFreshness solarEventFreshness, LitePickShaper litePickShaper,
+            WarningOverlay warningOverlay) {
         this.repository = repository;
         this.locationService = locationService;
         this.scheduledForecastService = scheduledForecastService;
@@ -116,6 +121,7 @@ public class ForecastController {
         this.asOfEventResolver = asOfEventResolver;
         this.solarEventFreshness = solarEventFreshness;
         this.litePickShaper = litePickShaper;
+        this.warningOverlay = warningOverlay;
     }
 
     /**
@@ -332,10 +338,40 @@ public class ForecastController {
         // place gets that row gated, past days included; the body is then no-store (it reveals the picks).
         PickScope scope = litePickShaper.scopeFor(auth);
         if (!scope.shaped()) {
-            return dtos;
+            return withWarnings(dtos, enabled);
         }
         LitePickShaper.markNoStore(scope);
-        return dtos.stream().map(dto -> litePickShaper.shapeListRow(dto, scope)).toList();
+        return withWarnings(dtos.stream().map(dto -> litePickShaper.shapeListRow(dto, scope)).toList(), enabled);
+    }
+
+    /**
+     * Attaches the weather-warning overlay (docs/engineering/weather-warnings-plan.md) to every row: the ids of the
+     * warnings covering the row's place at the row's own event time. Runs LAST, after role and sub-region shaping,
+     * and touches nothing but {@code warningIds}, so a gated, unscored or stood-down row keeps its id (a warning is
+     * not a rating) and Lite, Pro and Admin read the same warnings. A row for a place with no stored slot has nothing
+     * to carry it.
+     */
+    private List<ForecastListDto> withWarnings(List<ForecastListDto> dtos, List<LocationEntity> enabled) {
+        WarningOverlay.Snapshot snapshot = warningOverlay.snapshot();
+        if (snapshot.isEmpty()) {
+            return dtos;
+        }
+        Map<String, LocationEntity> byName = new HashMap<>();
+        for (LocationEntity location : enabled) {
+            byName.put(location.getName(), location);
+        }
+        List<ForecastListDto> out = new ArrayList<>(dtos.size());
+        for (ForecastListDto dto : dtos) {
+            LocationEntity location = byName.get(dto.locationName());
+            LocalDateTime event = dto.solarEventTime();
+            if (location != null && event == null && dto.targetDate() != null && dto.targetType() != null) {
+                event = solarEventFreshness.eventTime(location, dto.targetDate(), dto.targetType());
+            }
+            List<String> ids = location == null || event == null ? List.of()
+                    : snapshot.idsFor(location.getId(), event.toInstant(ZoneOffset.UTC));
+            out.add(ids.isEmpty() ? dto : dto.withWarningIds(ids));
+        }
+        return out;
     }
 
     /** A passed slot and what the reader had been shown for it at its event. */

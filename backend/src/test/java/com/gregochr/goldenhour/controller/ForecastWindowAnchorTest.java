@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.service.warnings.WarningOverlay;
 import com.gregochr.goldenhour.service.UserSubRegionService;
 import com.gregochr.goldenhour.service.LitePickShaper;
 import com.gregochr.goldenhour.config.SubRegionProperties;
@@ -102,7 +103,8 @@ class ForecastWindowAnchorTest {
                 scheduledForecastService, dtoMapper, evaluationViewService,
                 progressTracker, Runnable::run, LATE_BST_EVENING,
                 asOfEventResolver, solarEventFreshness,
-                new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));
+                new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()),
+                WarningOverlay.disabled());
         briefingEvaluationController = new BriefingEvaluationController(
                 briefingEvaluationService, evaluationViewService, LATE_BST_EVENING,
                 new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));

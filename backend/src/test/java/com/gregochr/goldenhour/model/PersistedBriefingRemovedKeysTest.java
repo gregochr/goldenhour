@@ -70,6 +70,22 @@ class PersistedBriefingRemovedKeysTest {
     }
 
     @Test
+    @DisplayName("the warning overlay never reaches the stored payload, and a payload carrying it still loads")
+    void warningOverlayIsOmittedWhenNullAndTolerated() throws Exception {
+        ObjectMapper mapper = new AppConfig().objectMapper();
+        ObjectNode root = (ObjectNode) mapper.readTree(mapper.writeValueAsString(briefing()));
+        ObjectNode window = (ObjectNode) root.get("days").get(0).get("eventSummaries").get(0).get("window");
+
+        assertThat(window.has("warningIds")).isFalse();
+        assertThat(window.has("warningPlaceCounts")).isFalse();
+
+        window.putArray("warningIds").add("W-1");
+        DailyBriefingResponse loaded = mapper.readValue(root.toString(), DailyBriefingResponse.class);
+
+        assertThat(loaded.days().get(0).eventSummaries().get(0).window().warningIds()).containsExactly("W-1");
+    }
+
+    @Test
     @DisplayName("the ignore-unknown tolerance holds at a nested record the removed keys never touched, "
             + "so a later removal anywhere in the tree is safe too")
     void unknownKeyOnAnyTreeRecord_isIgnored() throws Exception {

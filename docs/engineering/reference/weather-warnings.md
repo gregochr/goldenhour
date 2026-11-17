@@ -1,9 +1,11 @@
 # Met Office weather warnings (backend, W1a)
 
-Behaviour as built in phase W1a of `docs/engineering/weather-warnings-plan.md` (the plan and its §8 review
+Behaviour as built in phases W1a and W1b of `docs/engineering/weather-warnings-plan.md` (the plan and its §8 review
 amendments remain the product and design record). W1a is **backend only**: ingest, storage, the active-at-T rule,
-location coverage and three endpoints. The briefing/location-row `warningIds` overlay and the Operations panel are
-W1b. Nothing here touches a rating, verdict, Best pick, count, heat field or Claude prompt (no Claude calls at all).
+location coverage and three endpoints. W1b adds the serve-time `warningIds` overlay (briefing windows and
+`/api/forecast` location rows) and the Operations panel. Nothing here touches a rating, verdict, Best pick, count,
+heat field or Claude prompt (no Claude calls at all). **No user-facing warning UI exists yet** (W2 onward): the ids are
+served and unused by any reader screen.
 
 Everything is behind `photocast.warnings.enabled` (default **false**); the flag stays off in production until the
 guides ship (W5) and the owner has answered the licence question.
@@ -24,6 +26,7 @@ guides ship (W5) and the owner has answered the licence question.
 | `WarningCoverage` / `WarningGeometry` | Pure ray-cast point-in-MultiPolygon (holes handled, malformed geometry tolerated; no JTS on the classpath) and deterministic vertex thinning. |
 | `WarningService` | Assembles the shared and admin views; inserts simulated warnings. |
 | `controller/WarningsController`, `controller/WarningsAdminController` | Thin; no business logic. |
+| `WarningOverlay` (W1b) | The serve-time overlay: `overlay(DailyBriefingResponse)` for briefing windows and `snapshot()` for location rows. See "The serve-time overlay". |
 
 ## The poll
 
@@ -44,8 +47,7 @@ schedule can collide) and reports a `SchedulerFireOutcome`. One poll: read the A
 - `ServedBriefingEpoch.bump()` is called **once, after the last insert has committed, and only when a version was
   stored** (no transaction is open at that point, so the bump is immediate). The ETag is body-hashed and follows by
   itself. Time-driven transitions (`valid_from` reached, `valid_to` passed) never bump; they lag by at most the 30 s
-  briefing memo. (The W1b overlay is what makes the epoch matter; check whether the Ask snapshot memo is
-  epoch-keyed when the overlay lands.)
+  briefing memo. (The W1b overlay is what makes the epoch matter; the Ask answer is under "The serve-time overlay".)
 - Unknown weather types are **kept** and counted in memory (`WarningPollStatus.unknownTypeCounts()`).
 - The scheduler gate: `DynamicSchedulerService.configGateFor` now also recognises `photocast.warnings.enabled`
   (it was only the literal `aurora.enabled`). A flag flip needs a restart (the status syncs at startup).
@@ -90,6 +92,53 @@ checked HH:MM, check the Met Office" and suppress the "none" state (frontend, W2
 Simulation (`POST /api/admin/warnings/simulate`) inserts a clearly simulated row (`simulated = true`, id `SIM-xxxxxxxx`,
 `source_status = SIMULATED`, a square of 0.5 degrees around the given point) and bumps the epoch. It is visible only
 through `GET /api/admin/warnings/status`.
+
+## The serve-time overlay (W1b)
+
+Follows the `bigSeas` precedent: attached **last** in `ServedBriefingAssembler.assembleForPlan` (after
+`PlanWindowProjector`, `BriefingHonestyFilter`, the sample gate and the slot-tide strip, before the `briefingVersion`
+stamp), derived per serve from the database, `WarningTimeline` and `WarningCoverage`, **never written to
+`daily_briefing_cache`** and omitted from JSON when null (`@JsonInclude(NON_NULL)`, `PersistedBriefingRemovedKeysTest`).
+`WarningOverlay` is a no-op (input returned as the same instance) when `photocast.warnings.enabled` is off, when nothing
+in force covers an enabled place, or when the lookup throws (fail-soft, logged at WARN). Simulated rows and cancelled or
+expired warnings never appear, for any role. "Now" is the injected `Clock`, so Rewind shows the warnings as we had them.
+
+- **Briefing windows.** `BriefingWindow` gains `warningIds` (ids of the warnings in force whose `[validFrom, validTo]`
+  spans the window's event time and that cover at least one enabled place, most severe first) and
+  `warningPlaceCounts` (`{warningId, regionName, covered, total}` per warning and per region the window lists, only
+  where `covered > 0`; `total` is **all enabled places in that region**, so "N of M places in this area" is non-personal
+  and never the reader's reach). The event time is the window's `eventTime`, else the event summary's
+  `solarEventTime`; a window with neither carries nothing. Windows with a verdict blanked by the honesty filter, stood
+  down, or UNRATED still carry the id (a warning is not a rating); only `BriefingWindow.withWarnings` writes the fields
+  and every `withX` copies them.
+- **Location rows.** `GET /api/forecast` (and `?date=`) rows are `ForecastListDto`, the rows `LocationFourDaySheet` and
+  `MapCallout` read. `ForecastController.serveRange` attaches `warningIds` as its very last step, after role and
+  sub-region shaping, matching the row's place (by name) against the snapshot at the row's own `solarEventTime` (or the
+  place's `SolarEventFreshness` time when the row has none). `forGated`, `unscored` and `withRating` copy the field, so a
+  gated or stood-down row keeps its id. A place with **no stored row for a window has nothing to carry the id**; a
+  client that must show a warning there reads `locationIds` from `GET /api/warnings`.
+- **Roles.** `LitePickShaper`, `BriefingRoleShaper` and the Pro/Admin paths rebuild windows and rows only through
+  the withers, so Lite, Pro and Admin read identical `warningIds` and counts, `gated` slots included (tested).
+- **Golden test.** `ServedBriefingAssemblerWarningGoldenTest` serves the same snapshot with the overlay off and on
+  (active, cancelled and simulated warnings) and asserts that the only difference is the warning fields: every rating,
+  verdict, pick, count and the `briefingVersion` are identical.
+- **Epoch and the Ask memo.** The poller bumps `ServedBriefingEpoch` after the last insert commits and only when a
+  version was stored; `BriefingService.servedMemo` is keyed by it, so a new or cancelled warning reaches the next
+  serve (time-driven transitions lag by at most the 30 s memo). `AskSnapshotBuilder`'s 30 s memo **is invalidated by the
+  epoch indirectly**: it is keyed on the identity of the served briefing it was built from, and that object changes when
+  the epoch moves. Ask reads ratings and picks off the windows by named accessors and never serialises a window, so
+  `warningIds` cannot reach an Ask prompt or answer; Ask must not mention warnings in this series, so nothing further was
+  changed.
+
+## Operations panel (W1b)
+
+Operations, Testing, **Warnings** (`#manage/warnings`, `components/WarningsAdminPanel.jsx`): read-only status from
+`GET /api/admin/warnings/status` (feature flag, key and feed URL set or not, **last checked** (an Operations-only
+detail), last success, fresh or stale, the failure reason in words, the last poll's entry, stored, already-held,
+gone and malformed counts, stored and simulated version counts, unknown weather types with counts, and every warning in
+force with its simulated and upgraded flags and how many enabled places it covers) and a **Simulate a warning** form
+posting to `POST /api/admin/warnings/simulate`. Not a dialog; Tailwind only; reads the real clock only to format
+instants. The endpoint 403s a non-admin, and the tab sits in the admin-only Operations area.
 
 ## Assumed feed shape (UNVERIFIED against the live API)
 

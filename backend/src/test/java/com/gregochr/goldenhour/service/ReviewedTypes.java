@@ -62,9 +62,14 @@ final class ReviewedTypes {
                 "risesInShadow", "setsInShadow", "stops", "type", "umbraEnd", "umbraStart")),
         entry("BriefingSlot$LightStop", Set.of(
                 "key", "time")),
+        // warningIds and warningPlaceCounts (weather-warnings W1b) are a serve-time overlay of Met Office warning ids
+        // and per-region place counts. A warning is not a rating: no per-location star, no prose, the same for every
+        // role, so Lite keeps them (and they ride gated slots untouched).
         entry("BriefingWindow", Set.of(
                 "badges", "bestRating", "confidence", "eventTime", "pick", "tide", "tideFacts",
-                "verdict")),
+                "verdict", "warningIds", "warningPlaceCounts")),
+        entry("BriefingWindow$WarningPlaceCount", Set.of(
+                "covered", "regionName", "total", "warningId")),
         entry("BriefingWindow$Pick", Set.of(
                 "averageRating", "detail", "headline", "kind", "locationId", "locationName", "regionName")),
         entry("BriefingWindow$Badge", Set.of(

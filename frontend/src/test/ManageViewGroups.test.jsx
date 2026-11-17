@@ -24,6 +24,7 @@ vi.mock('../components/SchedulerView.jsx', () => stub('Scheduler'));
 vi.mock('../components/TravelDaysView.jsx', () => stub('Travel Days'));
 vi.mock('../components/skyeval/SkyEvalView.jsx', () => stub('Sky Eval'));
 vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
+vi.mock('../components/WarningsAdminPanel.jsx', () => stub('Warnings'));
 vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
 
 // The expected layout, written out literally (deliberately not imported from ManageView).
@@ -38,7 +39,7 @@ const EXPECTED = [
   { group: 'people', label: 'People', tabs: [
     ['users', 'Users'], ['waitlist', 'Waitlist'],
   ] },
-  { group: 'testing', label: 'Testing', tabs: [['skyeval', 'Sky Eval'], ['hottopics', 'Hot Topics'], ['rewind', 'Rewind']] },
+  { group: 'testing', label: 'Testing', tabs: [['skyeval', 'Sky Eval'], ['hottopics', 'Hot Topics'], ['warnings', 'Warnings'], ['rewind', 'Rewind']] },
 ];
 
 const ALL_TABS = EXPECTED.flatMap((g) => g.tabs.map(([value, label]) => ({ group: g.group, value, label })));

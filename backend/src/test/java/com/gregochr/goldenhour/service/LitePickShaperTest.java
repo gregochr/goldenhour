@@ -762,7 +762,7 @@ class LitePickShaperTest {
                 Set.of("id", "locationName", "locationLat", "locationLon", "targetDate", "targetType",
                         "forecastRunAt", "solarEventTime", "azimuthDeg", "temperatureCelsius",
                         "apparentTemperatureCelsius", "windSpeed", "windDirection", "precipitation",
-                        "precipitationProbabilityPercent"));
+                        "precipitationProbabilityPercent", "warningIds"));
     }
 
     @Test
@@ -847,7 +847,7 @@ class LitePickShaperTest {
         BriefingWindow shaped = window.withBestRating(null);
         assertThat(names(BriefingWindow.class)).containsExactlyInAnyOrderElementsOf(
                 union(Set.of("bestRating"), Set.of("eventTime", "verdict", "confidence", "pick", "badges",
-                        "tide", "tideFacts")));
+                        "tide", "tideFacts", "warningIds", "warningPlaceCounts")));
         for (RecordComponent c : BriefingWindow.class.getRecordComponents()) {
             if (c.getName().equals("bestRating")) {
                 assertThat(get(c, window)).isNotNull();

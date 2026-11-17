@@ -279,7 +279,8 @@ class BriefingRoleShaperTest {
     void everyBriefingWindowComponentIsClassified() {
         Set<String> stripped = Set.of("pick");
         Set<String> handledAsTide = Set.of("tide", "tideFacts", "badges");
-        Set<String> kept = Set.of("eventTime", "verdict", "bestRating", "confidence");
+        Set<String> kept = Set.of("eventTime", "verdict", "bestRating", "confidence", "warningIds",
+                "warningPlaceCounts");
 
         assertThat(componentNames(BriefingWindow.class))
                 .as("a new component must be classified here and handled in forLite()")

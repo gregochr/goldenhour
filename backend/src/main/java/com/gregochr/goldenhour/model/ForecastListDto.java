@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Slim projection of a forecast evaluation for the map/list load path.
@@ -47,6 +48,10 @@ import java.time.LocalDateTime;
  * @param precipitationProbabilityPercent precipitation probability (comfort)
  * @param gated {@code TRUE} when the row is outside the reader's sub-region picks and its rating fields were
  *              removed by {@code LitePickShaper}, otherwise null (never {@code FALSE}). Gated is not unrated
+ * @param warningIds ids of the Met Office warnings covering this place at this slot's event time (a serve-time
+ *              overlay from {@code WarningOverlay}, attached after role shaping; null when none and omitted from
+ *              JSON). A warning is not a rating: it is never read by a rating, filter or the heat field, and it is
+ *              carried through the gated, unscored and re-rated copies untouched
  */
 public record ForecastListDto(
         Long id,
@@ -70,7 +75,47 @@ public record ForecastListDto(
         Integer windDirection,
         BigDecimal precipitation,
         Integer precipitationProbabilityPercent,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean gated) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean gated,
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<String> warningIds) {
+
+    /**
+     * Twenty-two-component form, defaulting {@code warningIds} to null.
+     *
+     * @param id                              the forecast_evaluation id, or null
+     * @param locationName                    location name
+     * @param locationLat                     latitude
+     * @param locationLon                     longitude
+     * @param targetDate                      the forecast date
+     * @param targetType                      the event type
+     * @param forecastRunAt                   when the slot was scored
+     * @param solarEventTime                  the solar event instant
+     * @param azimuthDeg                      solar azimuth
+     * @param rating                          the star rating
+     * @param fierySkyPotential               Fiery Sky score
+     * @param goldenHourPotential             Golden Hour score
+     * @param triageReason                    stand-down reason or null
+     * @param summary                         the sparse-row summary or null
+     * @param triageMessage                   the sparse-row triage message or null
+     * @param temperatureCelsius              air temperature
+     * @param apparentTemperatureCelsius      feels-like temperature
+     * @param windSpeed                       wind speed
+     * @param windDirection                   wind bearing
+     * @param precipitation                   precipitation amount
+     * @param precipitationProbabilityPercent precipitation probability
+     * @param gated                           TRUE when outside the reader's picks, else null
+     */
+    public ForecastListDto(Long id, String locationName, BigDecimal locationLat, BigDecimal locationLon,
+            LocalDate targetDate, TargetType targetType, LocalDateTime forecastRunAt,
+            LocalDateTime solarEventTime, Integer azimuthDeg, Integer rating, Integer fierySkyPotential,
+            Integer goldenHourPotential, TriageReason triageReason, String summary, String triageMessage,
+            Double temperatureCelsius, Double apparentTemperatureCelsius, BigDecimal windSpeed,
+            Integer windDirection, BigDecimal precipitation, Integer precipitationProbabilityPercent,
+            Boolean gated) {
+        this(id, locationName, locationLat, locationLon, targetDate, targetType, forecastRunAt,
+                solarEventTime, azimuthDeg, rating, fierySkyPotential, goldenHourPotential, triageReason,
+                summary, triageMessage, temperatureCelsius, apparentTemperatureCelsius, windSpeed,
+                windDirection, precipitation, precipitationProbabilityPercent, gated, null);
+    }
 
     /**
      * Twenty-one-component form, defaulting {@code gated} to null (an unshaped row). Retained so every call
@@ -107,7 +152,7 @@ public record ForecastListDto(
         this(id, locationName, locationLat, locationLon, targetDate, targetType, forecastRunAt,
                 solarEventTime, azimuthDeg, rating, fierySkyPotential, goldenHourPotential, triageReason,
                 summary, triageMessage, temperatureCelsius, apparentTemperatureCelsius, windSpeed,
-                windDirection, precipitation, precipitationProbabilityPercent, null);
+                windDirection, precipitation, precipitationProbabilityPercent, null, null);
     }
 
     /**
@@ -122,7 +167,7 @@ public record ForecastListDto(
                 forecastRunAt, solarEventTime, azimuthDeg, newRating, fierySkyPotential,
                 goldenHourPotential, triageReason, summary, triageMessage, temperatureCelsius,
                 apparentTemperatureCelsius, windSpeed, windDirection, precipitation,
-                precipitationProbabilityPercent, gated);
+                precipitationProbabilityPercent, gated, warningIds);
     }
 
     /**
@@ -138,7 +183,7 @@ public record ForecastListDto(
         return new ForecastListDto(id, locationName, locationLat, locationLon, targetDate, targetType,
                 forecastRunAt, solarEventTime, azimuthDeg, null, null, null, triageReason, summary,
                 triageMessage, temperatureCelsius, apparentTemperatureCelsius, windSpeed, windDirection,
-                precipitation, precipitationProbabilityPercent, gated);
+                precipitation, precipitationProbabilityPercent, gated, warningIds);
     }
 
     /**
@@ -152,6 +197,20 @@ public record ForecastListDto(
         return new ForecastListDto(id, locationName, locationLat, locationLon, targetDate, targetType,
                 forecastRunAt, solarEventTime, azimuthDeg, null, null, null, null, null, null,
                 temperatureCelsius, apparentTemperatureCelsius, windSpeed, windDirection, precipitation,
-                precipitationProbabilityPercent, Boolean.TRUE);
+                precipitationProbabilityPercent, Boolean.TRUE, warningIds);
+    }
+
+    /**
+     * Returns a copy carrying the weather-warning ids, every other component unchanged.
+     *
+     * @param newWarningIds the warning ids, or null for none
+     * @return the copy
+     */
+    public ForecastListDto withWarningIds(List<String> newWarningIds) {
+        return new ForecastListDto(id, locationName, locationLat, locationLon, targetDate, targetType,
+                forecastRunAt, solarEventTime, azimuthDeg, rating, fierySkyPotential,
+                goldenHourPotential, triageReason, summary, triageMessage, temperatureCelsius,
+                apparentTemperatureCelsius, windSpeed, windDirection, precipitation,
+                precipitationProbabilityPercent, gated, newWarningIds == null ? null : List.copyOf(newWarningIds));
     }
 }

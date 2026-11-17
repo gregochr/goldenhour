@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -56,5 +57,38 @@ class ForecastListDtoTest {
         assertThat(copy).usingRecursiveComparison()
                 .ignoringFields("rating", "fierySkyPotential", "goldenHourPotential").isEqualTo(FULL);
         assertThat(copy.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+    }
+
+    private static final ForecastListDto WARNED = FULL.withWarningIds(List.of("W-1", "W-2"));
+
+    @Test
+    @DisplayName("withWarningIds sets the ids and changes nothing else; null reads as none")
+    void withWarningIdsChangesOnlyTheIds() {
+        assertThat(WARNED.warningIds()).containsExactly("W-1", "W-2");
+        assertThat(WARNED).usingRecursiveComparison().ignoringFields("warningIds").isEqualTo(FULL);
+        assertThat(WARNED.withWarningIds(null).warningIds()).isNull();
+        assertThat(FULL.warningIds()).isNull();
+    }
+
+    @Test
+    @DisplayName("every copy carries the warning ids through: re-rated, unscored and gated rows keep them")
+    void everyCopyKeepsTheIds() {
+        assertThat(WARNED.withRating(2).warningIds()).containsExactly("W-1", "W-2");
+        assertThat(WARNED.unscored().warningIds()).containsExactly("W-1", "W-2");
+        ForecastListDto gated = WARNED.forGated();
+        assertThat(gated.gated()).isTrue();
+        assertThat(gated.rating()).isNull();
+        assertThat(gated.warningIds()).as("a warning is not a rating").containsExactly("W-1", "W-2");
+    }
+
+    @Test
+    @DisplayName("the 22-component form defaults the ids to null and keeps gated")
+    void twentyTwoComponentFormDefaultsIds() {
+        ForecastListDto gated = new ForecastListDto(7L, "Hartside", null, null, LocalDate.of(2026, 10, 14),
+                TargetType.SUNSET, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, Boolean.TRUE);
+
+        assertThat(gated.gated()).isTrue();
+        assertThat(gated.warningIds()).isNull();
     }
 }
