@@ -234,3 +234,12 @@ The owner chose to proceed on sensible defaults rather than wait for the Met Off
 - **Likelihood/impact:** the Met Office matrix graphic in the popup row only (§12.1).
 - **Map:** chip only, no geometry (§12).
 - **Attribution and links:** exactly as §12.
+
+## 14. W6: Ask PhotoCast mentions warnings (owner approved, 2026-11-17; after W5)
+
+Owner example: asking Ask about fresh snow at Hadrian's Wall, the answer says an Amber warning of snow is in force so expect a lot of snow.
+
+- **Scoring prompts never see warnings** (Sky Eval, batch evaluations): principle 1; a warning would silently mark down snow and big-sea scenes and invalidate the prompt-regression baselines.
+- **Ask gets the active warnings as read-only facts** in its snapshot (Pro and Admin, behind `photocast.ask.enabled`): level, types, headline, validity and the places or areas covered, from `WarningTimeline`/`WarningCoverage` (simulated excluded). Style guide rules for the prompt and the answer: quote the Met Office's level, type and headline verbatim (never paraphrase or soften a warning); never imply a warning exists, or will, when none is in force (§1.4); carry "Met Office Weather Warnings" attribution and the overview link; a cancelled or expired warning must be gone within the snapshot memo (30 s, inside the 10-minute licence bound); ratings and ranking in the answer are exactly as served.
+- **Tests:** an Ask golden test for the same question with and without a warning (only the warning sentence differs, no served rating changes), a no-warning-implied test (an answer never mentions a warning when none is in force), and an Ask prompt-regression case added only as a NEW case (never edit an existing assertion; the real-API run waits for the owner's approval).
+- **Separate, no model:** the "Fresh snow" hot topic and Coming up cross-reference ("Amber warning of snow covers this area") is deterministic server-side text from W3b.
