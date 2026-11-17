@@ -155,3 +155,13 @@ The Met Office replied (Brandon Birch, Data Provisioning) with a pointer, not an
 - **Header name:** the DataHub FAQ says `apikey`; the NSWWS Public API page says `x-api-key`. W1a used `x-api-key`. Make the header name a config value and confirm against the real v1.1 docs once the key exists (W1c).
 - **Not retrievable here:** the v1.1 base URL/paths/field names, the Style Guide's exact level colours and icon permission (the PDF is compressed and no PDF renderer is installed). Owner to read the Style Guide (v1.3) and say whether its icons may be reused; until then the generic triangle and our own glyphs stand, and level colours stay the handoff's placeholders.
 - **W1c (new, small, after the key exists):** configurable header name, base URL and entry-link parsing aligned to the real v1.1 feed; fixtures re-recorded from real responses.
+
+## 9. Owner decisions (2026-11-17)
+
+- **Poll interval:** 5 minutes (the scheduler row default). Revisit only if the Met Office call limit forbids it.
+- **Q1 levels:** show Yellow, Amber and Red everywhere. Narrowing Yellow later is a display change only.
+- **Q2 types:** every type (earlier decision).
+- **Q3 scope:** only warnings covering at least one enabled location; global, not per reader.
+- **Q4 likelihood/impact:** shown only in the window popup row ("medium likelihood · low impact"); chips and lanes stay level plus type.
+- **W0 request:** API key, licence, attribution and icon permission requested from the Met Office on 2026-11-17 (asked for a 30-minute poll in the message; we intend 5, adjust to their reply). Awaiting the reply.
+- **Still to confirm:** the "N of M places in this area" copy (replacing "in reach").
