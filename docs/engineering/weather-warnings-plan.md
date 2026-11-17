@@ -165,3 +165,19 @@ The Met Office replied (Brandon Birch, Data Provisioning) with a pointer, not an
 - **Q4 likelihood/impact:** shown only in the window popup row ("medium likelihood · low impact"); chips and lanes stay level plus type.
 - **W0 request:** API key, licence, attribution and icon permission requested from the Met Office on 2026-11-17 (asked for a 30-minute poll in the message; we intend 5, adjust to their reply). Awaiting the reply.
 - **Popup copy:** "N of M places in this area" (replacing "in reach"), approved by the owner 2026-11-17.
+
+## 11. The real v1.1 feed (recorded from the owner's key, 2026-11-17) — W1c
+
+Base `https://data.hub.api.metoffice.gov.uk/nswws/v1.1`; **header `apikey`** (HTTP 200; `x-api-key` untested). Paths end in a slash. Samples were saved to the owner's `~/nswws-sample` (feed, an empty `issued` snapshot, one `updated` document with one EXPIRED snow warning) and copied for the W1c build.
+
+What W1a guessed wrong (the flag is off; nothing live is affected):
+- **Entry ids are change-event uuids**, not warning ids. `warningId` (uuid) and `warningVersion` come from inside the GeoJSON feature properties.
+- **`warningVersion` is a decimal string** ("3.0"), not an integer. Store NUMERIC and order numerically (V225 alters the column).
+- **An `updated/{uuid}` document is a FeatureCollection of N warnings**, not one. Each feature is one version row.
+- **`warningStatus` is ISSUED, CANCELLED or EXPIRED.** ISSUED = live; CANCELLED and EXPIRED both mean ended (store both as the ended status, keep the source word).
+- **`warningLikelihood` and `warningImpact` are integers** (3 and 2 in the sample), not words. Serve them raw; word mapping (the Met Office matrix) waits for the Style Guide, never guessed.
+- `warningLevel` is upper case (`YELLOW`). Extra useful fields: `warningUpdateDescription`, `whatShouldIDo`, `affectedAreas[].regionCode` (NE, NW, YH, ...). There is no per-warning URL in the feed: the "Read it on the Met Office site" link is a configured public warnings page until the owner confirms a better target.
+- The feed's `rel="related"` link is the **issued snapshot** (all currently valid warnings, latest version of each; empty today). Use it on the first poll after a start and after a gap longer than the feed's 24 h memory; otherwise process only unseen update entries.
+- Atom root, namespace, entry `alternate` link and 404-on-expired-update all match W1a's assumptions.
+
+Sequencing: W1c runs after W1b merges (it changes the entity's version type and the timeline's ordering, which W1b reads) and never concurrently with another Maven run.
