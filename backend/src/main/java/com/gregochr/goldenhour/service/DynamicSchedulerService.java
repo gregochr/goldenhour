@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.config.WarningsProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerFireLogEntity;
 import com.gregochr.goldenhour.entity.SchedulerFireStatus;
@@ -86,10 +88,14 @@ public class DynamicSchedulerService {
     /** Config source value that indicates dependency on aurora.enabled. */
     private static final String AURORA_CONFIG_SOURCE = "aurora.enabled";
 
+    /** Config source value that indicates dependency on photocast.warnings.enabled. */
+    static final String WARNINGS_CONFIG_SOURCE = "photocast.warnings.enabled";
+
     private final SchedulerJobConfigRepository repository;
     private final SchedulerFireLogRepository fireLogRepository;
     private final TaskScheduler taskScheduler;
     private final AuroraProperties auroraProperties;
+    private final WarningsProperties warningsProperties;
     private final SolarTriggerFactory solarTriggers;
     private final SolarCatchUpPolicy solarCatchUp;
     private final Clock clock;
@@ -117,10 +123,37 @@ public class DynamicSchedulerService {
             SolarTriggerFactory solarTriggers,
             SolarCatchUpPolicy solarCatchUp,
             Clock clock) {
+        this(repository, fireLogRepository, taskScheduler, auroraProperties, new WarningsProperties(),
+                solarTriggers, solarCatchUp, clock);
+    }
+
+    /**
+     * Constructs the dynamic scheduler service, with the weather-warnings flag it gates
+     * {@code weather_warning_poll} on. This is the constructor Spring uses.
+     *
+     * @param repository         the job config repository
+     * @param fireLogRepository  the scheduler fire-log repository
+     * @param taskScheduler      the dedicated task scheduler bean
+     * @param auroraProperties   aurora configuration for checking enabled state
+     * @param warningsProperties weather-warnings configuration for checking enabled state
+     * @param solarTriggers      builds the trigger for a {@code SOLAR_OFFSET} job
+     * @param solarCatchUp       decides whether a solar job that missed today's fire runs at startup
+     * @param clock              the application clock, used for the displayed next fire of a solar job
+     */
+    @Autowired
+    public DynamicSchedulerService(SchedulerJobConfigRepository repository,
+            SchedulerFireLogRepository fireLogRepository,
+            TaskScheduler taskScheduler,
+            AuroraProperties auroraProperties,
+            WarningsProperties warningsProperties,
+            SolarTriggerFactory solarTriggers,
+            SolarCatchUpPolicy solarCatchUp,
+            Clock clock) {
         this.repository = repository;
         this.fireLogRepository = fireLogRepository;
         this.taskScheduler = taskScheduler;
         this.auroraProperties = auroraProperties;
+        this.warningsProperties = warningsProperties;
         this.solarTriggers = solarTriggers;
         this.solarCatchUp = solarCatchUp;
         this.clock = clock;
@@ -1156,6 +1189,9 @@ public class DynamicSchedulerService {
     private BooleanSupplier configGateFor(String configSource) {
         if (AURORA_CONFIG_SOURCE.equals(configSource)) {
             return auroraProperties::isEnabled;
+        }
+        if (WARNINGS_CONFIG_SOURCE.equals(configSource)) {
+            return warningsProperties::isEnabled;
         }
         return null;
     }

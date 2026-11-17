@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "warningId": "W-UPG",
+        "warningVersion": 1,
+        "warningStatus": "NEW",
+        "warningLevel": "Yellow",
+        "warningLikelihood": "Medium",
+        "warningImpact": "Medium",
+        "weatherType": ["RAIN"],
+        "validFromDate": "2026-11-17T09:00:00Z",
+        "validToDate": "2026-11-18T09:00:00Z",
+        "issuedDate": "2026-11-17T06:00:00Z",
+        "modifiedDate": "2026-11-17T06:00:00Z",
+        "warningHeadline": "Yellow warning of rain",
+        "whatToExpect": ["Spray and flooding on roads"],
+        "warningFurtherDetails": "Persistent rain.",
+        "affectedAreas": ["Cumbria"]
+      },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [[[[-3.5, 54.0], [-2.5, 54.0], [-2.5, 55.0], [-3.5, 55.0], [-3.5, 54.0]]]]
+      }
+    }
+  ]
+}

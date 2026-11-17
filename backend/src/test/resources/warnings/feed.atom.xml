@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written to the shape WarningFeedParser assumes (not a recording of the live feed). -->
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Met Office National Severe Weather Warnings</title>
+  <updated>2026-11-17T09:00:00Z</updated>
+  <entry>
+    <id>https://example.test/nswws/warnings/W-YEL-WIND/1</id>
+    <title>Yellow wind</title>
+    <updated>2026-11-17T08:00:00Z</updated>
+    <link rel="alternate" type="application/geo+json" href="https://example.test/nswws/warnings/W-YEL-WIND/1"/>
+  </entry>
+  <entry>
+    <id>https://example.test/nswws/warnings/W-UPG/1</id>
+    <title>Yellow rain</title>
+    <updated>2026-11-17T06:00:00Z</updated>
+    <link rel="alternate" type="application/geo+json" href="https://example.test/nswws/warnings/W-UPG/1"/>
+  </entry>
+  <entry>
+    <id>https://example.test/nswws/warnings/W-UPG/2</id>
+    <title>Amber rain</title>
+    <updated>2026-11-17T08:30:00Z</updated>
+    <link rel="alternate" type="application/geo+json" href="https://example.test/nswws/warnings/W-UPG/2"/>
+  </entry>
+  <entry>
+    <id>https://example.test/nswws/warnings/W-CAN/2</id>
+    <title>Cancelled</title>
+    <updated>2026-11-17T08:45:00Z</updated>
+    <link rel="alternate" type="application/geo+json" href="https://example.test/nswws/warnings/W-CAN/2"/>
+  </entry>
+  <entry>
+    <id>https://example.test/nswws/warnings/W-SNOW/1</id>
+    <title>Snow and ice</title>
+    <updated>2026-11-17T07:00:00Z</updated>
+    <link rel="alternate" type="application/geo+json" href="https://example.test/nswws/warnings/W-SNOW/1"/>
+  </entry>
+  <entry>
+    <id>https://example.test/nswws/warnings/W-UNK/1</id>
+    <title>Unknown type</title>
+    <updated>2026-11-17T07:10:00Z</updated>
+    <link rel="alternate" type="application/geo+json" href="https://example.test/nswws/warnings/W-UNK/1"/>
+  </entry>
+  <entry>
+    <id>https://example.test/nswws/warnings/W-HOLE/1</id>
+    <title>Wind with a hole</title>
+    <updated>2026-11-17T07:20:00Z</updated>
+    <link rel="alternate" type="application/geo+json" href="https://example.test/nswws/warnings/W-HOLE/1"/>
+  </entry>
+  <entry>
+    <id>no-version-here</id>
+    <title>Malformed: no usable link or id</title>
+    <updated>2026-11-17T07:30:00Z</updated>
+  </entry>
+</feed>

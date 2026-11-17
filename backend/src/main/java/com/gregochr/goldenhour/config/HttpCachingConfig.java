@@ -91,6 +91,9 @@ public class HttpCachingConfig {
             // identical for every reader and role, so no personal data and the same revalidation.
             "/api/aurora/alert",
             "/api/nlc/sighting",
+            // Met Office weather warnings in force: identical for every signed-in reader and role, simulated rows
+            // never included, so no personal data; the ETag is hashed from the body, which moves with the data.
+            "/api/warnings",
             // The almanac feed is ephemeris and stable for a whole day, so it is a strong revalidation
             // candidate. It is role-shaped, not personal: a Lite reader's body lacks the tide-at-the-light
             // rows (tide-light-pro-plan.md B2), and the ETag is hashed from the shaped body, so the

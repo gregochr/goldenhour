@@ -69,6 +69,8 @@ class HttpCachingConfigTest {
         // Role-free alert level for the Lite banner: the same body for every reader.
         "/api/aurora/alert",
         "/api/nlc/sighting",
+        // Met Office warnings in force: the same body for every signed-in reader, simulated rows excluded.
+        "/api/warnings",
         "/api/almanac",
         // The shared region-base drive-time matrix. User-independent geography, which is the whole
         // reason it may be here at all — its per-user twin, /api/user/settings/reach, is pinned to

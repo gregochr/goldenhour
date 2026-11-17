@@ -336,6 +336,14 @@ public final class SchedulerJobCatalogue {
                 "Checks NOAA's space-weather feed for aurora activity and starts, updates or ends aurora "
                         + "alerts for users.",
                 "On a repeating interval."));
+        add(draft("weather_warning_poll", "Met Office weather warnings", Purpose.FORECAST, false,
+                List.of("Met Office"),
+                "Reads the Met Office's weather-warnings feed and stores any warning it hasn't seen, so a "
+                        + "warning can be shown beside the places it covers. Changes no rating and costs nothing "
+                        + "in Claude; it only keeps what the Met Office has published. Off until warnings are "
+                        + "switched on.",
+                "On a repeating interval, because the Met Office publishes no push and warnings can be issued or "
+                        + "cancelled at any time."));
         add(draft("nlc_sighting_scrape", "Noctilucent cloud sightings", Purpose.NIGHT_SKY, false,
                 List.of("NLCNET"),
                 "Checks NLCNET for fresh noctilucent-cloud reports from observers, to drive the NLC "

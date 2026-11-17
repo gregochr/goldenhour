@@ -1,0 +1,27 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "warningId": "W-HOLE",
+        "warningVersion": 1,
+        "warningStatus": "NEW",
+        "warningLevel": "Yellow",
+        "weatherType": ["WIND"],
+        "validFromDate": "2026-11-17T12:00:00Z",
+        "validToDate": "2026-11-18T12:00:00Z",
+        "issuedDate": "2026-11-17T07:20:00Z",
+        "modifiedDate": "2026-11-17T07:20:00Z",
+        "warningHeadline": "Yellow warning of wind with a hole"
+      },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [[
+          [[-3.0, 53.0], [-1.0, 53.0], [-1.0, 55.0], [-3.0, 55.0], [-3.0, 53.0]],
+          [[-2.2, 53.8], [-1.8, 53.8], [-1.8, 54.2], [-2.2, 54.2], [-2.2, 53.8]]
+        ]]
+      }
+    }
+  ]
+}
