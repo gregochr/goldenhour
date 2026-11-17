@@ -211,3 +211,16 @@ The guide is binding for third parties; items marked "Required by the Licence" a
 **Other:** no forward propagation of warnings or the feed to other organisations (`/api/warnings` stays signed-in only, never public, no third-party sharing); emphasising weather must not imply a warning has been or will be issued; push notifications are out of scope (if ever built, Amber and Red are mandatory); a dedicated warnings page would need a seven-day overview (we have none); developers must follow Met Office changes to the service (3.2f).
 
 **Owner actions from this:** (1) reply to the Met Office with the placement mock and ask: the 3.1c question, whether text chips plus a generic level triangle are acceptable, and logo/brand guidelines; (2) read the Open Licence for non-commercial use; (3) screenshot page 9 of the PDF (the impact matrix) if likelihood/impact words are wanted later.
+
+### 12.1 The impact matrix (owner supplied PDF page 9, 2026-11-17): supersedes the "no likelihood/impact in v1" decision in §12
+
+The Met Office matrix carries **no words**: a 4×4 colour grid, axis labels "Likelihood" (vertical arrow up) and "Impact" (horizontal arrow right), and a tick on the warning's cell. So the Q4 owner decision stands in a compliant form: **show the matrix graphic in the window popup row only**, with the tick at (`warningLikelihood`, `warningImpact`), axis labels exactly "Likelihood" and "Impact", and an accessible text alternative ("Likelihood 3 of 4, impact 2 of 4"). Never invent words like "medium" or "minor". The grid (read from the page image; **verify against the PDF before the W3 build**; likelihood 1 bottom to 4 top, impact 1 left to 4 right), using the level palette plus matrix green `#c4e90c`:
+
+| Likelihood | Impact 1 | Impact 2 | Impact 3 | Impact 4 |
+|---|---|---|---|---|
+| 4 | green | yellow | amber | red |
+| 3 | green | yellow | amber | amber |
+| 2 | green | green | yellow | amber |
+| 1 | green | green | yellow | yellow |
+
+Consistency check against the recorded feed sample: likelihood 3, impact 2 is yellow, matching that warning's `warningLevel` YELLOW. A test asserts that the served level agrees with this grid for the fixtures (never recolour a warning from the grid; the served `warningLevel` always wins, the grid only draws the cell). The same grid orders overlapping warnings by impact then likelihood (§12 ordering). The page image is in the owner's PDF; do not copy Met Office artwork into the repo, draw the grid from these values.
