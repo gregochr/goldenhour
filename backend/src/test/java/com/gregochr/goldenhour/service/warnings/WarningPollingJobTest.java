@@ -400,6 +400,23 @@ class WarningPollingJobTest {
     }
 
     @Test
+    @DisplayName("a 200 that is well-formed XML but not Atom is MALFORMED_FEED and does not advance lastSuccessAt")
+    void nonAtomOkIsFailure() {
+        when(client.getFeed(FEED)).thenReturn("<feed xmlns=\"http://www.w3.org/2005/Atom\"/>")
+                .thenReturn("<error>Service unavailable</error>");
+        run();
+        assertThat(status.lastSuccessAt()).isEqualTo(NOW);
+
+        SchedulerFireOutcome.Report report = run();
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(status.lastAttempt().failureReason()).isEqualTo("MALFORMED_FEED");
+        assertThat(status.lastAttempt().succeeded()).isFalse();
+        assertThat(status.lastSuccessAt()).isEqualTo(NOW);
+        verifyNoInteractions(repository);
+    }
+
+    @Test
     @DisplayName("an empty feed is a successful poll that stores nothing and cancels nothing")
     void emptyFeedInfersNothing() {
         when(client.getFeed(FEED)).thenReturn("<feed xmlns=\"http://www.w3.org/2005/Atom\"/>");

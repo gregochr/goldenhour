@@ -55,6 +55,8 @@ public class WarningFeedParser {
     /** The path segments a link needs to carry a warning id and a version. */
     private static final int ID_SEGMENTS = 2;
 
+    private static final String ATOM_NAMESPACE = "http://www.w3.org/2005/Atom";
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
@@ -86,6 +88,10 @@ public class WarningFeedParser {
      */
     public FeedParse parseFeed(String atomXml) {
         Document document = readXml(atomXml);
+        Element root = document.getDocumentElement();
+        if (!ATOM_NAMESPACE.equals(root.getNamespaceURI()) || !"feed".equals(root.getLocalName())) {
+            throw new WarningFeedException("Document root is not an Atom feed");
+        }
         NodeList nodes = document.getElementsByTagNameNS("*", "entry");
         List<FeedEntry> entries = new ArrayList<>();
         int malformed = 0;

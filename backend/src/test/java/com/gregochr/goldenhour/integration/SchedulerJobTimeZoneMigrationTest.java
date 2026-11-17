@@ -41,7 +41,8 @@ class SchedulerJobTimeZoneMigrationTest extends IntegrationTestBase {
     void otherJobsStayUtc() {
         List<String> zoned = jdbc.queryForList(
                 "SELECT job_key FROM scheduler_job_config WHERE time_zone IS NOT NULL "
-                        + "AND job_key NOT IN ('evening_sunrise_refresh', 'imo_calendar_refresh')", String.class);
+                        + "AND job_key NOT IN ('evening_sunrise_refresh', 'imo_calendar_refresh', "
+                        + "'weather_warning_poll')", String.class);
 
         assertThat(zoned).isEmpty();
     }

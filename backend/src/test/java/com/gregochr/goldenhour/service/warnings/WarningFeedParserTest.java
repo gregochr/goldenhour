@@ -128,6 +128,21 @@ class WarningFeedParserTest {
     }
 
     @Test
+    @DisplayName("well-formed XML whose root is not an Atom feed is refused, even if it contains entry elements")
+    void nonAtomRootRefused() {
+        assertThatThrownBy(() -> parser.parseFeed("<error>Service unavailable</error>"))
+                .isInstanceOf(WarningFeedException.class).hasMessageContaining("not an Atom feed");
+        assertThatThrownBy(() -> parser.parseFeed(
+                "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body>Maintenance</body></html>"))
+                .isInstanceOf(WarningFeedException.class);
+        assertThatThrownBy(() -> parser.parseFeed("<feed><entry/></feed>"))
+                .isInstanceOf(WarningFeedException.class);
+        assertThatThrownBy(() -> parser.parseFeed(
+                "<rss xmlns=\"http://www.w3.org/2005/Atom\"><entry/></rss>"))
+                .isInstanceOf(WarningFeedException.class);
+    }
+
+    @Test
     @DisplayName("text that is not XML, an XML doctype and null all fail the whole feed")
     void unreadableFeed() {
         assertThatThrownBy(() -> parser.parseFeed("<feed><entry></feed>")).isInstanceOf(WarningFeedException.class);

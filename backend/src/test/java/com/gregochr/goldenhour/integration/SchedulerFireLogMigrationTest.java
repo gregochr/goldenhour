@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Proves V215 against a real Postgres (Flyway runs every migration in {@link IntegrationTestBase}): the
  * {@code scheduler_fire_log} table and its two indexes, an insert plus the scoped completion round-trip, the
  * {@code schedule_changed_at} column, the seeded {@code scheduler_fire_log_cleanup} job with its cron, and
- * the job count (28 after V215, 29 after V223 adds imo_calendar_refresh).
+ * the job count (28 after V215, 29 after V223 adds imo_calendar_refresh, 30 after V224 adds weather_warning_poll).
  *
  * <p>CI-only: it needs the Postgres Testcontainer, and there is no Docker on the development machine
  * (see CLAUDE.md), so the migration is proven before merge only by CI's Backend job.
@@ -124,11 +124,11 @@ class SchedulerFireLogMigrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("after V223 there are 29 scheduler jobs (28 after V215, plus imo_calendar_refresh)")
-    void jobCountIsTwentyNine() {
+    @DisplayName("after V224 there are 30 scheduler jobs (28 after V215, plus the IMO refresh and the warning poll)")
+    void jobCountIsThirty() {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM scheduler_job_config", Integer.class);
 
-        assertThat(count).isEqualTo(29);
+        assertThat(count).isEqualTo(30);
     }
 
     private static Map<String, Object> column(List<Map<String, Object>> columns, String name) {
