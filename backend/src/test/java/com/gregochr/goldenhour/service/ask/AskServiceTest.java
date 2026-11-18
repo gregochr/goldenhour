@@ -1681,7 +1681,11 @@ class AskServiceTest {
         assertThat(response.warnings()).isNull();
         assertThat(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()
                 .writeValueAsString(response)).doesNotContain("warnings");
-        verify(cache).store(any(), any(), any(), any());
+        verify(cache).store(argThat(q -> q.sanitised().equals("Best spot tonight?")), eq(snapshot),
+                argThat(AskUserContext::hasUser),
+                argThat(o -> o.status() == AskOutcome.Status.OK && o.answer().warnings() == null
+                        && o.answer().summary().equals("A good one.") && o.answer().picks().size() == 1
+                        && !o.uncacheable()));
     }
 
     @Test
