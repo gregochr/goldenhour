@@ -1,4 +1,4 @@
-# Met Office weather warnings (backend, W1a to W1c)
+# Met Office weather warnings (backend, W1a to W1c; Ask, W6)
 
 Behaviour as built in phases W1a, W1b and W1c of `docs/engineering/weather-warnings-plan.md` (the plan and its §8 review
 amendments remain the product and design record). W1a is **backend only**: ingest, storage, the active-at-T rule,
@@ -156,8 +156,7 @@ expired warnings never appear, for any role. "Now" is the injected `Clock`, so R
   serve (time-driven transitions lag by at most the 30 s memo). `AskSnapshotBuilder`'s 30 s memo **is invalidated by the
   epoch indirectly**: it is keyed on the identity of the served briefing it was built from, and that object changes when
   the epoch moves. Ask reads ratings and picks off the windows by named accessors and never serialises a window, so
-  `warningIds` cannot reach an Ask prompt or answer; Ask must not mention warnings in this series, so nothing further was
-  changed.
+  `warningIds` cannot reach an Ask prompt or answer. (W6 gives Ask the served warnings by a separate, explicit route: "Ask, W6" below.)
 
 ## Operations panel (W1b)
 
@@ -405,7 +404,7 @@ exact attribution, the official colours and both Met Office links. In the app, `
 popup row, location sheet, Map chip row and callout, and Coming up all get it from one place; stale, it opens `#fresh`. It opens the guide the way every
 `GuideLink` does (two-deep rule, stacked protocol, `replaceState` for embedded navigation); nothing about dialog stacking or Back changed.
 
-The copy says only what is built: no map outlines, no Ask mention (W6), the matrix with no invented words, the "Raised from" line only on Coming up cards, no
+The copy says only what is built: no map outlines, the matrix with no invented words, the "Raised from" line only on Coming up cards, no
 Met Office logo or icons.
 
 ### Flag-on checklist (owner decisions; the flag stays `false` until all are done)
@@ -416,3 +415,29 @@ Met Office logo or icons.
 4. API key: `PHOTOCAST_WARNINGS_API_KEY` set in the production server environment (never in the repo or the image); header name `apikey` (`photocast.warnings.api-key-header`) confirmed against the live API.
 5. Stale threshold: `photocast.warnings.poll-stale-minutes` now defaults to 10 (was 30), matching the style guide's expectation that an outage beyond about 10 minutes shows the stale line. Do not raise it without re-reading plan section 12 (Timeliness).
 6. Then `photocast.warnings.enabled=true` and a restart (the scheduler row is config-gated); watch the Operations warnings panel for a successful poll.
+
+## Ask, W6 (Ask PhotoCast mentions warnings)
+
+Phase W6 (`docs/engineering/weather-warnings-plan.md` §14) gives Ask PhotoCast the warnings in force as **read-only facts**, so "is there a
+warning for Hadrian's Wall?" or "will the snow be heavy?" can be answered with the Met Office's own words. It is dark unless **both**
+`photocast.warnings.enabled` and `photocast.ask.enabled` are true; with the warnings flag off nothing below changes a byte of Ask's snapshot,
+prompt, tool results, answers or wire shape (tested). Scoring prompts (Sky Eval, batch) never see warnings. Ratings, picks, verdicts and the
+validator's pick rules are untouched: a warning never moves a star.
+
+| Piece | Role |
+|---|---|
+| `AskSnapshot.warnings` (`AskSnapshot.Warnings`, `Warning`) | Read in `AskSnapshotBuilder.warnings()` from `WarningService.served()` (stored versions, injected `Clock`, never a simulated row, "not enabled" when off): level, types, validity, headline, what to expect, the Updated flag, the locations covered, the stale flag, the Met Office URL and attribution. Inside the snapshot's 30 s memo, so a cancelled or expired warning is gone within 30 s (the licence bound is 10 minutes); a rewound admin request builds fresh. **Fail-closed**: a failed read is an enabled, stale, empty set, never "none". |
+| `AskTools` (`finish`, `warningFacts`) | The first successful tool result of a **typed** conversation gets a leading `warnings` block (`source`, `stale`, a fixed stale instruction, up to 3 warnings in the served order and a count of the rest; each with `id`, the shared `ComingUpWarningMerger.phrase` ("Amber warning of snow"), `updated`, UK-time validity, headline and up to 2 expectation lines cut at 160 characters, up to 5 in-scope place names). Only warnings covering a place in the question's regions (the windows' and nights' places); a Ready (user-less) conversation never sees one. It rides the first result whichever tool it is, once, so a one-place question that never calls `list_windows` still gets it. Showing it marks the conversation **uncacheable** (the typed cache never stores it) and records the shown ids in `AskEvidence.warningIds`. |
+| `AskPromptBuilder.WARNING_RULES` | Appended to the **per-question tail** (never the cached static prefix) only when `AskTools.hasWarningFacts()`: quote the Met Office's phrase, times and headline, say it is from the Met Office, never soften, upgrade, shorten or paraphrase a level, never add detail, never say a warning changes a rating, never imply one that is not listed, never treat none as an all-clear, say the warnings may be out of date when the block says so, and re-check in this conversation rather than trusting an earlier answer. |
+| `AskWarningGuard` (the typed guard) | Run by `AskAnswerValidator` on the summary, every pick and event reason and `missing`, only while the warnings flag is on. A sentence that says a warning is in force (a level named with "warning", "weather warning", "Met Office", "warning ... in force/in place/issued") is kept only when a warning was **shown to the model in this conversation** and any level it names is one of the shown levels; otherwise the sentence is **removed** (never rewritten), a reason or `missing` is dropped whole, and a summary left empty becomes our own can't-answer (`UNKNOWN_SUMMARY`, never "no warnings"). An invented id or level therefore cannot survive. |
+| `AskAnswer.warnings` / `AskResponse.warnings` | When an answer's prose mentions a shown warning, the **server** attaches the facts (id, version, level, types, phrase, validity, headline, Updated) read from the live snapshot, the stale flag and the Met Office attribution and link. Omitted from JSON when null, so every answer is unchanged while off. A Ready answer never carries one. |
+| Client | `normaliseWarnings` (`utils/askConversation.js`) and `components/ask/AskWarnings.jsx`: the shared `WarningChip` (official colours, level word, Updated), the headline, UK validity, a plain "may be out of date" line when stale, and `WarningFooter` (attribution and link, guide door). No icon or logo. |
+
+**Prompt growth (measured).** Nothing when no warning covers the question's places. Otherwise about 1,090 characters of rules (about 270 tokens,
+per-question tail) plus about 430 characters (about 110 tokens) of facts per warning, at most three (about 1,130 characters worst case), replayed on
+each later turn of that conversation. The Ready precompute and every question the warnings do not touch are byte for byte as before.
+
+**Cost and risk notes.** The extra characters count against the conversation's `RESULT_CHAR_CAP` (9,000) on the first tool call only; a typed
+conversation with a warning is never cached, so it always pays for the Claude call. The guard is a text pattern, not a fact-checker: it stops a
+claimed warning that was not shown, or a level that was not shown, but it cannot judge whether prose about a shown warning is a fair paraphrase; the
+facts card and the attribution beside it are the server's words. Ask prompt-regression cases are the owner's to add (no assertion was edited).

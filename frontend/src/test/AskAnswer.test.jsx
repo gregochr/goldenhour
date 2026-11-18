@@ -16,7 +16,7 @@ import {
 } from './askConversationHarness.jsx';
 import { READY_OPEN_MS } from '../context/AskContext.jsx';
 import {
-  briefing, cantResponse, ECLIPSE_SAFETY_NOTE, ownResponse, pick, readyResponse, settings, WHITBY,
+  briefing, cantResponse, ECLIPSE_SAFETY_NOTE, ownResponse, pick, readyResponse, settings, warningsBody, WHITBY,
 } from './askFixtures.js';
 
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
@@ -150,6 +150,43 @@ describe('AskConversation — the served windows', () => {
     expect(screen.queryByTestId('ask-spread')).toBeNull();
     expect(screen.queryByText(/rated across/i)).toBeNull();
     expect(screen.queryByText(/4★\+/)).toBeNull();
+  });
+});
+
+describe('AskConversation — Met Office warnings in an answer', () => {
+  it('draws the warning the server attached under the summary: chip, headline, UK validity, attribution and link', async () => {
+    ask.mockResolvedValue(ownResponse({ warnings: warningsBody() }));
+    await renderAsk();
+    await askTyped('Will the snow be heavy at Hadrian’s Wall?', { view: 'plan' });
+
+    const block = await screen.findByTestId('ask-warnings');
+    expect(within(block).getByTestId('warning-chip')).toHaveTextContent('Amber warning of snow');
+    expect(within(block).getByTestId('warning-chip-updated')).toBeInTheDocument();
+    expect(within(block).getByTestId('ask-warning-headline')).toHaveTextContent('Snow, heavy at times');
+    expect(within(block).getByTestId('ask-warning-validity')).toHaveTextContent(/Valid .* \(UK time\)/);
+    expect(within(block).getByTestId('warning-attribution'))
+      .toHaveTextContent('Met Office Weather Warnings © Crown Copyright 2026');
+    expect(within(block).getByTestId('warning-source-link'))
+      .toHaveAttribute('href', 'https://www.metoffice.gov.uk/public/weather/warnings/');
+    expect(within(block).queryByTestId('ask-warnings-stale')).toBeNull();
+    // The block sits beside the picks and touches neither: the cards are the same.
+    expect(screen.getByTestId('ask-picks')).toBeInTheDocument();
+  });
+
+  it('says plainly that the warnings may be out of date when the feed is stale', async () => {
+    ask.mockResolvedValue(ownResponse({ warnings: warningsBody({ stale: true }) }));
+    await renderAsk();
+    await askTyped('Any warnings?', { view: 'plan' });
+
+    expect(await screen.findByTestId('ask-warnings-stale')).toHaveTextContent('may be out of date');
+  });
+
+  it('draws nothing for an answer that carries no warnings, and nothing for a Ready answer', async () => {
+    ask.mockResolvedValue(ownResponse());
+    await renderAsk();
+    await askTyped('Where is good?', { view: 'plan' });
+    expect(await screen.findByTestId('ask-summary')).toBeInTheDocument();
+    expect(screen.queryByTestId('ask-warnings')).toBeNull();
   });
 });
 

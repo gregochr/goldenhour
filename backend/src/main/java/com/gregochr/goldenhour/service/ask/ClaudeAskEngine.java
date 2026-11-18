@@ -236,7 +236,7 @@ public class ClaudeAskEngine implements AskEngine {
                         .filter(n -> n.kind() != AskWindowKind.AURORA || user.canSeeAurora()).orElse(null);
         AskPromptBuilder.SystemPrompt system = promptBuilder.systemPromptBlocks(snapshot.today(),
                 conversation.scope(), contextWindow, contextNight, snapshot.nights().tonight(), user.hasUser(),
-                !thread.isEmpty(), coveredWindows(conversation));
+                !thread.isEmpty(), coveredWindows(conversation), conversation.tools().hasWarningFacts());
         // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
         // the forecast, one query for names, neither of which should repeat each turn.
         String userMessage = promptBuilder.userMessage(question.sanitised(), thread);

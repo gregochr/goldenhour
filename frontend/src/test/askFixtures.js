@@ -235,6 +235,27 @@ export function ownResponse(over = {}) {
   };
 }
 
+/** The `warnings` a typed answer carries when its prose mentions a Met Office warning (plan §14, W6). */
+export function warningsBody(over = {}) {
+  return {
+    stale: false,
+    attribution: 'Met Office Weather Warnings © Crown Copyright 2026',
+    url: 'https://www.metoffice.gov.uk/public/weather/warnings/',
+    items: [{
+      id: 'W1',
+      version: '2.0',
+      level: 'AMBER',
+      weatherTypes: ['SNOW'],
+      phrase: 'Amber warning of snow',
+      validFrom: '2026-10-05T06:00:00Z',
+      validTo: '2026-10-06T18:00:00Z',
+      headline: 'Snow, heavy at times',
+      updated: true,
+    }],
+    ...over,
+  };
+}
+
 /** A `kind: cant` reply — the pre-filter's shape, with no briefing time to name. */
 export function cantResponse(over = {}) {
   return {

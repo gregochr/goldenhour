@@ -154,8 +154,20 @@ public class ComingUpWarningMerger {
 
     /** "Amber warning of snow and wind", the phrase the client prints and the style guide asks for. */
     static String title(WarningDto warning) {
-        String word = levelWord(warning.level());
-        List<String> types = typeWords(warning.weatherTypes());
+        return phrase(warning.level(), warning.weatherTypes());
+    }
+
+    /**
+     * "Amber warning of snow and wind" from a level and its weather types, as the Met Office style guide words it.
+     * Shared by the Coming up entry and Ask's warning facts so the two never word a warning differently.
+     *
+     * @param level        the level as served (upper case), or null
+     * @param weatherTypes the weather types as served, or null
+     * @return the phrase
+     */
+    public static String phrase(String level, List<String> weatherTypes) {
+        String word = levelWord(level);
+        List<String> types = typeWords(weatherTypes);
         if (types.isEmpty()) {
             return word + " warning";
         }

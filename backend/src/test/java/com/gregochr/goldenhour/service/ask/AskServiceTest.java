@@ -1635,6 +1635,38 @@ class AskServiceTest {
                 .containsExactly("2026-10-05_astro", "2026-10-05_aurora");
     }
 
+    private static AskAnswer.WarningsCard warningCard() {
+        return new AskAnswer.WarningsCard(false, AskWarningFixtures.ATTRIBUTION, AskWarningFixtures.URL,
+                List.of(new AskAnswer.WarningCard("W1", "2.0", "AMBER", List.of("SNOW"), "Amber warning of snow",
+                        "2026-10-05T06:00:00Z", "2026-10-06T18:00:00Z", "Snow, heavy at times", false)));
+    }
+
+    @Test
+    @DisplayName("an answer that mentions a Met Office warning is served with the warning facts and the attribution "
+            + "the validator attached, and is never offered to the typed cache (W6)")
+    void warningAnswerCarriesTheFactsAndIsNeverCached() {
+        AskAnswer answer = ok().outcome().answer().withWarnings(warningCard());
+        when(engine.run(any(), eq(snapshot), any(), eq(AskRunOptions.none()))).thenAnswer(inv ->
+                new AskRun(new AskOutcome(AskOutcome.Status.OK, answer, false, 2, true, Set.of()), List.of(), null));
+
+        AskResponse response = ask("Is there a warning for Hadrian's Wall?");
+
+        assertThat(response.kind()).isEqualTo("own");
+        assertThat(response.warnings()).isEqualTo(warningCard());
+        verify(cache, never()).store(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("an answer with no warning serves no warnings field at all and is cached as before")
+    void plainAnswerCarriesNoWarnings() throws Exception {
+        AskResponse response = ask("Best spot tonight?");
+
+        assertThat(response.warnings()).isNull();
+        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()
+                .writeValueAsString(response)).doesNotContain("warnings");
+        verify(cache).store(any(), any(), any(), any());
+    }
+
     @Test
     @DisplayName("the refusal body is exactly {error, code} and each code fixes its status")
     void refusalBodies() {

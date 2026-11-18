@@ -41,6 +41,9 @@ import java.util.List;
  * @param windows        the rating distribution of every window the summary may have quoted
  *                       ({@link AskAnswer#windows()}), served beside the summary so the server's figure
  *                       stands next to the model's sentence; omitted from the wire when empty
+ * @param warnings       the Met Office warnings the answer mentions, with the attribution the licence requires
+ *                       ({@link AskAnswer#warnings()}); omitted from the wire when null, which is every answer while
+ *                       the warnings feature is off
  */
 public record AskResponse(boolean answerable, String kind, String summary,
         List<AskReadyResponse.Pick> picks, List<AskEvent> events,
@@ -51,7 +54,8 @@ public record AskResponse(boolean answerable, String kind, String summary,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean threadReset,
         @JsonInclude(JsonInclude.Include.NON_NULL) String threadResetReason,
         @JsonInclude(JsonInclude.Include.NON_NULL) String nightVersion,
-        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<AskAnswer.WindowSpread> windows) {
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<AskAnswer.WindowSpread> windows,
+        @JsonInclude(JsonInclude.Include.NON_NULL) AskAnswer.WarningsCard warnings) {
 
     /** Why a thread was dropped (plan §2.2); the client words its own line. */
     public static final String THREAD_RESET_REASON = "forecast updated";
@@ -74,6 +78,35 @@ public record AskResponse(boolean answerable, String kind, String summary,
         events = events == null ? List.of() : List.copyOf(events);
         tryThese = tryThese == null ? List.of() : List.copyOf(tryThese);
         windows = windows == null ? List.of() : List.copyOf(windows);
+    }
+
+    /**
+     * A response carrying no warnings.
+     *
+     * @param answerable        see the record
+     * @param kind              see the record
+     * @param summary           see the record
+     * @param picks             see the record
+     * @param events            see the record
+     * @param missing           see the record
+     * @param tryThese          see the record
+     * @param allowanceLeft     see the record
+     * @param allowanceLimit    see the record
+     * @param charged           see the record
+     * @param generatedAt       see the record
+     * @param runLabel          see the record
+     * @param threadReset       see the record
+     * @param threadResetReason see the record
+     * @param nightVersion      see the record
+     * @param windows           see the record
+     */
+    public AskResponse(boolean answerable, String kind, String summary, List<AskReadyResponse.Pick> picks,
+            List<AskEvent> events, String missing, List<AskReadyResponse.Suggestion> tryThese,
+            Integer allowanceLeft, int allowanceLimit, boolean charged, LocalDateTime generatedAt,
+            String runLabel, Boolean threadReset, String threadResetReason, String nightVersion,
+            List<AskAnswer.WindowSpread> windows) {
+        this(answerable, kind, summary, picks, events, missing, tryThese, allowanceLeft, allowanceLimit,
+                charged, generatedAt, runLabel, threadReset, threadResetReason, nightVersion, windows, null);
     }
 
     /**
@@ -136,7 +169,7 @@ public record AskResponse(boolean answerable, String kind, String summary,
      */
     public AskResponse withThreadReset(String reason) {
         return new AskResponse(answerable, kind, summary, picks, events, missing, tryThese, allowanceLeft,
-                allowanceLimit, charged, generatedAt, runLabel, Boolean.TRUE, reason, nightVersion, windows);
+                allowanceLimit, charged, generatedAt, runLabel, Boolean.TRUE, reason, nightVersion, windows, warnings);
     }
 
     /**
@@ -147,6 +180,7 @@ public record AskResponse(boolean answerable, String kind, String summary,
      */
     public AskResponse withNightVersion(String version) {
         return new AskResponse(answerable, kind, summary, picks, events, missing, tryThese, allowanceLeft,
-                allowanceLimit, charged, generatedAt, runLabel, threadReset, threadResetReason, version, windows);
+                allowanceLimit, charged, generatedAt, runLabel, threadReset, threadResetReason, version, windows,
+                warnings);
     }
 }

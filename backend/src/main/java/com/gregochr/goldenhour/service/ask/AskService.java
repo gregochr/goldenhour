@@ -502,7 +502,7 @@ public class AskService {
         return new AskResponse(true, AskResponse.KIND_OWN, answer.summary(),
                 answer.picks().stream().map(AskReadyResponse.Pick::of).toList(), answer.events(),
                 null, List.of(), left, limit, charged, snapshot.generatedAt(), snapshot.runLabel(), null, null,
-                null, answer.windows());
+                null, answer.windows(), answer.warnings());
     }
 
     /**

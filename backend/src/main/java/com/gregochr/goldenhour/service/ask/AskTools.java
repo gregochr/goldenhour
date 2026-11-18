@@ -3,17 +3,22 @@ package com.gregochr.goldenhour.service.ask;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.comingup.ComingUpWarningMerger;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import com.gregochr.goldenhour.util.DayLabels;
 import com.gregochr.goldenhour.util.GeoUtils;
 import com.gregochr.goldenhour.util.PlaceNames;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -197,6 +202,29 @@ public class AskTools {
     private static final String LIMIT_REACHED =
             "Tool output limit reached for this conversation. Answer now with what you have.";
 
+    /** Who a warning is from, said once in the facts block. */
+    static final String WARNING_SOURCE = "Met Office Weather Warnings";
+
+    /** The stale instruction: an empty or partial list must never read as an all-clear. */
+    static final String WARNING_STALE_NOTE =
+            "The warnings feed may be out of date: say these warnings may be out of date.";
+
+    /** The most warnings listed in the facts block. */
+    static final int MAX_WARNINGS = 3;
+
+    /** The most "what to expect" lines one warning carries. */
+    static final int MAX_WARNING_EXPECT_LINES = 2;
+
+    /** The most places one warning names. */
+    static final int MAX_WARNING_PLACES = 5;
+
+    /** The characters of a headline or a line before the cut. */
+    static final int MAX_WARNING_TEXT = 160;
+
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
+    private static final DateTimeFormatter WARNING_TIME =
+            DateTimeFormatter.ofPattern("EEE d MMM HH:mm", Locale.ENGLISH);
+
     private static final Set<String> TIDE_STATES = Set.of("HIGH", "MID", "LOW");
 
     private final AskSnapshot snapshot;
@@ -212,6 +240,10 @@ public class AskTools {
     private final Set<String> listedWindows = new LinkedHashSet<>();
     private final List<ToolCall> trace = new ArrayList<>();
     private final Set<LocalDate> nightsConsulted = new TreeSet<>();
+    private final Set<String> warningsShown = new LinkedHashSet<>();
+    private WarningsInfo warningFacts;
+    private boolean warningFactsBuilt;
+    private boolean warningsDelivered;
     private int charsUsed;
     private boolean personal;
     private boolean uncacheable;
@@ -864,6 +896,41 @@ public class AskTools {
      * @param chars the characters returned (zero for an error)
      */
     public record ToolCall(String tool, boolean error, int chars) {
+    }
+
+    // -- weather warnings (weather-warnings-plan.md section 14, W6) ------------------------------
+
+    /**
+     * The Met Office warnings block that rides the first tool result of a typed conversation while a warning
+     * covers a place the question is about. Every field is the Met Office's own words or a fixed server phrase.
+     *
+     * @param source   who the warnings are from, to be named when one is mentioned
+     * @param stale    true when the feed may be out of date
+     * @param note     the stale instruction, only when {@code stale}
+     * @param inForce  the warnings in force, most severe first
+     * @param moreWarnings how many further warnings are in force and not listed, or null
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record WarningsInfo(String source, boolean stale, String note, List<WarningInfo> inForce,
+            Integer moreWarnings) {
+    }
+
+    /**
+     * One warning in force, as the Met Office wrote it.
+     *
+     * @param id          the warning id (the only handle the server accepts for a warning)
+     * @param phrase      the level and weather types, "Amber warning of snow"
+     * @param updated     true when this is an update to an earlier warning, else omitted
+     * @param validFrom   start, UK local time with the day
+     * @param validTo     end, UK local time with the day
+     * @param headline    the Met Office headline
+     * @param whatToExpect the first "what to expect" lines
+     * @param places      places in the question's scope the warning covers, at most five
+     * @param placeCount  how many such places there are when more than are listed, else omitted
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record WarningInfo(String id, String phrase, Boolean updated, String validFrom, String validTo,
+            String headline, List<String> whatToExpect, List<String> places, Integer placeCount) {
     }
 
     // -- tools ------------------------------------------------------------------------------
@@ -2151,7 +2218,8 @@ public class AskTools {
      * @return the evidence so far
      */
     public AskEvidence evidence() {
-        return new AskEvidence(pairs, events, trace.size(), AskEvidence.ThreadFact.NONE, listedWindows);
+        return new AskEvidence(pairs, events, trace.size(), AskEvidence.ThreadFact.NONE, listedWindows,
+                warningsShown);
     }
 
     /**
@@ -2354,13 +2422,119 @@ public class AskTools {
         } catch (JsonProcessingException e) {
             return fail(tool, "The result could not be produced.");
         }
+        // The warnings ride the FIRST result the model gets, whichever tool it is, so a question about one place
+        // (which may never call list_windows) still sees them. A result the cap refuses delivers nothing.
+        WarningsInfo warnings = warningsDelivered ? null : warningFacts();
+        String withWarnings = warnings == null ? null : withWarnings(json, warnings);
+        if (withWarnings == null) {
+            warnings = null;
+        } else {
+            json = withWarnings;
+        }
         if (charsUsed + json.length() > RESULT_CHAR_CAP) {
             return fail(tool, LIMIT_REACHED);
         }
         charsUsed += json.length();
         trace.add(new ToolCall(tool, false, json.length()));
         accepted.run();
+        if (warnings != null) {
+            warningsDelivered = true;
+            warnings.inForce().forEach(w -> warningsShown.add(w.id()));
+            // Warning facts are read per request and never frozen into a shared answer.
+            uncacheable = true;
+        }
         return new AskToolResult<>(false, json, payload);
+    }
+
+    /** The payload's JSON with the warnings block first (the payload's own fields keep their order), or null. */
+    private String withWarnings(String json, WarningsInfo warnings) {
+        try {
+            ObjectNode combined = mapper.createObjectNode();
+            combined.set("warnings", mapper.valueToTree(warnings));
+            combined.setAll((ObjectNode) mapper.readTree(json));
+            return mapper.writeValueAsString(combined);
+        } catch (JsonProcessingException e) {
+            // Unreachable for a payload this class has just serialised; sent without them, never failed.
+            return null;
+        }
+    }
+
+    /**
+     * Whether this conversation will show the model a Met Office warning: typed, the feature on, and a warning
+     * covering a place the question is about. The engine adds the warning rules to the prompt only when this is
+     * true, so a question the warnings do not touch pays nothing for them.
+     *
+     * @return true when the first successful result will carry warning facts
+     */
+    public boolean hasWarningFacts() {
+        return warningFacts() != null;
+    }
+
+    /**
+     * The Met Office warnings this conversation may show the model, built once: typed conversations only (a
+     * user-less Ready conversation is shared with every reader and never sees one), only while the feature is on,
+     * and only warnings covering a place the question is about, most severe first (the served order).
+     */
+    private WarningsInfo warningFacts() {
+        if (warningFactsBuilt) {
+            return warningFacts;
+        }
+        warningFactsBuilt = true;
+        AskSnapshot.Warnings served = snapshot.warnings();
+        if (!user.hasUser() || !served.enabled() || served.items().isEmpty()) {
+            return null;
+        }
+        Set<Long> inScope = scope.isEverywhere() ? null : scopeLocationIds();
+        List<AskSnapshot.Warning> relevant = served.items().stream()
+                .filter(w -> inScope == null || w.locationIds().stream().anyMatch(inScope::contains)).toList();
+        if (relevant.isEmpty()) {
+            return null;
+        }
+        Map<Long, AskLocationNames.Place> names = places.byId();
+        List<WarningInfo> shown = relevant.stream().limit(MAX_WARNINGS)
+                .map(w -> warningInfo(w, inScope, names)).toList();
+        warningFacts = new WarningsInfo(WARNING_SOURCE, served.stale(),
+                served.stale() ? WARNING_STALE_NOTE : null, shown,
+                relevant.size() > MAX_WARNINGS ? relevant.size() - MAX_WARNINGS : null);
+        return warningFacts;
+    }
+
+    /** The ids of the places the question's scope holds, read from the windows and the nights. */
+    private Set<Long> scopeLocationIds() {
+        Set<Long> ids = new HashSet<>();
+        for (AskSnapshot.Window window : snapshot.windows()) {
+            for (AskSnapshot.Region region : window.regions()) {
+                if (scope.contains(region.name())) {
+                    region.slots().stream().map(AskSnapshot.Slot::locationId).filter(Objects::nonNull)
+                            .forEach(ids::add);
+                }
+            }
+        }
+        for (AskSnapshot.Night night : snapshot.nights().nights()) {
+            night.spots().stream().filter(s -> scope.contains(s.regionName()))
+                    .forEach(s -> ids.add(s.locationId()));
+        }
+        return ids;
+    }
+
+    private static WarningInfo warningInfo(AskSnapshot.Warning w, Set<Long> inScope,
+            Map<Long, AskLocationNames.Place> names) {
+        List<String> covered = w.locationIds().stream()
+                .filter(id -> inScope == null || inScope.contains(id))
+                .map(names::get).filter(Objects::nonNull).map(AskLocationNames.Place::name)
+                .sorted(String.CASE_INSENSITIVE_ORDER).toList();
+        List<String> expect = w.whatToExpect().stream().filter(l -> l != null && !l.isBlank())
+                .limit(MAX_WARNING_EXPECT_LINES).map(l -> cap(l.strip(), MAX_WARNING_TEXT)).toList();
+        return new WarningInfo(w.id(), ComingUpWarningMerger.phrase(w.level(), w.types()),
+                w.updated() ? Boolean.TRUE : null, warningTime(w.validFrom()), warningTime(w.validTo()),
+                w.headline() == null ? null : cap(w.headline().strip(), MAX_WARNING_TEXT),
+                expect.isEmpty() ? null : expect, covered.stream().limit(MAX_WARNING_PLACES).toList(),
+                covered.size() > MAX_WARNING_PLACES ? covered.size() : null);
+    }
+
+    /** A warning's instant as a UK clock time with its day ("Thu 19 Nov 06:00"), BST and GMT alike. */
+    private static String warningTime(Instant instant) {
+        return instant == null ? null : WARNING_TIME.format(instant.atZone(LONDON));
     }
 
     private static int clamp(Integer requested, int fallback, int max) {

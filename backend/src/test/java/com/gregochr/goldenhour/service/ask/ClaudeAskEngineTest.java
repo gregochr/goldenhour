@@ -1126,6 +1126,44 @@ class ClaudeAskEngineTest {
     }
 
     @Test
+    @DisplayName("a typed conversation's system prompt carries the warning rules in its tail only while a Met Office "
+            + "warning is in force, and the first tool result then carries the warning facts (W6)")
+    void warningRulesAndFactsReachTheModelOnlyWhileAWarningIsInForce() {
+        AskSnapshot withWarning = snapshot(null).withWarnings(
+                AskWarningFixtures.served(AskWarningFixtures.warning("W1", "AMBER", List.of("SNOW"), 1L)));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t1", "list_windows", Map.of())), submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), withWarning, USER, AskRunOptions.none());
+
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(systemText(sent.getFirst())).endsWith(AskPromptBuilder.WARNING_RULES);
+        assertThat(toolResultsIn(sent.get(1)).getFirst().toString()).contains("Amber warning of snow");
+
+        org.mockito.Mockito.clearInvocations(client);
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t1", "list_windows", Map.of())), submit(answer(pick(1, WINDOW))));
+        engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+
+        List<MessageCreateParams> plain = sentParams();
+        assertThat(systemText(plain.getFirst())).doesNotContain("Met Office");
+        assertThat(toolResultsIn(plain.get(1)).getFirst().toString()).doesNotContain("warnings");
+
+        // A warning over a place the question is not about costs the prompt nothing.
+        org.mockito.Mockito.clearInvocations(client);
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t1", "list_windows", Map.of())), submit(answer(pick(1, WINDOW))));
+        AskSnapshot elsewhere = snapshot(null).withWarnings(
+                AskWarningFixtures.served(AskWarningFixtures.warning("W9", "RED", List.of("WIND"), 1L)));
+        engine.run(new AskQuestion("Best in Teesdale?", "best in teesdale", null, TEESDALE, "plan"), elsewhere, USER,
+                AskRunOptions.none());
+
+        List<MessageCreateParams> other = sentParams();
+        assertThat(systemText(other.getFirst())).doesNotContain("Met Office");
+        assertThat(toolResultsIn(other.get(1)).getFirst().toString()).doesNotContain("warnings");
+    }
+
+    @Test
     @DisplayName("the thread rides the first message of the conversation only: a tool turn's follow-on "
             + "request repeats it unchanged and adds no second copy")
     void threadIsInTheFirstMessageOnce() {

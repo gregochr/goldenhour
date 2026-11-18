@@ -14,6 +14,8 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
+import com.gregochr.goldenhour.model.WarningDto;
+import com.gregochr.goldenhour.model.WarningsResponse;
 import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.repository.AstroConditionsRepository;
@@ -29,6 +31,7 @@ import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.warnings.WarningService;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.Rewind;
 import org.slf4j.Logger;
@@ -114,6 +117,7 @@ public class AskSnapshotBuilder {
     private final AuroraStateCache auroraStateCache;
     private final AskAreas areas;
     private final LocationRepository locationRepository;
+    private final WarningService warningService;
 
     private Instant memoBuiltAt;
     private AskSnapshot memo;
@@ -183,12 +187,43 @@ public class AskSnapshotBuilder {
      * @param locationRepository  the enabled locations with their regions, read once per build; null gives no
      *                            later windows
      */
-    @Autowired
     public AskSnapshotBuilder(BriefingService briefingService, TravelDayService travelDayService,
             AlmanacService almanacService, SolarEventFreshness freshness, Clock clock,
             AstroConditionsRepository astroRepository, AuroraForecastResultRepository auroraRepository,
             AstroConditionsService astroService, AuroraForecastRunService nightSelector,
             AuroraStateCache auroraStateCache, AskAreas areas, LocationRepository locationRepository) {
+        this(briefingService, travelDayService, almanacService, freshness, clock, astroRepository,
+                auroraRepository, astroService, nightSelector, auroraStateCache, areas, locationRepository, null);
+    }
+
+    /**
+     * Creates the builder, with the Met Office weather warnings Ask's typed conversations may be told about
+     * (weather-warnings-plan.md section 14, W6).
+     *
+     * @param briefingService     the source of the served briefing
+     * @param travelDayService    the away-date test
+     * @param almanacService      the source of the "Coming up" entries
+     * @param freshness           the project's single answer to "now" for solar events
+     * @param clock               the application clock, for the memo and the UK civil date
+     * @param astroRepository     the astro conditions rows, read with their location fetched
+     * @param auroraRepository    the stored (non-simulated) aurora results, read with their location fetched
+     * @param astroService        resolves the window a stored astro row was scored over
+     * @param nightSelector       the one owner of "which night is current"
+     * @param auroraStateCache    the aurora alert state, reported for tonight only and never while simulated
+     * @param areas               the named areas and location aliases, read once per build
+     * @param locationRepository  the enabled locations with their regions, read once per build; null gives no
+     *                            later windows
+     * @param warningService      the served warnings (stored versions, the injected clock, never a simulated row);
+     *                            null means Ask knows nothing of warnings
+     */
+    @Autowired
+    public AskSnapshotBuilder(BriefingService briefingService, TravelDayService travelDayService,
+            AlmanacService almanacService, SolarEventFreshness freshness, Clock clock,
+            AstroConditionsRepository astroRepository, AuroraForecastResultRepository auroraRepository,
+            AstroConditionsService astroService, AuroraForecastRunService nightSelector,
+            AuroraStateCache auroraStateCache, AskAreas areas, LocationRepository locationRepository,
+            WarningService warningService) {
+        this.warningService = warningService;
         this.briefingService = briefingService;
         this.travelDayService = travelDayService;
         this.almanacService = almanacService;
@@ -281,7 +316,42 @@ public class AskSnapshotBuilder {
         AskAreas.Names names = areaNames();
         return Optional.of(new AskSnapshot(generatedAt, AskClock.londonHHmm(generatedAt),
                 ForecastHorizon.today(clock), windows, topics(briefing), comingUp(), briefing.stale(),
-                nights(), names.areas(), names.locationAliases(), later));
+                nights(), names.areas(), names.locationAliases(), later, warnings()));
+    }
+
+    /**
+     * The warnings in force, from {@link WarningService#served()}: stored versions read through the injected clock
+     * (the rewound instant for a rewound admin request, which is never memoised), never a simulated row, and "not
+     * enabled" while the feature is off. Within the snapshot memo, so a cancelled or expired warning is gone within
+     * {@value #MEMO_SECONDS} seconds, inside the licence's ten minutes. ⚠️ Fail-closed: a lookup that throws gives an
+     * enabled, stale, empty set, so the guard that strips an unsupported warning claim stays on and Ask never reads
+     * the failure as "no warnings".
+     */
+    private AskSnapshot.Warnings warnings() {
+        if (warningService == null) {
+            return AskSnapshot.Warnings.NONE;
+        }
+        try {
+            WarningsResponse served = warningService.served();
+            if (!served.enabled()) {
+                return AskSnapshot.Warnings.NONE;
+            }
+            List<AskSnapshot.Warning> items = new ArrayList<>();
+            if (served.warnings() != null) {
+                for (WarningDto w : served.warnings()) {
+                    if (w != null && w.warningId() != null && !w.simulated()) {
+                        items.add(new AskSnapshot.Warning(w.warningId(), w.warningVersion(), w.level(),
+                                w.weatherTypes(), w.validFrom(), w.validTo(), w.headline(), w.whatToExpect(),
+                                w.updated(), w.locationIds()));
+                    }
+                }
+            }
+            return new AskSnapshot.Warnings(true, served.stale(), items, served.metOfficeUrl(),
+                    served.attribution());
+        } catch (RuntimeException e) {
+            LOG.warn("[ASK] Could not read the weather warnings for the snapshot: {}", e.toString());
+            return new AskSnapshot.Warnings(true, true, List.of(), null, null);
+        }
     }
 
     // -- the later windows --------------------------------------------------------------------
