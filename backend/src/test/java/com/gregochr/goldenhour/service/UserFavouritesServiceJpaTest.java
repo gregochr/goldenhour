@@ -13,6 +13,9 @@ import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -49,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * own, as in production), so the per-reader lock and the cap can be raced. The V226 SQL itself (CHECK,
  * partial unique indexes, cascades) is proven on Postgres by {@code UserFavouriteMigrationTest} in CI.
  */
-@DataJpaTest
+@DataJpaTest(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @Import({UserFavouritesService.class, SubRegionMembershipService.class, UserFavouritesServiceJpaTest.ClockConfig.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class UserFavouritesServiceJpaTest {
@@ -84,6 +87,9 @@ class UserFavouritesServiceJpaTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private final List<Long> userIds = new ArrayList<>();
 
@@ -175,6 +181,31 @@ class UserFavouritesServiceJpaTest {
         assertThat(out.places()).extracting(FavouritesResponse.Place::locationId).containsExactly(hidden, walltown);
         assertThat(out.areas()).extracting(FavouritesResponse.Area::areaId).containsExactly(wall, coast);
         assertThat(out.locationIds()).containsExactly(bamburgh, cawfields, walltown).doesNotContain(hidden, unrelated);
+    }
+
+    @Test
+    @DisplayName("the read's statement count is the same for two starred areas as for twenty-two (no N+1)")
+    void get_statementCountIsConstant() {
+        Long member = location("Member", true);
+        service.addArea(PRO, named("Named 0", member));
+        service.addArea(PRO, subRegion("Sub 0", member));
+        Statistics stats = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        service.get(PRO);
+        stats.clear();
+        service.get(PRO);
+        long two = stats.getPrepareStatementCount();
+
+        for (int i = 1; i <= 10; i++) {
+            Long spot = location("Spot " + i, true);
+            service.addArea(PRO, named("Named " + i, member, spot));
+            service.addArea(PRO, subRegion("Sub " + i, spot));
+        }
+        stats.clear();
+        FavouritesResponse out = service.get(PRO);
+        long many = stats.getPrepareStatementCount();
+
+        assertThat(out.areas()).hasSize(22);
+        assertThat(many).isEqualTo(two);
     }
 
     @Test

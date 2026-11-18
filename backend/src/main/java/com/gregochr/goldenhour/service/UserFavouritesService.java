@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.UserFavouriteRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -136,8 +137,8 @@ public class UserFavouritesService {
             favouriteRepository.deleteAreas(userId, droppedAreas);
         }
         LocalDateTime now = LocalDateTime.now(clock);
-        minus(places, heldPlaces).forEach(id -> favouriteRepository.insertPlace(userId, id, now));
-        minus(areas, heldAreas).forEach(id -> favouriteRepository.insertArea(userId, id, now));
+        minus(places, heldPlaces).forEach(id -> insertPlace(userId, id, now));
+        minus(areas, heldAreas).forEach(id -> insertArea(userId, id, now));
         LOG.info("Favourites for user id={} are now {} place(s) and {} area(s)", userId, places.size(),
                 areas.size());
         return build(userId);
@@ -159,7 +160,7 @@ public class UserFavouritesService {
         List<FavouriteRow> held = favouriteRepository.findRowsByUserId(userId);
         if (held.stream().noneMatch(row -> locationId.equals(row.locationId()))) {
             requireRoom(held.size());
-            favouriteRepository.insertPlace(userId, locationId, LocalDateTime.now(clock));
+            insertPlace(userId, locationId, LocalDateTime.now(clock));
         }
         return build(userId);
     }
@@ -180,7 +181,7 @@ public class UserFavouritesService {
         List<FavouriteRow> held = favouriteRepository.findRowsByUserId(userId);
         if (held.stream().noneMatch(row -> areaId.equals(row.areaId()))) {
             requireRoom(held.size());
-            favouriteRepository.insertArea(userId, areaId, LocalDateTime.now(clock));
+            insertArea(userId, areaId, LocalDateTime.now(clock));
         }
         return build(userId);
     }
@@ -215,6 +216,27 @@ public class UserFavouritesService {
         requireAreas(Set.of(areaId));
         favouriteRepository.deleteAreas(userId, List.of(areaId));
         return build(userId);
+    }
+
+    /**
+     * Inserts one star. The existence check and the insert are separate statements, so a location deleted in
+     * between reaches the foreign key: that is "no such location" (404), not a server error.
+     */
+    private void insertPlace(Long userId, Long locationId, LocalDateTime now) {
+        try {
+            favouriteRepository.insertPlace(userId, locationId, now);
+        } catch (DataIntegrityViolationException e) {
+            throw new NoSuchElementException("No location with id " + locationId);
+        }
+    }
+
+    /** As {@link #insertPlace}, for an area deleted between the check and the insert. */
+    private void insertArea(Long userId, Long areaId, LocalDateTime now) {
+        try {
+            favouriteRepository.insertArea(userId, areaId, now);
+        } catch (DataIntegrityViolationException e) {
+            throw new NoSuchElementException("No area with id " + areaId);
+        }
     }
 
     private static void requireRoom(int held) {
@@ -307,16 +329,21 @@ public class UserFavouritesService {
         return new FavouritesResponse(places, areas, List.copyOf(wanted));
     }
 
-    /** Every starred area's members: named areas in one read, each sub-region from its own membership read. */
+    /** Every starred area's members: named areas in one read, sub-regions in one read, whatever the count. */
     private Map<Long, List<Long>> membersOf(List<AreaKindRow> kinds) {
         Map<Long, List<Long>> members = new HashMap<>();
         List<Long> named = new ArrayList<>();
+        List<Long> subRegions = new ArrayList<>();
         for (AreaKindRow row : kinds) {
             if (row.kind() == AreaKind.SUB_REGION) {
-                members.put(row.id(), subRegionMembership.membersOf(row.id()));
+                subRegions.add(row.id());
             } else {
                 named.add(row.id());
             }
+        }
+        if (!subRegions.isEmpty()) {
+            Map<Long, List<Long>> bySubRegion = subRegionMembership.membersByArea();
+            subRegions.forEach(id -> members.put(id, bySubRegion.getOrDefault(id, List.of())));
         }
         if (!named.isEmpty()) {
             for (SubRegionMemberRow row : areaRepository.findNamedMemberRowsFor(named)) {

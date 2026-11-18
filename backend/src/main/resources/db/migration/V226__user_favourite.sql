@@ -19,5 +19,6 @@ CREATE UNIQUE INDEX uq_user_favourite_place ON user_favourite (user_id, location
     WHERE location_id IS NOT NULL;
 CREATE UNIQUE INDEX uq_user_favourite_area ON user_favourite (user_id, area_id)
     WHERE area_id IS NOT NULL;
+CREATE INDEX idx_user_favourite_user ON user_favourite (user_id);
 CREATE INDEX idx_user_favourite_location ON user_favourite (location_id) WHERE location_id IS NOT NULL;
 CREATE INDEX idx_user_favourite_area ON user_favourite (area_id) WHERE area_id IS NOT NULL;
