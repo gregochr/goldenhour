@@ -21,16 +21,33 @@ import java.util.Set;
  * @param listedWindows the solar window ids {@code list_windows} returned in this conversation, whose
  *                  spreads the answer may have quoted and so must carry; a result the character cap
  *                  refused lists nothing
+ * @param warningIds the Met Office warning ids a tool result showed the model in this conversation (W6): the only
+ *                  warnings an answer may mention, and the ones the server attaches to an answer that does
  */
 public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls, ThreadFact thread,
-        Set<String> listedWindows) {
+        Set<String> listedWindows, Set<String> warningIds) {
 
     /** Canonical constructor: takes immutable copies; a null set reads as empty. */
     public AskEvidence {
+        warningIds = warningIds == null ? Set.of() : Collections.unmodifiableSet(new LinkedHashSet<>(warningIds));
         pairs = pairs == null ? Set.of() : Set.copyOf(pairs);
         events = events == null ? Set.of() : Set.copyOf(events);
         thread = thread == null ? ThreadFact.NONE : thread;
         listedWindows = listedWindows == null ? Set.of() : Set.copyOf(listedWindows);
+    }
+
+    /**
+     * Evidence that showed no warning.
+     *
+     * @param pairs         the (location, window) pairs {@code rank_spots} or {@code rank_night_spots} returned
+     * @param events        the events the event tools returned
+     * @param toolCalls     how many tool calls the conversation made
+     * @param thread        what the thread offered
+     * @param listedWindows the solar window ids {@code list_windows} returned
+     */
+    public AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls, ThreadFact thread,
+            Set<String> listedWindows) {
+        this(pairs, events, toolCalls, thread, listedWindows, Set.of());
     }
 
     /**
@@ -63,7 +80,7 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
      * @return the combined evidence
      */
     public AskEvidence withThread(ThreadFact offered) {
-        return new AskEvidence(pairs, events, toolCalls, offered, listedWindows);
+        return new AskEvidence(pairs, events, toolCalls, offered, listedWindows, warningIds);
     }
 
     /**

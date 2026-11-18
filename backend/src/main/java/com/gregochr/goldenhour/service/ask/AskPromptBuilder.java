@@ -227,6 +227,27 @@ public class AskPromptBuilder {
             """;
 
     /**
+     * Added to the per-question tail of a typed conversation while a Met Office weather warning is in force
+     * (weather-warnings-plan.md section 14, W6): the warning is a read-only fact, quoted never paraphrased, never
+     * implied, never an all-clear, and it changes no rating. The attribution and link are attached by the server.
+     */
+    static final String WARNING_RULES = """
+            Met Office weather warnings are in force. The first tool result may carry a "warnings" \
+            block: it is the only source of anything you say about a warning. Mention a warning only \
+            when the question bears on it (its place or day, or snow, ice, wind, rain, fog, thunder or \
+            heat), in the Met Office's own words: its phrase ("Amber warning of snow"), its times as \
+            given and its headline as given, and say it is from the Met Office. Never soften, upgrade, \
+            shorten or paraphrase a level, never add detail the block does not give, and never say a \
+            warning changes a rating or makes a place better or worse. Never say or imply a warning is \
+            in force, is coming or has been lifted unless the block lists it, and never treat a missing \
+            warning as an all-clear: when the block lists none for the place, say nothing about \
+            warnings. If the block says the feed may be out of date, say the warnings may be out of \
+            date. A warning in an earlier answer may have changed: mention one only if this \
+            conversation's tool result lists it. The summary carries no web address: the attribution \
+            and link are added for you.
+            """;
+
+    /**
      * Added to the user message when the follow-up turns the earlier places down ("neither of those", "I've
      * been to both"): the earlier picks are then marked in the message and excluded by the validator.
      */
@@ -326,6 +347,31 @@ public class AskPromptBuilder {
     public SystemPrompt systemPromptBlocks(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
             AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
             List<String> coveredWindowIds) {
+        return systemPromptBlocks(today, scope, contextWindow, contextNight, tonight, hasUser, hasThread,
+                coveredWindowIds, false);
+    }
+
+    /**
+     * The two-part system prompt, with the rules for Met Office weather warnings added to the per-question tail when
+     * any are in force (weather-warnings-plan.md section 14, W6). With {@code warningsInForce} false it is byte for
+     * byte the prompt of the overload above; the cached static part never changes.
+     *
+     * @param today         today on the UK civil calendar
+     * @param scope         the regions asked about; {@link AskScope#ALL} means every region
+     * @param contextWindow the solar window the reader is looking at, or null
+     * @param contextNight  the night the reader is looking at, or null
+     * @param tonight       the date of the night in progress, or null
+     * @param hasUser       whether a user is behind the conversation
+     * @param hasThread     whether the question follows earlier exchanges
+     * @param coveredWindowIds the windows a Ready question is about; empty for a typed question
+     * @param warningsInForce whether a Met Office warning covers a place the question is about and the conversation
+     *                      is a typed one ({@link AskTools#hasWarningFacts()}; a user-less Ready conversation never
+     *                      sees warnings)
+     * @return the two parts
+     */
+    public SystemPrompt systemPromptBlocks(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
+            AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
+            List<String> coveredWindowIds, boolean warningsInForce) {
         // A typed question (a user behind it) is given look_up_place; the Ready precompute is not, so its rules
         // are RULES byte for byte (AskToolSchemas.tools' withPlaceLookup is the same split).
         String rules = hasUser ? RULES.replace(PLACE_FIT_BEFORE, PLACE_FIT_AFTER) : RULES;
@@ -357,6 +403,9 @@ public class AskPromptBuilder {
                     .append("'s ").append(contextNight.kind().name().toLowerCase(Locale.ROOT))
                     .append(" night (windowId ").append(contextNight.id()).append("). Read \"it\", \"then\" and "
                             + "\"that night\" as that night unless the question says otherwise.\n");
+        }
+        if (warningsInForce && hasUser) {
+            sb.append('\n').append(WARNING_RULES);
         }
         if (hasThread) {
             sb.append('\n').append(THREAD_RULES);

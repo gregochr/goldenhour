@@ -57,11 +57,13 @@ import java.util.function.Predicate;
  * @param laterWindows solar windows the Plan tab does not render, or travel days, that have not passed and carry
  *                    tide facts (ask-place-tide plan T2-1): served for tide questions only, never rated, never in
  *                    {@link #windows}; chronological, empty when there are none
+ * @param warnings    the Met Office weather warnings in force, read-only facts for Ask's typed conversations
+ *                    (weather-warnings-plan.md section 14, W6); {@link Warnings#NONE} when the feature is off
  */
 public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
         List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
         boolean briefingStale, Nights nights, List<Area> areas, Map<Long, List<String>> locationAliases,
-        List<LaterWindow> laterWindows) {
+        List<LaterWindow> laterWindows, Warnings warnings) {
 
     /** The least served rating a slot may carry and still be offered as a pick. */
     public static final int MIN_PICK_RATING = 3;
@@ -88,6 +90,115 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
         areas = areas == null ? List.of() : List.copyOf(areas);
         locationAliases = locationAliases == null ? Map.of() : copyAliases(locationAliases);
         laterWindows = laterWindows == null ? List.of() : List.copyOf(laterWindows);
+        warnings = warnings == null ? Warnings.NONE : warnings;
+    }
+
+    /**
+     * A snapshot with no weather warnings (the shape before W6).
+     *
+     * @param generatedAt     when the briefing was built (UTC), or null
+     * @param runLabel        {@code HH:mm} Europe/London of {@code generatedAt}, or null
+     * @param today           today on the UK civil calendar
+     * @param windows         the window set
+     * @param hotTopics       the served hot topics
+     * @param comingUp        the almanac entries
+     * @param briefingStale   whether the served briefing is the last-known-good one
+     * @param nights          the night forecasts
+     * @param areas           the named areas
+     * @param locationAliases other names by location id
+     * @param laterWindows    the later windows
+     */
+    public AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
+            List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
+            boolean briefingStale, Nights nights, List<Area> areas, Map<Long, List<String>> locationAliases,
+            List<LaterWindow> laterWindows) {
+        this(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, nights, areas,
+                locationAliases, laterWindows, Warnings.NONE);
+    }
+
+    /**
+     * The Met Office weather warnings in force at the moment the snapshot was built, as served by
+     * {@code WarningService.served()} (stored versions, the injected clock, never a simulated row).
+     *
+     * @param enabled     whether the warnings feature is on; false means Ask knows nothing of warnings and its
+     *                    prompt, tools and answers are exactly what they were before W6
+     * @param stale       whether the feed is too old (or never read) to be trusted as complete
+     * @param items       the warnings in force that cover an enabled place, most severe first
+     * @param url         the public Met Office warnings page, or null
+     * @param attribution the attribution line the licence requires beside warning text, or null
+     * @param checkedAt   when the feed was last read successfully, as {@code WarningsResponse.lastCheckedAt} (the
+     *                    clock the client's polled list also carries, so the two can be ordered), or null
+     */
+    public record Warnings(boolean enabled, boolean stale, List<Warning> items, String url, String attribution,
+            java.time.Instant checkedAt) {
+
+        /**
+         * Warnings with no feed-check time (the shape before the answer carried one).
+         *
+         * @param enabled     whether the feature is on
+         * @param stale       whether the feed is stale
+         * @param items       the warnings in force
+         * @param url         the Met Office page, or null
+         * @param attribution the attribution line, or null
+         */
+        public Warnings(boolean enabled, boolean stale, List<Warning> items, String url, String attribution) {
+            this(enabled, stale, items, url, attribution, null);
+        }
+
+        /** No warnings and no knowledge of them: the feature is off. */
+        public static final Warnings NONE = new Warnings(false, false, List.of(), null, null);
+
+        /** Canonical constructor: takes an immutable copy; null reads as empty. */
+        public Warnings {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
+
+        /**
+         * Finds a warning by its id.
+         *
+         * @param id the Met Office warning id
+         * @return the warning, or empty
+         */
+        public Optional<Warning> find(String id) {
+            return items.stream().filter(w -> w.id().equals(id)).findFirst();
+        }
+    }
+
+    /**
+     * One warning as the Met Office sent it: nothing here is derived, softened or re-worded.
+     *
+     * @param id           the Met Office warning id
+     * @param version      the version in force, as the feed writes it
+     * @param level        the level word as the Met Office sent it (upper case)
+     * @param types        the weather types as the Met Office sent them
+     * @param validFrom    start of validity, or null
+     * @param validTo      end of validity, or null
+     * @param headline     the Met Office headline, or null
+     * @param whatToExpect the Met Office "what to expect" lines
+     * @param updated      whether the version in force is an update (the style guide's "Updated" label)
+     * @param locationIds  the enabled locations inside the warning's area
+     */
+    public record Warning(String id, String version, String level, List<String> types, java.time.Instant validFrom,
+            java.time.Instant validTo, String headline, List<String> whatToExpect, boolean updated,
+            Set<Long> locationIds) {
+
+        /** Canonical constructor: takes immutable copies; null reads as empty. */
+        public Warning {
+            types = types == null ? List.of() : List.copyOf(types);
+            whatToExpect = whatToExpect == null ? List.of() : List.copyOf(whatToExpect);
+            locationIds = locationIds == null ? Set.of() : Set.copyOf(locationIds);
+        }
+    }
+
+    /**
+     * This snapshot with these warnings.
+     *
+     * @param newWarnings the warnings
+     * @return the snapshot, otherwise unchanged
+     */
+    public AskSnapshot withWarnings(Warnings newWarnings) {
+        return new AskSnapshot(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, nights,
+                areas, locationAliases, laterWindows, newWarnings);
     }
 
     /**
@@ -184,7 +295,7 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      */
     public AskSnapshot withNames(List<Area> newAreas, Map<Long, List<String>> newAliases) {
         return new AskSnapshot(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, nights,
-                newAreas, newAliases, laterWindows);
+                newAreas, newAliases, laterWindows, warnings);
     }
 
     private static Map<Long, List<String>> copyAliases(Map<Long, List<String>> aliases) {

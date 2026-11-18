@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ACTION, errorFor, exchangeOf, INITIAL_CONVERSATION, normaliseAnswer, reduce, selectHistory, selectView,
+  ACTION, errorFor, exchangeOf, INITIAL_CONVERSATION, normaliseAnswer, normaliseWarnings, reduce, selectHistory, selectView,
   THREAD_MAX_EXCHANGES, THREAD_SUMMARY_MAX_CODE_POINTS, threadForWire,
 } from '../utils/askConversation.js';
 import { KIND } from '../utils/askModel.js';
@@ -391,6 +391,64 @@ describe('selectView', () => {
 
     expect(selectView(chosen, cards).selectedPick).toBe(2);
     expect(selectView(chosen, [{ rank: 1 }]).selectedPick).toBeNull();
+  });
+});
+
+describe('normaliseWarnings — the Met Office warnings an answer mentions', () => {
+  const item = (over = {}) => ({
+    id: 'W1', version: '2.0', level: 'AMBER', weatherTypes: ['SNOW'], validFrom: '2026-10-05T06:00:00Z',
+    validTo: '2026-10-06T18:00:00Z', headline: 'Snow, heavy at times', updated: true, ...over,
+  });
+
+  it('reads the served facts into the shape the shared chip draws, verbatim', () => {
+    const warnings = normaliseWarnings({
+      stale: false, attribution: 'Attr', url: 'https://example.test/', checkedAt: '2026-10-05T11:55:00Z', items: [item()],
+    });
+
+    expect(warnings).toEqual({
+      stale: false,
+      attribution: 'Attr',
+      url: 'https://example.test/',
+      checkedAt: '2026-10-05T11:55:00Z',
+      items: [{
+        warningId: 'W1', warningVersion: '2.0', level: 'AMBER', weatherTypes: ['SNOW'],
+        validFrom: '2026-10-05T06:00:00Z', validTo: '2026-10-06T18:00:00Z', headline: 'Snow, heavy at times',
+        updated: true,
+      }],
+    });
+  });
+
+  it('falls back to the configured attribution and page, reads missing fields as none, and keeps stale', () => {
+    const warnings = normaliseWarnings({
+      stale: true, attribution: '', url: null, items: [{ id: 'W2', level: 'YELLOW', headline: '  ', weatherTypes: 'x' }],
+    });
+
+    expect(warnings.stale).toBe(true);
+    expect(warnings.checkedAt).toBeNull();
+    expect(warnings.attribution).toBe('Met Office Weather Warnings © Crown Copyright 2026');
+    expect(warnings.url).toBe('https://www.metoffice.gov.uk/public/weather/warnings/');
+    expect(warnings.items[0]).toMatchObject({
+      warningVersion: null, weatherTypes: [], validFrom: null, validTo: null, headline: null, updated: false,
+    });
+  });
+
+  it.each([
+    ['nothing', undefined],
+    ['null', null],
+    ['a string', 'warnings'],
+    ['no items array', { stale: false }],
+    ['no valid item', { items: [null, 'x', { id: 'W3' }, { level: 'RED' }] }],
+    ['an empty list', { items: [] }],
+  ])('reads %s as no warnings', (_name, body) => {
+    expect(normaliseWarnings(body)).toBeNull();
+  });
+
+  it('is carried by a typed answer and never by a Ready one', () => {
+    const body = { ...answerBody({ kind: 'own' }), warnings: { items: [item()] } };
+
+    expect(normaliseAnswer(body, { id: 1 }).warnings.items).toHaveLength(1);
+    expect(normaliseAnswer(body, { id: 1, ready: true, runLabel: '06:02' }).warnings).toBeNull();
+    expect(normaliseAnswer(answerBody({ kind: 'own' }), { id: 1 }).warnings).toBeNull();
   });
 });
 

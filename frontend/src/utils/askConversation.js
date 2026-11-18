@@ -1,4 +1,5 @@
 import { KIND } from './askModel.js';
+import { DEFAULT_ATTRIBUTION, DEFAULT_MET_OFFICE_URL } from './warnings.js';
 
 /**
  * Ask PhotoCast's conversation as a pure reducer (`docs/engineering/ask-photocast-plan.md` §2.6, "As
@@ -352,6 +353,42 @@ function nightVersionOf(value) {
 }
 
 /**
+ * The Met Office warnings a typed answer mentions, as the server attached them (weather-warnings-plan.md §14, W6),
+ * or null for none. Read as the served warning shape the shared chip draws ({@code warningId}, {@code level},
+ * {@code weatherTypes}, {@code updated}); a malformed item is dropped and an answer with none left carries none.
+ * Nothing here is derived: the level, types, headline and times are the Met Office's words, and the attribution and
+ * link the server's, with the configured defaults only for a body that lacks them.
+ *
+ * @param {*} body the answer body's {@code warnings}
+ * @returns {?{stale: boolean, attribution: string, url: string, checkedAt: ?string, items: object[]}}
+ */
+export function normaliseWarnings(body) {
+  if (body === null || typeof body !== 'object' || !Array.isArray(body.items)) return null;
+  const items = body.items
+    .filter((w) => w !== null && typeof w === 'object' && typeof w.id === 'string' && typeof w.level === 'string')
+    .map((w) => ({
+      warningId: w.id,
+      warningVersion: w.version ?? null,
+      level: w.level,
+      weatherTypes: Array.isArray(w.weatherTypes) ? w.weatherTypes : [],
+      validFrom: w.validFrom ?? null,
+      validTo: w.validTo ?? null,
+      headline: typeof w.headline === 'string' && w.headline.trim() !== '' ? w.headline : null,
+      updated: w.updated === true,
+    }));
+  if (items.length === 0) return null;
+  return {
+    stale: body.stale === true,
+    attribution: typeof body.attribution === 'string' && body.attribution !== ''
+      ? body.attribution : DEFAULT_ATTRIBUTION,
+    url: typeof body.url === 'string' && body.url !== '' ? body.url : DEFAULT_MET_OFFICE_URL,
+    // When the server last read the Met Office feed for these facts: orders them against the polled list.
+    checkedAt: typeof body.checkedAt === 'string' && body.checkedAt !== '' ? body.checkedAt : null,
+    items,
+  };
+}
+
+/**
  * A server answer as the conversation holds it, or null for a body that is not one.
  *
  * <p>One normaliser for the two sources, which differ in four things only, all carried by
@@ -383,6 +420,8 @@ export function normaliseAnswer(body, meta) {
     summary: body.summary,
     picks: Array.isArray(body.picks) ? body.picks : [],
     events: Array.isArray(body.events) ? body.events : [],
+    // Typed answers only: a Ready answer is shared with every reader and never mentions a warning.
+    warnings: ready ? null : normaliseWarnings(body.warnings),
     missing: !ready && typeof body.missing === 'string' && body.missing.trim() !== ''
       ? body.missing
       : null,

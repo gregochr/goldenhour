@@ -13,7 +13,7 @@ import {
   removeAskConversationMocks,
 } from './askConversationHarness.jsx';
 import {
-  cantResponse,
+  cantResponse, warningsBody,
 } from './askFixtures.js';
 
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
@@ -35,6 +35,19 @@ beforeEach(installAskConversationMocks);
 afterEach(removeAskConversationMocks);
 
 describe('AskConversation — Not in the forecast', () => {
+  it('draws the Met Office warning, attribution and stale line a can’t-answer carries (W6)', async () => {
+    ask.mockResolvedValue(cantResponse({ warnings: warningsBody({ stale: true }) }));
+    await renderAsk();
+
+    await askTyped('How deep will the snow be?', { view: 'plan' });
+
+    const block = await screen.findByTestId('ask-warnings');
+    expect(within(block).getByTestId('warning-chip')).toHaveTextContent('Amber warning of snow');
+    expect(within(block).getByTestId('ask-warnings-stale')).toBeInTheDocument();
+    expect(within(block).getByTestId('warning-attribution')).toBeInTheDocument();
+  });
+
+
   it('shows the dashed box, the sentence, what PhotoCast lacks, and two Ready questions to try', async () => {
     ask.mockResolvedValue(cantResponse());
     await renderAsk();

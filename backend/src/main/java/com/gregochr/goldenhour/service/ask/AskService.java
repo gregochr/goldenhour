@@ -502,7 +502,7 @@ public class AskService {
         return new AskResponse(true, AskResponse.KIND_OWN, answer.summary(),
                 answer.picks().stream().map(AskReadyResponse.Pick::of).toList(), answer.events(),
                 null, List.of(), left, limit, charged, snapshot.generatedAt(), snapshot.runLabel(), null, null,
-                null, answer.windows());
+                null, answer.windows(), answer.warnings());
     }
 
     /**
@@ -520,7 +520,7 @@ public class AskService {
         String runLabel = snapshot == null ? null : snapshot.runLabel();
         AskResponse response = new AskResponse(false, AskResponse.KIND_CANT, answer.summary(), List.of(),
                 List.of(), answer.missing(), suggestions, left(userId, day, limit), limit, false,
-                generatedAt, runLabel);
+                generatedAt, runLabel).withWarnings(answer.warnings());
         log(userId, question, outcome, answer.missing(), startedAt, carry);
         return carry.apply(response);
     }

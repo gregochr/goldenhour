@@ -1093,6 +1093,12 @@ class ClaudeAskEngineTest {
                 "Bamburgh looks best.", List.of(picks), List.of(), AskFixtures.GENERATED_AT, false))));
     }
 
+    /** Stubs the model call, every argument pinned to a real value (a present request, options and gate). */
+    private org.mockito.stubbing.OngoingStubbing<Message> whenAsked() {
+        return when(client.createAskMessage(argThat(params -> params != null && params.system().isPresent()),
+                argThat(options -> options != null), argThat(gate -> gate != null)));
+    }
+
     private static String systemText(MessageCreateParams params) {
         // The system prompt is two blocks (static, then the per-question tail); the text is their join.
         return params.system().orElseThrow().asTextBlockParams().stream()
@@ -1123,6 +1129,44 @@ class ClaudeAskEngineTest {
         MessageCreateParams fresh = sentParams().getFirst();
         assertThat(fresh.messages().getFirst().content().asString()).isEqualTo("Best spot tonight?");
         assertThat(systemText(fresh)).doesNotContain("Earlier picks").doesNotContain("emoji");
+    }
+
+    @Test
+    @DisplayName("a typed conversation's system prompt carries the warning rules in its tail only while a Met Office "
+            + "warning is in force, and the first tool result then carries the warning facts (W6)")
+    void warningRulesAndFactsReachTheModelOnlyWhileAWarningIsInForce() {
+        AskSnapshot withWarning = snapshot(null).withWarnings(
+                AskWarningFixtures.served(AskWarningFixtures.warning("W1", "AMBER", List.of("SNOW"), 1L)));
+        whenAsked().thenReturn(
+                toolTurn(tool("t1", "list_windows", Map.of())), submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), withWarning, USER, AskRunOptions.none());
+
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(systemText(sent.getFirst())).endsWith(AskPromptBuilder.WARNING_RULES);
+        assertThat(toolResultsIn(sent.get(1)).getFirst().toString()).contains("Amber warning of snow");
+
+        org.mockito.Mockito.clearInvocations(client);
+        whenAsked().thenReturn(
+                toolTurn(tool("t1", "list_windows", Map.of())), submit(answer(pick(1, WINDOW))));
+        engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+
+        List<MessageCreateParams> plain = sentParams();
+        assertThat(systemText(plain.getFirst())).doesNotContain("Met Office");
+        assertThat(toolResultsIn(plain.get(1)).getFirst().toString()).doesNotContain("warnings");
+
+        // A warning over a place the question is not about costs the prompt nothing.
+        org.mockito.Mockito.clearInvocations(client);
+        whenAsked().thenReturn(
+                toolTurn(tool("t1", "list_windows", Map.of())), submit(answer(pick(1, WINDOW))));
+        AskSnapshot elsewhere = snapshot(null).withWarnings(
+                AskWarningFixtures.served(AskWarningFixtures.warning("W9", "RED", List.of("WIND"), 1L)));
+        engine.run(new AskQuestion("Best in Teesdale?", "best in teesdale", null, TEESDALE, "plan"), elsewhere, USER,
+                AskRunOptions.none());
+
+        List<MessageCreateParams> other = sentParams();
+        assertThat(systemText(other.getFirst())).doesNotContain("Met Office");
+        assertThat(toolResultsIn(other.get(1)).getFirst().toString()).doesNotContain("warnings");
     }
 
     @Test

@@ -254,11 +254,20 @@ public class AskAnswerValidator {
         if (summary == null || summary.isBlank()) {
             return discard("no summary");
         }
-        String missing = clean(raw.missing(), MISSING_WORDS);
+        // Met Office warnings (W6): a sentence that says a warning is in force is kept only when a tool showed the
+        // model that warning in this conversation. A no-op while the warnings feature is off.
+        AskWarningGuard warningGuard = AskWarningGuard.of(snapshot, evidence);
+        summary = warningGuard.sanitiseSummary(summary);
+        boolean summaryEmptied = summary == null || summary.isBlank();
+        if (summaryEmptied && !raw.answerable()) {
+            return new Result(new AskAnswer(false, AskWarningGuard.UNKNOWN_SUMMARY, List.of(), List.of(),
+                    AskWarningGuard.UNKNOWN_MISSING), null);
+        }
+        String missing = warningGuard.sanitisePhrase(clean(raw.missing(), MISSING_WORDS));
         if (missing != null && missing.isBlank()) {
             missing = null;
         }
-        List<AskEvent> events = raw.answerable() ? validEvents(raw.events(), evidence) : List.of();
+        List<AskEvent> events = raw.answerable() ? validEvents(raw.events(), evidence, warningGuard) : List.of();
         // "None" means no event the question admits: a typed answer is never relevance-filtered afterwards.
         if (eventsQuestion != null
                 && events.stream().noneMatch(e -> ReadyRelevance.admitsEvent(eventsQuestion, e.type()))) {
@@ -272,12 +281,15 @@ public class AskAnswerValidator {
             if (anchor != null && anchoredWindow(snapshot, anchor, scope).isPresent()) {
                 return discard("a BEST question cannot be unanswerable while the forecast has a BEST BET");
             }
-            return new Result(new AskAnswer(false, summary, List.of(), List.of(), missing), null);
+            // A can't-answer may still quote a shown warning ("an Amber warning of snow, but no snow depth"): the
+            // facts, stale flag and attribution travel with it like any other answer.
+            return new Result(warningGuard.attach(new AskAnswer(false, summary, List.of(), List.of(), missing),
+                    snapshot), null);
         }
 
         int[] turnedDownDropped = {0};
         List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence, scope, turnedDownDropped,
-                canSeeAurora);
+                canSeeAurora, warningGuard);
         if (!evidence.thread().turnedDown().isEmpty() && picks.isEmpty() && events.isEmpty()
                 && (turnedDownDropped[0] > 0 || evidence.anyToolCalled())) {
             // The reader turned the earlier places down and nothing else survives: an honest can't-answer in
@@ -311,8 +323,18 @@ public class AskAnswerValidator {
                 return discard("pick 1 is not on the BEST BET window " + lead.get().id());
             }
         }
-        return new Result(new AskAnswer(true, summary, picks, events, null,
-                carriedWindows(snapshot, evidence, scope, picks, basis)), null, turnedDownDropped[0]);
+        if (summaryEmptied) {
+            // The summary was only an unsupported warning claim. With picks or events the reader keeps them under a
+            // neutral line; an answer with nothing else is the warning can't-answer.
+            if (picks.isEmpty() && events.isEmpty()) {
+                return new Result(new AskAnswer(false, AskWarningGuard.UNKNOWN_SUMMARY, List.of(), List.of(),
+                        AskWarningGuard.UNKNOWN_MISSING), null);
+            }
+            summary = AskWarningGuard.NEUTRAL_SUMMARY;
+        }
+        AskAnswer answer = new AskAnswer(true, summary, picks, events, null,
+                carriedWindows(snapshot, evidence, scope, picks, basis));
+        return new Result(warningGuard.attach(answer, snapshot), null, turnedDownDropped[0]);
     }
 
     /**
@@ -370,7 +392,7 @@ public class AskAnswerValidator {
     }
 
     private List<AskPick> validPicks(List<RawPick> raw, AskSnapshot snapshot, AskEvidence evidence,
-            AskScope scope, int[] turnedDownDropped, boolean canSeeAurora) {
+            AskScope scope, int[] turnedDownDropped, boolean canSeeAurora, AskWarningGuard warningGuard) {
         List<AskPick> out = new ArrayList<>();
         boolean ranking = isRankingFollowUp(raw, evidence);
         int cap = ranking ? MAX_RANKED_PICKS : MAX_PICKS;
@@ -399,7 +421,7 @@ public class AskAnswerValidator {
             }
             seen.add(key);
             AskSnapshot.ResolvedPick r = live.get();
-            String why = clean(pick.why(), WHY_WORDS);
+            String why = warningGuard.sanitisePhrase(clean(pick.why(), WHY_WORDS));
             out.add(new AskPick(out.size() + 1, pick.locationId(), r.locationName(), r.regionName(),
                     r.date(), r.kind(), r.windowId(), why == null ? "" : why, r.rating(), r.verdict()));
         }
@@ -413,7 +435,7 @@ public class AskAnswerValidator {
      * write a safety note. A served warning (the solar eclipse's lens-filter note) therefore always
      * reaches the validated event; no path drops it.
      */
-    private List<AskEvent> validEvents(List<RawEvent> raw, AskEvidence evidence) {
+    private List<AskEvent> validEvents(List<RawEvent> raw, AskEvidence evidence, AskWarningGuard warningGuard) {
         List<AskEvent> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (RawEvent event : raw) {
@@ -427,7 +449,7 @@ public class AskAnswerValidator {
             if (fact.isEmpty() || !seen.add(AskEventType.offerKey(fact.get().type(), fact.get().date()))) {
                 continue;
             }
-            String why = clean(event.why(), WHY_WORDS);
+            String why = warningGuard.sanitisePhrase(clean(event.why(), WHY_WORDS));
             out.add(new AskEvent(AskEventType.key(fact.get().type()), fact.get().label(), fact.get().date(),
                     why == null ? "" : why, fact.get().safetyNote()));
         }

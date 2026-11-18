@@ -42,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -1633,6 +1634,58 @@ class AskServiceTest {
         assertThat(contexts.getAllValues()).extracting(AskUserContext::role).containsOnly(UserRole.PRO_USER);
         assertThat(captured.getAllValues()).extracting(AskQuestion::windowId)
                 .containsExactly("2026-10-05_astro", "2026-10-05_aurora");
+    }
+
+    private static AskAnswer.WarningsCard warningCard() {
+        return new AskAnswer.WarningsCard(false, AskWarningFixtures.ATTRIBUTION, AskWarningFixtures.URL,
+                List.of(new AskAnswer.WarningCard("W1", "2.0", "AMBER", List.of("SNOW"), "Amber warning of snow",
+                        "2026-10-05T06:00:00Z", "2026-10-06T18:00:00Z", "Snow, heavy at times", false)));
+    }
+
+    @Test
+    @DisplayName("an answer carrying warning facts is served with them and the attribution, and an outcome flagged "
+            + "uncacheable is not offered to the cache (the tools set that flag: AskWarningGuardTest)")
+    void warningAnswerCarriesTheFactsAndAnUncacheableOutcomeIsNotStored() {
+        AskAnswer answer = ok().outcome().answer().withWarnings(warningCard());
+        when(engine.run(argThat(q -> q.sanitised().startsWith("Is there a warning")), eq(snapshot),
+                argThat(AskUserContext::hasUser), eq(AskRunOptions.none()))).thenAnswer(inv ->
+                new AskRun(new AskOutcome(AskOutcome.Status.OK, answer, false, 2, true, Set.of()), List.of(), null));
+
+        AskResponse response = ask("Is there a warning for Hadrian's Wall?");
+
+        assertThat(response.kind()).isEqualTo("own");
+        assertThat(response.warnings()).isEqualTo(warningCard());
+        verify(cache, never()).store(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a can't-answer that quotes a shown warning is served with the warning facts and attribution too")
+    void cantAnswerCarriesTheWarnings() {
+        AskAnswer cant = new AskAnswer(false, "An Amber warning of snow is in force, but no snow depth.", List.of(),
+                List.of(), "snow depth").withWarnings(warningCard());
+        when(engine.run(argThat(q -> q.sanitised().startsWith("How deep")), eq(snapshot),
+                argThat(AskUserContext::hasUser), eq(AskRunOptions.none()))).thenAnswer(inv ->
+                new AskRun(new AskOutcome(AskOutcome.Status.CANT, cant, false, 1, true, Set.of()), List.of(), null));
+
+        AskResponse response = ask("How deep will the snow be?");
+
+        assertThat(response.kind()).isEqualTo("cant");
+        assertThat(response.warnings()).isEqualTo(warningCard());
+    }
+
+    @Test
+    @DisplayName("an answer with no warning serves no warnings field at all and is cached as before")
+    void plainAnswerCarriesNoWarnings() throws Exception {
+        AskResponse response = ask("Best spot tonight?");
+
+        assertThat(response.warnings()).isNull();
+        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()
+                .writeValueAsString(response)).doesNotContain("warnings");
+        verify(cache).store(argThat(q -> q.sanitised().equals("Best spot tonight?")), eq(snapshot),
+                argThat(AskUserContext::hasUser),
+                argThat(o -> o.status() == AskOutcome.Status.OK && o.answer().warnings() == null
+                        && o.answer().summary().equals("A good one.") && o.answer().picks().size() == 1
+                        && !o.uncacheable()));
     }
 
     @Test
