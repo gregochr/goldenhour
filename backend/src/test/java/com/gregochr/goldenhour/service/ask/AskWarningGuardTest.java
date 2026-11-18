@@ -1,14 +1,20 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Raw;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawEvent;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawPick;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Result;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
@@ -17,6 +23,7 @@ import static com.gregochr.goldenhour.service.ask.AskWarningFixtures.servedStale
 import static com.gregochr.goldenhour.service.ask.AskWarningFixtures.twoRegions;
 import static com.gregochr.goldenhour.service.ask.AskWarningFixtures.warning;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 /**
  * The typed guard for Met Office warnings (weather-warnings-plan.md section 14, W6): an answer may say a warning is
@@ -46,6 +53,11 @@ class AskWarningGuardTest {
     private Result validate(String summary, AskSnapshot snapshot, AskEvidence evidence) {
         return validator.validate(new Raw(true, summary, List.of(new RawPick(1L, WINDOW, "Clear west")), List.of(),
                 null), snapshot, evidence, AskScope.ALL, null, null, false);
+    }
+
+    private Result validateNoPicks(String summary, AskSnapshot snapshot, AskEvidence evidence) {
+        return validator.validate(new Raw(true, summary, List.of(), List.of(), null), snapshot, evidence,
+                AskScope.ALL, null, null, false);
     }
 
     // -- the guard is off with the feature --------------------------------------------------
@@ -78,7 +90,7 @@ class AskWarningGuardTest {
     @Test
     @DisplayName("no warning shown and nothing else to say: our own can't-answer, never a 'no warnings' all-clear")
     void onlyAClaim_becomesTheCantAnswer() {
-        Result result = validate("A yellow weather warning is in place for Hadrian's Wall.",
+        Result result = validateNoPicks("A yellow weather warning is in place for Hadrian's Wall.",
                 snapshot(served(AMBER_SNOW)), nothingShown());
 
         assertThat(result.accepted()).isTrue();
@@ -112,7 +124,7 @@ class AskWarningGuardTest {
     @Test
     @DisplayName("a warning id the model invented is not an id the server will attach: only shown ids count")
     void anInventedId_isNeverAttached() {
-        Result result = validate("An Amber warning of snow is in force.", snapshot(served(AMBER_SNOW)),
+        Result result = validateNoPicks("An Amber warning of snow is in force.", snapshot(served(AMBER_SNOW)),
                 shown("W-invented"));
 
         assertThat(result.answer().answerable()).isFalse();
@@ -123,7 +135,7 @@ class AskWarningGuardTest {
     @DisplayName("a pick's reason and the missing phrase that claim a warning the facts lack are dropped")
     void shortPhrases_areDroppedWhole() {
         Raw raw = new Raw(true, "Whitby looks good.", List.of(new RawPick(1L, WINDOW, "Amber warning of snow")),
-                List.of(new RawEvent("KING_TIDE", TODAY, "Met Office warning issued")), "Met Office warning data");
+                List.of(new RawEvent("KING_TIDE", TODAY, "Met Office warning issued")), "weather warning data");
         AskEvidence evidence = new AskEvidence(Set.of(new AskEvidence.Pair(1L, WINDOW)),
                 Set.of(new AskEvidence.EventFact("KING_TIDE", "King tide", TODAY)), 2);
 
@@ -139,12 +151,87 @@ class AskWarningGuardTest {
     @DisplayName("an unanswerable submission's 'missing' phrase is held to the same rule")
     void missingPhrase_isHeld() {
         Raw raw = new Raw(false, "PhotoCast has no forecast for that.", List.of(), List.of(),
-                "Met Office warning data");
+                "weather warning data");
 
         Result result = validator.validate(raw, snapshot(served(AMBER_SNOW)), nothingShown(), AskScope.ALL, null,
                 null, false);
 
         assertThat(result.answer().missing()).isNull();
+    }
+
+    @Test
+    @DisplayName("a summary that was only a warning claim keeps the picks under a neutral line, not the can't-answer")
+    void onlyAClaimWithPicks_keepsThePicks() {
+        Result result = validate("Whitby is your best bet tonight, though the Met Office has a yellow warning for "
+                + "wind.", snapshot(served(AMBER_SNOW)), nothingShown());
+
+        assertThat(result.answer().answerable()).isTrue();
+        assertThat(result.answer().summary()).isEqualTo(AskWarningGuard.NEUTRAL_SUMMARY);
+        assertThat(result.answer().picks()).hasSize(1);
+        assertThat(result.answer().warnings()).isNull();
+    }
+
+    @ParameterizedTest(name = "stripped with none shown: {0}")
+    @ValueSource(strings = {
+        "The Met Office has a red snow warning for Keswick.",
+        "An amber snow warning covers Keswick from 06:00 Thursday.",
+        "A storm warning is out for the coast.",
+        "Expect a yellow alert for wind.",
+        "A snow warning is in force.",
+        "The Met Office warned of heavy snow.",
+        "There are no warnings for the Lake District tomorrow.",
+        "No weather warning covers Bamburgh.",
+        "The Met Office warning was lifted this morning.",
+        "The area is clear of any warnings.",
+    })
+    void phrasings_areStrippedWhenNothingWasShown(String claim) {
+        Result result = validate("Whitby looks good. " + claim, snapshot(served(AMBER_SNOW)), nothingShown());
+
+        assertThat(result.answer().summary()).isEqualTo("Whitby looks good.");
+    }
+
+    @Test
+    @DisplayName("a claim at a level that was not shown is removed even when the sentence also names the Met Office")
+    void aDifferentLevelInAMetOfficeSentence_isRemoved() {
+        Result result = validate("Whitby looks good. The Met Office has a red snow warning for Keswick.",
+                snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().summary()).isEqualTo("Whitby looks good.");
+        assertThat(result.answer().warnings()).isNull();
+    }
+
+    @Test
+    @DisplayName("an absence claim is never kept, even beside a shown warning, and attaches no card")
+    void absenceClaims_areNeverKept() {
+        Result result = validate("Whitby looks good. No weather warning covers Bamburgh.",
+                snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().summary()).isEqualTo("Whitby looks good.");
+        assertThat(result.answer().warnings()).isNull();
+    }
+
+    @Test
+    @DisplayName("a level-and-type phrasing of a shown warning counts as a mention and attaches the card")
+    void levelAndTypePhrasing_attaches() {
+        Result result = validate("Whitby looks good. The amber snow warning applies from Monday.",
+                snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().summary()).contains("amber snow warning");
+        assertThat(result.answer().warnings()).isNotNull();
+    }
+
+    @ParameterizedTest(name = "left alone: {0}")
+    @ValueSource(strings = {
+        "Amber light and a red sky at Whitby.",
+        "Red sky at night, shepherd's warning.",
+        "A word of warning: be in place by 07:10.",
+        "The Met Office models agree on clear skies.",
+        "Park in the warning zone sign area.",
+    })
+    void lookAlikes_areLeftAlone(String text) {
+        Result result = validate(text, snapshot(served(AMBER_SNOW)), nothingShown());
+
+        assertThat(result.answer().summary()).isEqualTo(text);
     }
 
     @Test
@@ -182,6 +269,50 @@ class AskWarningGuardTest {
             assertThat(item.updated()).isFalse();
         });
         assertThat(result.answer().summary()).contains("Amber warning of snow");
+    }
+
+    @Test
+    @DisplayName("an unanswerable submission that quotes a shown warning carries the facts and attribution too")
+    void cantAnswerQuotingAShownWarning_attaches() {
+        Raw raw = new Raw(false, "The Met Office has an Amber warning of snow, but PhotoCast has no snow depth.",
+                List.of(), List.of(), "snow depth");
+
+        Result result = validator.validate(raw, snapshot(servedStale(AMBER_SNOW)), shown("W1"), AskScope.ALL, null,
+                null, false);
+
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().warnings()).isNotNull();
+        assertThat(result.answer().warnings().stale()).isTrue();
+        assertThat(result.answer().warnings().attribution()).isEqualTo(AskWarningFixtures.ATTRIBUTION);
+    }
+
+    @Test
+    @DisplayName("an unanswerable submission with no warning mention carries none")
+    void plainCantAnswer_carriesNone() {
+        Raw raw = new Raw(false, "PhotoCast has no snow depth.", List.of(), List.of(), "snow depth");
+
+        Result result = validator.validate(raw, snapshot(served(AMBER_SNOW)), shown("W1"), AskScope.ALL, null, null,
+                false);
+
+        assertThat(result.answer().warnings()).isNull();
+    }
+
+    @Test
+    @DisplayName("the real link: a conversation whose tool showed a warning ends uncacheable and carries the card")
+    void aConversationShownAWarning_isUncacheableAndCarriesTheCard() {
+        AskConversation.Deps deps = new AskConversation.Deps(validator, mock(DriveTimeResolver.class),
+                new ObjectMapper(), () -> Map.of(1L, new AskLocationNames.Place("Whitby", 54.4, -0.6)));
+        AskConversation.Opening opening = AskConversation.open(
+                new AskQuestion("Will the snow be heavy?", "will the snow be heavy", null, AskScope.ALL, "plan"),
+                snapshot(served(AMBER_SNOW)), new AskUserContext(7L, UserRole.PRO_USER, true), null, deps);
+        AskConversation conversation = ((AskConversation.Opening.Open) opening).conversation();
+        conversation.tools().listWindows();
+
+        AskRun run = conversation.submit(new Raw(true, "The Met Office has an Amber warning of snow.",
+                List.of(new RawPick(1L, WINDOW, "Clear")), List.of(), null), 1, conversation.tools().trace());
+
+        assertThat(run.outcome().uncacheable()).isTrue();
+        assertThat(run.outcome().answer().warnings()).isNotNull();
     }
 
     @Test

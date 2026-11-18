@@ -3,8 +3,12 @@ package com.gregochr.goldenhour.service.ask;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDate;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,18 +28,32 @@ class AskWarningPromptTest {
                 warnings);
     }
 
+    /**
+     * Length and digest of the whole prompt as it was before W6 (origin/main's builder, which the false path must
+     * reproduce exactly), for 2026-10-05, every region, no window or night, keyed by hasUser then hasThread. Pinned,
+     * not derived from the code under test, so a change to the false path fails here.
+     */
+    private static final Map<String, String> PRE_W6 = Map.of(
+            "true,true", "12792:1e2cbe5cfebd21c5180c884d09cd2ce96a676a668ce9ae69d8418b2d3637080c",
+            "true,false", "11521:63e4dec245dff0d45a2de721b7bf7718cc4ea05bb7a86b8d7449072e45832e36",
+            "false,true", "7337:0b85c1a6d491d428d368d7a0f6ed1721701c36fd58385b9ff110177b83e85e2a",
+            "false,false", "6066:f3450faa9057041e05b61f91c42a91e32c250b289647dcad37d28f5aa3a8d608");
+
+    private static String fingerprint(String text) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+        return text.length() + ":" + HexFormat.of().formatHex(digest);
+    }
+
     @Test
-    @DisplayName("golden: with no warning in force the prompt is byte for byte the one before W6")
-    void noWarnings_isByteIdentical() {
+    @DisplayName("golden: with no warning in force the prompt is byte for byte the pinned one from before W6")
+    void noWarnings_isByteIdentical() throws Exception {
         for (boolean hasUser : new boolean[] {true, false}) {
             for (boolean hasThread : new boolean[] {true, false}) {
-                AskPromptBuilder.SystemPrompt before = builder.systemPromptBlocks(TODAY, AskScope.ALL, null, null,
-                        null, hasUser, hasThread, List.of());
+                String text = blocks(hasUser, hasThread, false).text();
 
-                AskPromptBuilder.SystemPrompt now = blocks(hasUser, hasThread, false);
-
-                assertThat(now).isEqualTo(before);
-                assertThat(now.text()).doesNotContain("Met Office");
+                assertThat(fingerprint(text)).as("hasUser=%s hasThread=%s", hasUser, hasThread)
+                        .isEqualTo(PRE_W6.get(hasUser + "," + hasThread));
+                assertThat(text).doesNotContain("Met Office");
             }
         }
     }

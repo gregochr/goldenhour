@@ -183,4 +183,16 @@ public record AskResponse(boolean answerable, String kind, String summary,
                 allowanceLimit, charged, generatedAt, runLabel, threadReset, threadResetReason, version, windows,
                 warnings);
     }
+
+    /**
+     * The same response carrying the Met Office warnings its answer mentions.
+     *
+     * @param card the warnings, or null for none
+     * @return a copy with {@code warnings} replaced
+     */
+    public AskResponse withWarnings(AskAnswer.WarningsCard card) {
+        return new AskResponse(answerable, kind, summary, picks, events, missing, tryThese, allowanceLeft,
+                allowanceLimit, charged, generatedAt, runLabel, threadReset, threadResetReason, nightVersion, windows,
+                card);
+    }
 }

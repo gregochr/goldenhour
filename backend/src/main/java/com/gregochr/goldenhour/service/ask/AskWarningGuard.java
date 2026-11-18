@@ -30,18 +30,39 @@ final class AskWarningGuard {
     static final String UNKNOWN_SUMMARY = "PhotoCast cannot say whether a Met Office weather warning is in force "
             + "for this. The Met Office has the official warnings.";
 
+    /** The summary an answer keeps its picks and events under when its own summary was only a warning claim. */
+    static final String NEUTRAL_SUMMARY = "Here is what the forecast shows.";
+
     /** The {@code missing} phrase of that can't-answer (5 words). */
     static final String UNKNOWN_MISSING = "weather warning information for this";
 
-    /** A level named with the word warning: "Amber warning", "red weather warnings". */
-    private static final Pattern LEVEL = Pattern.compile(
-            "\\b(yellow|amber|red)\\s+(?:weather\\s+)?warnings?\\b", Pattern.CASE_INSENSITIVE);
+    private static final String WARN_WORD = "(?:warning|alert)s?";
+    private static final String TYPE_WORD = "(?:snow|wind|rain|ice|icy|fog|thunder|thunderstorm|storm|heat|flood"
+            + "|flooding|lightning)";
+    private static final int FLAGS = Pattern.CASE_INSENSITIVE;
 
-    /** A weather warning said without a level, or one said to be in force, or the Met Office named. */
+    /** A level named with the word warning or alert, a few words apart: "Amber warning", "red snow warning". */
+    private static final Pattern LEVEL = Pattern.compile(
+            "\\b(yellow|amber|red)\\b(?:[\\s-]+\\w+){0,3}?[\\s-]+" + WARN_WORD + "\\b", FLAGS);
+
+    /** Any level word at all, to check a sentence that mentions a warning names no level that was not shown. */
+    private static final Pattern LEVEL_WORD = Pattern.compile("\\b(yellow|amber|red)\\b", FLAGS);
+
+    /** A warning said without a level: by type, as a weather warning, as one in force, "warning of snow", warned. */
     private static final Pattern GENERIC = Pattern.compile(
-            "\\b(?:weather|met\\s+office)\\s+warnings?\\b|\\bmet\\s+office\\b"
-                    + "|\\bwarnings?\\b[^.!?]{0,30}\\b(?:in\\s+force|in\\s+place|in\\s+effect|issued)\\b",
-            Pattern.CASE_INSENSITIVE);
+            "\\b" + TYPE_WORD + "\\s+" + WARN_WORD + "\\b"
+                    + "|\\b(?:weather|severe\\s+weather)\\s+" + WARN_WORD + "\\b"
+                    + "|\\bwarnings?\\s+(?:(?:is|are|has\\s+been|have\\s+been|remains?)\\s+)?"
+                    + "(?:in\\s+force|in\\s+place|in\\s+effect|issued|out)\\b"
+                    + "|\\bwarnings?\\s+of\\s+" + TYPE_WORD + "\\b"
+                    + "|\\b(?:warned|warns)\\s+(?:of|about)\\b",
+            FLAGS);
+
+    /** A warning said not to exist, or to have been lifted: never supported, shown warning or not. */
+    private static final Pattern NEGATED = Pattern.compile(
+            "\\b(?:no|not|none|clear\\s+of|free\\s+of)\\b(?:[\\s-]+\\w+){0,3}?[\\s-]+" + WARN_WORD + "\\b"
+                    + "|\\b" + WARN_WORD + "\\b[^.!?]{0,25}\\b(?:lifted|cancelled|canceled|withdrawn|expired|ended)\\b",
+            FLAGS);
 
     private static final Pattern SENTENCE_BREAK = Pattern.compile("(?<=[.!?])\\s+");
 
@@ -84,17 +105,19 @@ final class AskWarningGuard {
     private enum Claim { NONE, SUPPORTED, UNSUPPORTED }
 
     private Claim claim(String sentence) {
-        boolean mentions = false;
-        Matcher level = LEVEL.matcher(sentence);
+        if (NEGATED.matcher(sentence).find()) {
+            // "No warning covers Bamburgh" and "the warning was lifted" are claims about absence: never made.
+            return Claim.UNSUPPORTED;
+        }
+        boolean mentions = LEVEL.matcher(sentence).find() || GENERIC.matcher(sentence).find();
+        if (!mentions) {
+            return Claim.NONE;
+        }
+        Matcher level = LEVEL_WORD.matcher(sentence);
         while (level.find()) {
-            mentions = true;
             if (!shownLevels.contains(level.group(1).toLowerCase(Locale.ROOT))) {
                 return Claim.UNSUPPORTED;
             }
-        }
-        mentions = mentions || GENERIC.matcher(sentence).find();
-        if (!mentions) {
-            return Claim.NONE;
         }
         return shownIds.isEmpty() ? Claim.UNSUPPORTED : Claim.SUPPORTED;
     }

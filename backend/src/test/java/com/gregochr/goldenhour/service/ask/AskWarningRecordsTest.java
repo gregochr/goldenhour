@@ -69,6 +69,16 @@ class AskWarningRecordsTest {
     }
 
     @Test
+    @DisplayName("a response can be given warnings after it is built, and null clears them")
+    void responseWithWarnings() {
+        AskResponse plain = new AskResponse(false, AskResponse.KIND_CANT, "No.", List.of(), List.of(), "x",
+                List.of(), 5, 10, false, null, null);
+
+        assertThat(plain.withWarnings(CARD).warnings()).isEqualTo(CARD);
+        assertThat(plain.withWarnings(CARD).withWarnings(null).warnings()).isNull();
+    }
+
+    @Test
     @DisplayName("a response keeps its warnings through the thread-reset and night-version copies")
     void responseKeepsItsWarnings() {
         AskResponse response = new AskResponse(true, AskResponse.KIND_OWN, "Whitby.", List.of(), List.of(), null,

@@ -520,7 +520,7 @@ public class AskService {
         String runLabel = snapshot == null ? null : snapshot.runLabel();
         AskResponse response = new AskResponse(false, AskResponse.KIND_CANT, answer.summary(), List.of(),
                 List.of(), answer.missing(), suggestions, left(userId, day, limit), limit, false,
-                generatedAt, runLabel);
+                generatedAt, runLabel).withWarnings(answer.warnings());
         log(userId, question, outcome, answer.missing(), startedAt, carry);
         return carry.apply(response);
     }

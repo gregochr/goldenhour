@@ -1093,6 +1093,12 @@ class ClaudeAskEngineTest {
                 "Bamburgh looks best.", List.of(picks), List.of(), AskFixtures.GENERATED_AT, false))));
     }
 
+    /** Stubs the model call, every argument pinned to a real value (a present request, options and gate). */
+    private org.mockito.stubbing.OngoingStubbing<Message> whenAsked() {
+        return when(client.createAskMessage(argThat(params -> params != null && params.system().isPresent()),
+                argThat(options -> options != null), argThat(gate -> gate != null)));
+    }
+
     private static String systemText(MessageCreateParams params) {
         // The system prompt is two blocks (static, then the per-question tail); the text is their join.
         return params.system().orElseThrow().asTextBlockParams().stream()
@@ -1131,7 +1137,7 @@ class ClaudeAskEngineTest {
     void warningRulesAndFactsReachTheModelOnlyWhileAWarningIsInForce() {
         AskSnapshot withWarning = snapshot(null).withWarnings(
                 AskWarningFixtures.served(AskWarningFixtures.warning("W1", "AMBER", List.of("SNOW"), 1L)));
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        whenAsked().thenReturn(
                 toolTurn(tool("t1", "list_windows", Map.of())), submit(answer(pick(1, WINDOW))));
 
         engine.run(question(), withWarning, USER, AskRunOptions.none());
@@ -1141,7 +1147,7 @@ class ClaudeAskEngineTest {
         assertThat(toolResultsIn(sent.get(1)).getFirst().toString()).contains("Amber warning of snow");
 
         org.mockito.Mockito.clearInvocations(client);
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        whenAsked().thenReturn(
                 toolTurn(tool("t1", "list_windows", Map.of())), submit(answer(pick(1, WINDOW))));
         engine.run(question(), snapshot(null), USER, AskRunOptions.none());
 
@@ -1151,7 +1157,7 @@ class ClaudeAskEngineTest {
 
         // A warning over a place the question is not about costs the prompt nothing.
         org.mockito.Mockito.clearInvocations(client);
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        whenAsked().thenReturn(
                 toolTurn(tool("t1", "list_windows", Map.of())), submit(answer(pick(1, WINDOW))));
         AskSnapshot elsewhere = snapshot(null).withWarnings(
                 AskWarningFixtures.served(AskWarningFixtures.warning("W9", "RED", List.of("WIND"), 1L)));

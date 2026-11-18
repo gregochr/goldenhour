@@ -258,7 +258,8 @@ public class AskAnswerValidator {
         // model that warning in this conversation. A no-op while the warnings feature is off.
         AskWarningGuard warningGuard = AskWarningGuard.of(snapshot, evidence);
         summary = warningGuard.sanitiseSummary(summary);
-        if (summary == null || summary.isBlank()) {
+        boolean summaryEmptied = summary == null || summary.isBlank();
+        if (summaryEmptied && !raw.answerable()) {
             return new Result(new AskAnswer(false, AskWarningGuard.UNKNOWN_SUMMARY, List.of(), List.of(),
                     AskWarningGuard.UNKNOWN_MISSING), null);
         }
@@ -280,7 +281,10 @@ public class AskAnswerValidator {
             if (anchor != null && anchoredWindow(snapshot, anchor, scope).isPresent()) {
                 return discard("a BEST question cannot be unanswerable while the forecast has a BEST BET");
             }
-            return new Result(new AskAnswer(false, summary, List.of(), List.of(), missing), null);
+            // A can't-answer may still quote a shown warning ("an Amber warning of snow, but no snow depth"): the
+            // facts, stale flag and attribution travel with it like any other answer.
+            return new Result(warningGuard.attach(new AskAnswer(false, summary, List.of(), List.of(), missing),
+                    snapshot), null);
         }
 
         int[] turnedDownDropped = {0};
@@ -318,6 +322,15 @@ public class AskAnswerValidator {
                     && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
                 return discard("pick 1 is not on the BEST BET window " + lead.get().id());
             }
+        }
+        if (summaryEmptied) {
+            // The summary was only an unsupported warning claim. With picks or events the reader keeps them under a
+            // neutral line; an answer with nothing else is the warning can't-answer.
+            if (picks.isEmpty() && events.isEmpty()) {
+                return new Result(new AskAnswer(false, AskWarningGuard.UNKNOWN_SUMMARY, List.of(), List.of(),
+                        AskWarningGuard.UNKNOWN_MISSING), null);
+            }
+            summary = AskWarningGuard.NEUTRAL_SUMMARY;
         }
         AskAnswer answer = new AskAnswer(true, summary, picks, events, null,
                 carriedWindows(snapshot, evidence, scope, picks, basis));

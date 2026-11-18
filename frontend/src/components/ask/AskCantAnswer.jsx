@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { resolveSuggestions } from '../../utils/askModel.js';
 import AskAnswerFoot from './AskAnswerFoot.jsx';
 import AskSuggestion from './AskSuggestion.jsx';
+import AskWarnings from './AskWarnings.jsx';
 
 /** State 5 — "Not in the forecast". */
 export default function AskCantAnswer({ ask, questions, onOpen }) {
@@ -20,6 +21,7 @@ export default function AskCantAnswer({ ask, questions, onOpen }) {
           </span>
         )}
       </div>
+      <AskWarnings warnings={answer.warnings} />
       {tries.length > 0 && (
         <div role="group" aria-labelledby={headingId} data-testid="ask-try">
           <p className="wf-ask-k wf-ask-ready-h" id={headingId}>Try asking</p>
