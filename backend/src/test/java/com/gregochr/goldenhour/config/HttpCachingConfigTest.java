@@ -129,6 +129,12 @@ class HttpCachingConfigTest {
         // filtered if the whitelist ever matched by prefix; the body is the reader's own picks.
         "/api/user/settings/sub-regions",
         "/api/user/settings/reach-verdicts",
+        // The caller's favourites (find-and-favourites-plan F3): a GET of the reader's own starred places
+        // and areas, merged. It would be filtered if the whitelist ever matched by prefix. Its per-item
+        // write paths sit under it and are pinned below.
+        "/api/user/settings/favourites",
+        "/api/user/settings/favourites/places/7",
+        "/api/user/settings/favourites/areas/7",
         // Each area's figure for THIS reader (find-and-favourites-plan D3): gated members counted, a Lite
         // reader's picks implied by the counts. Shaped per reader, so it must never be ETag-shared.
         "/api/areas/outlook",

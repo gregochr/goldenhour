@@ -4,11 +4,14 @@ import com.gregochr.goldenhour.entity.AreaEntity;
 import com.gregochr.goldenhour.entity.AreaKind;
 import com.gregochr.goldenhour.model.AreaAliasRow;
 import com.gregochr.goldenhour.model.AreaDirectoryRow;
+import com.gregochr.goldenhour.model.AreaKindRow;
 import com.gregochr.goldenhour.model.SubRegionMemberRow;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -60,4 +63,24 @@ public interface AreaRepository extends JpaRepository<AreaEntity, Long> {
     @Query("select new com.gregochr.goldenhour.model.SubRegionMemberRow(a.id, loc) "
             + "from AreaEntity a join a.locationIds loc")
     List<SubRegionMemberRow> findNamedMemberRows();
+
+    /**
+     * The named members ({@code area_location}) of the given areas only, flat: one statement.
+     *
+     * @param areaIds the areas to read
+     * @return the (area id, location id) rows
+     */
+    @Query("select new com.gregochr.goldenhour.model.SubRegionMemberRow(a.id, loc) "
+            + "from AreaEntity a join a.locationIds loc where a.id in :areaIds")
+    List<SubRegionMemberRow> findNamedMemberRowsFor(@Param("areaIds") Collection<Long> areaIds);
+
+    /**
+     * Which of the given ids are areas, with their kind: flat, no lazy association touched.
+     *
+     * @param areaIds the ids to look for
+     * @return one row per area that exists
+     */
+    @Query("select new com.gregochr.goldenhour.model.AreaKindRow(a.id, a.kind) "
+            + "from AreaEntity a where a.id in :areaIds")
+    List<AreaKindRow> findKindRows(@Param("areaIds") Collection<Long> areaIds);
 }

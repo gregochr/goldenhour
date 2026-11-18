@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.AreaConflictException;
+import com.gregochr.goldenhour.exception.FavouritesLimitException;
 import com.gregochr.goldenhour.exception.JobDisabledByConfigException;
 import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.exception.NoRoadRouteException;
@@ -116,6 +117,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AreaConflictException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErrorResponse handleAreaConflict(AreaConflictException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link FavouritesLimitException} to HTTP 409: the reader already holds the most favourites allowed.
+     *
+     * @param ex the exception, whose message is shown to the reader
+     * @return an error response body
+     */
+    @ExceptionHandler(FavouritesLimitException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleFavouritesLimit(FavouritesLimitException ex) {
         return new ErrorResponse(ex.getMessage());
     }
 

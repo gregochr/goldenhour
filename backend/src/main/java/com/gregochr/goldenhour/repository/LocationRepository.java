@@ -66,6 +66,16 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
     List<Long> findEnabledIds();
 
     /**
+     * Returns which of the given ids are locations (enabled or not): one flat statement, for a write that
+     * must refuse an unknown id.
+     *
+     * @param ids the ids to look for
+     * @return the ids that exist, in no particular order
+     */
+    @Query("SELECT l.id FROM LocationEntity l WHERE l.id IN :ids")
+    List<Long> findExistingIds(@Param("ids") Collection<Long> ids);
+
+    /**
      * Returns every enabled location that has a region, with the region fetched.
      *
      * <p>Ask's later-window roster: the Ready precompute builds its snapshot outside any transaction, where a
