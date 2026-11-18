@@ -11,8 +11,11 @@ W1c (this revision) rewrote the feed handling to the **real NSWWS v1.1 shape** r
 the style-guide rules of section 12 (ordering, the Updated flag, the configured Met Office link and attribution).
 The W1a "assumed feed shape" section is gone: the shape is now recorded, with real samples as fixtures.
 
-Everything is behind `photocast.warnings.enabled` (default **false**); the flag stays off in production until the
-guides ship (W5) and the owner has answered the licence question.
+Everything is behind `photocast.warnings.enabled`, which defaults to **true** (owner, 2026-11-18, plan section 15) and stays as the
+kill switch. The feature is **active** only when that switch is on **and** an API key is set (`WarningsProperties.isActive()`,
+the one effective-on notion): a build with no key is completely dormant, calls nothing and shows nothing, byte for byte as with
+the switch off. Every user-visible read goes through `isActive()` (`WarningService.served()`, and so `/api/warnings`, Coming up and Ask;
+`WarningOverlay`; the scheduler gate); the admin status shows the raw switch and key presence.
 
 ## Pieces (all under `service/warnings/` unless stated)
 
@@ -64,7 +67,8 @@ already stored). `received_at` is the poller's real clock.
   briefing memo. (The W1b overlay is what makes the epoch matter; the Ask answer is under "The serve-time overlay".)
 - Unknown weather types are **kept** and counted in memory (`WarningPollStatus.unknownTypeCounts()`).
 - The scheduler gate: `DynamicSchedulerService.configGateFor` now also recognises `photocast.warnings.enabled`
-  (it was only the literal `aurora.enabled`). A flag flip needs a restart (the status syncs at startup).
+  (it was only the literal `aurora.enabled`); it now reads `isActive()`, so the V224-seeded `DISABLED_BY_CONFIG` row becomes `ACTIVE`
+  at startup once a key is set and stays disabled otherwise (no migration). A flag or key change needs a restart (the status syncs at startup).
   `DynamicSchedulerService` keeps its old 7-argument constructor (warnings off) for the many tests that build it;
   Spring uses the 8-argument `@Autowired` one.
 - Catalogue entry: `Purpose.FORECAST`, service "Met Office", no Claude. Its `why` says "On a repeating interval".
@@ -407,20 +411,27 @@ popup row, location sheet, Map chip row and callout, and Coming up all get it fr
 The copy says only what is built: no map outlines, the matrix with no invented words, the "Raised from" line only on Coming up cards, no
 Met Office logo or icons.
 
-### Flag-on checklist (owner decisions; the flag stays `false` until all are done)
+### Go-live checklist (default on since 2026-11-18; the feature goes live when the key is set)
 
-1. Guides shipped: W5 merged, and the landing site released (`release-landing.sh`, the owner runs it) **together with turning the flag on, never earlier, and not before the licence check (item 2)**: the landing index, FAQ, hub card, Lite/Pro row, terms and acknowledgements describe warnings as a live feature, and they must not go public while it is dark. The FAQ answer is worded "When it is switched on, yes" as a softener only; so the guide the `?` opens, the acknowledgements and terms are live. The app's `?` opens `https://photocast.online/guide/weather-warnings.html`; before the landing release it would open the hub's not-found page.
+The switch defaults to on, so the single act that makes warnings live in production is setting `PHOTOCAST_WARNINGS_API_KEY` and restarting.
+Until then the build is dormant: no Met Office call, no poll error logs (one startup INFO line says which state it is in), no user
+surface (`/api/warnings` answers `enabled: false`, empty and stale, which the client renders as nothing). Kill switch:
+`PHOTOCAST_WARNINGS_ENABLED=false` and a restart. The Operations panel's "State" row reads "Switched off", "On but no API key (dormant)"
+or "On and polling". The admin simulation insert works in every state and its rows never reach users.
+Do these before setting the key (the landing release goes out together with the app release that carries default-on):
+
+1. Guides shipped: W5 merged, and the landing site released (`release-landing.sh`, the owner runs it) **together with the app release that carries default-on, and not before the licence check (item 2)**: the landing index, FAQ, hub card, Lite/Pro row, terms and acknowledgements describe warnings as a live feature, and they must not go public while it is dark. The FAQ answer is worded "When it is switched on, yes" as a softener only; so the guide the `?` opens, the acknowledgements and terms are live. The app's `?` opens `https://photocast.online/guide/weather-warnings.html`; before the landing release it would open the hub's not-found page.
 2. Licence: the owner reads the NSWWS and Open Licence terms on Weather DataHub and confirms the "business use only" remark (plan section 10) does not bar PhotoCast. The acknowledgements and terms wording ("used under the licence terms for the Met Office's warnings service", no licence named) was written without naming one; adjust it once the owner has read the terms.
 3. Timeliness: confirm on a live feed that a new, updated or cancelled warning shows within the 10-minute bound (poller 5 min, 30 s briefing memo, 2 min client poll).
 4. API key: `PHOTOCAST_WARNINGS_API_KEY` set in the production server environment (never in the repo or the image); header name `apikey` (`photocast.warnings.api-key-header`) confirmed against the live API.
 5. Stale threshold: `photocast.warnings.poll-stale-minutes` now defaults to 10 (was 30), matching the style guide's expectation that an outage beyond about 10 minutes shows the stale line. Do not raise it without re-reading plan section 12 (Timeliness).
-6. Then `photocast.warnings.enabled=true` and a restart (the scheduler row is config-gated); watch the Operations warnings panel for a successful poll.
+6. Then set the key and restart (the scheduler row is config-gated and syncs at startup); watch the Operations warnings panel for a successful poll.
 
 ## Ask, W6 (Ask PhotoCast mentions warnings)
 
 Phase W6 (`docs/engineering/weather-warnings-plan.md` §14) gives Ask PhotoCast the warnings in force as **read-only facts**, so "is there a
-warning for Hadrian's Wall?" or "will the snow be heavy?" can be answered with the Met Office's own words. It is dark unless **both**
-`photocast.warnings.enabled` and `photocast.ask.enabled` are true; with the warnings flag off nothing below changes a byte of Ask's snapshot,
+warning for Hadrian's Wall?" or "will the snow be heavy?" can be answered with the Met Office's own words. It is dark unless warnings are **active** (switch on and a key set) and
+`photocast.ask.enabled` is true; with warnings inactive (switch off or no key) nothing below changes a byte of Ask's snapshot,
 prompt, tool results, answers or wire shape (tested). Scoring prompts (Sky Eval, batch) never see warnings. Ratings, picks, verdicts and the
 validator's pick rules are untouched: a warning never moves a star.
 

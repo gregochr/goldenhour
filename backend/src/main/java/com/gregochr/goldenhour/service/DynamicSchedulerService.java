@@ -1191,7 +1191,7 @@ public class DynamicSchedulerService {
             return auroraProperties::isEnabled;
         }
         if (WARNINGS_CONFIG_SOURCE.equals(configSource)) {
-            return warningsProperties::isEnabled;
+            return warningsProperties::isActive;
         }
         return null;
     }

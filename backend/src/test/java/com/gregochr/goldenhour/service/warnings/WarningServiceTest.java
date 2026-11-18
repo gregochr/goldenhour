@@ -54,6 +54,7 @@ class WarningServiceTest {
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
+        properties.setApiKey("test-key");
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new WarningService(repository, new WarningTimeline(clock), new WarningCoverage(), locations,
                 status, properties, epoch, clock);
@@ -109,6 +110,33 @@ class WarningServiceTest {
         assertThat(response.stale()).isTrue();
         assertThat(response.warnings()).isEmpty();
         assertThat(response.lastCheckedAt()).isNull();
+        verifyNoInteractions(repository, locations);
+    }
+
+    @Test
+    @DisplayName("on but with no API key the shared view is byte-identical to switched off and reads nothing")
+    void noKeyIsDormant() {
+        properties.setEnabled(false);
+        WarningsResponse off = service.served();
+        properties.setEnabled(true);
+        properties.setApiKey("");
+
+        WarningsResponse dormant = service.served();
+
+        assertThat(dormant).isEqualTo(off);
+        assertThat(dormant.enabled()).isFalse();
+        assertThat(dormant.stale()).isTrue();
+        assertThat(dormant.warnings()).isEmpty();
+        verifyNoInteractions(repository, locations);
+    }
+
+    @Test
+    @DisplayName("an explicit switch-off with a key set is off too")
+    void switchOffWithKeyIsOff() {
+        properties.setEnabled(false);
+        properties.setApiKey("test-key");
+
+        assertThat(service.served().enabled()).isFalse();
         verifyNoInteractions(repository, locations);
     }
 
@@ -268,6 +296,45 @@ class WarningServiceTest {
         assertThat(admin.activeWarnings()).extracting(WarningDto::warningId).containsExactly("SIM-1", "REAL");
         assertThat(admin.activeWarnings().get(0).simulated()).isTrue();
         assertThat(admin.toString()).doesNotContain("super-secret-key");
+    }
+
+    @Test
+    @DisplayName("the admin view tells apart switched off, on without a key (dormant) and on and polling")
+    void adminStatusStates() {
+        stubStoreAndLocations();
+
+        properties.setEnabled(false);
+        WarningsAdminStatus off = service.adminStatus();
+        assertThat(off.enabled()).isFalse();
+        assertThat(off.active()).isFalse();
+        assertThat(off.apiKeyConfigured()).isTrue();
+
+        properties.setEnabled(true);
+        properties.setApiKey("");
+        WarningsAdminStatus dormant = service.adminStatus();
+        assertThat(dormant.enabled()).isTrue();
+        assertThat(dormant.active()).isFalse();
+        assertThat(dormant.apiKeyConfigured()).isFalse();
+
+        properties.setApiKey("test-key");
+        WarningsAdminStatus live = service.adminStatus();
+        assertThat(live.enabled()).isTrue();
+        assertThat(live.active()).isTrue();
+    }
+
+    @Test
+    @DisplayName("an admin can still insert a simulation with no key, and users never see it")
+    void simulateWorksWithoutKey() {
+        properties.setApiKey("");
+        when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(location(7, 54.5, -1.5)));
+        when(repository.save(org.mockito.ArgumentMatchers.argThat(w -> w != null && w.isSimulated())))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        WarningDto dto = service.simulate(new SimulateWarningRequest("Amber", null, null, null, 54.5, -1.5));
+
+        assertThat(dto.simulated()).isTrue();
+        assertThat(service.served().enabled()).isFalse();
+        assertThat(service.served().warnings()).isEmpty();
     }
 
     @Test

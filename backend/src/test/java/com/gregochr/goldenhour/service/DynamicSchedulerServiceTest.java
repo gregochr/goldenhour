@@ -147,6 +147,7 @@ class DynamicSchedulerServiceTest {
         com.gregochr.goldenhour.config.WarningsProperties warnings =
                 new com.gregochr.goldenhour.config.WarningsProperties();
         warnings.setEnabled(true);
+        warnings.setApiKey("test-key");
         DynamicSchedulerService warned = new DynamicSchedulerService(repository, fireLog, taskScheduler,
                 auroraProperties, warnings, solarTriggers, solarCatchUp,
                 java.time.Clock.fixed(Instant.parse("2031-01-01T00:00:00Z"), java.time.ZoneOffset.UTC));

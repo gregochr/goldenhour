@@ -10,7 +10,8 @@ import java.util.Map;
  * The body of {@code GET /api/admin/warnings/status}: the Operations view of the warnings ingest. Nothing here is the
  * API key; only whether one is set.
  *
- * @param enabled            whether the feature flag is on
+ * @param enabled            whether the kill switch is on (the raw setting)
+ * @param active             whether warnings are effectively live: switch on and an API key set; false means dormant
  * @param apiKeyConfigured   whether a key is set
  * @param feedUrlConfigured  whether a feed URL is set
  * @param lastAttempt        the last poll attempt since startup, or null
@@ -23,6 +24,7 @@ import java.util.Map;
  */
 public record WarningsAdminStatus(
         boolean enabled,
+        boolean active,
         boolean apiKeyConfigured,
         boolean feedUrlConfigured,
         WarningPollStatus.Attempt lastAttempt,

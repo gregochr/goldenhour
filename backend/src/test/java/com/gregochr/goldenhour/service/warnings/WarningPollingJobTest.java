@@ -128,6 +128,7 @@ class WarningPollingJobTest {
     @DisplayName("with the flag off the poll does nothing: no feed read, no storage")
     void flagOff() {
         properties.setEnabled(false);
+        properties.setApiKey("test-key");
 
         SchedulerFireOutcome.Report report = run();
 
@@ -137,15 +138,58 @@ class WarningPollingJobTest {
     }
 
     @Test
-    @DisplayName("with no API key the poll fails as NOT_CONFIGURED without calling out")
+    @DisplayName("with no API key the poll is skipped as NOT_CONFIGURED: no outbound call, no storage, no warning log")
     void notConfigured() {
         properties.setApiKey(" ");
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(WarningPollingJob.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> logs =
+                new ch.qos.logback.core.read.ListAppender<>();
+        logs.start();
+        logger.addAppender(logs);
+        SchedulerFireOutcome.Report report;
+        try {
+            report = run();
+        } finally {
+            logger.detachAppender(logs);
+        }
 
-        SchedulerFireOutcome.Report report = run();
-
-        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).contains("no API key");
         assertThat(status.lastAttempt().failureReason()).isEqualTo("NOT_CONFIGURED");
+        assertThat(status.lastAttempt().succeeded()).isFalse();
+        assertThat(logs.list).noneMatch(e -> e.getLevel().isGreaterOrEqual(ch.qos.logback.classic.Level.WARN));
         verifyNoInteractions(client, repository);
+    }
+
+    @Test
+    @DisplayName("registering logs one line for each of the three states and never fails")
+    void registerLogsState() {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(WarningPollingJob.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> logs =
+                new ch.qos.logback.core.read.ListAppender<>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            properties.setEnabled(false);
+            job.registerJob();
+            properties.setEnabled(true);
+            properties.setApiKey("");
+            job.registerJob();
+            properties.setApiKey("test-key");
+            job.registerJob();
+        } finally {
+            logger.detachAppender(logs);
+        }
+
+        assertThat(logs.list).extracting(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .hasSize(3)
+                .satisfiesExactly(
+                        m -> assertThat(m).contains("switched off"),
+                        m -> assertThat(m).contains("no API key").contains("dormant"),
+                        m -> assertThat(m).contains("polling is live"));
+        assertThat(logs.list).noneMatch(e -> e.getLevel().isGreaterOrEqual(ch.qos.logback.classic.Level.WARN));
     }
 
     @Test
@@ -155,6 +199,7 @@ class WarningPollingJobTest {
 
         run();
 
+        verifyNoInteractions(client, repository);
         assertThat(status.lastAttempt().failureReason()).isEqualTo("NOT_CONFIGURED");
     }
 

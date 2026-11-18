@@ -77,6 +77,27 @@ describe('WarningsAdminPanel', () => {
     expect(screen.getByTestId('warnings-admin-malformed')).toHaveTextContent('1');
   });
 
+  it('says plainly whether warnings are switched off, dormant without a key, or polling', async () => {
+    getWarningsStatus.mockResolvedValue(status({ enabled: false, active: false }));
+    const off = render(<WarningsAdminPanel />);
+    expect(await screen.findByTestId('warnings-admin-state')).toHaveTextContent('Switched off');
+    off.unmount();
+
+    getWarningsStatus.mockResolvedValue(status({ enabled: true, active: false, apiKeyConfigured: false }));
+    const dormant = render(<WarningsAdminPanel />);
+    expect(await screen.findByTestId('warnings-admin-state')).toHaveTextContent('On but no API key (dormant)');
+    dormant.unmount();
+
+    getWarningsStatus.mockResolvedValue(status({ enabled: true, active: true }));
+    const live = render(<WarningsAdminPanel />);
+    expect(await screen.findByTestId('warnings-admin-state')).toHaveTextContent('On and polling');
+    live.unmount();
+
+    getWarningsStatus.mockResolvedValue(status({ enabled: true, active: undefined, apiKeyConfigured: false }));
+    render(<WarningsAdminPanel />);
+    expect(await screen.findByTestId('warnings-admin-state')).toHaveTextContent('dormant');
+  });
+
   it('names a recorded failure in words, an unlisted one as recorded, and marks the feed stale', async () => {
     getWarningsStatus.mockResolvedValue(status({
       stale: true,

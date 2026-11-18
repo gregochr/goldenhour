@@ -126,6 +126,14 @@ public class WarningPollingJob {
     @PostConstruct
     void registerJob() {
         scheduler.registerJobTarget(JOB_KEY, this::poll);
+        if (!properties.isEnabled()) {
+            LOG.info("Weather warnings: switched off (photocast.warnings.enabled=false)");
+        } else if (!properties.hasApiKey()) {
+            LOG.info("Weather warnings: enabled but no API key is set, so the feature is dormant and the Met Office"
+                    + " is not called");
+        } else {
+            LOG.info("Weather warnings: enabled with an API key, polling is live");
+        }
     }
 
     /**
@@ -134,6 +142,13 @@ public class WarningPollingJob {
     public void poll() {
         if (!properties.isEnabled()) {
             SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Weather warnings are switched off");
+            return;
+        }
+        if (!properties.hasApiKey()) {
+            status.record(new WarningPollStatus.Attempt(clock.instant(), false, REASON_NOT_CONFIGURED, 0, 0, 0, 0, 0));
+            LOG.debug("Weather warning poll skipped: no API key configured");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED,
+                    "Weather warnings are on but no API key is configured (dormant)");
             return;
         }
         if (!running.compareAndSet(false, true)) {
@@ -150,11 +165,6 @@ public class WarningPollingJob {
 
     private void runPoll() {
         Instant started = clock.instant();
-        String key = properties.getApiKey();
-        if (key == null || key.isBlank()) {
-            fail(started, REASON_NOT_CONFIGURED, new Tally());
-            return;
-        }
         String feedBody;
         try {
             feedBody = client.getFeed();

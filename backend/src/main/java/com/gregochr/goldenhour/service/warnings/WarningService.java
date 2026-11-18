@@ -87,10 +87,10 @@ public class WarningService {
     /**
      * The shared warnings view: no simulated rows, only warnings covering an enabled location.
      *
-     * @return the response; an empty, stale, not-enabled one when the feature is off
+     * @return the response; an empty, stale, not-enabled one when the feature is not active (off, or no API key)
      */
     public WarningsResponse served() {
-        if (!properties.isEnabled()) {
+        if (!properties.isActive()) {
             return new WarningsResponse(false, null, true, List.of(), properties.getPublicUrl(),
                     properties.getAttribution());
         }
@@ -114,7 +114,8 @@ public class WarningService {
         Instant lastSuccess = status.lastSuccessAt();
         return new WarningsAdminStatus(
                 properties.isEnabled(),
-                properties.getApiKey() != null && !properties.getApiKey().isBlank(),
+                properties.isActive(),
+                properties.hasApiKey(),
                 properties.getBaseUrl() != null && !properties.getBaseUrl().isBlank(),
                 status.lastAttempt(),
                 lastSuccess,

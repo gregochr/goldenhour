@@ -14,7 +14,7 @@ const DEFAULT_FORM = {
 };
 const MAX_HOURS = 72;
 const FAILURE_WORDS = {
-  NOT_CONFIGURED: 'Not configured (no feed URL or key)',
+  NOT_CONFIGURED: 'Not configured (no API key, so the Met Office is not called)',
   UNAUTHORISED: 'Unauthorised (the key was refused)',
   RATE_LIMITED: 'Rate limited by the Met Office',
   UNREACHABLE: 'Feed unreachable',
@@ -34,6 +34,16 @@ function formatInstant(iso) {
   return date.toLocaleString('en-GB', {
     timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
   });
+}
+
+/**
+ * The ingest's effective state, in words: switched off (the kill switch), on but with no API key (dormant: nothing is
+ * polled and no reader sees anything), or on and polling. The server's `active` is trusted when present.
+ */
+function ingestState(status) {
+  if (!status.enabled) return 'Switched off';
+  const active = status.active ?? status.apiKeyConfigured;
+  return active ? 'On and polling' : 'On but no API key (dormant)';
 }
 
 /** A failure reason in words; an unlisted one (HTTP_500) is shown as it was recorded. */
@@ -152,6 +162,7 @@ export default function WarningsAdminPanel() {
         <KvList
           testId="warnings-admin-ingest-list"
           items={[
+            { label: 'State', value: ingestState(status), testId: 'warnings-admin-state' },
             { label: 'Feature flag', value: status.enabled ? 'On' : 'Off', testId: 'warnings-admin-enabled' },
             { label: 'API key', value: status.apiKeyConfigured ? 'Set' : 'Not set' },
             { label: 'Feed URL', value: status.feedUrlConfigured ? 'Set' : 'Not set' },
