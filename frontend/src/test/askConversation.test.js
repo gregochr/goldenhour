@@ -401,12 +401,15 @@ describe('normaliseWarnings — the Met Office warnings an answer mentions', () 
   });
 
   it('reads the served facts into the shape the shared chip draws, verbatim', () => {
-    const warnings = normaliseWarnings({ stale: false, attribution: 'Attr', url: 'https://example.test/', items: [item()] });
+    const warnings = normaliseWarnings({
+      stale: false, attribution: 'Attr', url: 'https://example.test/', checkedAt: '2026-10-05T11:55:00Z', items: [item()],
+    });
 
     expect(warnings).toEqual({
       stale: false,
       attribution: 'Attr',
       url: 'https://example.test/',
+      checkedAt: '2026-10-05T11:55:00Z',
       items: [{
         warningId: 'W1', warningVersion: '2.0', level: 'AMBER', weatherTypes: ['SNOW'],
         validFrom: '2026-10-05T06:00:00Z', validTo: '2026-10-06T18:00:00Z', headline: 'Snow, heavy at times',
@@ -421,6 +424,7 @@ describe('normaliseWarnings — the Met Office warnings an answer mentions', () 
     });
 
     expect(warnings.stale).toBe(true);
+    expect(warnings.checkedAt).toBeNull();
     expect(warnings.attribution).toBe('Met Office Weather Warnings © Crown Copyright 2026');
     expect(warnings.url).toBe('https://www.metoffice.gov.uk/public/weather/warnings/');
     expect(warnings.items[0]).toMatchObject({

@@ -126,8 +126,24 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param items       the warnings in force that cover an enabled place, most severe first
      * @param url         the public Met Office warnings page, or null
      * @param attribution the attribution line the licence requires beside warning text, or null
+     * @param checkedAt   when the feed was last read successfully, as {@code WarningsResponse.lastCheckedAt} (the
+     *                    clock the client's polled list also carries, so the two can be ordered), or null
      */
-    public record Warnings(boolean enabled, boolean stale, List<Warning> items, String url, String attribution) {
+    public record Warnings(boolean enabled, boolean stale, List<Warning> items, String url, String attribution,
+            java.time.Instant checkedAt) {
+
+        /**
+         * Warnings with no feed-check time (the shape before the answer carried one).
+         *
+         * @param enabled     whether the feature is on
+         * @param stale       whether the feed is stale
+         * @param items       the warnings in force
+         * @param url         the Met Office page, or null
+         * @param attribution the attribution line, or null
+         */
+        public Warnings(boolean enabled, boolean stale, List<Warning> items, String url, String attribution) {
+            this(enabled, stale, items, url, attribution, null);
+        }
 
         /** No warnings and no knowledge of them: the feature is off. */
         public static final Warnings NONE = new Warnings(false, false, List.of(), null, null);

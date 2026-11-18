@@ -347,7 +347,7 @@ public class AskSnapshotBuilder {
                 }
             }
             return new AskSnapshot.Warnings(true, served.stale(), items, served.metOfficeUrl(),
-                    served.attribution());
+                    served.attribution(), served.lastCheckedAt());
         } catch (RuntimeException e) {
             LOG.warn("[ASK] Could not read the weather warnings for the snapshot: {}", e.toString());
             return new AskSnapshot.Warnings(true, true, List.of(), null, null);

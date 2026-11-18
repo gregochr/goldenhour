@@ -360,7 +360,7 @@ function nightVersionOf(value) {
  * link the server's, with the configured defaults only for a body that lacks them.
  *
  * @param {*} body the answer body's {@code warnings}
- * @returns {?{stale: boolean, attribution: string, url: string, items: object[]}}
+ * @returns {?{stale: boolean, attribution: string, url: string, checkedAt: ?string, items: object[]}}
  */
 export function normaliseWarnings(body) {
   if (body === null || typeof body !== 'object' || !Array.isArray(body.items)) return null;
@@ -382,6 +382,8 @@ export function normaliseWarnings(body) {
     attribution: typeof body.attribution === 'string' && body.attribution !== ''
       ? body.attribution : DEFAULT_ATTRIBUTION,
     url: typeof body.url === 'string' && body.url !== '' ? body.url : DEFAULT_MET_OFFICE_URL,
+    // When the server last read the Met Office feed for these facts: orders them against the polled list.
+    checkedAt: typeof body.checkedAt === 'string' && body.checkedAt !== '' ? body.checkedAt : null,
     items,
   };
 }

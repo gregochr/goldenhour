@@ -44,9 +44,25 @@ public record AskAnswer(boolean answerable, String summary, List<AskPick> picks,
      * @param attribution the attribution line the licence requires
      * @param url         the Met Office warnings page
      * @param items       the warnings shown to the model, most severe first
+     * @param checkedAt   when the Met Office feed was last read successfully for these facts (ISO instant, the same
+     *                    clock as {@code GET /api/warnings}' {@code lastCheckedAt}), so a client only judges the
+     *                    facts stale against a list at least that new; omitted when unknown
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record WarningsCard(boolean stale, String attribution, String url, List<WarningCard> items) {
+    public record WarningsCard(boolean stale, String attribution, String url, List<WarningCard> items,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String checkedAt) {
+
+        /**
+         * Facts with no feed-check time.
+         *
+         * @param stale       whether the feed may be out of date
+         * @param attribution the attribution line
+         * @param url         the Met Office page
+         * @param items       the warnings
+         */
+        public WarningsCard(boolean stale, String attribution, String url, List<WarningCard> items) {
+            this(stale, attribution, url, items, null);
+        }
 
         /** Canonical constructor: takes an immutable copy; null reads as empty. */
         public WarningsCard {

@@ -87,6 +87,7 @@ class AskSnapshotBuilderWarningsTest {
         assertThat(warnings.stale()).isFalse();
         assertThat(warnings.url()).isEqualTo(URL);
         assertThat(warnings.attribution()).isEqualTo(ATTRIBUTION);
+        assertThat(warnings.checkedAt()).isEqualTo(Instant.parse("2026-10-05T11:55:00Z"));
         assertThat(warnings.items()).singleElement().satisfies(w -> {
             assertThat(w.id()).isEqualTo("W1");
             assertThat(w.version()).isEqualTo("2.0");

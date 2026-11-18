@@ -14,6 +14,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -565,6 +566,20 @@ class AskWarningGuardTest {
 
         assertThat(run.outcome().uncacheable()).isTrue();
         assertThat(run.outcome().answer().warnings()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("the attached facts carry when the feed was last read, so a client can order them against its list")
+    void attachedFactsCarryTheFeedCheckTime() {
+        AskSnapshot.Warnings withTime = new AskSnapshot.Warnings(true, false, List.of(AMBER_SNOW),
+                AskWarningFixtures.URL, AskWarningFixtures.ATTRIBUTION, Instant.parse("2026-10-05T11:55:00Z"));
+
+        Result timed = validate("An Amber warning of snow is in force.", snapshot(withTime), shown("W1"));
+        Result untimed = validate("An Amber warning of snow is in force.", snapshot(served(AMBER_SNOW)),
+                shown("W1"));
+
+        assertThat(timed.answer().warnings().checkedAt()).isEqualTo("2026-10-05T11:55:00Z");
+        assertThat(untimed.answer().warnings().checkedAt()).isNull();
     }
 
     @Test

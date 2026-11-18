@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
@@ -21,6 +21,8 @@ const warnings = (over = {}) => ({
   }],
   ...over,
 });
+
+beforeEach(() => { getWarnings.mockReset(); });
 
 describe('AskWarnings', () => {
   it('draws nothing for an answer with no warnings', () => {
@@ -99,5 +101,82 @@ describe('AskWarnings — checked against the live polled list', () => {
     await renderLive(response([warning({ warningId: 'W1', warningVersion: null, level: 'AMBER' })]));
 
     expect(await screen.findByTestId('ask-warning')).toBeInTheDocument();
+  });
+
+  describe('ordering the answer against the polled list', () => {
+    const withChecked = (checkedAt, item = {}) => ({ ...carried(item), checkedAt });
+    const providerList = (lastCheckedAt, warnings, extra = {}) => response(warnings, { lastCheckedAt, ...extra });
+    const inForce = (version = '2.0') => warning({ warningId: 'W1', warningVersion: version, level: 'AMBER' });
+
+    const mount = async (answer) => {
+      render(<WarningsProvider><AskWarnings warnings={answer} /></WarningsProvider>);
+      await waitFor(() => expect(getWarnings).toHaveBeenCalled());
+    };
+
+    it('keeps a newly issued warning visible while the list is older than the answer, and refreshes it', async () => {
+      getWarnings
+        .mockResolvedValueOnce(providerList('2026-10-05T11:50:00Z', []))
+        .mockResolvedValueOnce(providerList('2026-10-05T11:56:00Z', [inForce()]));
+
+      await mount(withChecked('2026-10-05T11:55:00Z'));
+
+      await waitFor(() => expect(getWarnings).toHaveBeenCalledTimes(2));
+      expect(await screen.findByTestId('ask-warning')).toBeInTheDocument();
+      expect(screen.queryByTestId('ask-warning-retired')).toBeNull();
+    });
+
+    it('retires a warning when a list at least as new as the answer lacks it', async () => {
+      getWarnings.mockResolvedValue(providerList('2026-10-05T11:56:00Z', []));
+
+      await mount(withChecked('2026-10-05T11:55:00Z'));
+
+      expect(await screen.findByTestId('ask-warning-retired')).toHaveAttribute('data-state', 'gone');
+      expect(getWarnings).toHaveBeenCalledTimes(1);
+    });
+
+    it('flags an update only when a list at least as new holds a higher version', async () => {
+      getWarnings.mockResolvedValue(providerList('2026-10-05T11:55:00Z', [inForce('3.0')]));
+
+      await mount(withChecked('2026-10-05T11:55:00Z'));
+
+      expect(await screen.findByTestId('ask-warning-retired')).toHaveAttribute('data-state', 'updated');
+    });
+
+    it('never calls an older version "updated": the list simply has not caught up', async () => {
+      getWarnings.mockResolvedValue(providerList('2026-10-05T11:56:00Z', [inForce('1.0')]));
+
+      await mount(withChecked('2026-10-05T11:55:00Z'));
+
+      expect(await screen.findByTestId('ask-warning')).toBeInTheDocument();
+      expect(screen.queryByTestId('ask-warning-retired')).toBeNull();
+    });
+
+    it('keeps the answer\'s own facts and says they may be out of date when the refresh fails', async () => {
+      getWarnings
+        .mockResolvedValueOnce(providerList('2026-10-05T11:50:00Z', []))
+        .mockRejectedValueOnce(new Error('offline'));
+
+      await mount(withChecked('2026-10-05T11:55:00Z'));
+
+      expect(await screen.findByTestId('ask-warnings-stale')).toBeInTheDocument();
+      expect(screen.getByTestId('ask-warning')).toBeInTheDocument();
+      expect(screen.queryByTestId('ask-warning-retired')).toBeNull();
+    });
+
+    it('treats an answer with no check time as older than a list that has one', async () => {
+      getWarnings.mockResolvedValue(providerList('2026-10-05T11:50:00Z', []));
+
+      await mount(withChecked(null));
+
+      expect(await screen.findByTestId('ask-warning-retired')).toHaveAttribute('data-state', 'gone');
+    });
+
+    it('does not retire anything while the list has never been read', async () => {
+      getWarnings.mockResolvedValue(providerList(null, []));
+
+      await mount(withChecked(null));
+
+      expect(screen.getByTestId('ask-warning')).toBeInTheDocument();
+    });
   });
 });

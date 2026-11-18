@@ -247,7 +247,8 @@ final class AskWarningGuard {
             return answer;
         }
         return answer.withWarnings(
-                new AskAnswer.WarningsCard(warnings.stale(), warnings.attribution(), warnings.url(), cards));
+                new AskAnswer.WarningsCard(warnings.stale(), warnings.attribution(), warnings.url(), cards,
+                        warnings.checkedAt() == null ? null : warnings.checkedAt().toString()));
     }
 
     private boolean mentions(AskAnswer answer) {
