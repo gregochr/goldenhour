@@ -14,102 +14,87 @@ import {
   act, fireEvent, render, screen,
 } from '@testing-library/react';
 
-let cornerEl;
-const flyToSpy = vi.hoisted(() => vi.fn());
+const h = vi.hoisted(() => ({
+  flyTo: vi.fn(),
+  corner: null,
+  labels: [],
+  filters: [],
+  inert: () => ({ default: () => null }),
+  // A data endpoint that answers "nothing yet", one per name.
+  empty: (...names) => Object.fromEntries(names.map((name) => [name, vi.fn().mockResolvedValue([])])),
+}));
+
+// Only what MapView reads of Leaflet: a Control that mounts its own element, and the three constructors.
 vi.mock('leaflet', () => {
-  const icon = () => ({});
-  const divIcon = (options) => ({ options });
-  const point = (x, y) => ({ x, y });
-
-  class Control {
-    constructor(options = {}) { this.options = options; }
-
-    addTo(map) {
-      this._container = this.onAdd(map);
-      this._container.classList.add('leaflet-control');
-      map._corner.appendChild(this._container);
-      return this;
-    }
-
-    remove() {
-      this._container?.remove();
-      return this;
-    }
-  }
-
-  const DomEvent = {
-    disableClickPropagation: () => {},
-    disableScrollPropagation: () => {},
+  function Control() {}
+  Control.prototype.addTo = function addTo(map) {
+    this._container = this.onAdd(map);
+    map._corner.appendChild(this._container);
+    return this;
+  };
+  Control.prototype.remove = function remove() {
+    this._container?.remove();
+    return this;
   };
   const L = {
-    icon, divIcon, point, Control, DomEvent,
+    icon: () => ({}),
+    divIcon: (options) => ({ options }),
+    point: (x, y) => ({ x, y }),
+    Control,
+    DomEvent: { disableClickPropagation() {}, disableScrollPropagation() {} },
   };
   return { default: L, ...L };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
+vi.mock('react-leaflet', () => {
+  const noop = () => {};
+  const none = () => null;
+  const wrap = ({ children }) => <div>{children}</div>;
+  return {
+    MapContainer: wrap,
+    Popup: wrap,
+    TileLayer: none,
+    Polyline: none,
+    useMapEvents: none,
+    useMap: () => ({
+      eachLayer: noop,
+      once: noop,
+      off: noop,
+      fitBounds: noop,
+      addControl: noop,
+      getZoom: () => 9,
+      getContainer: () => ({ clientHeight: 500 }),
+      flyTo: h.flyTo,
+      _corner: h.corner,
+    }),
+  };
+});
 
-vi.mock('react-leaflet', () => ({
-  MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
-  TileLayer: () => null,
-  Popup: ({ children }) => <div>{children}</div>,
-  Polyline: () => null,
-  useMapEvents: () => null,
-  useMap: () => ({
-    eachLayer: () => {},
-    getContainer: () => ({ clientHeight: 500 }),
-    getZoom: () => 9,
-    once: () => {},
-    off: () => {},
-    flyTo: flyToSpy,
-    fitBounds: () => {},
-    addControl: () => {},
-    _corner: cornerEl,
-  }),
-}));
-
-vi.mock('../components/MapHeatLayer.jsx', () => ({
-  default: () => <div data-testid="map-heat-layer" />,
-}));
-
-const mapLabelsCalls = [];
-vi.mock('../components/map/MapLabels.jsx', () => ({
-  default: (props) => { mapLabelsCalls.push(props); return null; },
-}));
-vi.mock('../components/map/AskCameraController.jsx', () => ({ default: () => null }));
-
+// Children that add nothing here: inert, or a probe that records what MapView handed it.
+vi.mock('../components/MapHeatLayer.jsx', h.inert);
+vi.mock('../components/map/AskCameraController.jsx', h.inert);
+vi.mock('../components/InfoTip.jsx', h.inert);
+vi.mock('../components/AuroraViewlineOverlay.jsx', h.inert);
+vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <>{children}</> }));
+vi.mock('../components/map/MapLabels.jsx', () => ({ default: (props) => { h.labels.push(props); return null; } }));
 vi.mock('../components/map/MapCallout.jsx', () => ({
-  default: (props) => (
-    <div data-testid="probe-callout">
-      <span data-testid="probe-callout-name">{props.location?.name ?? ''}</span>
-    </div>
-  ),
+  default: ({ location }) => <b data-testid="probe-callout-name">{location?.name}</b>,
 }));
-
-const filtersPopoverCalls = [];
 vi.mock('../components/map/FiltersPopover.jsx', () => ({
-  default: (props) => { filtersPopoverCalls.push(props); return null; },
-  DRIVE_TIME_TIERS: [[0, 'Any'], [45, '45 min'], [90, '1h 30'], [150, '2h 30']],
+  default: (props) => { h.filters.push(props); return null; },
+  DRIVE_TIME_TIERS: [[0, 'Any'], [45, '45 min']],
 }));
-
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
+  ...h.empty('getAuroraLocations', 'getAuroraForecastResults', 'getAuroraForecastAvailableDates'),
   getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
-  getAuroraLocations: vi.fn().mockResolvedValue([]),
-  getAuroraForecastResults: vi.fn().mockResolvedValue([]),
-  getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
 }));
-vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn(() => Promise.resolve({})) }));
-vi.mock('../api/astroApi.js', () => ({
-  getAstroConditions: vi.fn().mockResolvedValue([]),
-  getAstroAvailableDates: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockResolvedValue([]) }));
-vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
-vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
+vi.mock('../api/astroApi.js', () => h.empty('getAstroConditions', 'getAstroAvailableDates'));
+vi.mock('../api/travelDayApi.js', () => h.empty('fetchTravelDayRanges'));
+vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn().mockResolvedValue({}) }));
 
 import MapView from '../components/MapView.jsx';
 import PlanSearch from '../components/PlanSearch.jsx';
@@ -117,82 +102,93 @@ import { reachLensStub } from './reachLensStub.js';
 
 const TODAY = '2026-01-15';
 
-const forecast = (rating) => ({
-  sunset: {
-    rating, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: 70, goldenHourPotential: 60,
-  },
-  sunrise: {
-    rating, solarEventTime: `${TODAY}T08:12:00`, fierySkyPotential: 70, goldenHourPotential: 60,
-  },
+/** Three places, one per case: shown by the floor, hidden by it, and outside the planning area. */
+const PLACES = [
+  ['Near', 55.61, -1.71, 'North East', 5],
+  ['Weak', 55.62, -1.72, 'North East', 1],
+  ['Far', 54.45, -3.0, 'Lake District', 5],
+];
+const [NEAR, WEAK, FAR] = PLACES.map(([name, lat, lon, regionName, rating], i) => {
+  const day = (time) => ({
+    rating, solarEventTime: `${TODAY}T${time}:00`, fierySkyPotential: 70, goldenHourPotential: 60,
+  });
+  return {
+    id: i + 1,
+    name,
+    lat,
+    lon,
+    regionName,
+    locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map([[TODAY, { sunset: day('16:12'), sunrise: day('08:12') }]]),
+  };
 });
-const loc = (id, name, lat, lon, regionName, rating) => ({
-  id, name, lat, lon, regionName, locationType: ['LANDSCAPE'], forecastsByDate: new Map([[TODAY, forecast(rating)]]),
-});
-
-const NEAR = loc(1, 'Near', 55.61, -1.71, 'North East', 5);
-const WEAK = loc(2, 'Weak', 55.62, -1.72, 'North East', 1);
-const FAR = loc(3, 'Far', 54.45, -3.0, 'Lake District', 5);
 const LOCATIONS = [NEAR, WEAK, FAR];
 
-const spotOf = (l) => ({
-  id: l.id, name: l.name, lat: l.lat, lng: l.lon, regionName: l.regionName, rid: l.regionName, bortleClass: 4, r: [5],
-});
-const AREA_SPOTS = [spotOf(NEAR), spotOf(WEAK)];
-const ALL_SPOTS = [...AREA_SPOTS, spotOf(FAR)];
-
-const HEAT = {
-  enabled: true,
-  hasHome: false,
-  spots: ALL_SPOTS,
-  areaSpots: AREA_SPOTS,
-  pointsByKey: new Map([[`${TODAY}:SUNSET`, []], [`${TODAY}:SUNRISE`, []]]),
-  windows: [
-    {
-      key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '16:12', bestRating: 5, conf: 1,
-    },
-    {
-      key: `${TODAY}:SUNRISE`, date: TODAY, targetType: 'SUNRISE', label: 'Tonight sunrise', time: '08:12', bestRating: 5, conf: 1,
-    },
-  ],
-  areaBounds: [[54.3, -3.4], [55.7, -1.3]],
-  catalogueBounds: [[53.9, -3.4], [55.7, -1.3]],
+const heatFor = (hasHome) => {
+  const spot = (l) => ({
+    id: l.id, name: l.name, lat: l.lat, lng: l.lon, regionName: l.regionName, rid: l.regionName, bortleClass: 4, r: [5],
+  });
+  const windows = ['SUNSET', 'SUNRISE'].map((targetType) => ({
+    key: `${TODAY}:${targetType}`,
+    date: TODAY,
+    targetType,
+    label: `Tonight ${targetType.toLowerCase()}`,
+    time: targetType === 'SUNSET' ? '16:12' : '08:12',
+    bestRating: 5,
+    conf: 1,
+  }));
+  return {
+    enabled: true,
+    hasHome,
+    spots: LOCATIONS.map(spot),
+    areaSpots: [NEAR, WEAK].map(spot),
+    pointsByKey: new Map(windows.map((w) => [w.key, []])),
+    windows,
+    areaBounds: [[54.3, -3.4], [55.7, -1.3]],
+    catalogueBounds: [[53.9, -3.4], [55.7, -1.3]],
+  };
 };
-const HEAT_WITH_HOME = { ...HEAT, hasHome: true };
-
-const baseProps = (over = {}) => ({
-  locations: LOCATIONS,
-  date: TODAY,
-  autoEventType: 'SUNSET',
-  forecastDates: [TODAY],
-  heat: HEAT,
-  ...over,
-});
+const HEAT = heatFor(false);
+const HEAT_WITH_HOME = heatFor(true);
 
 let view;
-async function renderTab(over = {}) {
-  await act(async () => { view = render(<MapView {...baseProps(over)} />); });
-  return view;
-}
-async function rerenderTab(over = {}) {
-  await act(async () => { view.rerender(<MapView {...baseProps(over)} />); });
-}
+/** MapView with the fixture's props, mounted the first time and updated after: `over` is what a test changes. */
+const show = async (over = {}, sibling = null) => {
+  // A fragment from the start, so a sibling arriving later (Find, in the shell's tree) never remounts the map.
+  const ui = (
+    <>
+      <MapView
+        locations={LOCATIONS}
+        date={TODAY}
+        autoEventType="SUNSET"
+        forecastDates={[TODAY]}
+        heat={HEAT}
+        {...over}
+      />
+      {sibling}
+    </>
+  );
+  await act(async () => { if (view) view.rerender(ui); else view = render(ui); });
+};
+const renderTab = show;
+const rerenderTab = show;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T10:00:00Z`));
   localStorage.clear();
-  mapLabelsCalls.length = 0;
-  filtersPopoverCalls.length = 0;
-  flyToSpy.mockClear();
-  cornerEl = document.createElement('div');
-  cornerEl.className = 'leaflet-bottom leaflet-right';
-  document.body.appendChild(cornerEl);
+  h.labels.length = 0;
+  h.filters.length = 0;
+  h.corner = document.body.appendChild(document.createElement('div'));
+  h.corner.className = 'leaflet-bottom leaflet-right';
+  view = null;
 });
 
 afterEach(() => {
+  view?.unmount();
   vi.useRealTimers();
   localStorage.clear();
-  cornerEl.remove();
+  h.corner.remove();
   vi.clearAllMocks();
 });
 
@@ -201,7 +197,7 @@ const pickOf = (over = {}) => ({
 });
 const nearPick = (over = {}) => pickOf({ id: NEAR.id, name: 'Near', ...over });
 /** The place names the label layer was last handed, the selected place included. */
-const lastLabelNames = () => (mapLabelsCalls.at(-1)?.spots ?? []).map((s) => s.name);
+const lastLabelNames = () => (h.labels.at(-1)?.spots ?? []).map((s) => s.name);
 const calloutName = () => screen.queryByTestId('probe-callout-name')?.textContent ?? null;
 const note = () => screen.queryByTestId('map-find-note');
 
@@ -213,15 +209,15 @@ describe('a place picked in Find', () => {
     await rerenderTab({ findPick: nearPick() });
 
     expect(calloutName()).toBe('Near');
-    expect(flyToSpy).toHaveBeenCalledTimes(1);
-    expect(flyToSpy.mock.calls[0][0]).toEqual([NEAR.lat, NEAR.lon]);
+    expect(h.flyTo).toHaveBeenCalledTimes(1);
+    expect(h.flyTo.mock.calls[0][0]).toEqual([NEAR.lat, NEAR.lon]);
     expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
     // Nothing needed relaxing, so nothing is said.
     expect(note()).toBeNull();
 
     // The same nonce again changes nothing.
     await rerenderTab({ findPick: nearPick() });
-    expect(flyToSpy).toHaveBeenCalledTimes(1);
+    expect(h.flyTo).toHaveBeenCalledTimes(1);
   });
 
   it('resolves a place by name when the pick carries no id', async () => {
@@ -239,17 +235,17 @@ describe('a place picked in Find', () => {
       locations: [...LOCATIONS, { ...NEAR, id: 5, name: 'Lost', lat: null, lon: null }],
     });
     expect(calloutName()).toBeNull();
-    expect(flyToSpy).not.toHaveBeenCalled();
+    expect(h.flyTo).not.toHaveBeenCalled();
   });
 
   it('⚠️ relaxes the star floor for a place it hides, in memory only, and says so', async () => {
     localStorage.setItem('mapFilterMinStars', '3');
     await renderTab();
-    expect(filtersPopoverCalls.at(-1).minStars).toBe(3);
+    expect(h.filters.at(-1).minStars).toBe(3);
 
     await rerenderTab({ findPick: pickOf() });
 
-    expect(filtersPopoverCalls.at(-1).minStars).toBe(1);
+    expect(h.filters.at(-1).minStars).toBe(1);
     expect(calloutName()).toBe('Weak');
     expect(note()).toHaveTextContent('Showing Weak: the 3★ floor relaxed for it.');
     // The saved floor is the reader's own and is never written by a pick: a reload brings it back.
@@ -260,7 +256,7 @@ describe('a place picked in Find', () => {
   it('relaxes nothing for a place the floor already shows', async () => {
     await renderTab();
     await rerenderTab({ findPick: nearPick() });
-    expect(filtersPopoverCalls.at(-1).minStars).toBe(3);
+    expect(h.filters.at(-1).minStars).toBe(3);
     expect(note()).toBeNull();
   });
 
@@ -277,7 +273,7 @@ describe('a place picked in Find', () => {
 
     expect(lens.selectTier).not.toHaveBeenCalled();
     expect(JSON.stringify({ ...localStorage })).toBe(before);
-    expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(45);
+    expect(h.filters.at(-1).driveTimeFilter).toBe(45);
     expect(note()).toHaveTextContent('the drive-time filter');
     expect(names()).toContain('Far');
 
@@ -300,15 +296,15 @@ describe('a place picked in Find', () => {
 
   it('relaxes the place-type filter by adding the place\'s own type, and dark sky by switching it off', async () => {
     await renderTab();
-    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
-    await act(async () => { filtersPopoverCalls.at(-1).onToggleDarkSky(); });
-    expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(true);
-    expect(filtersPopoverCalls.at(-1).activeTypeFilters.has('SEASCAPE')).toBe(true);
+    await act(async () => { h.filters.at(-1).onToggleType('SEASCAPE'); });
+    await act(async () => { h.filters.at(-1).onToggleDarkSky(); });
+    expect(h.filters.at(-1).darkSkyFilter).toBe(true);
+    expect(h.filters.at(-1).activeTypeFilters.has('SEASCAPE')).toBe(true);
 
     await rerenderTab({ findPick: nearPick() });
 
-    expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
-    const types = filtersPopoverCalls.at(-1).activeTypeFilters;
+    expect(h.filters.at(-1).darkSkyFilter).toBe(false);
+    const types = h.filters.at(-1).activeTypeFilters;
     expect(types.has('LANDSCAPE')).toBe(true);
     expect(types.has('SEASCAPE')).toBe(true);
     expect(note()).toHaveTextContent('the place-type filter, dark sky');
@@ -317,30 +313,30 @@ describe('a place picked in Find', () => {
   it('keeps dark sky on for a place that is dark enough', async () => {
     const dark = { ...NEAR, bortleClass: 2 };
     await renderTab({ locations: [dark, WEAK, FAR] });
-    await act(async () => { filtersPopoverCalls.at(-1).onToggleDarkSky(); });
+    await act(async () => { h.filters.at(-1).onToggleDarkSky(); });
 
     await rerenderTab({ locations: [dark, WEAK, FAR], findPick: nearPick() });
 
-    expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(true);
+    expect(h.filters.at(-1).darkSkyFilter).toBe(true);
   });
 
   it('⚠️ frames the region of a place outside My area (widening the scope) instead of flying to it', async () => {
     await renderTab({ heat: HEAT_WITH_HOME });
-    expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
+    expect(h.filters.at(-1).heatArea).toBe(true);
 
     await rerenderTab({ heat: HEAT_WITH_HOME, findPick: pickOf({ id: FAR.id, name: 'Far' }) });
 
     expect(calloutName()).toBe('Far');
-    expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
+    expect(h.filters.at(-1).heatArea).toBe(false);
     expect(note()).toHaveTextContent('the My area scope');
-    expect(flyToSpy).not.toHaveBeenCalled();
+    expect(h.flyTo).not.toHaveBeenCalled();
   });
 
   it('flies to a place inside My area without touching the scope', async () => {
     await renderTab({ heat: HEAT_WITH_HOME });
     await rerenderTab({ heat: HEAT_WITH_HOME, findPick: nearPick() });
-    expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
-    expect(flyToSpy).toHaveBeenCalledTimes(1);
+    expect(h.filters.at(-1).heatArea).toBe(true);
+    expect(h.flyTo).toHaveBeenCalledTimes(1);
   });
 
   it('the note can be dismissed, and goes with the selection', async () => {
@@ -364,7 +360,7 @@ describe('a place picked in Find', () => {
     await renderTab();
     await rerenderTab({ paneVisible: false, findPick: nearPick() });
     expect(calloutName()).toBeNull();
-    expect(flyToSpy).not.toHaveBeenCalled();
+    expect(h.flyTo).not.toHaveBeenCalled();
 
     await rerenderTab({ paneVisible: true, findPick: nearPick() });
 
@@ -374,38 +370,38 @@ describe('a place picked in Find', () => {
   it('⚠️ a pick already in flight when the map mounts is spent: it is not replayed on the first visit', async () => {
     await renderTab({ findPick: nearPick() });
     expect(calloutName()).toBeNull();
-    expect(flyToSpy).not.toHaveBeenCalled();
+    expect(h.flyTo).not.toHaveBeenCalled();
   });
 });
 
 describe('a region picked in Find', () => {
   it('is the Regions picker\'s own jump: a frame outside My area widens the scope, and nothing moves the origin', async () => {
     await renderTab({ heat: HEAT_WITH_HOME });
-    expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
+    expect(h.filters.at(-1).heatArea).toBe(true);
 
     await rerenderTab({ heat: HEAT_WITH_HOME, findPick: { kind: 'region', name: 'Lake District', nonce: 1 } });
 
-    expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
+    expect(h.filters.at(-1).heatArea).toBe(false);
   });
 
   it('does nothing for a region the map holds no spots for', async () => {
     await renderTab({ heat: HEAT_WITH_HOME });
     await rerenderTab({ heat: HEAT_WITH_HOME, findPick: { kind: 'region', name: 'Cornwall', nonce: 1 } });
-    expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
+    expect(h.filters.at(-1).heatArea).toBe(true);
   });
 });
 
 describe('Find opening closes the map\'s menus', () => {
   it('takes the Filters popover down, and does not reopen it when Find closes', async () => {
     await renderTab();
-    await act(async () => { filtersPopoverCalls.at(-1).onOpenChange(true); });
-    expect(filtersPopoverCalls.at(-1).open).toBe(true);
+    await act(async () => { h.filters.at(-1).onOpenChange(true); });
+    expect(h.filters.at(-1).open).toBe(true);
 
     await rerenderTab({ findOpen: true });
-    expect(filtersPopoverCalls.at(-1).open).toBe(false);
+    expect(h.filters.at(-1).open).toBe(false);
 
     await rerenderTab({ findOpen: false });
-    expect(filtersPopoverCalls.at(-1).open).toBe(false);
+    expect(h.filters.at(-1).open).toBe(false);
   });
 });
 
@@ -415,16 +411,12 @@ describe('⚠️ one Escape closes only Find over a selected callout', () => {
     const search = (
       <PlanSearch windows={[]} regions={[]} locations={[]} onClose={onClose} onPickWindow={vi.fn()} />
     );
-    // Mounted as a fragment from the start, so opening Find is a sibling arriving and MapView is not remounted.
-    const tree = (props, withFind) => (
-      <><MapView {...baseProps(props)} />{withFind ? search : null}</>
-    );
-    await act(async () => { view = render(tree({}, false)); });
-    await act(async () => { view.rerender(tree({ findPick: nearPick() }, false)); });
+    await show();
+    await show({ findPick: nearPick() });
     expect(calloutName()).toBe('Near');
 
     // Find opens over the selection, as a sibling of the pane in the shell's tree.
-    await act(async () => { view.rerender(tree({ findPick: nearPick() }, true)); });
+    await show({ findPick: nearPick() }, search);
     const field = await screen.findByTestId('plan-search-input');
     await act(async () => { fireEvent.keyDown(field, { key: 'Escape' }); });
 

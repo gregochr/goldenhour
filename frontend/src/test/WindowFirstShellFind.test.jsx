@@ -29,17 +29,17 @@ import { __inspectForTests } from '../utils/dialogHistory.js';
  * lifted, DOES open it. An absence alone is what a key that was never wired also produces.
  */
 vi.mock('../api/almanacApi.js', () => ({
-  getAlmanac: vi.fn(() => Promise.resolve({
-    builtFor: '2026-10-05', bands: null, counts: null, conditions: [], entries: [],
-  })),
   ALMANAC_DAYS: 90,
+  getAlmanac: vi.fn().mockResolvedValue({
+    builtFor: '2026-10-05', bands: null, counts: null, conditions: [], entries: [],
+  }),
 }));
-vi.mock('../api/askApi.js', async (importOriginal) => ({
-  ...(await importOriginal()),
-  getReady: vi.fn(),
-  ask: vi.fn(),
-  getAskSettings: vi.fn(),
-}));
+vi.mock('../api/askApi.js', async (original) => {
+  const real = await original();
+  return {
+    ...real, getReady: vi.fn(), ask: vi.fn(), getAskSettings: vi.fn(),
+  };
+});
 import { getAskSettings, getReady } from '../api/askApi.js';
 
 // The first test to open a lazy chunk pays for fetching it.
@@ -72,25 +72,23 @@ const popup = () => screen.queryByTestId('window-sheet');
 const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const selectedTab = () => screen.getByRole('tab', { selected: true });
 
+/** The shell under the guide and Ask providers, with the tab it reports handed to the guide, as `App` does. */
 function Rig({ shellProps }) {
-  const [activeTab, setTab] = useState('plan');
-  const closer = useRef(null);
-  const register = useCallback((fn) => { closer.current = fn; }, []);
-  const closeShellDialogs = useCallback(() => closer.current?.(), []);
+  const closeRef = useRef(null);
+  const [current, setCurrent] = useState('plan');
+  const closeDialogs = useCallback(() => closeRef.current?.(), []);
+  const register = useCallback((fn) => { closeRef.current = fn; }, []);
+  const shell = (
+    <WindowFirstShell
+      {...{ locations: [], onShowOnMap: vi.fn(), onSignOut: vi.fn(), onOpenSettings: vi.fn() }}
+      {...{ onTabChange: setCurrent, registerCloseDialogs: register }}
+      {...shellProps}
+    />
+  );
   return (
-    <AskProvider>
-      <GuideProvider closeShellDialogs={closeShellDialogs} activeTab={activeTab}>
-        <WindowFirstShell
-          onOpenSettings={vi.fn()}
-          onSignOut={vi.fn()}
-          onShowOnMap={vi.fn()}
-          locations={[]}
-          onTabChange={setTab}
-          registerCloseDialogs={register}
-          {...shellProps}
-        />
-      </GuideProvider>
-    </AskProvider>
+    <GuideProvider closeShellDialogs={closeDialogs} activeTab={current}>
+      <AskProvider>{shell}</AskProvider>
+    </GuideProvider>
   );
 }
 

@@ -4165,10 +4165,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const appliedFindNonce = useRef(findPick?.nonce ?? null);
   // Find is a modal over the pane, and the menus (Filters, Regions, the phone's peek sections) are not dialogs, so
   // opening it does not take them down: one left open would sit under the callout the pick is about to open.
-  useEffect(() => {
-    if (!findOpen) return;
-    (async () => setOpenMapMenu(null))();
-  }, [findOpen]);
+  // Adjusted during render on the rising edge (React's "derive state from a changed prop" shape), so no effect
+  // and no commit in which both a menu and Find stand.
+  const [findWasOpen, setFindWasOpen] = useState(findOpen);
+  if (findOpen !== findWasOpen) {
+    setFindWasOpen(findOpen);
+    if (findOpen) setOpenMapMenu(null);
+  }
   /**
    * A place or region picked in Find (find-and-favourites-plan.md F1). Its own channel and its own effect, like
    * {@code askWindow} above and for the same reason: {@code planHandoff} is a DOOR, which carries a window and

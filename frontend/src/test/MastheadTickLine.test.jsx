@@ -117,18 +117,19 @@ describe('MastheadTickLine — the origin control', () => {
     expect(search).toHaveAttribute('aria-keyshortcuts', 'Meta+K Control+K');
     const cap = search.querySelector('kbd');
     expect(cap).not.toBeNull();
-    expect(cap).toHaveAttribute('aria-hidden', 'true');
     expect(cap.textContent).toMatch(/^(⌘K|Ctrl K)$/);
     expect(search).not.toHaveTextContent('/');
   });
 
-  it('⚠️ the Find button is named "Find a place, region or day", which holds its visible word at every width (WCAG 2.5.3)', () => {
+  it('⚠️ the Find button has NO aria-label: its name is its visible content, so it cannot mismatch it (WCAG 2.5.3, axe label-content-name-mismatch)', () => {
     renderTick({ onOpenSearch: vi.fn() });
-    const search = screen.getByRole('button', { name: 'Find a place, region or day' });
-    expect(search).toBe(screen.getByTestId('window-first-search'));
-    // Phone draws `Find`, a wider screen the whole phrase; both are inside the name.
-    expect(search.textContent).toContain('Find');
-    expect(search.textContent).toContain('Find a place, region or day');
+    const search = screen.getByTestId('window-first-search');
+    expect(search).not.toHaveAttribute('aria-label');
+    // Phone draws `Find`, a wider screen the whole phrase, and `lg` up the keycap; all of it is in the name, the
+    // decorative ⌕ is not (jsdom applies no Tailwind, so every width's words are present at once).
+    const name = screen.getByRole('button', { name: /Find a place, region or day/ }).textContent;
+    expect(name).toContain('Find a place, region or day');
+    expect(search.querySelector('.wf-tick-glyph')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('offers the way home only when the origin has moved', () => {
@@ -424,7 +425,7 @@ describe('MastheadTickLine — with no search handler (every tab but Plan)', () 
     renderTick(noSearch);
 
     expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Find a place, region or day' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Find a place, region or day/ })).toBeNull();
     const statement = screen.getByTestId('window-first-origin-statement');
     expect(statement.tagName).toBe('SPAN');
     expect(statement).toHaveTextContent('Home · Durham');
@@ -1123,7 +1124,7 @@ describe('MastheadTickLine — hideAtHome (the phone Map)', () => {
     expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
     expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
     expect(container.querySelector('.wf-tick-sep')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Find a place, region or day' }));
+    fireEvent.click(screen.getByRole('button', { name: /Find a place, region or day/ }));
     expect(onOpenSearch).toHaveBeenCalledTimes(1);
   });
 

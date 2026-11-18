@@ -626,7 +626,7 @@ describe('WindowFirstShell — Find across tabs', () => {
     await openComingUp();
 
     expect(mastheadControls()).toEqual(controls);
-    expect(screen.getByRole('button', { name: 'Find a place, region or day' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Find a place, region or day/ })).toBeInTheDocument();
     expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
     expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent(place);
   });
@@ -656,7 +656,7 @@ describe('WindowFirstShell — Find across tabs', () => {
     fireEvent.click(tab('At a Glance'));
 
     expect(mastheadControls()).toEqual(FIND_CONTROLS);
-    fireEvent.click(screen.getByRole('button', { name: 'Find a place, region or day' }));
+    fireEvent.click(screen.getByRole('button', { name: /Find a place, region or day/ }));
     expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
   });
 

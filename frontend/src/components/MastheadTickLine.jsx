@@ -432,22 +432,22 @@ export default function MastheadTickLine({
                 data-testid="window-first-search"
                 className="wf-tick-search"
                 tabIndex={searchOpen ? -1 : undefined}
-                // ⚠️ Named "Find a place, region or day", which contains the visible word on every width
-                // (WCAG 2.5.3: the phone draws `Find`, a wider screen the whole phrase). The dialog's own
-                // name and the input's keep their wording until F2 adds areas to what Find searches.
-                aria-label="Find a place, region or day"
+                // ⚠️ NO `aria-label`: the name is the button's own visible words (WCAG 2.5.3, and axe's
+                // `label-content-name-mismatch`, which an override that left the keycap out of the name failed). The
+                // phone draws `Find`, a wider screen `Find a place, region or day` and, from `lg`, the keycap, and the
+                // name follows what is drawn. Only the ⌕ is decorative. The dialog's own name and the input's keep
+                // their wording until F2 adds areas to what Find searches.
                 aria-keyshortcuts="Meta+K Control+K"
               >
                 {/* Find's keyboard cap is ⌘K / Ctrl K (`/` is Ask's). The cap is drawn from `lg` up, where a
-                    keyboard is likely; the shortcut itself is live at every width. Decorative: the
-                    `aria-keyshortcuts` above says it once. */}
+                    keyboard is likely; the shortcut itself is live at every width. It is part of the
+                    name when drawn, so the name matches what is on screen. */}
                 <span aria-hidden="true" className="wf-tick-glyph">⌕</span>
-                <span aria-hidden="true">
+                <span>
                   <span className="sm:hidden">Find</span>
                   <span className="hidden sm:inline">Find a place, region or day</span>
                 </span>
                 <kbd
-                  aria-hidden="true"
                   data-testid="window-first-search-key"
                   className="hidden lg:inline font-mono text-[9px] tracking-normal normal-case border border-plex-border-light rounded px-1"
                 >
