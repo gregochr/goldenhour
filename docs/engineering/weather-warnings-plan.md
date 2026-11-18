@@ -92,7 +92,7 @@ regions are served; a warning that covers none is stored but not surfaced.
 | **W3** | `WindowGlanceLanes` lane first in the stack, card triangle, `WindowSheetDialog` WARNING row | |
 | **W3b** | Coming up entries (built: `ComingUpWarningMerger` at the controller edge, not in `ComingUpAssembler`; see `reference/weather-warnings.md` "Coming up, W3b") | Beyond the scored days; upgraded entry floats to top of its day |
 | **W4** | Map warning chip row (`MapWarningChips`, in `.wf-map-chrome-tl` under the topic chips) | Not in the hot-topics bar. **No outline, legend entry or geometry layer:** the dashed no-fill outline of the original plan is superseded by §12 and §13 (style guide v1.4: map geometry must be colour-filled and must not be overlaid with other information), so the chip is the whole map presence. Built; see `reference/weather-warnings.md` "The client, W4" |
-| **W5** | Guides (`weather-warnings.html` + sections in five existing pages + search/hub/`guide.js`/`guideSections.test.js`), landing index/FAQ/acknowledgements/terms, `GuideLink` `?` in the app | **Warnings must not reach users (flag on) before W5 ships** |
+| **W5** | Guides (`weather-warnings.html` + sections in four existing pages plus the hub (built: At a Glance, Map, Coming up, Reading the forecast; the location sheet and callout are covered inside At a Glance and Map) + search/hub/`guide.js`/`guideSections.test.js`), landing index/FAQ/acknowledgements/terms, `GuideLink` `?` in the app | **Warnings must not reach users (flag on) before W5 ships** |
 
 Flag stays off in production until W5 has merged. Each phase: Sonnet builds in its own worktree, runs the gates in
 `CLAUDE.md` (backend ladder; frontend lint, coverage, audit, build; E2E smoke where UI), adds a `changelog.d/`
