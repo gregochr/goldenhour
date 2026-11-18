@@ -585,6 +585,26 @@ export function lookupForWindow(idx, locationId, name, date, targetType) {
   return (name ? idx.byName?.get(`${name}|${tail}`) : undefined) ?? null;
 }
 
+/**
+ * What the Met Office warnings need to know about one place's solar window: its stored forecast row (when it has
+ * one) and the fallback event instant for a place with no stored row, which is that place's own briefing slot's
+ * {@code eventTime}, else the instant recovered from its own score row. The map callout and the map's warning chip
+ * both call this, so the two can never match one place at different instants (weather-warnings-plan.md W2, W4).
+ *
+ * @param {?object} location the place ({@code id}, {@code name}, {@code forecastsByDate})
+ * @param {{date: string, eventType: string}} event the solar window
+ * @param {?object} slotIndex {@link buildSlotIndex}'s result, or null
+ * @param {?object} scoreIndex {@link buildScoreIndex}'s result, or null
+ * @returns {{row: ?object, eventIso: ?string}}
+ */
+export function warningInputsFor(location, event, slotIndex, scoreIndex) {
+  if (!location || !event) return { row: null, eventIso: null };
+  const row = location.forecastsByDate?.get?.(event.date)?.[String(event.eventType).toLowerCase()] ?? null;
+  const slot = lookupForWindow(slotIndex, location.id, location.name, event.date, event.eventType);
+  const score = lookupForWindow(scoreIndex, location.id, location.name, event.date, event.eventType);
+  return { row, eventIso: slot?.eventTime ?? eventInstantOf(score, event.eventType) };
+}
+
 /** Day of the month for the row's date box, on the UK calendar the dates are already keyed to. */
 function dayOfMonth(dateStr) {
   return new Date(`${dateStr}T12:00:00Z`)

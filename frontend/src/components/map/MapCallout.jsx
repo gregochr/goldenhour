@@ -12,7 +12,7 @@ import { auroraChipLevel } from '../../utils/auroraChipLevel.js';
 import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import {
-  eventInstantOf, lookupForWindow, slotVerdictOf, unratedSlotWord,
+  eventInstantOf, lookupForWindow, slotVerdictOf, unratedSlotWord, warningInputsFor,
 } from '../../utils/locationSheet.js';
 import { subjectWordsOf, isWildlifeOnly } from '../../utils/locationTypes.js';
 import {
@@ -351,7 +351,7 @@ export default function MapCallout({
   scoreIndex = null, slotIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
-  tideStripHeight = null, topicStripHeight = null, bandKey = null, hourlyRows = null, now = null,
+  tideStripHeight = null, topicStripHeight = null, bandKey = null, chromeKey = null, hourlyRows = null, now = null,
   dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
   userRole = null, ratings = null, auroraAlertLevel = null, travelDay = false, highWaterLead = null,
@@ -546,18 +546,11 @@ export default function MapCallout({
   // keys a warning to a sunrise or sunset) and not for a window already gone; travel days included (what is
   // happening is never silenced). Always matched against the polled served list, never the stored row's ids, which
   // only refresh with /api/forecast (the licence's 10-minute bound).
-  const warnSlot = event?.kind === 'solar' && location
-    ? lookupForWindow(slotIndex, location.id, location.name, event.date, event.eventType) : null;
-  const warnScore = event?.kind === 'solar' && location
-    ? lookupForWindow(scoreIndex, location.id, location.name, event.date, event.eventType) : null;
-  const warningRow = event?.kind === 'solar' && location
-    ? (location.forecastsByDate?.get(event.date)?.[String(event.eventType).toLowerCase()] ?? null)
-    : null;
+  // The place's row and fallback instant come from the one helper the map's warning chip also uses.
   const windowWarnings = event?.kind === 'solar' && !event.past && location
     ? warningsForWindow(served, {
-      row: warningRow,
+      ...warningInputsFor(location, event, slotIndex, scoreIndex),
       locationId: location.id ?? null,
-      eventIso: warnSlot?.eventTime ?? eventInstantOf(warnScore, event.eventType),
     })
     : [];
   // The strip's height changes when a chip arrives or leaves or the stale line flips, with nothing else moving.
@@ -647,7 +640,7 @@ export default function MapCallout({
   // poll hands a new array with the same contents and this fires once — one extra measure, no loop.
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
-    tideAlignmentIndex, tideStripHeight, topicStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
+    tideAlignmentIndex, tideStripHeight, topicStripHeight, bandKey, chromeKey, hourlyRows, ratingLayout, changing, adminOpen,
     adminLayout, travelDay, auroraAlertLevel, warningLayout, repaintNow,
   ]);
 
@@ -1461,6 +1454,9 @@ MapCallout.propTypes = {
   tideStripHeight: PropTypes.number,
   topicStripHeight: PropTypes.number,
   bandKey: PropTypes.number,
+  /** The top-left chrome group's repaint nonce: it moves when the group's height does (a warning chip row arrives,
+   *  leaves or wraps), so the card is re-placed off the band the group makes. */
+  chromeKey: PropTypes.number,
   /** A hide's served hourly comfort rows for the active window's date — see the JSDoc above. */
   hourlyRows: PropTypes.arrayOf(PropTypes.object),
   /** A wildlife hide's card when the tab has no map event at all — see the JSDoc above. */

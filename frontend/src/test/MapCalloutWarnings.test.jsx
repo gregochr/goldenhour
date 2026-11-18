@@ -270,6 +270,26 @@ describe('MapCallout warnings', () => {
     expect(spy.mock.calls.length).toBeGreaterThan(before);
   });
 
+  it('re-places an open card when the chrome group changes height (chromeKey), and not otherwise (W4)', async () => {
+    let rerender;
+    await act(async () => {
+      ({ rerender } = render(
+        <MapCallout location={LOCATION} event={EVENT} rating={4} ratingKnown scoresKnown chromeKey={1} />,
+      ));
+    });
+    const spy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const calls = () => spy.mock.calls.length;
+    const still = calls();
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={EVENT} rating={4} ratingKnown scoresKnown chromeKey={1} />);
+    });
+    expect(calls()).toBe(still);
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={EVENT} rating={4} ratingKnown scoresKnown chromeKey={2} />);
+    });
+    expect(calls()).toBeGreaterThan(still);
+  });
+
   it('renders as before outside any provider', async () => {
     await act(async () => {
       render(<MapCallout location={LOCATION} event={EVENT} rating={4} ratingKnown scoresKnown />);

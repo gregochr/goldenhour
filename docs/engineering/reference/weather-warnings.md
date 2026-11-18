@@ -369,7 +369,7 @@ is drawn on the map**. The server still stores geometry and does all matching.
 | Piece | Role |
 |---|---|
 | `components/map/MapWarningChips.jsx` | A row of its own inside `.wf-map-chrome-tl`, **under `MapTopicChips`, never inside the hot-topics bar** (`wf-topics`). Renders `WarningStrip` (the W2 chips, "Updated", the attribution line, the stale line) in a small panel. |
-| `utils/warnings.js` `warningsForMapWindow(served, {event, locations})` | The warnings for the active EV row: the union over the **whole roster** (`MapView`'s `locations`, not the filtered pins, so a star floor or type filter never makes the chip flicker) of `warningsForWindow`, i.e. the W2/W3 rule: the polled list's `locationIds` (compared as numbers) and validity span at the window's event instant, in the style guide's order. A place with no stored row is matched at another place's `solarEventTime`, else the row's served `tide.eventTime`, else not at all. |
+| `utils/warnings.js` `warningsForMapWindow(served, {event, locations})` | The warnings for the active EV row: the union over the **whole roster** (`MapView`'s `locations`, not the filtered pins, so a star floor or type filter never makes the chip flicker) of `warningsForWindow`, i.e. the W2/W3 rule: the polled list's `locationIds` (compared as numbers) and validity span at the window's event instant, in the style guide's order. Each place's instant comes from the **one shared helper** `utils/locationSheet.js` `warningInputsFor(location, event, slotIndex, scoreIndex)` that `MapCallout` also uses: the place's own stored row's `solarEventTime`, else its own briefing slot's `eventTime`, else the instant of its own score row; a place with none is not matched (no borrowing from another place or from the window's tide), so the chip and the callout never disagree about a place. `MapView` passes its `slotIndex` and `scoreIndex` to `MapWarningChips`. |
 
 **Scope.** Solar windows only, not past (the server keys a warning to a sunrise or sunset; same gate as the callout). A night, High
 water or past window prints nothing at all, not even the stale line. Always matched against the polled list (2-minute poll), never a
@@ -386,8 +386,10 @@ nothing prints, never "no warnings" or an all-clear. A warning never changes a r
 `pointer-events: none; width: 0; min-width: 100%` with an auto-pointer box inside, so it takes the width the window control and topic
 chips already give the group and **adds none of its own** (a long warning wraps; the obstacle's width cannot change), and its gaps do
 not swallow map drags. Height changes (a chip arriving, leaving, wrapping, the stale line) are published by `useChromeTlHeight`'s
-`ResizeObserver` as `--wf-chrome-tl-h` and its repaint nonce, which re-places `MapLabels` and the panels hung under the group, so the
-row needs no layout key of its own. On the phone the group already spans the width (`left/right: 8px`) and the same row renders;
+`ResizeObserver` as `--wf-chrome-tl-h` and its repaint nonce, which re-places `MapLabels` and the panels hung under the group. **An open
+`MapCallout` measures that group as its top band bar**, so the same nonce is passed to it as `chromeKey` and sits in its repaint
+dependencies: a poll that adds a warning for another place grows the group and the card is re-placed off the new band (before this it
+kept its old band until a pan or zoom and painted over the chips). Tests: `MapCalloutWarnings.test.jsx`. On the phone the group already spans the width (`left/right: 8px`) and the same row renders;
 it is the same code path on every size (not phone-only), so desktop and tablet gain the chip only when a warning applies.
 
 Tests: `warningsMapWindow.test.js`, `MapWarningChips.test.jsx`, `MapViewWarnings.test.jsx`.

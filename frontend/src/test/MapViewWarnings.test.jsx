@@ -1,7 +1,7 @@
 /**
  * `MapView` + the real `MapWarningChips` (weather-warnings-plan.md W4): the warning chips sit in the top-left chrome
  * group as a row of their own (never inside the hot-topics bar), follow the active window, and leave the rest of the
- * tab untouched. Mocked: Leaflet and the layers that need a real Leaflet pane.
+ * tab untouched. Leaflet and the layers that need a real Leaflet pane are mocked (`mapViewMocks.jsx`).
  */
 import React from 'react';
 import {
@@ -10,59 +10,9 @@ import {
 import {
   act, render, screen, within,
 } from '@testing-library/react';
+import { mapViewState } from './mapViewMocks.jsx';
 
-vi.mock('leaflet', () => {
-  const icon = () => ({});
-  const divIcon = (options) => ({ options });
-  const point = (x, y) => ({ x, y });
-  return { default: { icon, divIcon, point }, icon, divIcon, point };
-});
-vi.mock('leaflet/dist/leaflet.css', () => ({}));
-
-const VIEWPORT = { pad: () => ({ contains: () => true }) };
-vi.mock('react-leaflet', () => ({
-  MapContainer: ({ children }) => <div>{children}</div>,
-  TileLayer: () => null,
-  Popup: ({ children }) => <div>{children}</div>,
-  Polyline: () => null,
-  useMapEvents: () => null,
-  useMap: () => ({
-    eachLayer: () => {},
-    getContainer: () => ({ clientHeight: 500 }),
-    getZoom: () => 9,
-    getBounds: () => VIEWPORT,
-    once: () => {},
-    off: () => {},
-    flyTo: () => {},
-    fitBounds: () => {},
-  }),
-}));
-
-vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
-vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div /> }));
-
-let mockRole = 'PRO_USER';
-vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole }) }));
-let mockIsMobile = false;
-vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
-vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
-vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
-vi.mock('../api/auroraApi.js', () => ({
-  getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
-  getAuroraLocations: vi.fn().mockResolvedValue([]),
-  getAuroraForecastResults: vi.fn().mockResolvedValue([]),
-  getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn().mockResolvedValue({}) }));
-vi.mock('../api/astroApi.js', () => ({
-  getAstroConditions: vi.fn().mockResolvedValue([]),
-  getAstroAvailableDates: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockResolvedValue([]) }));
 vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
-vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
-vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
 import { getWarnings } from '../api/warningsApi.js';
@@ -71,9 +21,11 @@ import { windowKey } from '../utils/windowKeys.js';
 import { response, warning } from './warningsFixture.js';
 
 const TODAY = '2026-10-22';
+const NEXT = '2026-10-23';
 const SPOT = {
   id: 1, name: 'Bamburgh-0', lat: 55.61, lng: -1.71, rid: 'North East', bortleClass: 4,
 };
+// In force on TODAY only.
 const AMBER = warning({
   warningId: 'a',
   level: 'AMBER',
@@ -87,29 +39,25 @@ function heatProp() {
   const point = {
     id: SPOT.id, name: SPOT.name, lat: SPOT.lat, lng: SPOT.lng, rid: SPOT.rid, r: [5],
   };
+  const windowOf = (date) => ({
+    key: windowKey(date, 'SUNSET'), date, targetType: 'SUNSET', label: 'Sunset', time: '18:12', bestRating: 5, conf: 1,
+  });
   return {
     enabled: true,
     hasHome: false,
     spots: [SPOT],
     areaSpots: [SPOT],
-    pointsByKey: new Map([[windowKey(TODAY, 'SUNSET'), [point]]]),
-    windows: [{
-      key: windowKey(TODAY, 'SUNSET'),
-      date: TODAY,
-      targetType: 'SUNSET',
-      label: 'Tonight sunset',
-      time: '18:12',
-      bestRating: 5,
-      conf: 1,
-    }],
+    pointsByKey: new Map([TODAY, NEXT].map((date) => [windowKey(date, 'SUNSET'), [point]])),
+    windows: [windowOf(TODAY), windowOf(NEXT)],
     areaBounds: [[54.3, -3.4], [55.7, -1.3]],
     catalogueBounds: [[54.3, -3.4], [55.7, -1.3]],
     tideByWindow: new Map(),
   };
 }
 
-const LOCATIONS = [{
-  id: SPOT.id,
+const rowOn = (date) => [date, { sunset: { rating: 5, solarEventTime: `${date}T17:12:00` } }];
+const roster = (id = SPOT.id) => [{
+  id,
   name: SPOT.name,
   lat: SPOT.lat,
   lon: SPOT.lng,
@@ -117,24 +65,34 @@ const LOCATIONS = [{
   bortleClass: SPOT.bortleClass,
   locationType: ['LANDSCAPE'],
   tideType: ['HIGH'],
-  forecastsByDate: new Map([[TODAY, { sunset: { rating: 5, solarEventTime: `${TODAY}T17:12:00` } }]]),
+  forecastsByDate: new Map([rowOn(TODAY), rowOn(NEXT)]),
 }];
 
-async function renderMap(served) {
+function WarnedMap({ date = TODAY, locations }) {
+  return (
+    <WarningsProvider>
+      <MapView
+        locations={locations}
+        date={date}
+        forecastDates={[TODAY, NEXT]}
+        autoEventType="SUNSET"
+        heat={heatProp()}
+      />
+    </WarningsProvider>
+  );
+}
+
+async function renderMap(served, { locations = roster(), date = TODAY } = {}) {
   getWarnings.mockResolvedValue(served);
-  await act(async () => {
-    render(
-      <WarningsProvider>
-        <MapView locations={LOCATIONS} date={TODAY} forecastDates={[TODAY]} autoEventType="SUNSET" heat={heatProp()} />
-      </WarningsProvider>,
-    );
-  });
+  let result;
+  await act(async () => { result = render(<WarnedMap date={date} locations={locations} />); });
+  return result;
 }
 
 beforeEach(() => {
   localStorage.clear();
-  mockRole = 'PRO_USER';
-  mockIsMobile = false;
+  mapViewState.role = 'PRO_USER';
+  mapViewState.isMobile = false;
   getWarnings.mockReset();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
@@ -155,25 +113,34 @@ describe('MapView warning chips', () => {
   });
 
   it.each(['LITE_USER', 'ADMIN'])('shows to a %s reader too', async (role) => {
-    mockRole = role;
+    mapViewState.role = role;
     await renderMap(response([AMBER]));
     expect(screen.getByTestId('warning-chip')).toBeInTheDocument();
   });
 
   it('draws the chip on the phone too, in the same group', async () => {
-    mockIsMobile = true;
+    mapViewState.isMobile = true;
     await renderMap(response([AMBER]));
     expect(within(screen.getByTestId('wf-map-chrome-tl')).getByTestId('warning-chip')).toBeInTheDocument();
   });
 
-  it('draws nothing while the feature is off', async () => {
-    await renderMap(response([], { enabled: false }));
-    expect(screen.queryByTestId('wf-map-warnings')).toBeNull();
+  it('follows the active window: the chip is gone on a day the warning is not in force', async () => {
+    const { rerender } = await renderMap(response([AMBER]));
+    expect(screen.getByTestId('warning-chip')).toBeInTheDocument();
+    await act(async () => { rerender(<WarnedMap date={NEXT} locations={roster()} />); });
+    expect(screen.queryByTestId('warning-chip')).toBeNull();
+    await act(async () => { rerender(<WarnedMap date={TODAY} locations={roster()} />); });
+    expect(screen.getByTestId('warning-chip')).toBeInTheDocument();
   });
 
-  it('draws no outline, polygon or shading for a warning: the chip is the whole map presence', async () => {
+  it('matches a roster id that arrives as a string against the served numeric locationIds', async () => {
+    await renderMap(response([AMBER]), { locations: roster('1') });
+    expect(screen.getByTestId('warning-chip')).toBeInTheDocument();
+  });
+
+  it('adds no geometry layer to the map when warnings are served: the chip is the whole map presence', async () => {
     await renderMap(response([AMBER]));
-    const box = screen.getByTestId('wf-map-warnings');
-    expect(box.querySelector('svg, canvas, path')).toBeNull();
+    expect(screen.getByTestId('warning-chip')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('leaflet-geometry')).toHaveLength(0);
   });
 });

@@ -18,57 +18,7 @@ import {
   act, fireEvent, render, screen, within,
 } from '@testing-library/react';
 
-vi.mock('leaflet', () => {
-  const icon = () => ({});
-  const divIcon = (options) => ({ options });
-  const point = (x, y) => ({ x, y });
-  return { default: { icon, divIcon, point }, icon, divIcon, point };
-});
-vi.mock('leaflet/dist/leaflet.css', () => ({}));
-
-const VIEWPORT = { pad: () => ({ contains: () => true }) };
-vi.mock('react-leaflet', () => ({
-  MapContainer: ({ children }) => <div>{children}</div>,
-  TileLayer: () => null,
-  Popup: ({ children }) => <div>{children}</div>,
-  Polyline: () => null,
-  useMapEvents: () => null,
-  useMap: () => ({
-    eachLayer: () => {},
-    getContainer: () => ({ clientHeight: 500 }),
-    getZoom: () => 9,
-    getBounds: () => VIEWPORT,
-    once: () => {},
-    off: () => {},
-    flyTo: () => {},
-    fitBounds: () => {},
-  }),
-}));
-
-vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
-vi.mock('../components/map/MapLabels.jsx', () => ({ default: () => <div /> }));
-
-let mockRole = 'PRO_USER';
-vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole }) }));
-let mockIsMobile = false;
-vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
-vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
-vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
-vi.mock('../api/auroraApi.js', () => ({
-  getAuroraNights: vi.fn().mockResolvedValue({ nights: [], currentNightEndsAt: null }),
-  getAuroraLocations: vi.fn().mockResolvedValue([]),
-  getAuroraForecastResults: vi.fn().mockResolvedValue([]),
-  getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn().mockResolvedValue({}) }));
-vi.mock('../api/astroApi.js', () => ({
-  getAstroConditions: vi.fn().mockResolvedValue([]),
-  getAstroAvailableDates: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockResolvedValue([]) }));
-vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
-vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
+import { mapViewState } from './mapViewMocks.jsx';
 
 import MapView from '../components/MapView.jsx';
 import { windowKey } from '../utils/windowKeys.js';
@@ -147,8 +97,8 @@ async function renderMap(props = {}) {
 
 beforeEach(() => {
   localStorage.clear();
-  mockRole = 'PRO_USER';
-  mockIsMobile = false;
+  mapViewState.role = 'PRO_USER';
+  mapViewState.isMobile = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
 });
@@ -182,7 +132,7 @@ describe('MapView — the big-seas line', () => {
   });
 
   it('shows to a LITE reader too (owner Q8: all roles)', async () => {
-    mockRole = 'LITE_USER';
+    mapViewState.role = 'LITE_USER';
     await renderMap();
     expect(screen.getByTestId('wf-big-seas')).toBeInTheDocument();
   });
@@ -244,14 +194,14 @@ describe('MapView — the week menu\'s bolt', () => {
 
 describe('MapView — on a phone (owner Q11: the line shows, the menu bolt stays out)', () => {
   it('draws no line for a served day with no row, so nothing there can suppress the topic chips', async () => {
-    mockIsMobile = true;
+    mapViewState.isMobile = true;
     await renderMap({ forecastDates: [TODAY] });
     // `topicsSuppressed` is `isMobile && bigSeasSelection.form != null`; with no line, no form.
     expect(screen.queryByTestId('wf-big-seas')).toBeNull();
   });
 
   it('shows the line, but the peek sheet\'s window rows carry no bolt and no ", big seas" clause', async () => {
-    mockIsMobile = true;
+    mapViewState.isMobile = true;
     await renderMap();
     expect(screen.getByTestId('wf-big-seas')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('wf-win-pill'));

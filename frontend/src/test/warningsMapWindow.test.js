@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { warningsForMapWindow } from '../utils/warnings.js';
+import { buildScoreIndex, buildSlotIndex, warningInputsFor } from '../utils/locationSheet.js';
 import { response, warning } from './warningsFixture.js';
 
 const DATE = '2026-08-14';
@@ -35,18 +36,41 @@ describe('warningsForMapWindow', () => {
     expect(warningsForMapWindow(served(elsewhere, later), { event: EVENT, locations: [loc(1)] })).toEqual([]);
   });
 
-  it('matches a place with no stored row at the instant another place carries', () => {
+  describe('a place with no stored row, matched exactly as the callout matches it', () => {
     const a = W({ warningId: 'a', locationIds: [2] });
-    const bare = { id: 2, forecastsByDate: new Map() };
-    expect(warningsForMapWindow(served(a), { event: EVENT, locations: [loc(1), bare] })).toHaveLength(1);
-  });
+    const bare = { id: 2, name: 'Bare', forecastsByDate: new Map() };
+    const slots = (time) => buildSlotIndex([{
+      date: DATE,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{ regionName: 'R', confidence: 'high', slots: [{ locationId: 2, locationName: 'Bare', solarEventTime: time }] }],
+      }],
+    }]);
+    const scores = (golden) => buildScoreIndex([{
+      locationId: 2, locationName: 'Bare', date: DATE, targetType: 'SUNSET', rating: 4, goldenHourEnd: golden,
+    }]);
 
-  it('falls back to the window\'s served tide instant when no place has a row', () => {
-    const a = W({ warningId: 'a', locationIds: [2] });
-    const bare = { id: 2, forecastsByDate: new Map() };
-    const event = { ...EVENT, tide: { eventTime: `${DATE}T19:40:00` } };
-    expect(warningsForMapWindow(served(a), { event, locations: [bare] })).toHaveLength(1);
-    expect(warningsForMapWindow(served(a), { event: EVENT, locations: [bare] })).toEqual([]);
+    it('uses the place\'s own briefing slot when the roster has no rows at all', () => {
+      expect(warningsForMapWindow(served(a), { event: EVENT, locations: [bare], slotIndex: slots(`${DATE}T19:40:00`) }))
+        .toHaveLength(1);
+    });
+
+    it('uses the place\'s own slot instant, not another place\'s row, when both exist', () => {
+      // Another place's row says 19:40 (inside the span); this place's own slot says 23:30 (outside it).
+      const late = slots(`${DATE}T23:30:00`);
+      expect(warningsForMapWindow(served(a), { event: EVENT, locations: [loc(1), bare], slotIndex: late })).toEqual([]);
+    });
+
+    it('falls back to the place\'s own score row, then to nothing', () => {
+      expect(warningsForMapWindow(served(a), { event: EVENT, locations: [bare], scoreIndex: scores(`${DATE}T19:40:00`) }))
+        .toHaveLength(1);
+      expect(warningsForMapWindow(served(a), { event: EVENT, locations: [bare] })).toEqual([]);
+    });
+
+    it('does not borrow another place\'s row or the window\'s tide instant', () => {
+      const event = { ...EVENT, tide: { eventTime: `${DATE}T19:40:00` } };
+      expect(warningsForMapWindow(served(a), { event, locations: [loc(1), bare] })).toEqual([]);
+    });
   });
 
   it.each([
@@ -58,6 +82,11 @@ describe('warningsForMapWindow', () => {
   ])('is empty for %s', (_name, event) => {
     const a = W({ warningId: 'a', locationIds: [1] });
     expect(warningsForMapWindow(served(a), { event, locations: [loc(1)] })).toEqual([]);
+  });
+
+  it('warningInputsFor answers nothing for no place or no window', () => {
+    expect(warningInputsFor(null, EVENT, null, null)).toEqual({ row: null, eventIso: null });
+    expect(warningInputsFor(loc(1), null, null, null)).toEqual({ row: null, eventIso: null });
   });
 
   it('is empty for no warnings, no roster and a missing served value', () => {

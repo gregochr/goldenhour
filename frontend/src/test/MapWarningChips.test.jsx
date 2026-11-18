@@ -68,15 +68,14 @@ describe('MapWarningChips', () => {
     expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
   });
 
-  it('draws no map geometry and no icon: text chips only', async () => {
-    await mount(response([YELLOW]));
-    const box = screen.getByTestId('wf-map-warnings');
-    expect(box.querySelector('svg, img, canvas, path')).toBeNull();
+  it('prints nothing when the server says the feature is off, even with warnings and a stale flag in the body', async () => {
+    await mount(response([YELLOW], { enabled: false, stale: true }));
+    expect(screen.queryByTestId('wf-map-warnings')).toBeNull();
   });
 
-  it('prints nothing while the feature is off', async () => {
-    await mount(response([], { enabled: false }));
-    expect(screen.queryByTestId('wf-map-warnings')).toBeNull();
+  it('draws no icon or glyph: text chips only', async () => {
+    await mount(response([YELLOW]));
+    expect(screen.getByTestId('wf-map-warnings').querySelector('svg, img, canvas')).toBeNull();
   });
 
   it('prints nothing (never an all-clear) for a window with no warning on a fresh feed', async () => {

@@ -7065,6 +7065,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               // minimised line, and a sheet that changes height under a card that is already placed
               // must repaint its band (constant since C2, kept as the one route). Null off the phone.
               bandKey={peekResting}
+              chromeKey={chromeTlNonce}
               // A wildlife hide's hourly comfort rows for the ACTIVE WINDOW's date — SOLAR windows
               // only: the rows are a daylight forecast, and on an astro or aurora night (whose
               // `date` can be a night kept local, or yesterday's until dawn) they would be another
@@ -7179,7 +7180,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           {/* The Met Office warning chips (weather-warnings-plan.md W4): a row of their own under the topic
               chips, never inside that bar. Chips only: no outline, polygon or shading on the map (style guide
               v1.4). The group's height observer re-places the labels when this row appears or changes. */}
-          <MapWarningChips event={activeMapEvent} locations={locations} />
+          <MapWarningChips
+            event={activeMapEvent}
+            locations={locations}
+            slotIndex={slotIndex}
+            scoreIndex={scoreIndex}
+          />
         </div>
 
       {/* The drilldown, at whichever of its two levels is in force (map-landing-plan.md §3 L5,

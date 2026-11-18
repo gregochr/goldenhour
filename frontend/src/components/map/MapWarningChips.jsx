@@ -32,12 +32,18 @@ import WarningStrip from '../WarningStrip.jsx';
  * @param {object} props
  * @param {?object} props.event the map's active EV row
  * @param {Array<object>} props.locations the whole roster (not the filtered pins)
+ * @param {?object} [props.slotIndex] the callout's briefing-slot index (a place's own instant when it has no row)
+ * @param {?object} [props.scoreIndex] the callout's score-row index (the last instant source)
  */
-export default function MapWarningChips({ event = null, locations = [] }) {
+export default function MapWarningChips({
+  event = null, locations = [], slotIndex = null, scoreIndex = null,
+}) {
   const served = useWarnings();
   const warnings = useMemo(
-    () => warningsForMapWindow(served, { event, locations }),
-    [served, event, locations],
+    () => warningsForMapWindow(served, {
+      event, locations, slotIndex, scoreIndex,
+    }),
+    [served, event, locations, slotIndex, scoreIndex],
   );
   const applies = event?.kind === 'solar' && !event.past;
   if (!applies || !served.enabled) return null;
@@ -62,4 +68,6 @@ MapWarningChips.propTypes = {
     eventType: PropTypes.string,
   }),
   locations: PropTypes.arrayOf(PropTypes.object),
+  slotIndex: PropTypes.object,
+  scoreIndex: PropTypes.object,
 };
