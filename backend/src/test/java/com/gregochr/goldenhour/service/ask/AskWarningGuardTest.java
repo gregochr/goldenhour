@@ -291,6 +291,91 @@ class AskWarningGuardTest {
                 : "Whitby looks good.");
     }
 
+    @ParameterizedTest(name = "[{index}] sanitise and attach agree: {0}")
+    @MethodSource("adversarialTable")
+    void sanitiseAndAttachAgree_overTheWholeTable(String sentence, boolean keptNone, boolean keptShown) {
+        Result none = validate("Whitby looks good. " + sentence, snapshot(served(AMBER_SNOW)), nothingShown());
+        Result shownWarning = validate("Whitby looks good. " + sentence, snapshot(served(AMBER_SNOW)),
+                shown("W1"));
+
+        // With nothing shown there is never a card. With Amber shown, a card exactly when a retained sentence is a
+        // supported warning claim: kept in the shown state but not in the none state.
+        assertThat(none.answer().warnings()).isNull();
+        assertThat(shownWarning.answer().warnings() != null).isEqualTo(keptShown && !keptNone);
+    }
+
+    @Test
+    @DisplayName("the card follows the retained claim, not the whole summary: an unrelated 'red sky' does not hide it")
+    void aColourSentenceDoesNotHideASupportedClaim() {
+        Result result = validate("The Met Office has an Amber warning of snow. A red sky is possible at sunset.",
+                snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().summary())
+                .isEqualTo("The Met Office has an Amber warning of snow. A red sky is possible at sunset.");
+        assertThat(result.answer().warnings()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a warning claim in the second sentence attaches the card")
+    void aClaimInTheSecondSentence_attaches() {
+        Result result = validate("Whitby looks good tonight. A red sky is likely. The Met Office has an Amber "
+                + "warning of snow.", snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().warnings()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a supported claim beside a stripped invented one keeps the card and drops only the invented claim")
+    void supportedBesideInvented_keepsTheCard() {
+        Result result = validate("The Met Office has an Amber warning of snow. A red warning of wind is in force. "
+                + "Whitby looks good.", snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().summary())
+                .isEqualTo("The Met Office has an Amber warning of snow. Whitby looks good.");
+        assertThat(result.answer().warnings()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a summary with only colour-sky sentences carries no card, though a warning was shown")
+    void onlyColourSentences_noCard() {
+        Result result = validate("A red sky and amber light are likely. Whitby looks good.",
+                snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().warnings()).isNull();
+    }
+
+    @Test
+    @DisplayName("a multi-sentence reason is judged sentence by sentence: a supported claim attaches, an invented "
+            + "or absence one drops the whole reason")
+    void multiSentenceReasons() {
+        Raw supported = new Raw(true, "Whitby looks good.", List.of(new RawPick(1L, WINDOW,
+                "Clear west. The Met Office has an Amber warning of snow.")), List.of(), null);
+        Raw invented = new Raw(true, "Whitby looks good.", List.of(new RawPick(1L, WINDOW,
+                "Clear west. No weather warning covers it.")), List.of(), null);
+
+        Result ok = validator.validate(supported, snapshot(served(AMBER_SNOW)), shown("W1"), AskScope.ALL, null, null,
+                false);
+        Result dropped = validator.validate(invented, snapshot(served(AMBER_SNOW)), shown("W1"), AskScope.ALL, null,
+                null, false);
+
+        assertThat(ok.answer().warnings()).isNotNull();
+        assertThat(ok.answer().picks().getFirst().why()).contains("Amber warning of snow");
+        assertThat(dropped.answer().warnings()).isNull();
+        assertThat(dropped.answer().picks().getFirst().why()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a retained claim in the missing phrase of a can't-answer attaches the card too")
+    void missingPhraseClaim_attaches() {
+        Raw raw = new Raw(false, "PhotoCast has no snow depth.", List.of(), List.of(),
+                "snow depth beyond the Met Office Amber warning of snow");
+
+        Result result = validator.validate(raw, snapshot(served(AMBER_SNOW)), shown("W1"), AskScope.ALL, null, null,
+                false);
+
+        assertThat(result.answer().warnings()).isNotNull();
+    }
+
     @ParameterizedTest(name = "any warning claim needs a shown warning: {0}")
     @ValueSource(strings = {
         "The Met Office has issued a warning for Whitby.",

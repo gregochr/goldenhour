@@ -156,6 +156,37 @@ final class AskWarningGuard {
     }
 
     /**
+     * The one sentence split every path uses, so removal, attachment and mention checks can never disagree about what
+     * a sentence is.
+     */
+    private static String[] sentences(String text) {
+        return SENTENCE_BREAK.split(text);
+    }
+
+    /** Whether any sentence of the text is a warning claim the facts support (the same predicate as removal). */
+    private boolean hasSupportedClaim(String text) {
+        if (text == null) {
+            return false;
+        }
+        for (String sentence : sentences(text)) {
+            if (claim(sentence) == Claim.SUPPORTED) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether any sentence of the text is a warning claim the facts do not support. */
+    private boolean hasUnsupportedClaim(String text) {
+        for (String sentence : sentences(text)) {
+            if (claim(sentence) == Claim.UNSUPPORTED) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * A summary with every sentence the warning facts do not support removed.
      *
      * @param text the cleaned summary
@@ -168,7 +199,7 @@ final class AskWarningGuard {
         }
         List<String> kept = new ArrayList<>();
         boolean removed = false;
-        for (String sentence : SENTENCE_BREAK.split(text)) {
+        for (String sentence : sentences(text)) {
             if (claim(sentence) == Claim.UNSUPPORTED) {
                 removed = true;
             } else {
@@ -189,7 +220,7 @@ final class AskWarningGuard {
         if (!applies || text == null) {
             return text;
         }
-        return claim(text) == Claim.UNSUPPORTED ? null : text;
+        return hasUnsupportedClaim(text) ? null : text;
     }
 
     /**
@@ -220,11 +251,9 @@ final class AskWarningGuard {
     }
 
     private boolean mentions(AskAnswer answer) {
-        if (claim(answer.summary()) == Claim.SUPPORTED) {
-            return true;
-        }
-        return answer.picks().stream().anyMatch(p -> p.why() != null && claim(p.why()) == Claim.SUPPORTED)
-                || answer.events().stream().anyMatch(e -> e.why() != null && claim(e.why()) == Claim.SUPPORTED);
+        return hasSupportedClaim(answer.summary()) || hasSupportedClaim(answer.missing())
+                || answer.picks().stream().anyMatch(p -> hasSupportedClaim(p.why()))
+                || answer.events().stream().anyMatch(e -> hasSupportedClaim(e.why()));
     }
 
     private static AskAnswer.WarningCard card(AskSnapshot.Warning w) {
