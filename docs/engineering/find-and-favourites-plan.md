@@ -59,6 +59,19 @@ figure. An area never carries a verdict (sub-regions plan §1); the sheet lists 
 - One shared client helper `utils/favourites.js`; a test per list that a starred 3★ never ranks above an unstarred
   4★.
 
+**D4b. Ask answers a favourite and the favourite-blind answer as a labelled pair (owner, 2026-11-18).** The owner's
+point: a favourite that wins a tie hides the equally good place the reader would otherwise have been told about
+("Where is best tomorrow?" → Mary's Lighthouse, a favourite, but Bamburgh also scores 4★). So for a "best" question
+Ask returns up to two slots, never a silent substitution:
+- `lead` = the winner of the comparator **with** the favourite tie-break (D4 unchanged: a favourite never beats a
+  higher rating, pick or tide fit). `companion` = the **favourite-blind** winner (today's order, alphabetical last
+  tie-break) when it differs from the lead; else, when the best-ranked favourite in scope is not the lead (it scores
+  lower), that favourite. At most one companion; none when lead is both the blind winner and the best favourite.
+- Wording is fixed by the prompt, never "wildcard": the lead reads as the answer, a tied companion as "also scores
+  the same" and a lower-rated favourite as "your <name> is <n>★". A favourite is never labelled best when it is not.
+- Examples: Mary's (favourite, 4★) and Bamburgh (4★) tie → lead Mary's, companion Bamburgh. Bamburgh 5★, favourite
+  Mary's 4★ → lead Bamburgh, companion Mary's. Favourite is the clear best → one answer, no companion.
+
 **D5. Cap 25 per user (owner, 2026-11-18)**, enforced in the service under a per-user lock (lock the `app_user` row `FOR UPDATE`, or a
 count-then-insert guard with a unique-index fallback): 409 `You can keep up to 25 places.` Concurrency test.
 
@@ -172,6 +185,12 @@ browser-verified test. Map picks always stay on Map (fly + callout).
   `favourite` after `tideAligned`. `AskUserContext` gains `favouriteLocationIds` (and area names for
   `favouriteArea`); touches `userLess()`, `AskDryRunService`, `AskService`. **`rank_night_spots` is unchanged**
   (favourites do not apply to night ranking).
+- **Pair shape (D4b):** `rank_spots` computes both orders server-side (with and without the favourite key) and the
+  result carries `lead` plus an optional `companion` (with a `companionKind`: `TIED` or `YOUR_FAVOURITE`), so the
+  model never derives the second slot itself. The pair is emitted only on `favourites:true` or when the two orders
+  differ in the returned head; an unchanged head keeps the shared, single-answer result. Prompt lines (WITH_USER
+  only) fix the wording above. New prompt-regression cases: tie pair, lower-rated favourite companion, clear-best
+  single answer, no favourites; existing assertions untouched.
 - **The model sees favourites only when asked:** `SpotInfo.favourite` / `favouriteArea` are emitted **only when
   `rank_spots.favourites: true` was used** (which sets `personal`). The implicit tie-break stays invisible to the
   model, so an unchanged order gives a byte-identical (shareable) result.
