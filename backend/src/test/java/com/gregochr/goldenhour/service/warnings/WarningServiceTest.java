@@ -218,14 +218,14 @@ class WarningServiceTest {
     }
 
     @Test
-    @DisplayName("the shared view is stale at 30 minutes and one second since the last good poll, not at 30 exactly")
+    @DisplayName("the shared view is stale at 10 minutes and one second since the last good poll, not at 10 exactly")
     void staleBoundary() {
         stubStoreAndLocations();
 
-        recordSuccessAt(NOW.minus(Duration.ofMinutes(30)));
+        recordSuccessAt(NOW.minus(Duration.ofMinutes(10)));
         assertThat(service.served().stale()).isFalse();
 
-        recordSuccessAt(NOW.minus(Duration.ofMinutes(30)).minusSeconds(1));
+        recordSuccessAt(NOW.minus(Duration.ofMinutes(10)).minusSeconds(1));
         assertThat(service.served().stale()).isTrue();
     }
 

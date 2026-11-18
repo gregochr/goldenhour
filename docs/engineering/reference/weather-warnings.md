@@ -103,7 +103,7 @@ least one enabled location; the rest are stored but not surfaced. No filtering b
 See `api-endpoints.md` ("Weather warnings"). `GET /api/warnings` is in `REVALIDATABLE_READ_PATHS`
 (`HttpCachingConfig`), is not personal data, and is **not** under `/api/admin/` so Rewind applies. Simulated rows
 **never** appear in it, for anyone. `stale` is true when there has been no successful poll since startup, when the
-last one is older than `photocast.warnings.poll-stale-minutes` (30; exactly 30 minutes is not yet stale), and when the
+last one is older than `photocast.warnings.poll-stale-minutes` (10 since W5, matching the style guide's 10-minute bound; exactly 10 minutes is not yet stale), and when the
 feature is off: an empty list must never read as an all-clear. When stale, surfaces must show "Warnings last
 checked HH:MM, check the Met Office" and suppress the "none" state (frontend, W2+). Stored warnings stay shown until
 `valid_to`, so a withdrawn warning can linger during an outage.
@@ -393,3 +393,26 @@ kept its old band until a pan or zoom and painted over the chips). Tests: `MapCa
 it is the same code path on every size (not phone-only), so desktop and tablet gain the chip only when a warning applies.
 
 Tests: `warningsMapWindow.test.js`, `MapWarningChips.test.jsx`, `MapViewWarnings.test.jsx`.
+
+## W5: guides, landing pages and the guide doors
+
+Phase W5 is documentation and help links only; no warning behaviour changed. The guide is a new static page `landing/guide/weather-warnings.html`
+(sections `what`, `levels`, `matrix`, `updated`, `where`, `ratings`, `fresh`, `act`, `credit`), a `#warnings` section on the At a Glance, Map, Coming up
+and Reading the forecast pages (the location sheet and callout are covered inside the At a Glance "Opening a sunrise or sunset" and Map "Locations"
+sections), a hub card and Lite/Pro row, search registration (`guide-search.js`), and the landing index, FAQ, acknowledgements and terms. `utils/guide.js`
+gains the `weather-warnings` page and two `GUIDE_SECTIONS` (`warnings` to `#what`, `warningsFresh` to `#fresh`); `guideSections.test.js` pins the new ids, the
+exact attribution, the official colours and both Met Office links. In the app, `WarningFooter` ends with one `GuideLink` (`wf-warning-guide`), so the lane,
+popup row, location sheet, Map chip row and callout, and Coming up all get it from one place; stale, it opens `#fresh`. It opens the guide the way every
+`GuideLink` does (two-deep rule, stacked protocol, `replaceState` for embedded navigation); nothing about dialog stacking or Back changed.
+
+The copy says only what is built: no map outlines, no Ask mention (W6), the matrix with no invented words, the "Raised from" line only on Coming up cards, no
+Met Office logo or icons.
+
+### Flag-on checklist (owner decisions; the flag stays `false` until all are done)
+
+1. Guides shipped: W5 merged, and the landing site released (`release-landing.sh`, the owner runs it) **together with turning the flag on, never earlier, and not before the licence check (item 2)**: the landing index, FAQ, hub card, Lite/Pro row, terms and acknowledgements describe warnings as a live feature, and they must not go public while it is dark. The FAQ answer is worded "When it is switched on, yes" as a softener only; so the guide the `?` opens, the acknowledgements and terms are live. The app's `?` opens `https://photocast.online/guide/weather-warnings.html`; before the landing release it would open the hub's not-found page.
+2. Licence: the owner reads the NSWWS and Open Licence terms on Weather DataHub and confirms the "business use only" remark (plan section 10) does not bar PhotoCast. The acknowledgements and terms wording ("used under the licence terms for the Met Office's warnings service", no licence named) was written without naming one; adjust it once the owner has read the terms.
+3. Timeliness: confirm on a live feed that a new, updated or cancelled warning shows within the 10-minute bound (poller 5 min, 30 s briefing memo, 2 min client poll).
+4. API key: `PHOTOCAST_WARNINGS_API_KEY` set in the production server environment (never in the repo or the image); header name `apikey` (`photocast.warnings.api-key-header`) confirmed against the live API.
+5. Stale threshold: `photocast.warnings.poll-stale-minutes` now defaults to 10 (was 30), matching the style guide's expectation that an outage beyond about 10 minutes shows the stale line. Do not raise it without re-reading plan section 12 (Timeliness).
+6. Then `photocast.warnings.enabled=true` and a restart (the scheduler row is config-gated); watch the Operations warnings panel for a successful poll.

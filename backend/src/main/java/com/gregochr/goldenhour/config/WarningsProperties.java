@@ -41,7 +41,7 @@ public class WarningsProperties {
 
     /** Minutes after the last successful poll at which {@code GET /api/warnings} reports {@code stale}. */
     @Min(1)
-    private int pollStaleMinutes = 30;
+    private int pollStaleMinutes = 10;
 
     /**
      * Excludes the key: a config dump or a logged properties object must never reveal it.

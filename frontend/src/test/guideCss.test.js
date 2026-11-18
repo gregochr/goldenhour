@@ -20,6 +20,14 @@ function ruleBody(selector) {
   return null;
 }
 
+describe('the warning source line door', () => {
+  it('uses positive vertical margin and a hit area no taller than that margin, so it never reaches a lane or link above', () => {
+    expect(ruleBody('.wf-warning-guide')).toMatch(/margin:\s*4px 0 4px 14px/);
+    expect(ruleBody('.wf-warning-guide')).not.toMatch(/margin:\s*-/);
+    expect(ruleBody('.wf-warning-guide::after')).toMatch(/inset:\s*-4px -10px/);
+  });
+});
+
 describe('the docked guide column', () => {
   it('is 440px by default (the wide band, from 1180px) and 380px in the desktop band (1024-1179px)', () => {
     expect(ruleBody('.wf-guide-dock')).toMatch(/--wf-dock-w:\s*440px/);

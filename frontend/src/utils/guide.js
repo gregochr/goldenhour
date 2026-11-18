@@ -2,7 +2,7 @@
  * The in-app guide's addressing: where the pages live, what they are called, and which sections the
  * app opens (docs/engineering/user-guide-plan.md, G2).
  *
- * <p>The guide is nine static pages on the landing site (`landing/guide/`), shown in an iframe with
+ * <p>The guide is ten static pages on the landing site (`landing/guide/`), shown in an iframe with
  * `?embed=1`. A copy change is a landing deploy, not an app release; an id rename is a frontend test
  * failure (`guideSections.test.js` reads `landing/guide/*.html`).
  */
@@ -43,6 +43,7 @@ export const GUIDE_PAGES = Object.freeze({
   'at-a-glance': 'At a Glance',
   'coming-up': 'Coming up',
   map: 'Map',
+  'weather-warnings': 'Weather warnings',
   'night-sky': 'Aurora and night sky',
   'ask-photocast': 'Ask PhotoCast',
   settings: 'Settings',
@@ -72,6 +73,8 @@ export const GUIDE_SECTIONS = Object.freeze({
   mapFilters: Object.freeze({ page: 'map', section: 'filters' }),
   mapHotTopics: Object.freeze({ page: 'map', section: 'hot-topics' }),
   mapTide: Object.freeze({ page: 'map', section: 'tide' }),
+  warnings: Object.freeze({ page: 'weather-warnings', section: 'what' }),
+  warningsFresh: Object.freeze({ page: 'weather-warnings', section: 'fresh' }),
   auroraAlerts: Object.freeze({ page: 'night-sky', section: 'alerts' }),
   auroraMap: Object.freeze({ page: 'night-sky', section: 'aurora-map' }),
   askTyped: Object.freeze({ page: 'ask-photocast', section: 'typed' }),
