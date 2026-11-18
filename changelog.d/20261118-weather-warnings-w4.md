@@ -1,3 +1,0 @@
-### Added — Met Office warning chips on the Map tab (W4)
-
-The Map tab shows the Met Office warnings in force for the window on screen as text chips (level word and weather type in the official colours, "Updated" for a re-issued warning, the Met Office attribution and link, and the stale line when the feed is stale) in a row under the hot-topic chips. Chips only: no outline, shading or legend entry is drawn on the map, because the Met Office style guide forbids overlaying warning geometry with other information. A warning never changes a rating, the heat field, a verdict or a pick. Dark until `photocast.warnings.enabled` is turned on.
