@@ -38,6 +38,7 @@ import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import BigSeasLine from './map/BigSeasLine.jsx';
 import MapTopicChips from './map/MapTopicChips.jsx';
+import MapWarningChips from './map/MapWarningChips.jsx';
 import MapTopicStrip from './map/MapTopicStrip.jsx';
 import MapTopicRings from './map/MapTopicRings.jsx';
 import { useChromeTlHeight } from '../hooks/useChromeTlHeight.js';
@@ -7175,6 +7176,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             suppressed={topicsSuppressed}
             fallbackFocus={() => mapPaneRef.current?.focus({ preventScroll: true })}
           />
+          {/* The Met Office warning chips (weather-warnings-plan.md W4): a row of their own under the topic
+              chips, never inside that bar. Chips only: no outline, polygon or shading on the map (style guide
+              v1.4). The group's height observer re-places the labels when this row appears or changes. */}
+          <MapWarningChips event={activeMapEvent} locations={locations} />
         </div>
 
       {/* The drilldown, at whichever of its two levels is in force (map-landing-plan.md §3 L5,

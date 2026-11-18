@@ -358,3 +358,36 @@ expires with the Clock, a stored cancellation disappears, simulated and not-yet-
 `AlmanacControllerTest` (Lite and Pro parity, cached feed untouched), `HttpCachingConfigTest` (no max-age; ETag follows the body);
 frontend `comingUpWarnings.test.js`, `WindowFirstComingUpWarnings.test.jsx` (confirmed, cancelled, expired, off, refused, stale,
 loading, error), `useComingUpFeed.test.js` (silent refetch).
+
+## The client, W4 (the Map tab's warning chips)
+
+Phase W4 puts the warnings on the Map tab as **chips only**. The plan's original W4 row (a dashed no-fill outline layer and a legend
+entry) is superseded by plan sections 12 and 13: the Met Office style guide v1.4 requires warning geometry to be colour-filled and
+forbids overlaying it with other information (the heat field is other information), so **no outline, polygon, shading or legend entry
+is drawn on the map**. The server still stores geometry and does all matching.
+
+| Piece | Role |
+|---|---|
+| `components/map/MapWarningChips.jsx` | A row of its own inside `.wf-map-chrome-tl`, **under `MapTopicChips`, never inside the hot-topics bar** (`wf-topics`). Renders `WarningStrip` (the W2 chips, "Updated", the attribution line, the stale line) in a small panel. |
+| `utils/warnings.js` `warningsForMapWindow(served, {event, locations})` | The warnings for the active EV row: the union over the **whole roster** (`MapView`'s `locations`, not the filtered pins, so a star floor or type filter never makes the chip flicker) of `warningsForWindow`, i.e. the W2/W3 rule: the polled list's `locationIds` (compared as numbers) and validity span at the window's event instant, in the style guide's order. A place with no stored row is matched at another place's `solarEventTime`, else the row's served `tide.eventTime`, else not at all. |
+
+**Scope.** Solar windows only, not past (the server keys a warning to a sunrise or sunset; same gate as the callout). A night, High
+water or past window prints nothing at all, not even the stale line. Always matched against the polled list (2-minute poll), never a
+stored row's ids, so a withdrawn warning leaves at the next poll (the licence's 10-minute bound). Lite sees what Pro sees.
+
+**Behaviour.** Each chip is a link to the Met Office page (`target=_blank`, `rel="noopener noreferrer"`); the chip opens no dialog of
+ours, so there is no history entry, no Escape rule and no stacked-dialog change (`mapForeignModal.js`, `dialogHistory.js` untouched).
+The full headline, "What to expect" and matrix are on the Plan window popup (W3); the Map chip carries the weather type and level in
+text (visible on first access), "Updated", the attribution "Met Office Weather Warnings © Crown Copyright 2026" and the Met Office
+link. When the feed is stale the stale line prints (with its date if not today's) and the chips stay; with no warning on a fresh feed
+nothing prints, never "no warnings" or an all-clear. A warning never changes a rating, the heat field, a verdict or a pick.
+
+**Layout.** The chrome group is shrink-to-fit with a measured 504px label-obstacle bound (`index.css`). The row is
+`pointer-events: none; width: 0; min-width: 100%` with an auto-pointer box inside, so it takes the width the window control and topic
+chips already give the group and **adds none of its own** (a long warning wraps; the obstacle's width cannot change), and its gaps do
+not swallow map drags. Height changes (a chip arriving, leaving, wrapping, the stale line) are published by `useChromeTlHeight`'s
+`ResizeObserver` as `--wf-chrome-tl-h` and its repaint nonce, which re-places `MapLabels` and the panels hung under the group, so the
+row needs no layout key of its own. On the phone the group already spans the width (`left/right: 8px`) and the same row renders;
+it is the same code path on every size (not phone-only), so desktop and tablet gain the chip only when a warning applies.
+
+Tests: `warningsMapWindow.test.js`, `MapWarningChips.test.jsx`, `MapViewWarnings.test.jsx`.

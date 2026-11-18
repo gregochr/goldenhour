@@ -214,6 +214,37 @@ export function warningsForWindow(served, { row, locationId, eventIso }) {
 }
 
 /**
+ * The warnings to draw for the Map tab's active window as a whole (W4): every polled warning that covers at least one
+ * place of the roster at the window's event instant, in the style guide's order. Same rule as the callout and the
+ * Plan card ({@link warningsForPlaceAt}: the polled list's {@code locationIds} and validity span decide, never a stored
+ * row's ids), applied across the places, so a reader's own filters (star floor, types, reach) never make the chip
+ * flicker: a warning is not a rating. Solar windows only (the server keys a warning to a sunrise or sunset), and not a
+ * window already gone. A place with no stored row for the window is matched at the instant another place's row
+ * carries, else at the window's served tide instant, else not at all.
+ *
+ * @param {{warnings: object[]}} served the shared warnings (the context value)
+ * @param {{event: ?object, locations: ?Array<object>}} scope the map's active EV row and the roster
+ * @returns {object[]} in the style guide's order
+ */
+export function warningsForMapWindow(served, { event, locations }) {
+  if (!served || !Array.isArray(served.warnings) || served.warnings.length === 0) return [];
+  if (event?.kind !== 'solar' || event.past || !event.date || !event.eventType) return [];
+  if (!Array.isArray(locations) || locations.length === 0) return [];
+  const type = String(event.eventType).toLowerCase();
+  const rowOf = (loc) => loc?.forecastsByDate?.get?.(event.date)?.[type] ?? null;
+  const fallbackIso = locations.map((loc) => rowOf(loc)?.solarEventTime).find(Boolean)
+    ?? event.tide?.eventTime ?? null;
+  const found = new Map();
+  for (const loc of locations) {
+    const row = rowOf(loc);
+    for (const w of warningsForWindow(served, { row, locationId: loc?.id, eventIso: row?.solarEventTime ?? fallbackIso })) {
+      found.set(w.warningId, w);
+    }
+  }
+  return orderWarnings(Array.from(found.values()));
+}
+
+/**
  * The stale-feed sentence (plan §8): "Warnings last checked 14:05" or, when no check has succeeded, the plain
  * admission. The caller appends the "check the Met Office" link.
  *
