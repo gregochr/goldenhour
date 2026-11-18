@@ -198,6 +198,58 @@ describe('FavouritesProvider', () => {
     expect(spy.current.isPlaceStarred(2)).toBe(false);
   });
 
+  it('⚠️ queued writes never outlive the session: after unmount the second is never sent, and nothing is set or re-read', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let first;
+    setFavourite.mockReturnValueOnce(new Promise((r) => { first = r; })).mockResolvedValue(BODY);
+    const view = render(<FavouritesProvider pro><Spy /></FavouritesProvider>);
+    await waitFor(() => expect(screen.getByTestId('spy-status')).toHaveTextContent('ready'));
+    const api = spy.current;
+    let both;
+    await act(async () => {
+      both = Promise.all([api.setStar('place', 2, 'A', true), api.setStar('place', 3, 'B', true)]);
+      await Promise.resolve();
+    });
+    expect(setFavourite).toHaveBeenCalledTimes(1);
+    view.unmount();
+    fetchFavourites.mockClear();
+    await act(async () => { first({ places: [{ locationId: 2 }], areas: [], locationIds: [2] }); await both; });
+    // The second write (which would carry whoever signs in next) was never issued, and no re-read followed.
+    expect(setFavourite).toHaveBeenCalledTimes(1);
+    expect(fetchFavourites).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it('⚠️ a refused write that lands after the session ended does not re-read or toast', async () => {
+    let first;
+    setFavourite.mockReturnValueOnce(new Promise((r, reject) => { first = reject; }));
+    const view = render(<FavouritesProvider pro><Spy /></FavouritesProvider>);
+    await waitFor(() => expect(screen.getByTestId('spy-status')).toHaveTextContent('ready'));
+    let run;
+    await act(async () => { run = spy.current.setStar('place', 2, 'A', true); await Promise.resolve(); });
+    view.unmount();
+    fetchFavourites.mockClear();
+    await act(async () => { first(new Error('late')); await run; });
+    expect(fetchFavourites).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('undo-toast-status')).toBeNull();
+  });
+
+  it('a change of reader class ends the session too: a write queued before the flip is dropped', async () => {
+    let first;
+    setFavourite.mockReturnValueOnce(new Promise((r) => { first = r; })).mockResolvedValue(BODY);
+    const view = render(<FavouritesProvider pro><Spy /></FavouritesProvider>);
+    await waitFor(() => expect(screen.getByTestId('spy-status')).toHaveTextContent('ready'));
+    let both;
+    await act(async () => {
+      both = Promise.all([spy.current.setStar('place', 2, 'A', true), spy.current.setStar('place', 3, 'B', true)]);
+      await Promise.resolve();
+    });
+    view.rerender(<FavouritesProvider pro={false}><Spy /></FavouritesProvider>);
+    await act(async () => { first(BODY); await both; });
+    expect(setFavourite).toHaveBeenCalledTimes(1);
+  });
+
   it('retries a failed first load quietly, bounded, instead of switching favourites off for the session', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {

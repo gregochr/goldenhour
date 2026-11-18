@@ -74,6 +74,13 @@ export function FavouritesProvider({ pro, children }) {
   const epoch = useRef(0);
   // The newest setStar, so an Undo press made later calls the current one (a callback cannot name itself).
   const setStarRef = useRef(null);
+  // One number per reader session: bumped when the provider unmounts or `pro` changes, so a queued write, a retry or a
+  // re-read that outlives the session finds it stale and does nothing (no request, no state, no toast).
+  const session = useRef(0);
+  useEffect(() => {
+    session.current += 1;
+    return () => { session.current += 1; };
+  }, [pro]);
   const toast = useUndoToast();
   const { show } = toast;
 
@@ -123,8 +130,11 @@ export function FavouritesProvider({ pro, children }) {
   /** Re-reads the served list after a refused change, so state converges on the server's whatever was dropped. */
   const reconcile = useCallback(() => {
     const at = epoch.current;
+    const mine = session.current;
     fetchFavourites()
-      .then((data) => { if (at === epoch.current && pending.current === 0) setBody(data); })
+      .then((data) => {
+        if (mine === session.current && at === epoch.current && pending.current === 0) setBody(data);
+      })
       .catch(() => { /* the optimistic revert stands; the next change or load reconciles */ });
   }, [setBody]);
 
@@ -145,7 +155,11 @@ export function FavouritesProvider({ pro, children }) {
     setBody(applyStar(bodyRef.current, kind, id, on));
     epoch.current += 1;
     pending.current += 1;
+    const mySession = session.current;
     const run = chain.current.then(async () => {
+      // The session this press belongs to has ended (sign-out, a different reader): the request must never go out,
+      // because the shared HTTP client would send it with whoever is signed in NOW.
+      if (mySession !== session.current) return false;
       let next = null;
       let error = null;
       try {
@@ -154,6 +168,7 @@ export function FavouritesProvider({ pro, children }) {
         error = err;
       }
       pending.current -= 1;
+      if (mySession !== session.current) return false;
       if (error == null) {
         // Only the LAST answer is applied or announced: it reflects every change before it, a dropped older one is
         // not shown as if it were current.
