@@ -118,6 +118,10 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Prepare Maven wrapper
+        if: needs.changes.outputs.docs_only != 'true'
+        uses: ./.github/actions/maven-wrapper
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:

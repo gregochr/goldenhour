@@ -128,6 +128,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Prepare Maven wrapper
+        uses: ./.github/actions/maven-wrapper
+
       # The paid classes throw or skip silently without a key; fail here, loudly, before Maven starts.
       - name: Fail fast when the key is missing
         id: key
@@ -201,6 +204,9 @@ jobs:
           java-version: '25'
           distribution: 'temurin'
           cache: maven
+
+      - name: Prepare Maven wrapper
+        uses: ./.github/actions/maven-wrapper
 
       # The Ask classes skip silently without a key, which would read as a green run that checked nothing.
       - name: Fail fast when the key is missing

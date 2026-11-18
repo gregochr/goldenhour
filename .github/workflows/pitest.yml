@@ -109,6 +109,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Prepare Maven wrapper
+        uses: ./.github/actions/maven-wrapper
+
       - name: Run PIT mutation testing
         id: pitest
         # Shorter than the job's timeout so the summary and upload steps below always get to run.

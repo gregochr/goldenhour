@@ -48,6 +48,9 @@ jobs:
           java-version: '25'
           cache: maven
 
+      - name: Prepare Maven wrapper
+        uses: ./.github/actions/maven-wrapper
+
       - name: Run real-API E2E test
         run: ./mvnw test -Dtest=ForecastBatchPipelineRealApiE2ETest -e
         env:
