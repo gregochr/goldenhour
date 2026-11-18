@@ -59,8 +59,8 @@ figure. An area never carries a verdict (sub-regions plan §1); the sheet lists 
 - One shared client helper `utils/favourites.js`; a test per list that a starred 3★ never ranks above an unstarred
   4★.
 
-**D5. Cap 100 per user**, enforced in the service under a per-user lock (lock the `app_user` row `FOR UPDATE`, or a
-count-then-insert guard with a unique-index fallback): 409 `You can keep up to 100 places.` Concurrency test.
+**D5. Cap 25 per user (owner, 2026-11-18)**, enforced in the service under a per-user lock (lock the `app_user` row `FOR UPDATE`, or a
+count-then-insert guard with a unique-index fallback): 409 `You can keep up to 25 places.` Concurrency test.
 
 **D6. Where a Find pick lands. DECIDED by the owner 2026-11-18: Plan tab (the recommended option below).** The handoff has a place pick on Coming up open
 the sheet *on Coming up*. The code says that is the exact state `selectTab` exists to prevent (`plan-tab.md` ~108-118:
@@ -215,12 +215,9 @@ F4b flags emitted only on `favourites:true`, fingerprinted personal cache key, s
 `WITH_USER` only, no thread-state claim; D1 own controller, enabled-only, no N+1; Undo toast is a new primitive;
 the release gate includes `release-landing.sh`; F5 file list completed.
 
-## 6. Questions for the owner
-1. **Coming up picks (D6):** a place or window pick from Coming up takes the reader to the Plan tab to open the
-   sheet (recommended, no invariant rewritten), or opens the sheet over Coming up as the handoff says (rewrites
-   the `plan-tab.md` invariants, needs browser proof)?
-2. **Release gate:** owner-held tag after F5 and `release-landing.sh` (recommended), or a runtime flag?
-3. **Undo toast:** build the new toast primitive (recommended), or drop it, since pressing ☆ again undoes?
-4. **Directory:** Lite readers see all sub-region membership through `/api/areas/directory`, as they already do via
-   `/api/locations`. OK?
-5. **Cap** of 100 favourites per user OK?
+## 6. Owner decisions (2026-11-18, all answered)
+1. Coming up picks: go to the Plan tab, then open the sheet (D6).
+2. Release gate: owner-held tag after F5 is merged and `release-landing.sh` has deployed the landing and guide; no runtime flag.
+3. Undo toast: build the new `useUndoToast` primitive.
+4. Lite readers get the full areas directory (all sub-region membership, as `/api/locations` already shows).
+5. Favourites cap: **25** per user (places plus areas).
