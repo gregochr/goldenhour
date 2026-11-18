@@ -161,15 +161,16 @@ class AskToolSchemasTest {
     }
 
     @Test
-    @DisplayName("a user-less conversation is not even told about maxDriveMinutes or nearHome")
+    @DisplayName("a user-less conversation is not even told about maxDriveMinutes, nearHome or favourites")
     void driveLimitIsAdvertisedOnlyWithAUser() {
         Set<String> withUser = properties(tool(AskToolSchemas.tools(true), AskToolSchemas.RANK_SPOTS));
         Set<String> userLess = properties(tool(AskToolSchemas.tools(false), AskToolSchemas.RANK_SPOTS));
 
-        assertThat(withUser).contains("maxDriveMinutes", "nearHome");
-        assertThat(userLess).doesNotContain("maxDriveMinutes", "nearHome")
+        assertThat(withUser).contains("maxDriveMinutes", "nearHome", "favourites");
+        assertThat(userLess).doesNotContain("maxDriveMinutes", "nearHome", "favourites")
                 .containsExactlyInAnyOrderElementsOf(withUser.stream()
-                        .filter(p -> !p.equals("maxDriveMinutes") && !p.equals("nearHome")).toList());
+                        .filter(p -> !p.equals("maxDriveMinutes") && !p.equals("nearHome")
+                                && !p.equals("favourites")).toList());
     }
 
     @Test

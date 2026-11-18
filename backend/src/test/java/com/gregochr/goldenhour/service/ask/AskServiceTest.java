@@ -10,7 +10,9 @@ import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AskUsageRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
+import com.gregochr.goldenhour.model.FavouriteLocations;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.UserFavouritesService;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +36,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -80,6 +83,7 @@ class AskServiceTest {
     private final AdminAlertService alerts = mock(AdminAlertService.class);
     private final AskReadyServing readyServing = mock(AskReadyServing.class);
     private final DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
+    private final UserFavouritesService favouritesService = mock(UserFavouritesService.class);
     private final AskPreFilter preFilter = mock(AskPreFilter.class);
     private final AskIntentMatcher matcher = mock(AskIntentMatcher.class);
     private final AskAnswerCache cache = mock(AskAnswerCache.class);
@@ -128,7 +132,7 @@ class AskServiceTest {
         AskSpendGuard guard = new AskSpendGuard(properties, jobRuns, alerts, clock);
         service = new AskService(properties, new AskRateLimiter(properties, clock), users, regions,
                 snapshotBuilder, engine, usageStore, guard, readyServing, driveTimes, preFilter, matcher,
-                cache, askLog, denials, clock, 22);
+                cache, askLog, denials, favouritesService, clock, 22);
     }
 
     private static Authentication reader() {
@@ -308,6 +312,38 @@ class AskServiceTest {
 
         assertThat(contextSent().home()).isNull();
         assertThat(contextSent().hasHome()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a Pro asker's favourites ride the context to both the typed cache and the engine")
+    void contextCarriesTheAskersFavourites() {
+        FavouriteLocations stars = new FavouriteLocations(Set.of(1L, 3L), Map.of(3L, "Hadrian's Wall"));
+        when(favouritesService.forAsk(41L)).thenReturn(stars);
+
+        ask("Best spot tonight?");
+
+        ArgumentCaptor<AskQuestion> askedOfCache = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskUserContext> looked = ArgumentCaptor.forClass(AskUserContext.class);
+        verify(cache).lookup(askedOfCache.capture(), eq(snapshot), looked.capture());
+        assertThat(askedOfCache.getValue().sanitised()).isEqualTo("Best spot tonight?");
+        assertThat(looked.getValue().favourites()).isEqualTo(stars);
+        ArgumentCaptor<AskQuestion> askedOfEngine = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskUserContext> sent = ArgumentCaptor.forClass(AskUserContext.class);
+        ArgumentCaptor<AskRunOptions> options = ArgumentCaptor.forClass(AskRunOptions.class);
+        verify(engine).run(askedOfEngine.capture(), eq(snapshot), sent.capture(), options.capture());
+        assertThat(askedOfEngine.getValue().sanitised()).isEqualTo("Best spot tonight?");
+        assertThat(sent.getValue().favourites()).isEqualTo(stars);
+        assertThat(sent.getValue().isFavourite(3L)).isTrue();
+        assertThat(options.getValue()).isEqualTo(AskRunOptions.none());
+    }
+
+    @Test
+    @DisplayName("an asker with no stars, and a service that reads nothing, gives a context with no favourites")
+    void contextHasNoFavouritesByDefault() {
+        ask("Best spot tonight?");
+
+        assertThat(contextSent().favourites()).isEqualTo(FavouriteLocations.NONE);
+        assertThat(contextSent().hasFavourites()).isFalse();
     }
 
     // -- 1. rate limit ------------------------------------------------------------------------

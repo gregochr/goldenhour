@@ -2,9 +2,11 @@ package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.model.FavouriteLocations;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.UserFavouritesService;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
@@ -118,6 +120,7 @@ public class AskService {
     private final AskAnswerCache cache;
     private final AskLog askLog;
     private final AskDenialCounter denials;
+    private final UserFavouritesService favouritesService;
     private final Clock clock;
     private final int defaultLocalRadiusMiles;
 
@@ -139,6 +142,7 @@ public class AskService {
      * @param cache             the typed-answer cache (step 6)
      * @param askLog            the question log (step 10)
      * @param denials           counts denied requests, for the hourly INFO line
+     * @param favouritesService reads the asker's favourites (Pro and Admin only), for the favourite tie-break
      * @param clock             the application clock (the UK civil day); a POST sees the real clock
      * @param defaultLocalRadiusMiles the radius {@code nearHome} uses for an asker who never chose one
      *                          ({@code photocast.close-to-home.radius-miles}, default 22; the
@@ -151,7 +155,7 @@ public class AskService {
             AskSpendGuard spendGuard, AskReadyServing readyServing,
             DriveTimeResolver driveTimeResolver, AskPreFilter preFilter,
             AskIntentMatcher intentMatcher, AskAnswerCache cache, AskLog askLog,
-            AskDenialCounter denials, Clock clock,
+            AskDenialCounter denials, UserFavouritesService favouritesService, Clock clock,
             @Value("${photocast.close-to-home.radius-miles:22}") int defaultLocalRadiusMiles) {
         this.properties = properties;
         this.rateLimiter = rateLimiter;
@@ -168,6 +172,7 @@ public class AskService {
         this.cache = cache;
         this.askLog = askLog;
         this.denials = denials;
+        this.favouritesService = favouritesService;
         this.clock = clock;
         this.defaultLocalRadiusMiles = defaultLocalRadiusMiles;
     }
@@ -259,8 +264,11 @@ public class AskService {
                         ? AskResponse.NIGHT_THREAD_RESET_REASON : null;
         AskThread thread = resetReason != null ? AskThread.EMPTY : validated.thread();
         Carry carry = new Carry(thread.size(), resetReason);
+        // Favourites are a Pro and Admin feature: a reader of another role never has any read for them.
+        FavouriteLocations favourites = AskUserContext.mayUseAsk(user.getRole())
+                ? favouritesService.forAsk(userId) : FavouriteLocations.NONE;
         AskUserContext context = new AskUserContext(userId, user.getRole(),
-                driveTimeResolver.hasDriveTimes(userId), homeOf(user));
+                driveTimeResolver.hasDriveTimes(userId), homeOf(user), favourites);
         LocalDate day = ForecastHorizon.today(clock);
         int limit = properties.limitFor(user.getRole());
 

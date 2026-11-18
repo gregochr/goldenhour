@@ -2,8 +2,10 @@ package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.model.FavouriteLocations;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.UserFavouritesService;
 import com.gregochr.goldenhour.service.UserSettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +47,8 @@ class AskDryRunServiceTest {
     private DriveTimeResolver driveTimeResolver;
     @Mock
     private Authentication auth;
+    @Mock
+    private UserFavouritesService favouritesService;
 
     private final AskProperties properties = new AskProperties();
     private AskDryRunService service;
@@ -52,7 +56,7 @@ class AskDryRunServiceTest {
     @BeforeEach
     void setUp() {
         service = new AskDryRunService(properties, engine, snapshotBuilder, regionRepository, settingsService,
-                driveTimeResolver);
+                driveTimeResolver, favouritesService);
     }
 
     private static AskSnapshot snapshot() {
@@ -117,6 +121,8 @@ class AskDryRunServiceTest {
         when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
         when(settingsService.getUserId(auth)).thenReturn(42L);
         when(driveTimeResolver.hasDriveTimes(42L)).thenReturn(true);
+        FavouriteLocations stars = new FavouriteLocations(java.util.Set.of(7L), java.util.Map.of());
+        when(favouritesService.forAsk(42L)).thenReturn(stars);
         AskAnswer answer = new AskAnswer(false, "Can't tell.", List.of(), List.of(), "parking");
         AskTools.ToolCall call = new AskTools.ToolCall("list_windows", false, 100);
         AskRun run = new AskRun(new AskOutcome(AskOutcome.Status.CANT, answer, true, 2), List.of(call), null);
@@ -145,6 +151,8 @@ class AskDryRunServiceTest {
         assertThat(user.getValue().userId()).isEqualTo(42L);
         assertThat(user.getValue().role()).isEqualTo(UserRole.ADMIN);
         assertThat(user.getValue().hasDriveTimes()).isTrue();
+        assertThat(user.getValue().favourites()).as("a dry run orders as the admin's own ask would")
+                .isEqualTo(stars);
     }
 
     @Test

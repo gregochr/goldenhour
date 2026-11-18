@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.FavouritesLimitException;
+import com.gregochr.goldenhour.model.FavouriteLocations;
 import com.gregochr.goldenhour.model.FavouritesRequest;
 import com.gregochr.goldenhour.model.FavouritesResponse;
 import com.gregochr.goldenhour.repository.AppUserRepository;
@@ -181,6 +182,40 @@ class UserFavouritesServiceJpaTest {
         assertThat(out.places()).extracting(FavouritesResponse.Place::locationId).containsExactly(hidden, walltown);
         assertThat(out.areas()).extracting(FavouritesResponse.Area::areaId).containsExactly(wall, coast);
         assertThat(out.locationIds()).containsExactly(bamburgh, cawfields, walltown).doesNotContain(hidden, unrelated);
+    }
+
+    @Test
+    @DisplayName("forAsk: a reader with nothing starred has no favourites")
+    void forAsk_empty() {
+        Long reader = userIds.getFirst();
+
+        assertThat(service.forAsk(reader)).isSameAs(FavouriteLocations.NONE);
+    }
+
+    @Test
+    @DisplayName("forAsk: stars plus enabled area members, each member naming its alphabetically first starred "
+            + "area; a place starred alone names none, and a disabled place is hidden")
+    void forAsk_mergesAndNamesAreas() {
+        Long bamburgh = location("Bamburgh", true);
+        Long cawfields = location("Cawfields", true);
+        Long walltown = location("Walltown", true);
+        Long hidden = location("Hidden Cove", false);
+        Long alone = location("Alone", true);
+        Long wall = named("Hadrian's Wall", cawfields, walltown, hidden);
+        Long coast = subRegion("Northumberland Coast", bamburgh, cawfields);
+        service.addPlace(PRO, alone);
+        service.addPlace(PRO, hidden);
+        service.addArea(PRO, coast);
+        service.addArea(PRO, wall);
+
+        FavouriteLocations out = service.forAsk(userIds.getFirst());
+
+        assertThat(out.locationIds()).containsExactlyInAnyOrder(alone, bamburgh, cawfields, walltown);
+        assertThat(out.areaByLocation()).containsOnly(
+                java.util.Map.entry(bamburgh, "Northumberland Coast"),
+                java.util.Map.entry(cawfields, "Hadrian's Wall"),
+                java.util.Map.entry(walltown, "Hadrian's Wall"));
+        assertThat(out.fingerprint()).isNotNull();
     }
 
     @Test

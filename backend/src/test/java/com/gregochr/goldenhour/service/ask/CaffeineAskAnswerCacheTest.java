@@ -112,6 +112,102 @@ class CaffeineAskAnswerCacheTest {
         assertThat(cache.lookup(question("best spot saturday sunset"), live(marked), ALICE)).isEmpty();
     }
 
+    // -- favourites (find-and-favourites-plan F4b) --------------------------------------------------
+
+    /** A Pro asker whose favourites are the given locations; Bamburgh (1) is the one place in {@link #live()}. */
+    private static AskUserContext starred(Long... locationIds) {
+        return new AskUserContext(1L, UserRole.PRO_USER, false, null,
+                new com.gregochr.goldenhour.model.FavouriteLocations(Set.of(locationIds), java.util.Map.of()));
+    }
+
+    @Test
+    @DisplayName("star, ask, unstar, ask, star again: a personal answer is kept per favourites set, so a star "
+            + "change never serves an answer made under the old set")
+    void aStarChangeNeverServesAStaleAnswer() {
+        AskQuestion q = question("best spot saturday sunset");
+        cache.store(q, live(), starred(1L), ok(true));
+
+        assertThat(cache.lookup(q, live(), starred(1L))).as("same stars: hit").isPresent();
+        assertThat(cache.lookup(q, live(), starred())).as("unstarred: a different key, a miss").isEmpty();
+        assertThat(cache.lookup(q, live(), starred(1L, 99L))).as("a different set: a miss").isEmpty();
+
+        cache.store(q, live(), starred(), ok(true));
+
+        assertThat(cache.lookup(q, live(), starred())).as("the unstarred answer is its own entry").isPresent();
+        assertThat(cache.lookup(q, live(), starred(1L))).as("starring again finds the first entry").isPresent();
+        assertThat(cache.size()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a shared answer is not handed to an asker whose favourites touch the scope, but is to one whose "
+            + "favourites do not")
+    void sharedHitIsBypassedWhenFavouritesTouchTheScope() {
+        AskQuestion q = question("best spot saturday sunset");
+        cache.store(q, live(), BOB, ok(false));
+
+        assertThat(cache.lookup(q, live(), starred(1L))).as("Bamburgh is starred and in scope").isEmpty();
+        assertThat(cache.lookup(q, live(), starred(99L))).as("a favourite outside the forecast").isPresent();
+        assertThat(cache.lookup(q, live(), starred())).as("no favourites").isPresent();
+        assertThat(cache.lookup(q, live(), BOB)).as("another asker is unaffected").isPresent();
+    }
+
+    @Test
+    @DisplayName("a shared answer stored for an asker whose favourites touch the scope is also kept under their own "
+            + "key, so their repeat question hits, and stays shared for everyone else")
+    void aSharedAnswerIsAlsoKeptForAnAskerWhoseFavouritesTouchTheScope() {
+        AskQuestion q = question("best spot saturday sunset");
+        cache.store(q, live(), starred(1L), ok(false));
+
+        assertThat(cache.lookup(q, live(), starred(1L))).as("their repeat question").isPresent();
+        assertThat(cache.lookup(q, live(), starred(1L, 99L))).as("after a star change").isEmpty();
+        assertThat(cache.lookup(q, live(), BOB)).as("everyone else still gets the shared one").isPresent();
+        assertThat(cache.size()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a shared answer stored for an asker whose favourites do not touch the scope is stored once")
+    void aSharedAnswerForAnUnaffectedAskerIsStoredOnce() {
+        cache.store(question("best spot saturday sunset"), live(), starred(99L), ok(false));
+
+        assertThat(cache.size()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a favourite in a region outside the question's scope does not bypass the shared answer")
+    void aFavouriteOutsideTheScopeDoesNotBypass() {
+        AskSnapshot twoRegions = ReadyFixtures.at(ReadyFixtures.FRIDAY_NOON,
+                both(oct(9), northumberland(), ReadyFixtures.teesdale()),
+                ReadyFixtures.day(oct(10), true, true, null, northumberland(), ReadyFixtures.teesdale()),
+                both(oct(11), northumberland(), ReadyFixtures.teesdale()));
+        AskQuestion northumberlandOnly = question("best spot saturday sunset", null, 1L);
+        cache.store(northumberlandOnly, twoRegions, BOB, ok(false));
+
+        assertThat(cache.lookup(northumberlandOnly, twoRegions, starred(10L)))
+                .as("Hamsterley is starred but is in Teesdale, outside the question").isPresent();
+        assertThat(cache.lookup(northumberlandOnly, twoRegions, starred(1L))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a Lite asker never has favourites, so never bypasses and never gets a fingerprint")
+    void aLiteAskerNeverBypasses() {
+        AskQuestion q = question("best spot saturday sunset");
+        AskUserContext lite = new AskUserContext(3L, UserRole.LITE_USER, false, null,
+                new com.gregochr.goldenhour.model.FavouriteLocations(Set.of(1L), java.util.Map.of()));
+        cache.store(q, live(), BOB, ok(false));
+
+        assertThat(cache.lookup(q, live(), lite)).isPresent();
+    }
+
+    @Test
+    @DisplayName("a personal answer with no favourites keeps the key it always had: stored and found for its asker")
+    void aPersonalAnswerWithoutFavouritesStillHits() {
+        AskQuestion q = question("within an hour of home");
+        cache.store(q, live(), ALICE, ok(true));
+
+        assertThat(cache.lookup(q, live(), ALICE)).isPresent();
+        assertThat(cache.lookup(q, live(), BOB)).isEmpty();
+    }
+
     // -- hit, miss, and what a hit is --------------------------------------------------------------
 
     @Test

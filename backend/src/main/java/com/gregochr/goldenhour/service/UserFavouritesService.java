@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.AreaEntity;
 import com.gregochr.goldenhour.entity.AreaKind;
 import com.gregochr.goldenhour.exception.FavouritesLimitException;
 import com.gregochr.goldenhour.model.AreaKindRow;
+import com.gregochr.goldenhour.model.FavouriteLocations;
 import com.gregochr.goldenhour.model.FavouriteRow;
 import com.gregochr.goldenhour.model.FavouritesRequest;
 import com.gregochr.goldenhour.model.FavouritesResponse;
@@ -20,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -97,6 +100,46 @@ public class UserFavouritesService {
     @Transactional(readOnly = true)
     public FavouritesResponse get(String username) {
         return build(userId(username));
+    }
+
+    /**
+     * The reader's favourites as Ask reads them: the enabled favourite locations, and the name of the starred area
+     * each member belongs to. Read-only; the caller must already have established that the reader is Pro or Admin.
+     *
+     * @param userId the reader's id
+     * @return the favourites; {@link FavouriteLocations#NONE} when the reader has none
+     */
+    @Transactional(readOnly = true)
+    public FavouriteLocations forAsk(Long userId) {
+        List<FavouriteRow> rows = favouriteRepository.findRowsByUserId(userId);
+        if (rows.isEmpty()) {
+            return FavouriteLocations.NONE;
+        }
+        Set<Long> wanted = new TreeSet<>();
+        List<Long> areaIds = new ArrayList<>();
+        for (FavouriteRow row : rows) {
+            if (row.locationId() != null) {
+                wanted.add(row.locationId());
+            } else {
+                areaIds.add(row.areaId());
+            }
+        }
+        Map<Long, String> areaByLocation = new HashMap<>();
+        if (!areaIds.isEmpty()) {
+            Map<Long, List<Long>> members = membersOf(areaRepository.findKindRows(areaIds));
+            List<AreaEntity> areas = new ArrayList<>(areaRepository.findAllById(areaIds));
+            areas.sort(Comparator.comparing(AreaEntity::getName, String.CASE_INSENSITIVE_ORDER));
+            for (AreaEntity area : areas) {
+                for (Long locationId : members.getOrDefault(area.getId(), List.of())) {
+                    wanted.add(locationId);
+                    areaByLocation.putIfAbsent(locationId, area.getName());
+                }
+            }
+        }
+        Set<Long> enabled = new HashSet<>(locationRepository.findEnabledIds());
+        wanted.retainAll(enabled);
+        areaByLocation.keySet().retainAll(wanted);
+        return new FavouriteLocations(wanted, areaByLocation);
     }
 
     /**
