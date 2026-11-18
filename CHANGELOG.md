@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.12] - 2026-11-18
+
+### Docs — Weather warnings guide screenshot placeholders
+
+The weather warnings guide and the `#warnings` sections of At a Glance, Map and Coming up now carry seven labelled screenshot placeholders (no images yet), and `docs/engineering/weather-warnings-screenshots.md` lists what to capture for each.
+
+### Fixed — CI no longer fails on a transient Maven wrapper download error
+
+Backend, CodeQL, E2E, accessibility, PIT, OWASP, prompt-regression and real-API-smoke jobs now cache the Maven distribution the wrapper downloads and warm it with up to three attempts (a shared composite action, `.github/actions/maven-wrapper`) before the real Maven command, so an intermittent `wget: Failed to fetch ...apache-maven-3.10.1-bin.zip` no longer fails a required check. Real build failures are not retried. No job, check or build step changed.
+
 ## [v2.39.11] - 2026-11-18
 
 ### Added — Ask PhotoCast can mention Met Office weather warnings (W6)
