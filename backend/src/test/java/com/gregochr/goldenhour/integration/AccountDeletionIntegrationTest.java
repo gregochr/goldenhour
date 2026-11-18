@@ -105,11 +105,6 @@ class AccountDeletionIntegrationTest extends IntegrationTestBase {
                 userId, locationId);
         jdbc.update("INSERT INTO user_favourite (user_id, area_id, created_at)"
                 + " SELECT ?, id, now() FROM area ORDER BY id LIMIT 1", userId);
-        // V226: a favourite place and a favourite area. Cascade with the account; no purge needed.
-        jdbc.update("INSERT INTO user_favourite (user_id, location_id, created_at) VALUES (?, ?, now())",
-                userId, locationId);
-        jdbc.update("INSERT INTO user_favourite (user_id, area_id, created_at)"
-                + " SELECT ?, id, now() FROM area ORDER BY id LIMIT 1", userId);
     }
 
     private int count(String table, long userId) {
@@ -148,7 +143,6 @@ class AccountDeletionIntegrationTest extends IntegrationTestBase {
         assertThat(count("password_reset_token", id)).isZero();
         assertThat(count("app_user_sub_region", id)).isZero();
         assertThat(count("user_favourite", id)).isZero();
-        assertThat(count("user_favourite", id)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ask_log WHERE user_id IS NULL "
                 + "AND scope_key = 'ALL' AND outcome = 'READY_MATCH'", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM app_user_email_claim WHERE email_lower = ?",
@@ -169,7 +163,6 @@ class AccountDeletionIntegrationTest extends IntegrationTestBase {
                 .isZero();
         assertThat(count("user_drive_time", victim)).isZero();
         assertThat(count("app_user_sub_region", victim)).isZero();
-        assertThat(count("user_favourite", victim)).isZero();
         assertThat(count("user_favourite", victim)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM app_user WHERE id = ?", Integer.class, boss))
                 .isEqualTo(1);
