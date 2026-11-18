@@ -219,6 +219,58 @@ class AskWarningGuardTest {
         assertThat(shownWarning.answer().warnings()).isNull();
     }
 
+    @ParameterizedTest(name = "any warning claim needs a shown warning: {0}")
+    @ValueSource(strings = {
+        "The Met Office has issued a warning for Whitby.",
+        "Whitby is under a Met Office warning.",
+        "There is a warning in force.",
+        "A weather warning has been issued.",
+        "Be aware of the warning.",
+        "The Met Office warned of snow.",
+        "An early warning of snow has gone out.",
+        "Warning: heavy snow expected on the tops.",
+        "The Met Office alerts say snow is likely.",
+    })
+    void anyWarnClaim_isKeptOnlyWithAShownWarning(String claim) {
+        Result none = validate("Whitby looks good. " + claim, snapshot(served(AMBER_SNOW)), nothingShown());
+        Result shownWarning = validate("Whitby looks good. " + claim, snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(none.answer().summary()).isEqualTo("Whitby looks good.");
+        assertThat(none.answer().warnings()).isNull();
+        assertThat(shownWarning.answer().summary()).isEqualTo("Whitby looks good. " + claim);
+        assertThat(shownWarning.answer().warnings()).isNotNull();
+    }
+
+    @ParameterizedTest(name = "benign use left alone, shown or not: {0}")
+    @ValueSource(strings = {
+        "A word of warning: the rocks are slippery.",
+        "Park away from the warning sign.",
+        "There is a warning label on the gate.",
+        "Wear a solar filter, that is the safety warning.",
+        "The tide can turn without warning.",
+        "Stay alert near the water.",
+        "Red sky at night, shepherd’s warning.",
+        "The aurora alert level is low tonight.",
+        "Never look at the sun without eclipse glasses, as the warning on the note says.",
+    })
+    void benignUses_areLeftAloneShownOrNot(String text) {
+        Result none = validate(text, snapshot(served(AMBER_SNOW)), nothingShown());
+        Result shownWarning = validate(text, snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(none.answer().summary()).isEqualTo(text);
+        assertThat(shownWarning.answer().summary()).isEqualTo(text);
+        assertThat(shownWarning.answer().warnings()).isNull();
+    }
+
+    @Test
+    @DisplayName("a level in an eclipse sentence is a weather claim, not the safety note")
+    void aLevelBesideTheEclipse_isStillAClaim() {
+        Result result = validate("Whitby looks good. An Amber warning of wind may affect the eclipse.",
+                snapshot(served(AMBER_SNOW)), nothingShown());
+
+        assertThat(result.answer().summary()).isEqualTo("Whitby looks good.");
+    }
+
     @ParameterizedTest(name = "ordinary sentence left alone: {0}")
     @ValueSource(strings = {
         "Never look at the sun without a safety warning filter.",

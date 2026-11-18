@@ -20,6 +20,12 @@ import java.util.regex.Pattern;
  * never softens, upgrades or paraphrases a level. When nothing is left the answer is our own can't-answer, never an
  * invented warning and never a "no warnings" that would read as an all-clear.
  *
+ * <p><b>The default is a claim.</b> Any sentence using warn* or alert(s) is a warning claim, whatever the phrasing
+ * ("has issued a warning", "is under a Met Office warning"); it is kept only when a warning was shown in this
+ * conversation, every level word it names was shown, and it is not an absence claim (which is always removed). A
+ * small explicit allowlist of non-weather uses ({@link #BENIGN}, plus the eclipse safety note's own sentences) is
+ * left untouched.
+ *
  * <p>The guard runs only while the warnings feature is on ({@link AskSnapshot.Warnings#enabled()}); with it off every
  * method returns its input, so Ask is exactly what it was before W6. The server, not the model, attaches the
  * warning facts and the Met Office attribution to an answer that mentions one ({@link #attach}).
@@ -37,34 +43,37 @@ final class AskWarningGuard {
     static final String UNKNOWN_MISSING = "weather warning information for this";
 
     private static final String WARN_WORD = "(?:warning|alert)s?";
-    private static final String TYPE_WORD = "(?:snow|wind|rain|ice|icy|fog|thunder|thunderstorm|storm|heat|flood"
-            + "|flooding|lightning)";
     private static final int FLAGS = Pattern.CASE_INSENSITIVE;
 
-    /** A level named with the word warning or alert, a few words apart: "Amber warning", "red snow warning". */
-    private static final Pattern LEVEL = Pattern.compile(
-            "\\b(yellow|amber|red)\\b(?:[\\s-]+\\w+){0,3}?[\\s-]+" + WARN_WORD + "\\b", FLAGS);
+    /**
+     * The default: any use of warn* or alert(s) is a warning claim. Open-ended phrasing ("has issued a warning",
+     * "is under a Met Office warning") is caught by the word, not by a list of sentences; what is exempt is the
+     * explicit {@link #BENIGN} allowlist.
+     */
+    private static final Pattern WARN_TOKEN = Pattern.compile("\\b(?:warn(?:ing|ings|ed|s)?|alerts?)\\b", FLAGS);
+
+    /**
+     * Non-weather uses of the words, deliberately allowed and tested: "a word of warning", a sign, label, notice,
+     * light, zone or filter; the eclipse "safety warning"; "without warning"; "stay alert"; the shepherd's proverb;
+     * the aurora alert level the night tool reports. "Early warning" is NOT here: it can introduce a weather claim.
+     */
+    private static final Pattern BENIGN = Pattern.compile(
+            "\\bwords?\\s+of\\s+warning\\b"
+                    + "|\\b(?:warning|alert)s?\\s+(?:sign|signs|label|labels|notice|notices|light|lights|filter|filters"
+                    + "|zone|zones|triangle|sticker|stickers)\\b"
+                    + "|\\bsafety\\s+(?:warning|alert)s?\\b"
+                    + "|\\bwithout\\s+(?:any\\s+)?warning\\b"
+                    + "|\\b(?:stay|staying|stays|be|remain|keep)\\s+alert\\b"
+                    + "|\\bshepherd['\u2019]?s?\\s+warning\\b"
+                    + "|\\b(?:aurora|geomagnetic)\\s+alerts?\\b|\\balert\\s+(?:level|state|status)\\b",
+            FLAGS);
 
     /** Any level word at all, to check a sentence that mentions a warning names no level that was not shown. */
     private static final Pattern LEVEL_WORD = Pattern.compile("\\b(yellow|amber|red)\\b", FLAGS);
 
-    /** A warning said without a level: by type, as a weather warning, as one in force, "warning of snow", warned. */
-    private static final Pattern GENERIC = Pattern.compile(
-            "\\b" + TYPE_WORD + "\\s+" + WARN_WORD + "\\b"
-                    + "|\\b(?:weather|severe\\s+weather)\\s+" + WARN_WORD + "\\b"
-                    + "|\\bwarnings?\\s+(?:(?:is|are|has\\s+been|have\\s+been|remains?)\\s+)?"
-                    + "(?:in\\s+force|in\\s+place|in\\s+effect|issued|out)\\b"
-                    + "|\\bwarnings?\\s+of\\s+" + TYPE_WORD + "\\b"
-                    + "|\\b(?:warned|warns)\\s+(?:of|about)\\b",
-            FLAGS);
-
     /** A negator: no, not, none, nothing, any contraction (isn't, aren't, doesn't, with a straight or curly mark). */
     private static final String NEGATOR = "(?:\\b(?:no|not|none|nothing)\\b|\\b\\w+n['\u2019]t\\b"
             + "|\\bfree\\s+(?:of|from)\\b|\\bclear\\s+(?:of|from)\\b)";
-
-    /** A warning word that is not the start of an ordinary noun phrase (a warning sign, a safety warning filter). */
-    private static final String WARN_NOT_SIGN = WARN_WORD + "\\b(?!\\s+(?:sign|signs|filter|filters|label|labels"
-            + "|notice|notices|light|lights))";
 
     /**
      * A warning said not to exist or to have been lifted: never supported, a warning shown or not. The negator may be
@@ -72,12 +81,22 @@ final class AskWarningGuard {
      * in force", "all clear" beside a warning), and the contraction marks are straight or curly.
      */
     private static final Pattern NEGATED = Pattern.compile(
-            NEGATOR + "(?:[\\s-]+\\w+(?:['\u2019]\\w+)?){0,6}?[\\s-]+" + WARN_NOT_SIGN
+            NEGATOR + "(?:[\\s-]+\\w+(?:['\u2019]\\w+)?){0,6}?[\\s-]+" + WARN_WORD + "\\b"
                     + "|\\b" + WARN_WORD + "\\b[^.!?]{0,25}\\b(?:lifted|cancelled|canceled|withdrawn|expired|ended)\\b"
-                    + "|\\bnothing\\s+(?:is\\s+)?in\\s+(?:force|place|effect)\\b"
                     + "|\\ball[\\s-]clear\\b[^.!?]{0,40}\\bwarn"
                     + "|\\bwarn[^.!?]{0,40}\\ball[\\s-]clear\\b",
             FLAGS);
+
+    /** An all-clear without the word warning: "nothing in force". Never made. */
+    private static final Pattern NOTHING_IN_FORCE = Pattern.compile(
+            "\\bnothing\\s+(?:is\\s+)?in\\s+(?:force|place|effect)\\b", FLAGS);
+
+    /** The eclipse safety note's own vocabulary: a sentence about it with no level or Met Office is not weather. */
+    private static final Pattern ECLIPSE_CONTEXT = Pattern.compile(
+            "\\b(?:eclipse|glasses|filters?|eyes?|eyesight)\\b", FLAGS);
+
+    /** A sentence that attributes the claim to the Met Office. */
+    private static final Pattern MET_OFFICE = Pattern.compile("\\bmet\\s+office\\b", FLAGS);
 
     private static final Pattern SENTENCE_BREAK = Pattern.compile("(?<=[.!?])\\s+");
 
@@ -120,15 +139,23 @@ final class AskWarningGuard {
     private enum Claim { NONE, SUPPORTED, UNSUPPORTED }
 
     private Claim claim(String sentence) {
-        if (NEGATED.matcher(sentence).find()) {
+        if (NOTHING_IN_FORCE.matcher(sentence).find()) {
+            return Claim.UNSUPPORTED;
+        }
+        // Benign uses are cut out first; if no warn* or alert is left, the sentence is not about a warning.
+        String rest = BENIGN.matcher(sentence).replaceAll(" ");
+        if (!WARN_TOKEN.matcher(rest).find()) {
+            return Claim.NONE;
+        }
+        if (ECLIPSE_CONTEXT.matcher(rest).find() && !LEVEL_WORD.matcher(rest).find()
+                && !MET_OFFICE.matcher(rest).find()) {
+            return Claim.NONE;
+        }
+        if (NEGATED.matcher(rest).find()) {
             // "No warning covers Bamburgh" and "the warning was lifted" are claims about absence: never made.
             return Claim.UNSUPPORTED;
         }
-        boolean mentions = LEVEL.matcher(sentence).find() || GENERIC.matcher(sentence).find();
-        if (!mentions) {
-            return Claim.NONE;
-        }
-        Matcher level = LEVEL_WORD.matcher(sentence);
+        Matcher level = LEVEL_WORD.matcher(rest);
         while (level.find()) {
             if (!shownLevels.contains(level.group(1).toLowerCase(Locale.ROOT))) {
                 return Claim.UNSUPPORTED;
