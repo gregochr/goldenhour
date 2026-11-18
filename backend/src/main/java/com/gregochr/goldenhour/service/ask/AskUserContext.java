@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.model.FavouriteLocations;
 
 /**
  * Who is asking. A null {@code userId} is a user-less conversation (Ready precompute): nothing
@@ -12,8 +13,28 @@ import com.gregochr.goldenhour.entity.UserRole;
  * @param home          the asker's saved home point and local radius, or null when no home postcode is
  *                      saved (and always null for a user-less conversation). Read once from the user
  *                      row by {@code AskService}; it is what {@code rank_spots.nearHome} resolves
+ * @param favourites    the asker's favourite locations and starred-area names (find-and-favourites-plan F4b);
+ *                      never null (empty for a user-less conversation and for any asker who may not have favourites)
  */
-public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes, Home home) {
+public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes, Home home,
+        FavouriteLocations favourites) {
+
+    /** Canonical constructor: a null {@code favourites} reads as none. */
+    public AskUserContext {
+        favourites = favourites == null ? FavouriteLocations.NONE : favourites;
+    }
+
+    /**
+     * A context with a home and no favourites.
+     *
+     * @param userId        the asker's id, or null
+     * @param role          the asker's role, or null
+     * @param hasDriveTimes whether the asker has stored drive times
+     * @param home          the saved home, or null
+     */
+    public AskUserContext(Long userId, UserRole role, boolean hasDriveTimes, Home home) {
+        this(userId, role, hasDriveTimes, home, FavouriteLocations.NONE);
+    }
 
     /**
      * An asker's saved home, for {@code nearHome}.
@@ -34,7 +55,7 @@ public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes, 
      * @param hasDriveTimes whether the asker has stored drive times
      */
     public AskUserContext(Long userId, UserRole role, boolean hasDriveTimes) {
-        this(userId, role, hasDriveTimes, null);
+        this(userId, role, hasDriveTimes, null, FavouriteLocations.NONE);
     }
 
     /**
@@ -43,7 +64,7 @@ public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes, 
      * @return a context with no user
      */
     public static AskUserContext userLess() {
-        return new AskUserContext(null, null, false, null);
+        return new AskUserContext(null, null, false, null, FavouriteLocations.NONE);
     }
 
     /**
@@ -98,5 +119,45 @@ public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes, 
      */
     public boolean hasHome() {
         return hasUser() && home != null;
+    }
+
+    /**
+     * Whether favourites apply to this conversation: a user is present, holds a role that may have favourites
+     * (ADMIN or PRO_USER; a Lite reader never does) and has at least one. The one gate behind the {@code favourite}
+     * tie-break, {@code rank_spots.favourites} and the cache's favourites fingerprint.
+     *
+     * @return true when the asker has favourite locations they may use
+     */
+    public boolean hasFavourites() {
+        return hasUser() && mayUseAsk(role) && !favourites.isEmpty();
+    }
+
+    /**
+     * Whether a location is one of this asker's favourites.
+     *
+     * @param locationId the location
+     * @return true when {@link #hasFavourites} and the location is among them
+     */
+    public boolean isFavourite(Long locationId) {
+        return hasFavourites() && favourites.locationIds().contains(locationId);
+    }
+
+    /**
+     * The name of the starred area a location belongs to, for {@code favouriteArea}.
+     *
+     * @param locationId the location
+     * @return the area name, or null when none applies
+     */
+    public String favouriteAreaOf(Long locationId) {
+        return hasFavourites() ? favourites.areaByLocation().get(locationId) : null;
+    }
+
+    /**
+     * The favourites fingerprint a personal answer is cached under, or null when this asker has no usable favourites.
+     *
+     * @return the fingerprint, or null
+     */
+    public String favouritesFingerprint() {
+        return hasFavourites() ? favourites.fingerprint() : null;
     }
 }

@@ -63,6 +63,10 @@ class AskToolArgumentsTest {
         assertThat(AskToolArguments.rankSpots(json("{\"areaName\": \"Hadrian's Wall\"}")).areaName())
                 .isEqualTo("Hadrian's Wall");
         assertThat(AskToolArguments.rankSpots(json("{\"areaName\": null}")).areaName()).isNull();
+        assertThat(AskToolArguments.rankSpots(json("{\"favourites\": true}")).favourites()).isTrue();
+        assertThat(AskToolArguments.rankSpots(json("{}")).favourites()).isNull();
+        assertThatThrownBy(() -> AskToolArguments.rankSpots(json("{\"favourites\": \"yes\"}")))
+                .isInstanceOf(BadArguments.class);
         assertThatThrownBy(() -> AskToolArguments.rankSpots(json("{\"areaName\": 7}")))
                 .isInstanceOf(BadArguments.class).hasMessage("'areaName' must be text.");
 

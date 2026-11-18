@@ -31,11 +31,12 @@ class AskWarningPromptTest {
     /**
      * Length and digest of the whole prompt as it was before W6 (origin/main's builder, which the false path must
      * reproduce exactly), for 2026-10-05, every region, no window or night, keyed by hasUser then hasThread. Pinned,
-     * not derived from the code under test, so a change to the false path fails here.
+     * not derived from the code under test, so a change to the false path fails here. The two typed (hasUser) entries
+     * were re-pinned for find-and-favourites F4b, whose only prompt change is two sentences in {@code WITH_USER}.
      */
     private static final Map<String, String> PRE_W6 = Map.of(
-            "true,true", "12792:1e2cbe5cfebd21c5180c884d09cd2ce96a676a668ce9ae69d8418b2d3637080c",
-            "true,false", "11521:63e4dec245dff0d45a2de721b7bf7718cc4ea05bb7a86b8d7449072e45832e36",
+            "true,true", "13280:9f5a3fde773c3e18b265cecdf252af48f7d029528351e039257eceade735e5e3",
+            "true,false", "12009:692a7a57309becdeb436a37066cf78e963240d709e6a94e825639acfb0e1ce78",
             "false,true", "7337:0b85c1a6d491d428d368d7a0f6ed1721701c36fd58385b9ff110177b83e85e2a",
             "false,false", "6066:f3450faa9057041e05b61f91c42a91e32c250b289647dcad37d28f5aa3a8d608");
 

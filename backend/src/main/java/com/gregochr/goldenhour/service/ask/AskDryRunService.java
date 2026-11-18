@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.ask;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.UserFavouritesService;
 import com.gregochr.goldenhour.service.UserSettingsService;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,7 @@ public class AskDryRunService {
     private final RegionRepository regionRepository;
     private final UserSettingsService settingsService;
     private final DriveTimeResolver driveTimeResolver;
+    private final UserFavouritesService favouritesService;
 
     /**
      * Creates the service.
@@ -42,16 +44,19 @@ public class AskDryRunService {
      * @param regionRepository  validates the question's region ids
      * @param settingsService   resolves the calling admin's user id
      * @param driveTimeResolver whether the calling admin has stored drive times
+     * @param favouritesService the calling admin's favourites, so a dry run orders as their own ask would
      */
     public AskDryRunService(AskProperties properties, AskEngine engine,
             AskSnapshotBuilder snapshotBuilder, RegionRepository regionRepository,
-            UserSettingsService settingsService, DriveTimeResolver driveTimeResolver) {
+            UserSettingsService settingsService, DriveTimeResolver driveTimeResolver,
+            UserFavouritesService favouritesService) {
         this.properties = properties;
         this.engine = engine;
         this.snapshotBuilder = snapshotBuilder;
         this.regionRepository = regionRepository;
         this.settingsService = settingsService;
         this.driveTimeResolver = driveTimeResolver;
+        this.favouritesService = favouritesService;
     }
 
     /**
@@ -137,6 +142,7 @@ public class AskDryRunService {
     /** The calling admin as a conversation's asker: their id, and whether they have drive times. */
     private AskUserContext adminContext(Authentication auth) {
         Long userId = settingsService.getUserId(auth);
-        return new AskUserContext(userId, UserRole.ADMIN, driveTimeResolver.hasDriveTimes(userId));
+        return new AskUserContext(userId, UserRole.ADMIN, driveTimeResolver.hasDriveTimes(userId), null,
+                favouritesService.forAsk(userId));
     }
 }

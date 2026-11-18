@@ -39,7 +39,14 @@ import java.util.concurrent.TimeUnit;
  *   <li><b>Normalised question</b> and <b>window id</b> (null when the question had none).</li>
  *   <li><b>User</b>: {@code shared} — no user in the key — unless the conversation was
  *       <b>personal</b>.</li>
+ *   <li><b>Favourites fingerprint</b> (find-and-favourites-plan F4b): a personal answer's key also carries a hash
+ *       of the asker's favourite set, so starring or un-starring a place can never serve an answer made under the
+ *       old set. A shared key has none.</li>
  * </ul>
+ *
+ * <p>When the asker's favourites touch the question's scope the shared key is <em>not</em> tried: a shared answer
+ * was made in the favourite-blind order, and that asker's order may differ, so they ask the engine (or hit their
+ * own key) instead of being handed another asker's order.
  *
  * <h2>Personal answers never cross users</h2>
  * {@link AskOutcome#personal()} is set by the tools themselves, the moment a conversation asks for
@@ -85,9 +92,11 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
      * @param question    the normalised question
      * @param windowId    the context window, or null
      * @param userId      the asker for a personal answer; null for a shared one
+     * @param favourites  the asker's favourites fingerprint for a personal answer; null for a shared one, and for
+     *                    an asker with no favourites
      */
     record Key(String scope, LocalDate date, LocalDateTime generatedAt, String question,
-            String windowId, Long userId) {
+            String windowId, Long userId, String favourites) {
     }
 
     /**
@@ -129,9 +138,11 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
     @Override
     public Optional<AskAnswer> lookup(AskQuestion question, AskSnapshot snapshot, AskUserContext user) {
         List<Key> keys = new ArrayList<>(2);
-        keys.add(key(question, snapshot, null));
+        if (!favouritesTouchScope(question, snapshot, user)) {
+            keys.add(key(question, snapshot, null, null));
+        }
         if (user != null && user.hasUser()) {
-            keys.add(key(question, snapshot, user.userId()));
+            keys.add(key(question, snapshot, user.userId(), user.favouritesFingerprint()));
         }
         for (Key key : keys) {
             Stored stored = entries.getIfPresent(key);
@@ -168,17 +179,19 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
         }
         // A shared answer has no owner; a personal one is kept for its asker alone.
         Long owner = null;
+        String favourites = null;
         if (outcome.personal()) {
             if (user == null || !user.hasUser()) {
                 // A personal answer with nobody to keep it for cannot be shared: drop it.
                 return;
             }
             owner = user.userId();
+            favourites = user.favouritesFingerprint();
         }
         if (AskSimulation.active(hotTopicSimulation, auroraStateCache)) {
             return;
         }
-        entries.put(key(question, snapshot, owner), new Stored(answer, question.scope()));
+        entries.put(key(question, snapshot, owner, favourites), new Stored(answer, question.scope()));
     }
 
     /**
@@ -191,8 +204,20 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
         return entries.estimatedSize();
     }
 
-    private Key key(AskQuestion question, AskSnapshot snapshot, Long userId) {
+    private Key key(AskQuestion question, AskSnapshot snapshot, Long userId, String favourites) {
         return new Key(question.scope().key(), ForecastHorizon.today(clock),
-                snapshot.generatedAt(), question.normalised(), question.windowId(), userId);
+                snapshot.generatedAt(), question.normalised(), question.windowId(), userId, favourites);
+    }
+
+    /** Whether any of the asker's favourites is a place in the question's scope. */
+    private static boolean favouritesTouchScope(AskQuestion question, AskSnapshot snapshot, AskUserContext user) {
+        if (user == null || !user.hasFavourites()) {
+            return false;
+        }
+        return snapshot.windows().stream()
+                .flatMap(w -> w.regions().stream())
+                .filter(r -> question.scope().contains(r.name()))
+                .flatMap(r -> r.slots().stream())
+                .anyMatch(slot -> user.isFavourite(slot.locationId()));
     }
 }

@@ -125,12 +125,13 @@ public class StubAskEngine implements AskEngine {
             AskRunOptions options) {
         return switch (AskConversation.open(question, snapshot, user, options, frame)) {
             case AskConversation.Opening.Refused refused -> refused.run();
-            case AskConversation.Opening.Open open -> script(open.conversation(), question, snapshot);
+            case AskConversation.Opening.Open open -> script(open.conversation(), question, snapshot, user);
         };
     }
 
     /** The stub's one turn: pick the script by keyword, then submit what it found. */
-    private AskRun script(AskConversation conversation, AskQuestion question, AskSnapshot snapshot) {
+    private AskRun script(AskConversation conversation, AskQuestion question, AskSnapshot snapshot,
+            AskUserContext user) {
         AskTools tools = conversation.tools();
         String text = question.sanitised().toLowerCase(Locale.ROOT);
 
@@ -139,7 +140,7 @@ public class StubAskEngine implements AskEngine {
             // A question about the earlier picks themselves (rank, compare, "those") ranks them with no
             // tool call. Anything that asks for new places (a day, the coast, a tide, a window) falls
             // through to the ordinary script, with the thread still in evidence for the validator.
-            Optional<AskAnswerValidator.Raw> earlier = threadAnswer(conversation, snapshot);
+            Optional<AskAnswerValidator.Raw> earlier = threadAnswer(conversation, snapshot, user);
             if (earlier.isPresent()) {
                 return conversation.submit(earlier.get(), 1, tools.trace());
             }
@@ -192,10 +193,10 @@ public class StubAskEngine implements AskEngine {
      * when the conversation has no earlier pick left, which sends the question to the ordinary script.
      */
     private static Optional<AskAnswerValidator.Raw> threadAnswer(AskConversation conversation,
-            AskSnapshot snapshot) {
+            AskSnapshot snapshot, AskUserContext user) {
         List<AskSnapshot.Candidate> earlier = conversation.thread().fact().picks().stream()
                 .flatMap(pair -> snapshot.candidate(pair.windowId(), pair.locationId()).stream())
-                .sorted(AskTools.RANK)
+                .sorted(AskTools.rank(user))
                 .toList();
         List<SpotInfo> chosen = new ArrayList<>();
         Set<Long> seen = new HashSet<>();

@@ -210,6 +210,20 @@ browser-verified test. Map picks always stay on Map (fly + callout).
 - Tests: tie-break (equal rating/pick/tide, second alphabetically starred → first), starred 3★ vs unstarred 4★,
   Best vs starred non-Best, scope, empty note, cache shareable and personal paths, fingerprint invalidation.
 
+- **Built (2026-11-18).** `AskTools.rank(AskUserContext)` replaces `RANK`; `AskUserContext` gained `favourites`
+  (`FavouriteLocations`, read by `UserFavouritesService.forAsk`); `RankSpotsResult` gained `lead`, `companion` and
+  `companionKind`, `SpotInfo` gained `favourite` and `favouriteArea`; the cache key gained the fingerprint and the
+  shared-hit bypass. Readings worth recording: the **pair is emitted** when `favourites: true` or when the favourite key
+  changed the post-`limit` list (compared over the whole matching set, so a tie beyond the limit is still seen); with
+  `favourites: true` the `spots` list holds the favourites only while `lead` / `companion` are computed over the whole
+  matching set (that is how "Bamburgh 5★, your Mary's 4★" arises); `favouriteArea` names the alphabetically first
+  starred area a member belongs to. `AskDryRunService` carries the admin's own favourites. No frontend change: Ask's
+  client renders served picks, so there was no `SpotInfo` to mark; the Ready-pick ★ is left to a later phase.
+  `AskWarningPromptTest`'s two typed fingerprints and the two `tool-schemas-with-user*.txt` goldens were re-pinned (the
+  intended `WITH_USER` and schema change); the user-less fingerprints are unchanged, proving `RULES` and `USER_LESS`
+  are byte for byte as before. New prompt-regression cases are in `AskFavouritesRegressionTest` (never run; pending
+  the owner's approval).
+
 ### F5 — Guides and landing (required before any release containing F4)
 - New `landing/guide/finding-places.html`, `your-places.html`; sections in `at-a-glance.html`, `map.html`,
   `coming-up.html`, `ask-photocast.html`.

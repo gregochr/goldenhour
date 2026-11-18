@@ -524,6 +524,24 @@ class AskPromptBuilderTest {
     }
 
     @Test
+    @DisplayName("the favourites wording lives in WITH_USER only, in the pair's fixed words, never 'wildcard'")
+    void favouritesWordingIsTypedOnly() {
+        String withUser = flat(AskPromptBuilder.WITH_USER);
+
+        assertThat(withUser).contains("pass favourites true to rank_spots")
+                .contains("the lead is the answer")
+                .contains("TIED also scores the same as the lead")
+                .contains("YOUR_FAVOURITE is the reader's favourite and scores lower: say your <name> is <n>★")
+                .contains("Never call a favourite the best unless it is the lead")
+                .doesNotContain("wildcard");
+        for (String shared : List.of(AskPromptBuilder.RULES, AskPromptBuilder.USER_LESS)) {
+            assertThat(flat(shared)).doesNotContain("favourite").doesNotContain("companion");
+        }
+        assertThat(builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null, false, false, List.of(),
+                false).staticPart()).doesNotContain("favourite");
+    }
+
+    @Test
     @DisplayName("a follow-up about the windows themselves is told to call list_windows again")
     void threadRulesSendWindowFollowUpsToListWindows() {
         assertThat(flat(AskPromptBuilder.THREAD_RULES)).contains("A follow-up about the windows themselves "

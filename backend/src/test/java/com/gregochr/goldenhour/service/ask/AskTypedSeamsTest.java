@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.repository.AskUsageRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
+import com.gregochr.goldenhour.service.UserFavouritesService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import org.junit.jupiter.api.AfterEach;
@@ -141,7 +142,7 @@ class AskTypedSeamsTest {
         service = new AskService(properties, new AskRateLimiter(properties, clock), users, regions,
                 snapshotBuilder, engine, usageStore, guard, world.readyServing(), driveTimes,
                 new PhraseAskPreFilter(), new KeywordAskIntentMatcher(world.readyServing()), cache,
-                logged::add, counter, clock, 22);
+                logged::add, counter, mock(UserFavouritesService.class), clock, 22);
     }
 
     private static AskRun run(AskOutcome outcome) {

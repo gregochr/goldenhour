@@ -21,6 +21,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -88,6 +89,9 @@ public class AskTools {
 
     /** The note {@code rank_spots} gives when {@code nearHome} is asked of an account with no saved home. */
     static final String NO_HOME_NOTE = "nearHome is not available: no home postcode is saved.";
+
+    /** The note {@code rank_spots} gives when {@code favourites} is asked of a reader who has starred nothing. */
+    static final String NO_FAVOURITES_NOTE = "favourites is not available: no places or areas are starred.";
 
     /** The most spots {@code rank_night_spots} returns. */
     public static final int MAX_NIGHT_SPOTS = 10;
@@ -319,10 +323,29 @@ public class AskTools {
      * @param limit           how many spots, at most {@value AskTools#MAX_SPOTS}
      * @param areaName        only places in this named area, by its name or another name for it; typed
      *                        conversations only
+     * @param favourites      true to rank only the reader's own favourites (starred places and members of
+     *                        starred areas) and to show which are starred; typed conversations only
      */
     public record RankSpotsArgs(List<String> windowIds, List<String> regionNames,
             Boolean coastalOnly, String tideState, Integer maxDriveMinutes, Boolean nearHome,
-            Integer limit, String areaName) {
+            Integer limit, String areaName, Boolean favourites) {
+
+        /**
+         * Arguments with no {@code favourites}.
+         *
+         * @param windowIds       windows to rank within
+         * @param regionNames     regions to rank within
+         * @param coastalOnly     true to keep only coastal spots
+         * @param tideState       HIGH, MID or LOW
+         * @param maxDriveMinutes a drive limit in minutes
+         * @param nearHome        true to keep only spots near home
+         * @param limit           how many spots
+         * @param areaName        a named area
+         */
+        public RankSpotsArgs(List<String> windowIds, List<String> regionNames, Boolean coastalOnly,
+                String tideState, Integer maxDriveMinutes, Boolean nearHome, Integer limit, String areaName) {
+            this(windowIds, regionNames, coastalOnly, tideState, maxDriveMinutes, nearHome, limit, areaName, null);
+        }
 
         /**
          * Arguments with no {@code areaName}.
@@ -337,7 +360,7 @@ public class AskTools {
          */
         public RankSpotsArgs(List<String> windowIds, List<String> regionNames, Boolean coastalOnly,
                 String tideState, Integer maxDriveMinutes, Boolean nearHome, Integer limit) {
-            this(windowIds, regionNames, coastalOnly, tideState, maxDriveMinutes, nearHome, limit, null);
+            this(windowIds, regionNames, coastalOnly, tideState, maxDriveMinutes, nearHome, limit, null, null);
         }
 
         /**
@@ -352,7 +375,7 @@ public class AskTools {
          */
         public RankSpotsArgs(List<String> windowIds, List<String> regionNames, Boolean coastalOnly,
                 String tideState, Integer maxDriveMinutes, Integer limit) {
-            this(windowIds, regionNames, coastalOnly, tideState, maxDriveMinutes, null, limit, null);
+            this(windowIds, regionNames, coastalOnly, tideState, maxDriveMinutes, null, limit, null, null);
         }
     }
 
@@ -485,12 +508,50 @@ public class AskTools {
      *                      conversation (never the Ready precompute) and only when the slot has one
      * @param goldenHour    the slot's served Golden Hour potential out of 100; same presence rule as
      *                      {@code fierySky}
+     * @param favourite     true when this is one of the reader's favourites; present only when the result shows
+     *                      favourites ({@code favourites: true}, or the favourite tie-break changed the list)
+     * @param favouriteArea the name of the reader's starred area this place belongs to; same presence rule as
+     *                      {@code favourite}
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SpotInfo(long locationId, String name, String region, String windowId,
             int rating, String verdict, String tideState, Boolean tideAligned,
             String tideFitPhrase, String headline, String pick, Integer driveMinutes,
-            Integer fierySky, Integer goldenHour) {
+            Integer fierySky, Integer goldenHour, Boolean favourite, String favouriteArea) {
+
+        /**
+         * A spot that shows no favourite marks.
+         *
+         * @param locationId    the location id
+         * @param name          the location name
+         * @param region        the region name
+         * @param windowId      the window id
+         * @param rating        the served rating
+         * @param verdict       the slot's served verdict
+         * @param tideState     the served tide state
+         * @param tideAligned   whether the wanted water is the water at the event
+         * @param tideFitPhrase the served tide-fit sentence
+         * @param headline      the served headline
+         * @param pick          BEST or ALSO, else null
+         * @param driveMinutes  minutes from home, or null
+         * @param fierySky      Fiery Sky out of 100, or null
+         * @param goldenHour    Golden Hour out of 100, or null
+         */
+        public SpotInfo(long locationId, String name, String region, String windowId,
+                int rating, String verdict, String tideState, Boolean tideAligned,
+                String tideFitPhrase, String headline, String pick, Integer driveMinutes,
+                Integer fierySky, Integer goldenHour) {
+            this(locationId, name, region, windowId, rating, verdict, tideState, tideAligned, tideFitPhrase,
+                    headline, pick, driveMinutes, fierySky, goldenHour, null, null);
+        }
+    }
+
+    /** Why a {@link RankSpotsResult#companion} sits beside the {@link RankSpotsResult#lead}. */
+    public enum CompanionKind {
+        /** The favourite-blind winner scores the same as the favourite lead. */
+        TIED,
+        /** The reader's best favourite scores lower than the lead. */
+        YOUR_FAVOURITE
     }
 
     /**
@@ -501,9 +562,14 @@ public class AskTools {
      *                         which), or null
      * @param withinMilesOfHome the radius {@code nearHome} was resolved to, in miles, so the model can
      *                         say "within N miles of home"; null when {@code nearHome} was not used
+     * @param lead             the answer to a "best" question, present only when the result shows favourites
+     *                         (find-and-favourites-plan D4b); null otherwise, which keeps a shared result's bytes
+     * @param companion        the one other place to name beside the lead, or null
+     * @param companionKind    why the companion is named ({@link CompanionKind}); present with the companion
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record RankSpotsResult(List<SpotInfo> spots, String note, Integer withinMilesOfHome) {
+    public record RankSpotsResult(List<SpotInfo> spots, String note, Integer withinMilesOfHome, SpotInfo lead,
+            SpotInfo companion, CompanionKind companionKind) {
 
         /**
          * A result that did not use {@code nearHome}.
@@ -512,7 +578,7 @@ public class AskTools {
          * @param note  why the list is empty, or null
          */
         public RankSpotsResult(List<SpotInfo> spots, String note) {
-            this(spots, note, null);
+            this(spots, note, null, null, null, null);
         }
     }
 
@@ -1106,6 +1172,18 @@ public class AskTools {
             }
         }
 
+        boolean favouritesAsked = Boolean.TRUE.equals(a.favourites());
+        if (favouritesAsked) {
+            if (!user.hasUser()) {
+                return fail("rank_spots", "favourites is not available in this conversation.");
+            }
+            // The answer depends on who asked (their stars), so it must never be shared.
+            personal = true;
+            if (!user.hasFavourites()) {
+                return finish("rank_spots", new RankSpotsResult(List.of(), NO_FAVOURITES_NOTE), () -> { });
+            }
+        }
+
         List<AskSnapshot.Candidate> pool = new ArrayList<>();
         for (AskSnapshot.Window w : windows) {
             // The same in-scope set the BEST anchor consults (AskSnapshot#candidates with a scope).
@@ -1126,27 +1204,86 @@ public class AskTools {
         String wantedTide = tideState;
         Map<Long, Integer> minutes = maxDrive == null ? Map.of() : driveMinutesByLocation();
         Set<Long> nearIds = nearHome ? locationsNearHome() : Set.of();
-        List<AskSnapshot.Candidate> kept = pool.stream()
+        List<AskSnapshot.Candidate> matching = pool.stream()
                 .filter(c -> !coastalOnly || c.slot().coastal())
                 .filter(c -> wantedTide == null || wantedTide.equals(c.slot().tideState()))
                 .filter(c -> maxDrive == null || withinDrive(minutes, c, maxDrive))
                 .filter(c -> !nearHome || nearIds.contains(c.slot().locationId()))
-                .sorted(RANK)
-                .limit(limit)
                 .toList();
+        // Both orders over the whole matching set (find-and-favourites-plan D4b): the favourite key breaks ties
+        // only, so the two differ solely among places the ratings, picks and tide fit leave level.
+        List<AskSnapshot.Candidate> keyed = matching.stream().sorted(rank(user)).toList();
+        List<AskSnapshot.Candidate> blind = matching.stream().sorted(BLIND).toList();
+        List<AskSnapshot.Candidate> kept = (favouritesAsked
+                ? keyed.stream().filter(c -> user.isFavourite(c.slot().locationId())) : keyed.stream())
+                .limit(limit).toList();
+        boolean keyChangedList = !favouritesAsked && !samePlaces(kept, blind.stream().limit(limit).toList());
+        // The favourite key changed what the reader is shown, so the answer is theirs alone.
+        if (keyChangedList) {
+            personal = true;
+        }
+        boolean marks = favouritesAsked || keyChangedList;
 
         List<SpotInfo> spots = kept.stream().map(c -> spotInfo(c, maxDrive == null ? null
-                : minutes.get(c.slot().locationId()))).toList();
+                : minutes.get(c.slot().locationId()), marks)).toList();
+        SpotInfo lead = null;
+        SpotInfo companion = null;
+        CompanionKind companionKind = null;
+        if (marks && !keyed.isEmpty()) {
+            AskSnapshot.Candidate leadC = keyed.getFirst();
+            AskSnapshot.Candidate blindC = blind.getFirst();
+            AskSnapshot.Candidate bestFavourite = keyed.stream()
+                    .filter(c -> user.isFavourite(c.slot().locationId())).findFirst().orElse(null);
+            AskSnapshot.Candidate other = null;
+            if (!Objects.equals(blindC.slot().locationId(), leadC.slot().locationId())) {
+                other = blindC;
+                companionKind = CompanionKind.TIED;
+            } else if (bestFavourite != null
+                    && !Objects.equals(bestFavourite.slot().locationId(), leadC.slot().locationId())) {
+                other = bestFavourite;
+                companionKind = CompanionKind.YOUR_FAVOURITE;
+            }
+            lead = spotInfo(leadC, minutesFor(minutes, maxDrive, leadC), true);
+            companion = other == null ? null : spotInfo(other, minutesFor(minutes, maxDrive, other), true);
+        }
         Integer radius = nearHome ? user.home().radiusMiles() : null;
         String note = spots.isEmpty()
                 ? (nearHome ? "Nothing pick-eligible within " + radius + " miles of home matches those filters."
                         : NOTHING_MATCHES_NOTE)
                 : null;
-        return finish("rank_spots", new RankSpotsResult(spots, joinNotes(note, heldBackNote), radius), () -> {
+        RankSpotsResult result = new RankSpotsResult(spots, joinNotes(note, heldBackNote), radius, lead,
+                companion, companionKind);
+        return finish("rank_spots", result, () -> {
             for (SpotInfo s : spots) {
                 pairs.add(new AskEvidence.Pair(s.locationId(), s.windowId()));
             }
+            // The pair is named to the reader, so each of its places is evidence the answer may pick.
+            for (SpotInfo s : Arrays.asList(result.lead(), result.companion())) {
+                if (s != null) {
+                    pairs.add(new AskEvidence.Pair(s.locationId(), s.windowId()));
+                }
+            }
         });
+    }
+
+    private static Integer minutesFor(Map<Long, Integer> minutes, Integer maxDrive, AskSnapshot.Candidate c) {
+        return maxDrive == null ? null : minutes.get(c.slot().locationId());
+    }
+
+    /** Whether two ranked lists hold the same (place, window) slots in the same order. */
+    private static boolean samePlaces(List<AskSnapshot.Candidate> first, List<AskSnapshot.Candidate> second) {
+        if (first.size() != second.size()) {
+            return false;
+        }
+        for (int i = 0; i < first.size(); i++) {
+            AskSnapshot.Candidate x = first.get(i);
+            AskSnapshot.Candidate y = second.get(i);
+            if (!Objects.equals(x.slot().locationId(), y.slot().locationId())
+                    || !x.window().id().equals(y.window().id())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -2271,16 +2408,29 @@ public class AskTools {
 
     // -- internals --------------------------------------------------------------------------
 
-    /** The order {@code rank_spots} returns spots in, shared with the stub's ranking of a thread's picks. */
-    static final Comparator<AskSnapshot.Candidate> RANK =
-            Comparator.<AskSnapshot.Candidate>comparingInt(c -> -c.slot().rating())
-                    .thenComparingInt(AskTools::pickOrder)
-                    .thenComparingInt(c -> c.slot().tideAligned() ? 0 : 1)
-                    .thenComparing(c -> c.slot().name(),
-                            Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
-                    .thenComparing(c -> c.window().date())
-                    .thenComparing(c -> c.window().targetType())
-                    .thenComparingLong(c -> c.slot().locationId());
+    /** The favourite-blind order: what {@link #rank} gives an asker with no favourites. */
+    private static final Comparator<AskSnapshot.Candidate> BLIND = rank(AskUserContext.userLess());
+
+    /**
+     * The order {@code rank_spots} returns spots in, shared with the stub's ranking of a thread's picks: rating,
+     * the forecast's own pick, tide preference met, then (find-and-favourites-plan D4) the asker's favourites,
+     * then name. A favourite only ever breaks a tie: the three keys above it decide first, so a favourite never
+     * beats a higher rating, a pick or a better tide fit.
+     *
+     * @param user the asker; one with no favourites gets the favourite-blind order
+     * @return the comparator
+     */
+    static Comparator<AskSnapshot.Candidate> rank(AskUserContext user) {
+        return Comparator.<AskSnapshot.Candidate>comparingInt(c -> -c.slot().rating())
+                .thenComparingInt(AskTools::pickOrder)
+                .thenComparingInt(c -> c.slot().tideAligned() ? 0 : 1)
+                .thenComparingInt(c -> user.isFavourite(c.slot().locationId()) ? 0 : 1)
+                .thenComparing(c -> c.slot().name(),
+                        Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
+                .thenComparing(c -> c.window().date())
+                .thenComparing(c -> c.window().targetType())
+                .thenComparingLong(c -> c.slot().locationId());
+    }
 
     private static int pickOrder(AskSnapshot.Candidate c) {
         return pickKind(c).map(kind -> kind == BriefingWindow.PickKind.BEST ? 0 : 1).orElse(2);
@@ -2320,13 +2470,29 @@ public class AskTools {
      * @return the rendered spot
      */
     SpotInfo spotInfo(AskSnapshot.Candidate c, Integer minutes) {
+        return spotInfo(c, minutes, false);
+    }
+
+    /**
+     * One slot as {@code rank_spots} renders it, optionally with the reader's favourite marks. The marks ride only
+     * a result that shows favourites ({@code favourites: true}, or the favourite tie-break changed the list), so
+     * an unchanged order keeps the shared, single-answer result byte for byte.
+     *
+     * @param c       the slot
+     * @param minutes the asker's drive minutes to it, or null
+     * @param marks   true to carry {@code favourite} and {@code favouriteArea}
+     * @return the rendered spot
+     */
+    SpotInfo spotInfo(AskSnapshot.Candidate c, Integer minutes, boolean marks) {
         AskSnapshot.Slot s = c.slot();
         Optional<BriefingWindow.PickKind> kind = pickKind(c);
         return new SpotInfo(s.locationId(), s.name(), c.region().name(), c.window().id(),
                 s.rating(), s.verdict() == null ? null : s.verdict().name(), s.tideState(),
                 s.coastal() ? s.tideAligned() : null, s.tideFitPhrase(),
                 cap(s.headline(), HEADLINE_CAP), kind.map(Enum::name).orElse(null), minutes,
-                user.hasUser() ? s.fierySky() : null, user.hasUser() ? s.goldenHour() : null);
+                user.hasUser() ? s.fierySky() : null, user.hasUser() ? s.goldenHour() : null,
+                marks && user.isFavourite(s.locationId()) ? Boolean.TRUE : null,
+                marks ? user.favouriteAreaOf(s.locationId()) : null);
     }
 
     /** {@code Today}, {@code Tomorrow} or the weekday: the shared relative day, capitalised for a tool result. */
