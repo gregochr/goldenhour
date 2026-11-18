@@ -24,6 +24,8 @@ import GuideDock from './guide/GuideDock.jsx';
 import { TAB_GUIDE } from '../utils/guide.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useSubRegionStatus } from '../context/SubRegionStatusContext.jsx';
+import { useWarnings } from '../context/WarningsContext.jsx';
+import { warningsKey } from '../utils/comingUpWarnings.js';
 import { isOutsidePicks } from '../utils/pickScope.js';
 import { placesOf } from '../utils/windowFirstSpots.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
@@ -783,7 +785,11 @@ export default function WindowFirstShell({
   // `true`, unconditionally — the tab badge (plan D3/D4/D13) needs to know about arrivals whether
   // or not the reader ever opens this pane, so the fetch fires after first paint for every reader
   // rather than gating on the tab. See useComingUpFeed.js's own class doc for the reversal.
-  const comingUp = useComingUpFeed(true, todayStr);
+  // The polled warning set keys a silent refetch: the server merges the Met Office warning entries per request, and the
+  // feed is otherwise fetched once a day, so without this a new or withdrawn warning could stay unseen for hours.
+  const polledWarnings = useWarnings();
+  const warningSetKey = useMemo(() => warningsKey(polledWarnings), [polledWarnings]);
+  const comingUp = useComingUpFeed(true, todayStr, warningSetKey);
   // A pending "open Coming up at this entry" request from At a Glance's topic pills (see `openComingUp`).
   const [comingUpFocus, setComingUpFocus] = useState(null);
   const comingUpSeq = useRef(0);

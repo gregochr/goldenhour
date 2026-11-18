@@ -1,6 +1,7 @@
 import { isNewEntry } from './comingUpArrivals.js';
 import { lastPlanDateStr } from './comingUpHandoff.js';
 import { GLANCE_LABEL } from './tabLabels.js';
+import { isWarningEntry } from './comingUpWarnings.js';
 
 /**
  * The "Coming up" chronology's presentation layer — {@code ComingUpEntry[]} from
@@ -510,6 +511,15 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
     // The NEW flag + fresh box-shadow (design §4, plan P5) — D12's per-user-join computation,
     // imported rather than re-derived here (see this file's own class doc and comingUpArrivals.js's).
     isNew: isNewEntry(entry, lastSeenDate),
+    // A Met Office warning entry (W3b), reconciled against the polled warnings by `reconcileFeed`: `warning` is the
+    // polled warning the card draws from. It has no map door and no per-day chips (the plan door is its own button
+    // inside the card), so those are cleared whatever the served `plan` action would otherwise have built.
+    ...(isWarningEntry(entry) ? {
+      warning: entry.warning ?? null,
+      // A warning is never an arrival: it carries no rarity, so it never earns the NEW flag or the fresh shadow.
+      isNew: false,
+      interactive: false, dayChips: null, rangeScale: null, doorNoun: null, actionWithheld: false, actionNote: null,
+    } : {}),
   };
 }
 
@@ -570,4 +580,5 @@ export function buildChronology(entries, todayStr, filterId, lastSeenDate, forec
  * hard-coded calendar window and the equinox/solstice dates are fixed `MonthDay` anchors.
  */
 export const FOOTER = 'This list shows dates fixed in advance, from today on. Weather-driven topics '
-  + `can't be known that far out, so they appear only under the next four days on ${GLANCE_LABEL}.`;
+  + `can't be known that far out, so they appear only under the next four days on ${GLANCE_LABEL}, `
+  + 'except Met Office weather warnings, which are listed here when they run past those four days.';

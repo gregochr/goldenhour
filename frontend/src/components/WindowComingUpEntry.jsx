@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { TIDE_LIGHT_LOCKED_LABEL, TIDE_LIGHT_LOCKED_BODY } from './shared/ProUpsell.jsx';
 import { TideLightLockedSketch } from './map/TideUpsell.jsx';
 import ComingUpOutsideDoor from './subregions/ComingUpOutsideDoor.jsx';
+import WindowComingUpWarning from './WindowComingUpWarning.jsx';
 import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
 import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
@@ -536,6 +537,15 @@ export default function WindowComingUpEntry({
           )}
         </span>
       </div>
+      {/* A Met Office warning card (W3b): the chip, "Updated" and the attribution are drawn open or closed (the
+          licence and the style guide), the full text only open. It has no prose, facts or day chips, and its plan
+          door sits inside WindowComingUpWarning, so the action line below is skipped. */}
+      {entry.warning && (
+        <>
+          {' '}
+          <WindowComingUpWarning entry={entry} open={open} onGoToPlan={onGoToPlan} />
+        </>
+      )}
       {open && (
         <>
       {' '}
@@ -663,7 +673,7 @@ export default function WindowComingUpEntry({
         </>
       )}
 
-      {entry.dayChips ? (
+      {entry.warning ? null : entry.dayChips ? (
         <DayChips entry={entry} onShowOnMap={onShowOnMap} />
       ) : entry.actionWithheld ? (
         <span
@@ -791,6 +801,8 @@ WindowComingUpEntry.propTypes = {
       date: PropTypes.string,
     }).isRequired,
     interactive: PropTypes.bool.isRequired,
+    // A Met Office warning entry only: the polled warning the card is drawn from (W3b).
+    warning: PropTypes.object,
     actionWithheld: PropTypes.bool,
     actionNote: PropTypes.string,
     dayChips: PropTypes.arrayOf(PropTypes.shape({

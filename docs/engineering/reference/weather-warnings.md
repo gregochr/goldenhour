@@ -295,3 +295,66 @@ The served `warningLevel` always wins: the grid only locates the cell, and `warn
 
 Tests: `warningsW3.test.js`, `WarningMatrix.test.jsx`, `WindowWarningRow.test.jsx`, `WindowGlanceLanesWarnings.test.jsx`,
 `WindowFirstHeatStripWarnings.test.jsx`, `WindowSheetDialogWarnings.test.jsx`, `windowFirstWarningsModel.test.js`.
+
+## Coming up, W3b (warning entries in the dated feed)
+
+Phase W3b adds Met Office warning entries to the **Coming up** feed (`GET /api/almanac`), for warnings that reach past the
+scored days. It stays dark while `photocast.warnings.enabled` is false: the merge returns the very same feed instance, so the
+body and its body-hashed ETag are byte-identical to a build without it (tested).
+
+| Piece | Role |
+|---|---|
+| `service/comingup/ComingUpWarningMerger` | `merge(feed, days)`, called at the controller edge **after** role shaping and **after** the day cache. Reads `WarningService.served()` (stored versions through `WarningTimeline` and the injected `Clock`, so Rewind-aware for an admin GET; never a simulated row; empty and not-enabled while the flag is off). Fail-soft: a lookup that throws returns the unmerged feed (WARN). |
+| `controller/AlmanacController` | `warningMerger.merge(pro ? feed : roleShaper.forLite(feed), days)`. No role or user is passed: Lite and Pro read identical warning entries (two-question rule: "what is happening" is never gated); `ComingUpRoleShaper.liteEntry` leaves a warning entry untouched (tested). |
+| `utils/comingUpWarnings.js` | `reconcileFeed`, `warningsKey`, `isWarningEntry` (client). |
+| `components/WindowComingUpWarning.jsx` | The card body, drawn inside `WindowComingUpEntry`. |
+
+**Which warnings get an entry.** Plan and At a Glance own today and the next three UK days (`PlanHorizon.lastPlanDate`, the W3
+lanes and popup row). A served warning gets an entry when its `validTo` UK civil date is **after** that last plan date and its
+end date is taken a nanosecond before `validTo` (a warning ending exactly at UK midnight, GMT or BST, has no extra day), and its
+start (`validFrom` UK date, today when missing or later than the end) is within the requested horizon (`days`, clamped as
+`AlmanacService` clamps it). The entry carries the **true span**, never clipped (a warning under way starts in the past, as a
+straddling tide run does). A warning wholly inside the scored days has no Coming up entry.
+
+**Entry shape (no `ComingUpEntry` field was added).** `kind FORECAST` (never badges), `family "warning"`, `type "weather-warning"`,
+`kindTag "Met Office warning"`, `enteredWindow` = start minus 89 days (the assembler's convention, so it never reads as an arrival; the client also forces `isNew` false), `interim true`, `bits null`, no facts. `id` is `weather-warning:<warningId>` (no version, so an
+opened card stays open across an update). `title` is "Amber warning of snow and wind" (the same words as the chip). `detail` is
+the headline. `meta` carries `warningId`, `warningVersion`, `level`, `weatherTypes` (comma joined), `validFrom`, `validTo`,
+`updated` and, only while the 24 h raise flag holds, `upgradedFrom`. `action` is `plan` (date = the first scored day it touches,
+today for one under way) when the warning reaches the scored days, else `met-office` (no date; the client draws the link).
+`counts.forecast` and `counts.byFamily.warning` gain one per entry (so the All chip matches the list; there is no chip of its own).
+
+**Order.** Chronological by start date as the assembler sorts. On one day an **upgraded** warning (raised level, `upgradedFrom`
+set) floats to the top, then the existing entries in their own order, then the other warnings in the style guide's order
+(the order `WarningService` already serves: level, impact, likelihood, `validFrom`). The sort is stable.
+
+**Freshness (licence: never more than 10 minutes).** Three layers. (1) The merge is per request, so the server body is exactly
+the stored versions at that instant (a stored cancellation is gone on the next serve; `valid_to` passing is evaluated against the
+Clock). (2) `/api/almanac` is `private, no-cache` with a body-hashed ETag and **no max-age or stale-while-revalidate** (pinned by
+`HttpCachingConfigTest`), so the merged body moves the validator when the warning set changes and a browser revalidates every
+fetch. (3) The feed is fetched once a day, so the client does not trust it for existence: `reconcileFeed` drops a warning entry
+whose id is not in the **polled** `GET /api/warnings` list (2-minute poll), or whose polled `validTo` has passed, and draws the
+surviving entry's title, chip and level from the **polled** warning, never the feed copy; and `useComingUpFeed(enabled, todayStr,
+warningsKey)` refetches the almanac **silently** (no loading state, a failure keeps the feed and is retried every 30 s, `SILENT_RETRY_MS`, until it succeeds, because the key will not change again; before any success one failure is tolerated, the second shows the error) whenever the polled set's
+`id@version@level@raised` key changes (the raise flag is in the key because the server floats a raised warning first and the 24 h flag lapsing changes the order), so a new or raised warning reaches the feed after the next poll. The served counts lose one per
+dropped entry. With the feature off, before the first poll answers or after a refusal, every warning entry is dropped and nothing
+is printed (not even the attribution).
+
+**Rendering.** Open or closed, every warning card draws the shared `WarningChip` (official colours, the level word always printed,
+"Updated" for the served flag, no icon, triangle or logo), "Raised from Amber" while the 24 h flag holds, and the `WarningFooter`
+source line (attribution plus Met Office link). Open, it adds the warning **in full** through the W3 popup's own `WarningDetail`
+(headline, update text, every what-to-expect line, what should I do, further details, validity in UK time, the matrix; exported from
+`WindowWarningRow.jsx`), the style guide's advice link (`WarningAdviceLink`) and a plan door button when `action.kind` is `plan`
+(a warning that starts after the scored days only shows here, so the full text is here). The stale line prints **once** at the top of the pane (`WarningFooter` with `stale`) while the context is stale,
+including with no warning entry: the pane has no "no warnings" state anywhere, so an empty list is never an all-clear. A warning
+card is a `<div>` (never a button, no day chips, no map door) and never touches a rating.
+
+**Personal data.** Nothing personal rides this payload: no reach, no "places near you". `warningPlaceCounts` stay on the briefing
+window (W1b); the entry carries none. No new endpoint or personal path, so `HttpCachingConfigTest.personalDataPathsAreNeverFiltered`
+is unchanged.
+
+Tests: `ComingUpWarningMergerTest`, `ComingUpWarningMergerClockTest` (real `WarningService` and `WarningTimeline`: appears and
+expires with the Clock, a stored cancellation disappears, simulated and not-yet-received rows never show, flag off reads nothing),
+`AlmanacControllerTest` (Lite and Pro parity, cached feed untouched), `HttpCachingConfigTest` (no max-age; ETag follows the body);
+frontend `comingUpWarnings.test.js`, `WindowFirstComingUpWarnings.test.jsx` (confirmed, cancelled, expired, off, refused, stale,
+loading, error), `useComingUpFeed.test.js` (silent refetch).

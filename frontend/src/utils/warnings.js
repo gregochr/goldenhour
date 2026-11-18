@@ -166,7 +166,7 @@ export function orderWarnings(warnings) {
 }
 
 /** A served instant (bare UTC or Z-suffixed) as epoch milliseconds, or NaN. */
-function instantMs(value) {
+export function instantMs(value) {
   if (typeof value !== 'string' || value === '') return Number.NaN;
   return Date.parse(/(Z|[+-]\d\d:?\d\d)$/.test(value) ? value : `${value}Z`);
 }

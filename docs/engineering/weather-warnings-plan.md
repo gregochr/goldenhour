@@ -90,7 +90,7 @@ regions are served; a warning that covers none is stored but not surfaced.
 | **W1** | Migration, client, poller + scheduler row + catalogue entry, `WarningTimeline`, `WarningCoverage`, upgrade flag, `GET /api/warnings`, `warningIds` on briefing windows and location rows (carrier + epoch bump), Operations status row (last poll, active warnings, unknown types, errors), admin simulation toggle. Behind `photocast.warnings.enabled=false` | Recorded GeoJSON fixtures; **never the live feed in tests**. Docs: `api-endpoints.md`, `configuration.md`, `database-migrations.md`, new `reference/weather-warnings.md` and index line in CLAUDE.md |
 | **W2** | `LocationFourDaySheet` chip (incl. stood-down and unscored rows), `MapCallout` chip | Shared `WarningChip` and `utils/warnings.js` (words, ordering, accessible names) built here, reused after |
 | **W3** | `WindowGlanceLanes` lane first in the stack, card triangle, `WindowSheetDialog` WARNING row | |
-| **W3b** | Coming up entries from `ComingUpAssembler` | Beyond the scored days; upgraded entry floats to top of its day |
+| **W3b** | Coming up entries (built: `ComingUpWarningMerger` at the controller edge, not in `ComingUpAssembler`; see `reference/weather-warnings.md` "Coming up, W3b") | Beyond the scored days; upgraded entry floats to top of its day |
 | **W4** | `MapTopicChips` chip, dashed no-fill outline layer, legend entry | Not in the hot-topics bar. Canvas rendering, no clustering |
 | **W5** | Guides (`weather-warnings.html` + sections in five existing pages + search/hub/`guide.js`/`guideSections.test.js`), landing index/FAQ/acknowledgements/terms, `GuideLink` `?` in the app | **Warnings must not reach users (flag on) before W5 ships** |
 

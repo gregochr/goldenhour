@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.comingup.ComingUpRoleShaper;
+import com.gregochr.goldenhour.service.comingup.ComingUpWarningMerger;
 import com.gregochr.goldenhour.util.Authorities;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,6 +32,13 @@ import org.springframework.web.bind.annotation.RestController;
  * shaping happens only here: {@link AlmanacService}'s cached feed stays role-free (Ask reads it
  * unshaped). The feed holds no per-user data, and the ETag is hashed from the rendered body, so the
  * two variants never share a validator.
+ *
+ * <p><strong>Warning entries are merged here, per request, after the day cache</strong>
+ * ({@link ComingUpWarningMerger}): Met Office warnings in force that reach past the scored days, the same for every
+ * role (Lite parity), from the stored versions evaluated against the injected clock (rewound for a rewound admin
+ * GET), never a simulated row. Because the ETag is hashed from the rendered body, a warning that arrives, changes or
+ * is cancelled changes the validator, and the response is {@code private, no-cache}, so a reader never holds a stale
+ * warning set beyond one revalidation. Nothing personal is added.
  */
 @RestController
 @RequestMapping("/api/almanac")
@@ -38,16 +46,20 @@ public class AlmanacController {
 
     private final AlmanacService almanacService;
     private final ComingUpRoleShaper roleShaper;
+    private final ComingUpWarningMerger warningMerger;
 
     /**
      * Constructs an {@code AlmanacController}.
      *
      * @param almanacService assembles and caches the feed
      * @param roleShaper     removes the tide-relative-to-the-light rows for a Lite reader
+     * @param warningMerger  adds the Met Office warning entries to the served feed, per request
      */
-    public AlmanacController(AlmanacService almanacService, ComingUpRoleShaper roleShaper) {
+    public AlmanacController(AlmanacService almanacService, ComingUpRoleShaper roleShaper,
+            ComingUpWarningMerger warningMerger) {
         this.almanacService = almanacService;
         this.roleShaper = roleShaper;
+        this.warningMerger = warningMerger;
     }
 
     /**
@@ -75,6 +87,6 @@ public class AlmanacController {
         ComingUpResponse feed = almanacService.getFeed(days);
         boolean pro = Authorities.hasRole(auth, UserRole.PRO_USER)
                 || Authorities.hasRole(auth, UserRole.ADMIN);
-        return pro ? feed : roleShaper.forLite(feed);
+        return warningMerger.merge(pro ? feed : roleShaper.forLite(feed), days);
     }
 }
