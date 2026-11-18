@@ -336,6 +336,17 @@ nginx-served stack as the smoke gate. ⚠️ It is **its own workflow, not a job
   reported in the PR summary. That includes the PR that adds the job. The exception ends when the owner adds it to branch
   protection.
 
+### The Maven wrapper in CI (download resilience)
+
+`backend/.mvn/wrapper/maven-wrapper.properties` is `only-script`, so `mvnw` downloads the Maven distribution with a single
+`wget`/`curl` and no retry; `actions/setup-java`'s `cache: maven` caches only `~/.m2/repository`. A transient
+`repo.maven.apache.org` failure used to fail a job in seconds with `wget: Failed to fetch ...apache-maven-<v>-bin.zip`.
+Every workflow job that runs `./mvnw` therefore runs the composite action `.github/actions/maven-wrapper` right after
+`actions/setup-java` (and after checkout): it caches `~/.m2/wrapper` (key: hash of `maven-wrapper.properties`) and warms
+the distribution with `./mvnw -v`, up to 3 attempts with a 10 s / 20 s backoff, then fails with a clear `::error::`. Only
+that download warm-up retries; the real Maven command that follows is never retried. A new workflow job that calls
+`./mvnw` must add the same step. `backend/Dockerfile` uses Alpine's `apk` Maven, not the wrapper, so it is unaffected.
+
 ### Prompt regression in CI (approval-gated, never required)
 
 `Prompt regression (approval-gated)` (`.github/workflows/prompt-regression.yml`, Phase 5b) runs the real-Claude

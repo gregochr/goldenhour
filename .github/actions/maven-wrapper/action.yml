@@ -1,0 +1,46 @@
+name: Prepare Maven wrapper
+description: >-
+  Caches the Maven distribution the wrapper downloads (~/.m2/wrapper) and warms it with a bounded
+  retry, so a transient repo.maven.apache.org failure does not fail the job. Run after checkout and
+  setup-java, before the first ./mvnw call. Only the download warm-up (./mvnw -v) is retried; the
+  real Maven command that follows is never retried.
+
+inputs:
+  working-directory:
+    description: Directory that holds mvnw and .mvn/wrapper/maven-wrapper.properties.
+    required: false
+    default: backend
+  attempts:
+    description: Maximum warm-up attempts.
+    required: false
+    default: '3'
+
+runs:
+  using: composite
+  steps:
+    - name: Cache Maven wrapper distribution
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2/wrapper
+        key: maven-wrapper-${{ runner.os }}-${{ hashFiles(format('{0}/.mvn/wrapper/maven-wrapper.properties', inputs.working-directory)) }}
+        restore-keys: |
+          maven-wrapper-${{ runner.os }}-
+
+    - name: Warm up Maven wrapper (retry download)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ATTEMPTS: ${{ inputs.attempts }}
+      run: |
+        chmod +x mvnw
+        attempt=1
+        until ./mvnw -v; do
+          if [ "$attempt" -ge "$ATTEMPTS" ]; then
+            echo "::error::Maven wrapper could not download or start Maven after ${ATTEMPTS} attempts (see maven-wrapper.properties distributionUrl)."
+            exit 1
+          fi
+          delay=$((attempt * 10))
+          echo "::warning::Maven wrapper warm-up attempt ${attempt}/${ATTEMPTS} failed; retrying in ${delay}s."
+          sleep "$delay"
+          attempt=$((attempt + 1))
+        done

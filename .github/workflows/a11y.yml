@@ -41,6 +41,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Prepare Maven wrapper
+        uses: ./.github/actions/maven-wrapper
+
       - name: Set up Node 22
         uses: actions/setup-node@v4
         with:

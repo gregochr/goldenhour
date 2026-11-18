@@ -124,6 +124,10 @@ jobs:
           distribution: 'temurin'
           cache: ${{ github.event_name != 'pull_request' && 'maven' || '' }}
 
+      - name: Prepare Maven wrapper
+        if: steps.detect.outputs.run_scan == 'true'
+        uses: ./.github/actions/maven-wrapper
+
       # Split into restore/save (rather than the single actions/cache@v4 action this used
       # to be) because actions/cache's own post-step skips the save entirely when the job
       # has already failed — and a failing scan is this job's NORMAL case: `failBuildOnCVSS=7`

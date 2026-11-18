@@ -120,6 +120,10 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Prepare Maven wrapper
+        if: needs.changes.outputs.docs_only != 'true'
+        uses: ./.github/actions/maven-wrapper
+
       # Most tests use H2 in-memory (src/test/resources/application.yml), but the five
       # IntegrationTestBase subclasses start a Testcontainers postgres:17-alpine and run
       # the real Flyway migrations — so this job DOES need a working Docker daemon.
@@ -473,6 +477,10 @@ jobs:
           java-version: '25'
           distribution: 'temurin'
           cache: maven
+
+      - name: Prepare Maven wrapper
+        if: needs.changes.outputs.docs_only != 'true'
+        uses: ./.github/actions/maven-wrapper
 
       - name: Set up Node 22
         if: needs.changes.outputs.docs_only != 'true'
