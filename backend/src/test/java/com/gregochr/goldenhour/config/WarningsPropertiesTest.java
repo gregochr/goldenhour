@@ -58,7 +58,7 @@ class WarningsPropertiesTest {
         assertThat(properties.getApiKey()).isEmpty();
         assertThat(properties.getPublicUrl()).isEqualTo("https://www.metoffice.gov.uk/public/weather/warnings/");
         assertThat(properties.getAttribution()).isEqualTo("Met Office Weather Warnings © Crown Copyright 2026");
-        assertThat(properties.getPollStaleMinutes()).isEqualTo(30);
+        assertThat(properties.getPollStaleMinutes()).isEqualTo(10);
     }
 
     @Test

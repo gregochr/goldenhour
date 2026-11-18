@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import GuideLink from './guide/GuideLink.jsx';
 import {
   cardMarker, levelClasses, staleLead, warningLabel,
 } from '../utils/warnings.js';
@@ -104,7 +105,9 @@ WarningChips.propTypes = {
 /**
  * The small source line beside warnings: the attribution the licence requires and a link to the Met Office page,
  * and, when the feed is stale, the plain admission that the warnings may be out of date (plan §8) so an empty
- * list never reads as an all-clear. Render it wherever chips are, and where the feed is stale even with none.
+ * list never reads as an all-clear. Render it wherever chips are, and where the feed is stale even with none. It ends
+ * with the guide's {@code ?} door (the same on every surface, so the lane, popup, sheet, Coming up and Map all open
+ * the same page; with a stale feed it opens the freshness section).
  *
  * @param {object} props
  * @param {boolean} props.showAttribution whether warnings are shown here (attribution is owed with them)
@@ -152,6 +155,12 @@ export function WarningFooter({
           </a>
         </span>
       )}
+      <GuideLink
+        section={stale ? 'warningsFresh' : 'warnings'}
+        label={stale ? 'How fresh Met Office weather warnings are' : 'About Met Office weather warnings'}
+        className="wf-warning-guide"
+        testId="warning-guide-link"
+      />
     </p>
   );
 }

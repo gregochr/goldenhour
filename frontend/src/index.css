@@ -16100,6 +16100,9 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
 .wf-hstrip-h .wf-guide-link { margin: 0 4px; }
 .wf-tl-head-row,
 .wf-ask-guide-row { gap: 12px; }
+/* The ? that ends a Met Office warning source line (WarningFooter): inline with the 10px text, 12px clear of the Met
+   Office link so the two 44px hit areas do not overlap, and pulled up and down so the line does not grow. */
+.wf-warning-guide { display: inline-flex; vertical-align: middle; margin: -6px 0 -6px 14px; }
 /* On a phone the lens bar's ? ends the count line. */
 .wf-lens-count .wf-guide-link { display: inline-flex; vertical-align: middle; margin-left: 12px; }
 /* The drive-time lock: segments (and the Pro pill) on one line, the guide link on its own beneath. */

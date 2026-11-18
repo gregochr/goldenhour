@@ -1,14 +1,16 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 import { getWarnings } from '../api/warningsApi.js';
 import { WarningsProvider } from '../context/WarningsContext.jsx';
 import WarningChip, { WarningChips, WarningFooter } from '../components/WarningChip.jsx';
 import WarningStrip from '../components/WarningStrip.jsx';
 import { ATTRIBUTION, METOFFICE_URL, response, warning } from './warningsFixture.js';
+import { mockOpenGuide } from './guideContextMock.js';
 
 describe('WarningChip', () => {
   it('prints the level word and type as text, never colour alone', () => {
@@ -128,6 +130,31 @@ describe('WarningFooter', () => {
     const { container } = render(<WarningFooter {...base} showAttribution={false} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  describe('the guide door', () => {
+    beforeEach(() => mockOpenGuide.mockClear());
+
+    it('ends the source line with a named ? that opens the weather warnings guide', () => {
+      render(<WarningFooter {...base} showAttribution />);
+      const door = screen.getByTestId('warning-guide-link');
+      expect(door).toHaveAttribute('aria-label', 'About Met Office weather warnings');
+      fireEvent.click(door);
+      expect(mockOpenGuide).toHaveBeenCalledWith('weather-warnings', 'what', expect.any(Object));
+    });
+
+    it('opens the freshness section when the feed is stale', () => {
+      render(<WarningFooter {...base} showAttribution={false} stale />);
+      const door = screen.getByTestId('warning-guide-link');
+      expect(door).toHaveAttribute('aria-label', 'How fresh Met Office weather warnings are');
+      fireEvent.click(door);
+      expect(mockOpenGuide).toHaveBeenCalledWith('weather-warnings', 'fresh', expect.any(Object));
+    });
+
+    it('is not drawn where the footer is not (nothing shown, nothing stale)', () => {
+      render(<WarningFooter {...base} showAttribution={false} />);
+      expect(screen.queryByTestId('warning-guide-link')).toBeNull();
+    });
+  });
 });
 
 describe('WarningStrip', () => {
@@ -144,6 +171,7 @@ describe('WarningStrip', () => {
     await mount([w], response([w]));
     expect(screen.getByTestId('warning-chip')).toBeInTheDocument();
     expect(screen.getByTestId('warning-attribution')).toHaveTextContent(ATTRIBUTION);
+    expect(screen.getByTestId('warning-guide-link')).toBeInTheDocument();
   });
 
   it('prints nothing while the feature is off', async () => {

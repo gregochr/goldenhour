@@ -35,12 +35,13 @@ describe('GUIDE_SECTIONS', () => {
     expect(hasId(page, section), `${page}.html has no id="${section}"`).toBe(true);
   });
 
-  it('is the 18 sections the plan\'s contract lists, no more and no fewer', () => {
+  it('is the 20 sections the plan\'s contract lists, no more and no fewer', () => {
     expect(entries.map(([, { page, section }]) => `${page}#${section}`).sort()).toEqual([
       'ask-photocast#typed', 'at-a-glance#bestbet', 'at-a-glance#lens', 'coming-up#new', 'coming-up#tides',
       'coming-up#topics', 'map#filters', 'map#hot-topics', 'map#tide', 'map#window', 'night-sky#alerts',
       'night-sky#aurora-map', 'reading-the-forecast#colour', 'reading-the-forecast#fiery',
       'reading-the-forecast#fixed', 'settings#drive', 'settings#radius', 'settings#sub-regions',
+      'weather-warnings#fresh', 'weather-warnings#what',
     ]);
   });
 });
@@ -96,5 +97,44 @@ describe('resolveGuideOrigin', () => {
   it('in a production build rejects a non-https origin; in dev it is allowed', () => {
     expect(resolveGuideOrigin('http://localhost:8090', true)).toBe('https://photocast.online');
     expect(resolveGuideOrigin('http://localhost:8090', false)).toBe('http://localhost:8090');
+  });
+});
+
+describe('the weather warnings guide (docs/engineering/weather-warnings-plan.md, W5)', () => {
+  const page = pageSource('weather-warnings');
+  const ids = ['what', 'levels', 'matrix', 'updated', 'where', 'ratings', 'fresh', 'act', 'credit'];
+
+  it.each(ids)('carries the %s section, and the on-page contents links to it', (id) => {
+    expect(hasId('weather-warnings', id)).toBe(true);
+    expect(page).toContain(`href="#${id}"`);
+  });
+
+  it('carries the Met Office attribution, the official colours, the stale line and the two Met Office links', () => {
+    expect(page).toContain('Met Office Weather Warnings © Crown Copyright 2026');
+    expect(page).toContain('Powered by Met Office data');
+    ['#ca0a37', '#ff9900', '#ffe923'].forEach((hex) => expect(page).toContain(hex));
+    expect(page).toContain('https://www.metoffice.gov.uk/public/weather/warnings/');
+    expect(page).toContain('https://www.metoffice.gov.uk/weather/warnings-and-advice/seasonal-advice');
+    expect(page).toContain('Warnings last checked');
+    expect(page).toContain('never an all-clear');
+  });
+
+  it('uses no Met Office logo or icon image (the page has no pictures at all)', () => {
+    expect(page).not.toMatch(/<img/i);
+  });
+
+  it.each([
+    ['at-a-glance'], ['map'], ['coming-up'], ['reading-the-forecast'],
+  ])('%s has a warnings section that links to the guide', (name) => {
+    expect(hasId(name, 'warnings')).toBe(true);
+    expect(pageSource(name)).toContain('href="#warnings"');
+    expect(pageSource(name)).toContain('weather-warnings.html');
+  });
+
+  it('is on the hub and in the search, and the pages around it link to it', () => {
+    expect(pageSource('index')).toContain('href="weather-warnings.html"');
+    expect(readFileSync(resolve(GUIDE_DIR, 'guide-search.js'), 'utf8')).toContain("'weather-warnings.html'");
+    expect(pageSource('map')).toContain('href="weather-warnings.html"><small>Next');
+    expect(pageSource('night-sky')).toContain('href="weather-warnings.html"><small>← Previous');
   });
 });

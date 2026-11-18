@@ -202,7 +202,7 @@ photocast:
   #     api-key-header: apikey      # the header name the key is sent in
   #     public-url: https://www.metoffice.gov.uk/public/weather/warnings/   # the Met Office link on every warning
   #     attribution: "Met Office Weather Warnings © Crown Copyright 2026"   # served beside warning text
-  #     poll-stale-minutes: 30      # GET /api/warnings reports stale when the last good poll is older (min 1)
+  #     poll-stale-minutes: 10     # GET /api/warnings reports stale when the last good poll is older (min 1)
   # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; each default
   # is shown. Uncomment to change one. A value outside its stated range fails startup.
   #   ask:
