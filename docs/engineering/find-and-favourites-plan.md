@@ -219,5 +219,5 @@ the release gate includes `release-landing.sh`; F5 file list completed.
 1. Coming up picks: go to the Plan tab, then open the sheet (D6).
 2. Release gate: owner-held tag after F5 is merged and `release-landing.sh` has deployed the landing and guide; no runtime flag.
 3. Undo toast: build the new `useUndoToast` primitive.
-4. Lite readers get the full areas directory (all sub-region membership, as `/api/locations` already shows).
+4. Lite readers get the full areas directory in this series (revised 2026-11-18: **a possible information leak the owner wants tightened AFTER delivery; it must not block the series**). Seam for later: F2 builds the directory through one service method that takes the reader (v1 ignores it and returns everything). Tightening to Lite's own sub-regions then also moves `/api/areas/directory` from `REVALIDATABLE_READ_PATHS` to `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` (it stops being ETag-shareable). Before deciding, check how Lite sub-region gating treats `/api/locations` today.
 5. Favourites cap: **25** per user (places plus areas).
