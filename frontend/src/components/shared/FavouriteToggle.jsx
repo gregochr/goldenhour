@@ -32,6 +32,22 @@ export function useFavouriteUpsell() {
 }
 
 /**
+ * The trigger-side Escape for a Lite upsell: with the panel open and focus still on the trigger, Escape closes ONLY
+ * the panel (the key is stopped so the dialog under it stays), as it does with focus inside the panel.
+ *
+ * @param {{open: boolean, close: function(): void}} upsell
+ * @returns {function(React.KeyboardEvent): void}
+ */
+export function upsellEscape(upsell) {
+  return (e) => {
+    if (e.key !== 'Escape' || !upsell.open) return;
+    e.stopPropagation();
+    e.preventDefault();
+    upsell.close();
+  };
+}
+
+/**
  * The Lite upsell panel, drawn by the host under its header while {@code upsell.open}. Focus moves to its heading on
  * open; Escape (on it or on the trigger) closes ONLY the panel and hands focus back to the trigger, stopping the key
  * so the dialog it sits in stays open. It is not a dialog, so it adds nothing to the two-layer count.
@@ -138,12 +154,7 @@ export default function FavouriteToggle({ kind, id, name, upsell, testId = 'favo
           aria-expanded={upsell.open}
           aria-controls={upsell.open ? upsell.id : undefined}
           onClick={upsell.toggle}
-          onKeyDown={(e) => {
-            if (e.key !== 'Escape' || !upsell.open) return;
-            e.stopPropagation();
-            e.preventDefault();
-            upsell.close();
-          }}
+          onKeyDown={upsellEscape(upsell)}
         >
           <span aria-hidden="true" className="wf-fav-g">☆</span>
           <span className={isMobile ? 'sr-only' : 'wf-fav-t'}>Your place</span>

@@ -1555,6 +1555,53 @@ describe('WindowSheetDialog — Your places in the region rail (find-and-favouri
     expect(field_.onSelectRegion).toHaveBeenLastCalledWith('Dales');
   });
 
+  it('⚠️ names the filter in the live region and the footer clause, and announces it on select', () => {
+    renderDialog({ wrap: (node) => withFavourites(node, FAVS) });
+    const live = screen.getByTestId('window-sheet-live');
+    expect(live).not.toHaveTextContent('My places');
+    fireEvent.click(screen.getByTestId('wf-region-favourite'));
+    expect(live).toHaveTextContent('showing My places, 1 location');
+    expect(screen.getByTestId('window-spot-filters')).toHaveTextContent('My places');
+  });
+
+  it('⚠️ an emptied strip says the starred set emptied it, never "Nothing for this sunset" or the rating lens', () => {
+    // The reader holds a star on a place this window does not draw.
+    renderDialog({ wrap: (node) => withFavourites(node, { places: [77], locationIds: [77], starredAreas: [] }) });
+    fireEvent.click(screen.getByTestId('wf-region-favourite'));
+    expect(screen.getByTestId('window-sheet-empty')).toHaveTextContent('Nothing in My places for this sunset.');
+    expect(screen.getByTestId('window-sheet-empty')).not.toHaveTextContent('4★');
+  });
+
+  it('⚠️ names a starred AREA by its own name, not "My places"', () => {
+    const starredAreas = [{ id: 9, name: "Hadrian's Wall", locationIds: [1] }];
+    renderDialog({ wrap: (node) => withFavourites(node, { places: [], areas: [9], locationIds: [1], starredAreas }) });
+    fireEvent.click(screen.getAllByTestId('wf-region-favourite')[1]);
+    expect(screen.getByTestId('window-sheet-live')).toHaveTextContent("showing Hadrian's Wall, 1 location");
+  });
+
+  it('⚠️ the focus dies with the window: stepping to another window clears it, like a region pick', () => {
+    const view = renderDialog({ wrap: (node) => withFavourites(node, FAVS) });
+    fireEvent.click(screen.getByTestId('wf-region-favourite'));
+    expect(strip()).toHaveLength(1);
+    view.rerender(withFavourites(
+      <WindowSheetDialog
+        card={card({ key: 'other-window' })}
+        index={1}
+        total={6}
+        field={field()}
+        topicIndex={new Map()}
+        scopeNames={['Coast', 'Dales']}
+        todayStr={TODAY}
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
+      FAVS,
+    ));
+    expect(screen.getByTestId('wf-region-favourite')).toHaveAttribute('aria-pressed', 'false');
+    expect(strip()).toHaveLength(2);
+    expect(screen.getByTestId('window-sheet-live')).not.toHaveTextContent('My places');
+  });
+
   it('adds no cell without a provider: the rail is what it was', () => {
     renderDialog();
     expect(screen.queryByTestId('wf-region-favourite')).toBeNull();

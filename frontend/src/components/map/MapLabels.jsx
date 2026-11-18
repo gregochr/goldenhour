@@ -382,6 +382,7 @@ export default function MapLabels({
    * `frame` — never touches the DOM beyond `map.*` reads, so it is safe to call from the
    * rAF-throttled `repaint`/immediate `repaintNow` pair below exactly like `MapHeatLayer`'s own.
    */
+  const starKey = favourites.status === 'ready' ? [...favourites.placeIds].sort((a, b) => a - b).join(',') : '';
   const paint = useCallback(() => {
     if (typeof map?.getSize !== 'function') return;
     const container = map.getContainer?.();
@@ -578,7 +579,8 @@ export default function MapLabels({
   // list, above), and `paintRef` is already pointed at the fresh closure by the layout effect
   // above by the time this runs. `repaintNow` rather than a bare call so a frame the throttle
   // already owes is not doubled.
-  useEffect(() => { repaintNow(); }, [paint, repaintNow, bottomInset, chromeKey]);
+  // `starKey`: a ★ widens a chip, so starring or un-starring a place must produce a new frame to re-measure and re-place.
+  useEffect(() => { repaintNow(); }, [paint, repaintNow, bottomInset, chromeKey, starKey]);
 
   /**
    * The measure-then-place pass (see the class doc). Keyed on the `frame` OBJECT's identity, the

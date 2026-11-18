@@ -234,13 +234,21 @@ export default function WindowSheetDialog({
   );
   const favouriteFocus = useMemo(() => {
     const entry = favouriteEntries.find((e) => e.key === favouriteKey);
-    return entry ? { key: entry.key, label: entry.label, ids: new Set(entry.ids) } : null;
+    return entry ? { key: entry.key, name: entry.name, ids: new Set(entry.ids) } : null;
   }, [favouriteEntries, favouriteKey]);
   const favouriteCells = useMemo(() => favouriteEntries.map((entry) => ({
     key: entry.key,
-    label: entry.label,
+    name: entry.name,
     count: card.spots.filter((spot) => entry.ids.includes(spot.locationId)).length,
   })), [favouriteEntries, card.spots]);
+  // The focus is per window and dies with it, like a region pick: stepping ‹ › clears it (the dialog is not keyed).
+  const [favouriteWindow, setFavouriteWindow] = useState(card.key);
+  if (favouriteWindow !== card.key) {
+    setFavouriteWindow(card.key);
+    if (favouriteKey != null) setFavouriteKey(null);
+  }
+  /** What the strip is narrowed to, by name: the starred set or area, else the picked region. Every sentence reads it. */
+  const focusName = favouriteFocus?.name ?? field.selectedRegion ?? null;
   const selectRegion = (name) => {
     setFavouriteKey(null);
     field.onSelectRegion?.(name);
@@ -280,7 +288,7 @@ export default function WindowSheetDialog({
    */
   const reachMeasured = Boolean(card.reachMeasured);
   const filters = activeFilterClauses({
-    regionName: field.selectedRegion || null,
+    regionName: focusName,
     minRating: field.lens?.minRating ?? null,
     ratingLabel: field.lens?.ratingLabel ?? null,
     limitMinutes: field.lens?.limitMinutes ?? null,
@@ -430,10 +438,10 @@ export default function WindowSheetDialog({
       ? topicRows.find((row) => String(row.badge?.type || '').toUpperCase() === wanted)
       : null;
     const highlight = emphasised ? `, highlighting ${emphasised.badge.label}` : '';
-    if (!field.selectedRegion) return `${where}${verdict}${highlight}`;
+    if (!focusName) return `${where}${verdict}${highlight}`;
     const shown = placesOf(shownSpots).length;
-    return `${where}${verdict}, showing ${field.selectedRegion}, ${shown} location${shown === 1 ? '' : 's'}${highlight}`;
-  }, [windowLabel, index, total, card.verdictLabel, scopeSpoken, card.verdictBlanked, field.selectedRegion,
+    return `${where}${verdict}, showing ${focusName}, ${shown} location${shown === 1 ? '' : 's'}${highlight}`;
+  }, [windowLabel, index, total, card.verdictLabel, scopeSpoken, card.verdictBlanked, focusName,
     shownSpots, emphasisTopic, topicRows]);
 
   // The reader's own places in the strip (S5b-1). Where there are none, the strip is not drawn: a list of places
@@ -441,6 +449,8 @@ export default function WindowSheetDialog({
   const shownPlaces = shaped ? placesOf(shownSpots).length : shownSpots.length;
   const emptyLine = useMemo(() => {
     if (shownPlaces > 0) return null;
+    // Your places: the starred set emptied it, so say that, never the rating lens or a region.
+    if (favouriteFocus) return `Nothing in ${favouriteFocus.name} for this ${eventWord(card.targetType)}.`;
     if (shaped) {
       // The picks, not a lens, emptied it (S5b-1): a lens never gates a Lite reader's list. The sentence is the
       // region's when one is chosen and holds none of theirs.
@@ -478,7 +488,7 @@ export default function WindowSheetDialog({
     return clauses
       ? `Nothing ${clauses}${where} for this ${event}.`
       : `Nothing${where} for this ${event}.`;
-  }, [shownPlaces, shaped, zeroPicks, selectedRow, myPlaces.length, card.targetType, field.lens, field.selectedRegion,
+  }, [shownPlaces, favouriteFocus, shaped, zeroPicks, selectedRow, myPlaces.length, card.targetType, field.lens, field.selectedRegion,
     field.spots, reachMeasured]);
 
   const bestReach = card.bestReach ?? null;

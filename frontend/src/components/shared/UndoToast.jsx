@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
@@ -25,10 +25,16 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
  */
 export default function UndoToast({ toast, onDismiss, onPause, onResume }) {
   const isMobile = useIsMobile();
-
-  /** Leaves only when focus and the pointer are both out of the toast, so tabbing Undo to ✕ never resumes. */
+  // Hover and focus are tracked separately: the timer runs again only when BOTH are out of the toast.
+  const inside = useRef({ hover: false, focus: false });
+  const sync = (part, value) => {
+    inside.current[part] = value;
+    if (inside.current.hover || inside.current.focus) onPause();
+    else onResume();
+  };
   const onBlur = (event) => {
-    if (!event.currentTarget.contains(event.relatedTarget)) onResume();
+    // Focus moving between the toast's own buttons is not leaving it.
+    if (!event.currentTarget.contains(event.relatedTarget)) sync('focus', false);
   };
   const closeAndReturn = (action) => {
     const target = toast?.returnTo;
@@ -45,9 +51,9 @@ export default function UndoToast({ toast, onDismiss, onPause, onResume }) {
         isMobile ? 'bottom-[max(1.5rem,var(--safe-b))]' : 'bottom-6'
       } ${toast ? '' : 'pointer-events-none opacity-0'}`}
       data-testid={toast ? 'undo-toast' : 'undo-toast-idle'}
-      onMouseEnter={onPause}
-      onMouseLeave={onResume}
-      onFocus={onPause}
+      onMouseEnter={() => sync('hover', true)}
+      onMouseLeave={() => sync('hover', false)}
+      onFocus={() => sync('focus', true)}
       onBlur={onBlur}
     >
       <p role="status" className="m-0" data-testid="undo-toast-status">{toast?.message ?? ''}</p>

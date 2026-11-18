@@ -6,7 +6,7 @@ import { areaFigure, topWindowFor } from '../utils/planSearch.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { isOutsidePicks } from '../utils/pickScope.js';
 import { YOUR_PLACES } from '../utils/favourites.js';
-import { FavouriteUpsell, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
+import { FavouriteUpsell, upsellEscape, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
 
 /** Below this the line reads quietly: the reader's own place has nothing worth a trip in the days we have scored. */
 const QUIET_BELOW = 3;
@@ -43,6 +43,8 @@ export default function ComingUpWatchlist({
   const upsell = useFavouriteUpsell();
   const { setTrigger } = upsell;
   const ready = favourites.status === 'ready';
+  // Empty only when the SERVED list holds nothing: places and areas both zero, whatever has or has not resolved yet.
+  const nothingStarred = favourites.placeIds.size === 0 && favourites.areaIds.size === 0;
   const outlook = useAreaOutlook(active && ready && favourites.areaIds.size > 0);
 
   const rows = useMemo(() => {
@@ -75,6 +77,7 @@ export default function ComingUpWatchlist({
           aria-expanded={upsell.open}
           aria-controls={upsell.open ? upsell.id : undefined}
           onClick={upsell.toggle}
+          onKeyDown={upsellEscape(upsell)}
         >
           <span aria-hidden="true" className="wf-fav-g">☆</span>
           <span>{YOUR_PLACES}</span>
@@ -109,25 +112,40 @@ export default function ComingUpWatchlist({
   return (
     <section className="wf-fav-section" aria-labelledby="coming-up-watchlist-h" data-testid="coming-up-watchlist">
       <h2 id="coming-up-watchlist-h" className="wf-fav-section-h">{`★ ${YOUR_PLACES}`}</h2>
-      {rows.length === 0 ? (
+      {nothingStarred ? (
         <p className="wf-cu-note" data-testid="coming-up-watchlist-empty">{WATCHLIST_EMPTY}</p>
       ) : (
-        <ul className="m-0 list-none p-0">
-          {rows.map((row) => (
-            <li key={row.key}>
-              <button
-                type="button"
-                data-testid="coming-up-watchlist-row"
-                data-kind={row.kind}
-                className="wf-fav-row w-full border-0 bg-transparent text-left hover:bg-plex-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold"
-                onClick={() => (row.kind === 'area' ? onOpenArea(row.area) : onOpenPlace(row.spot))}
-              >
-                <span>{row.name}</span>
-                <span className="wf-fav-row-sub" data-testid="coming-up-watchlist-detail">{detail(row)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <>
+          {rows.length > 0 && (
+            <ul className="m-0 list-none p-0">
+              {rows.map((row) => (
+                <li key={row.key}>
+                  <button
+                    type="button"
+                    data-testid="coming-up-watchlist-row"
+                    data-kind={row.kind}
+                    className="wf-fav-row w-full border-0 bg-transparent text-left hover:bg-plex-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold"
+                    onClick={() => (row.kind === 'area' ? onOpenArea(row.area) : onOpenPlace(row.spot))}
+                  >
+                    <span>{row.name}</span>
+                    <span className="wf-fav-row-sub" data-testid="coming-up-watchlist-detail">{detail(row)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {/* A starred area the directory has not named yet is said, never silently left out. */}
+          {favourites.areasUnresolved > 0 && (
+            <p className="wf-cu-note" data-testid="coming-up-watchlist-areas-pending">
+              {`${favourites.areasUnresolved} starred ${favourites.areasUnresolved === 1 ? 'area is' : 'areas are'} not shown yet.`}
+            </p>
+          )}
+          {rows.length === 0 && favourites.areasUnresolved === 0 && (
+            <p className="wf-cu-note" data-testid="coming-up-watchlist-offplan">
+              Your starred places are not on the plan right now.
+            </p>
+          )}
+        </>
       )}
     </section>
   );

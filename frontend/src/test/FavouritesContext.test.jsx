@@ -7,7 +7,9 @@ vi.mock('../api/areasApi.js', () => ({ fetchAreaDirectory: vi.fn(), fetchAreaOut
 
 import { fetchFavourites, setFavourite } from '../api/favouritesApi.js';
 import { fetchAreaDirectory } from '../api/areasApi.js';
-import { FavouritesProvider, OFF_FAVOURITES, useFavourites } from '../context/FavouritesContext.jsx';
+import {
+  FavouritesProvider, MAX_LOAD_RETRIES, OFF_FAVOURITES, RETRY_MS, useFavourites,
+} from '../context/FavouritesContext.jsx';
 import FavouriteToggle, { useFavouriteUpsell } from '../components/shared/FavouriteToggle.jsx';
 
 const BODY = { places: [{ locationId: 1, createdAt: 't' }], areas: [], locationIds: [1] };
@@ -76,7 +78,7 @@ describe('FavouritesProvider', () => {
     fireEvent.click(toggle);
     // Before the server answers the button is already pressed.
     expect(screen.getByTestId('favourite-toggle')).toHaveAttribute('aria-pressed', 'true');
-    expect(setFavourite).toHaveBeenCalledWith('place', 2, true);
+    await waitFor(() => expect(setFavourite).toHaveBeenCalledWith('place', 2, true));
     await act(async () => {
       resolve({ places: [{ locationId: 1 }, { locationId: 2 }], areas: [], locationIds: [1, 2] });
     });
@@ -149,19 +151,113 @@ describe('FavouritesProvider', () => {
     expect(screen.getByTestId('undo-toast-status')).toHaveTextContent("Removed Hadrian's Wall (area) from your places.");
   });
 
-  it('applies only the newest answer: a slow older reply cannot put back what a newer one changed', async () => {
-    let slow;
+  it('⚠️ serialises changes: the second request waits for the first, and only the LAST answer is applied and announced', async () => {
+    let first;
     setFavourite
-      .mockReturnValueOnce(new Promise((r) => { slow = r; }))
-      .mockResolvedValueOnce({ places: [], areas: [], locationIds: [] });
+      .mockReturnValueOnce(new Promise((r) => { first = r; }))
+      .mockResolvedValueOnce({ places: [{ locationId: 1 }, { locationId: 2 }], areas: [], locationIds: [1, 2] });
+    render(<FavouritesProvider pro><Spy /><Probe /></FavouritesProvider>);
+    await waitFor(() => expect(screen.getByTestId('spy-status')).toHaveTextContent('ready'));
+    let both;
+    await act(async () => {
+      both = Promise.all([
+        spy.current.setStar('place', 2, 'Steel Rigg', true),
+        spy.current.setStar('place', 3, 'Craster', true),
+      ]);
+      await Promise.resolve();
+    });
+    // The second request has NOT gone out while the first is in flight.
+    expect(setFavourite).toHaveBeenCalledTimes(1);
+    await act(async () => { first({ places: [{ locationId: 1 }, { locationId: 2 }], areas: [], locationIds: [1, 2] }); await both; });
+    expect(setFavourite).toHaveBeenCalledTimes(2);
+    expect(setFavourite).toHaveBeenLastCalledWith('place', 3, true);
+    // One announcement, for the answer that is applied, and the served list is what state holds.
+    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('Added Craster to your places.');
+    expect(screen.getByTestId('ids')).toHaveTextContent('1,2');
+  });
+
+  it('⚠️ converges on the server after a refused change: a starred area\'s members are never left out of locationIds', async () => {
+    const SERVED = { places: [], areas: [{ areaId: 9 }], locationIds: [20, 21] };
+    fetchFavourites.mockResolvedValueOnce(BODY).mockResolvedValue(SERVED);
+    // Star an area (the server expands its members), then a place that is refused.
+    setFavourite
+      .mockResolvedValueOnce({ places: [{ locationId: 1 }], areas: [{ areaId: 9 }], locationIds: [1, 20, 21] })
+      .mockRejectedValueOnce({ response: { status: 500 } });
     render(<FavouritesProvider pro><Spy /><Probe /></FavouritesProvider>);
     await waitFor(() => expect(screen.getByTestId('spy-status')).toHaveTextContent('ready'));
     await act(async () => {
-      void spy.current.setStar('place', 2, 'Steel Rigg', true);
-      await spy.current.setStar('place', 1, 'Bamburgh', false);
+      await Promise.all([
+        spy.current.setStar('area', 9, "Hadrian's Wall", true),
+        spy.current.setStar('place', 2, 'Steel Rigg', true),
+      ]);
     });
-    await act(async () => { slow({ places: [{ locationId: 1 }, { locationId: 2 }], areas: [], locationIds: [1, 2] }); });
-    expect(screen.getByTestId('ids')).toHaveTextContent('');
+    await waitFor(() => expect(fetchFavourites).toHaveBeenCalledTimes(2));
+    // The re-read replaced the optimistic state: the area's members are present, the refused place is not.
+    await waitFor(() => expect(screen.getByTestId('ids')).toHaveTextContent('20,21'));
+    expect(spy.current.isAreaStarred(9)).toBe(true);
+    expect(spy.current.isPlaceStarred(2)).toBe(false);
+  });
+
+  it('retries a failed first load quietly, bounded, instead of switching favourites off for the session', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fetchFavourites.mockRejectedValueOnce(new Error('down')).mockResolvedValue(BODY);
+      mountProbe();
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_MS + 10); });
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('ready'));
+      expect(fetchFavourites).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops retrying after the bound', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fetchFavourites.mockRejectedValue(new Error('down'));
+      mountProbe();
+      for (let i = 0; i <= MAX_LOAD_RETRIES + 1; i += 1) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_MS * (MAX_LOAD_RETRIES + 1) + 10); });
+      }
+      expect(fetchFavourites).toHaveBeenCalledTimes(MAX_LOAD_RETRIES + 1);
+      expect(screen.getByTestId('status')).toHaveTextContent('error');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a failed area directory later, and says how many starred areas are unnamed meanwhile', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fetchFavourites.mockResolvedValue({ places: [], areas: [{ areaId: 5 }], locationIds: [7] });
+      fetchAreaDirectory.mockRejectedValueOnce(new Error('down')).mockResolvedValue([{ id: 5, name: "Hadrian's Wall", locationIds: [7] }]);
+      mountProbe();
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('ready'));
+      await waitFor(() => expect(fetchAreaDirectory).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId('areas')).toHaveTextContent('');
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_MS + 10); });
+      await waitFor(() => expect(screen.getByTestId('areas')).toHaveTextContent("Hadrian's Wall"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hands focus back to the control that was pressed, even though the answer lands after focus moved', async () => {
+    let resolve;
+    setFavourite.mockReturnValue(new Promise((r) => { resolve = r; }));
+    mountProbe();
+    const toggle = await screen.findByTestId('favourite-toggle');
+    toggle.focus();
+    fireEvent.click(toggle);
+    document.body.focus();
+    const other = document.createElement('button');
+    document.body.appendChild(other);
+    other.focus();
+    await act(async () => { resolve({ places: [{ locationId: 1 }, { locationId: 2 }], areas: [], locationIds: [1, 2] }); });
+    fireEvent.click(await screen.findByTestId('undo-toast-undo'));
+    expect(toggle).toHaveFocus();
+    other.remove();
   });
 
   it('a reply that lands after the provider has gone, or a failed directory, changes nothing', async () => {

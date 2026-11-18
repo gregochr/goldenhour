@@ -554,7 +554,7 @@ describe('Your places in the Regions list (find-and-favourites-plan.md F4)', () 
     expect(lastLabelNames()).toEqual(['Near']);
 
     await openRegions();
-    await act(async () => { fireEvent.click(screen.getByText('★ My places')); });
+    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-jump-favourite')[0]); });
 
     expect(screen.getByTestId('map-find-area')).toHaveTextContent('Showing My places');
     expect(lastLabelNames()).toEqual(['Far']);
@@ -573,7 +573,7 @@ describe('Your places in the Regions list (find-and-favourites-plan.md F4)', () 
     });
     await renderTab();
     await openRegions();
-    await act(async () => { fireEvent.click(screen.getByText('★ Lake District')); });
+    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-jump-favourite')[1]); });
     expect(screen.getByTestId('map-find-area')).toHaveTextContent('Showing Lake District');
     expect(lastLabelNames()).toEqual(['Far']);
   });

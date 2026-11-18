@@ -131,6 +131,29 @@ describe('UndoToast', () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
+  it('⚠️ resumes only when BOTH the pointer and focus are out: leaving with the mouse while focus is inside holds', () => {
+    const { onPause, onResume } = setup({ id: 7, message: 'Added.', onUndo: vi.fn() });
+    const toast = screen.getByTestId('undo-toast');
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    fireEvent.mouseEnter(toast);
+    fireEvent.focus(undo);
+    onResume.mockClear();
+    fireEvent.mouseLeave(toast);
+    expect(onResume).not.toHaveBeenCalled();
+    // Focus leaving while the pointer is gone resumes.
+    fireEvent.blur(undo, { relatedTarget: document.body });
+    expect(onResume).toHaveBeenCalledTimes(1);
+    // And the other order: focus out first while hovered holds, the pointer leaving resumes.
+    onResume.mockClear();
+    onPause.mockClear();
+    fireEvent.mouseEnter(toast);
+    fireEvent.focus(undo);
+    fireEvent.blur(undo, { relatedTarget: document.body });
+    expect(onResume).not.toHaveBeenCalled();
+    fireEvent.mouseLeave(toast);
+    expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
   it('sits above a phone safe area on a phone, and takes no Escape', () => {
     mockIsMobile = true;
     setup({ id: 6, message: 'Added.', onUndo: vi.fn() });

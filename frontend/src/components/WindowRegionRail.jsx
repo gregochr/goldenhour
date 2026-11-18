@@ -2,7 +2,7 @@ import React, { useId } from 'react';
 import PropTypes from 'prop-types';
 import { countWord } from '../utils/pickGeography.js';
 import { useFavourites } from '../context/FavouritesContext.jsx';
-import { FavouriteUpsell, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
+import { FavouriteUpsell, upsellEscape, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
 
 /**
  * The open row's region rail — this window by region, ranked, and the filter that follows from it.
@@ -123,35 +123,41 @@ export default function WindowRegionRail({
             {allMeta}
           </span>
         </button>
-        {favouriteCells.map((cell) => (
-          <button
-            key={cell.key}
-            type="button"
-            data-testid="wf-region-favourite"
-            data-selected={cell.key === favouriteSelected ? 'true' : undefined}
-            aria-pressed={cell.key === favouriteSelected}
-            className={`wf-rr${cell.key === favouriteSelected ? ' on' : ''}`}
-            onClick={() => favourites.onSelect(cell.key === favouriteSelected ? null : cell.key)}
-          >
-            <span className="wf-rr-n">{cell.label}</span>
-            {' '}
-            <span className="wf-rr-m">{countWord(cell.count, 'place', 'places')}</span>
-          </button>
-        ))}
-        {favouriteLocked && (
-          <button
-            type="button"
-            ref={bindFavouriteTrigger}
-            data-testid="wf-region-favourite-locked"
-            className="wf-rr"
-            aria-expanded={favouriteUpsell.open}
-            aria-controls={favouriteUpsell.open ? favouriteUpsell.id : undefined}
-            onClick={favouriteUpsell.toggle}
-          >
-            <span className="wf-rr-n">★ My places</span>
-            {' '}
-            <span className="wf-rr-m"><span className="wf-lens-pro">Pro</span></span>
-          </button>
+        {/* Your places: a labelled section of the reader's own, laid out as part of the grid (`display: contents`). */}
+        {(favouriteCells.length > 0 || favouriteLocked) && (
+          <div role="group" aria-label="Your places" className="wf-fav-group" data-testid="wf-region-favourites">
+            {favouriteCells.map((cell) => (
+              <button
+                key={cell.key}
+                type="button"
+                data-testid="wf-region-favourite"
+                data-selected={cell.key === favouriteSelected ? 'true' : undefined}
+                aria-pressed={cell.key === favouriteSelected}
+                className={`wf-rr${cell.key === favouriteSelected ? ' on' : ''}`}
+                onClick={() => favourites.onSelect(cell.key === favouriteSelected ? null : cell.key)}
+              >
+                <span className="wf-rr-n"><span aria-hidden="true">★ </span>{cell.name}</span>
+                {' '}
+                <span className="wf-rr-m">{countWord(cell.count, 'place', 'places')}</span>
+              </button>
+            ))}
+            {favouriteLocked && (
+              <button
+                type="button"
+                ref={bindFavouriteTrigger}
+                data-testid="wf-region-favourite-locked"
+                className="wf-rr"
+                aria-expanded={favouriteUpsell.open}
+                aria-controls={favouriteUpsell.open ? favouriteUpsell.id : undefined}
+                onClick={favouriteUpsell.toggle}
+                onKeyDown={upsellEscape(favouriteUpsell)}
+              >
+                <span className="wf-rr-n"><span aria-hidden="true">★ </span>My places</span>
+                {' '}
+                <span className="wf-rr-m"><span className="wf-lens-pro">Pro</span></span>
+              </button>
+            )}
+          </div>
         )}
         {rows.map((row, index) => {
           const meta = row.shaped
@@ -267,7 +273,7 @@ WindowRegionRail.propTypes = {
   onSelect: PropTypes.func,
   favourites: PropTypes.shape({
     cells: PropTypes.arrayOf(PropTypes.shape({
-      key: PropTypes.string.isRequired, label: PropTypes.string.isRequired, count: PropTypes.number.isRequired,
+      key: PropTypes.string.isRequired, name: PropTypes.string.isRequired, count: PropTypes.number.isRequired,
     })).isRequired,
     selected: PropTypes.string,
     onSelect: PropTypes.func.isRequired,

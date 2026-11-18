@@ -1952,6 +1952,22 @@ describe('MapLabels — Your places marks (find-and-favourites-plan.md F4)', () 
   const chipFor = (name) => [...document.querySelectorAll('[data-testid="map-label-chip"]')]
     .find((el) => el.textContent.includes(name));
 
+  it('⚠️ starring a place repaints the layer so the wider chip is re-measured and re-placed', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    const project = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const ui = (places) => withFavourites(<MapLabels spots={IDENTIFIED} />, { places });
+    let view;
+    await act(async () => { view = render(ui([])); });
+    await act(async () => { runFrames(); });
+    const before = project.mock.calls.length;
+    // The same spots and the same everything else: only the star set changes.
+    await act(async () => { view.rerender(ui([1])); });
+    await act(async () => { runFrames(); });
+    expect(project.mock.calls.length).toBeGreaterThan(before);
+    expect(chipFor('Bamburgh').querySelector('[data-testid="favourite-mark"]')).not.toBeNull();
+  });
+
   it('marks a starred place\'s chip with ★ and says "your place"; an unstarred chip is untouched', async () => {
     restoreMeasure = withMeasuredLabels(50, 14);
     currentMap = makeFullMap({ zoom: 13 });

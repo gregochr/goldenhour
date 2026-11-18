@@ -25,11 +25,16 @@ export const OFF_FAVOURITES = Object.freeze({
   status: 'off',
   ...NO_FAVOURITES,
   starredAreas: Object.freeze([]),
+  areasUnresolved: 0,
   isPlaceStarred: () => false,
   isAreaStarred: () => false,
   setStar: () => Promise.resolve(false),
   toggle: () => Promise.resolve(false),
 });
+
+/** A failed first load or directory read is retried this many times, a little later each, then left for the next page load. */
+export const MAX_LOAD_RETRIES = 3;
+export const RETRY_MS = 30000;
 
 export const FavouritesContext = createContext(OFF_FAVOURITES);
 
@@ -58,8 +63,15 @@ export function FavouritesProvider({ pro, children }) {
   const [body, setBodyState] = useState(null);
   const [failed, setFailed] = useState(false);
   const [directory, setDirectory] = useState(null);
+  // How many times the first load / the directory has been retried after a failure (bounded, never a loop).
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [directoryAttempt, setDirectoryAttempt] = useState(0);
   const bodyRef = useRef(null);
-  const requestSeq = useRef(0);
+  // Changes are SERIALISED: each waits for the one before it, so the server sees them in submission order and the
+  // last answer is the truth about all of them. `pending` counts those not yet answered; `epoch` moves on every press.
+  const chain = useRef(Promise.resolve());
+  const pending = useRef(0);
+  const epoch = useRef(0);
   // The newest setStar, so an Undo press made later calls the current one (a callback cannot name itself).
   const setStarRef = useRef(null);
   const toast = useUndoToast();
@@ -73,21 +85,34 @@ export function FavouritesProvider({ pro, children }) {
   useEffect(() => {
     if (!pro) return undefined;
     let live = true;
+    let timer;
     fetchFavourites()
       .then((data) => { if (live && bodyRef.current == null) setBody(data); })
-      .catch(() => { if (live) setFailed(true); });
-    return () => { live = false; };
-  }, [pro, setBody]);
+      .catch(() => {
+        if (!live) return;
+        setFailed(true);
+        // Quietly try again a few times: a failed first load must not switch favourites off for the whole session.
+        if (loadAttempt < MAX_LOAD_RETRIES) {
+          timer = setTimeout(() => setLoadAttempt((n) => n + 1), RETRY_MS * (loadAttempt + 1));
+        }
+      });
+    return () => { live = false; clearTimeout(timer); };
+  }, [pro, loadAttempt, setBody]);
 
   const hasAreas = (body?.areas?.length ?? 0) > 0;
   useEffect(() => {
     if (!hasAreas || directory != null) return undefined;
     let live = true;
+    let timer;
     fetchAreaDirectory()
       .then((rows) => { if (live && Array.isArray(rows)) setDirectory(rows); })
-      .catch(() => { /* the pickers simply have no starred-area entries until a later load */ });
-    return () => { live = false; };
-  }, [hasAreas, directory]);
+      .catch(() => {
+        if (live && directoryAttempt < MAX_LOAD_RETRIES) {
+          timer = setTimeout(() => setDirectoryAttempt((n) => n + 1), RETRY_MS * (directoryAttempt + 1));
+        }
+      });
+    return () => { live = false; clearTimeout(timer); };
+  }, [hasAreas, directory, directoryAttempt]);
 
   const sets = useMemo(() => (body ? favouriteSets(body) : NO_FAVOURITES), [body]);
   const starredAreas = useMemo(
@@ -95,8 +120,16 @@ export function FavouritesProvider({ pro, children }) {
     [directory, sets],
   );
 
+  /** Re-reads the served list after a refused change, so state converges on the server's whatever was dropped. */
+  const reconcile = useCallback(() => {
+    const at = epoch.current;
+    fetchFavourites()
+      .then((data) => { if (at === epoch.current && pending.current === 0) setBody(data); })
+      .catch(() => { /* the optimistic revert stands; the next change or load reconciles */ });
+  }, [setBody]);
+
   /**
-   * Sets one place or area to a given state: optimistic, then the server's list, with the toast.
+   * Sets one place or area to a given state: optimistic, then the server's merged list, with the toast.
    *
    * @param {'place'|'area'} kind
    * @param {number} id
@@ -105,29 +138,50 @@ export function FavouritesProvider({ pro, children }) {
    * @param {boolean} [undo] true for an Undo press: the toast then says "Undone." and offers no second Undo
    * @returns {Promise<boolean>} whether the server took it
    */
-  const setStar = useCallback(async (kind, id, name, on, undo = false) => {
-    if (bodyRef.current == null) return false;
+  const setStar = useCallback((kind, id, name, on, undo = false) => {
+    if (bodyRef.current == null) return Promise.resolve(false);
+    // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands.
+    const returnTo = document.activeElement;
     setBody(applyStar(bodyRef.current, kind, id, on));
-    requestSeq.current += 1;
-    const mine = requestSeq.current;
-    try {
-      const next = await setFavourite(kind, id, on);
-      if (mine === requestSeq.current) setBody(next);
-      show(undo
-        ? { message: 'Undone.' }
-        : {
-          message: starToastText(kind, name, on),
-          // Void: Undo is a press handler, nothing waits on the second request.
-          onUndo: () => { void setStarRef.current(kind, id, name, !on, true); },
-        });
-      return true;
-    } catch (err) {
-      // Only this change goes back: a second change made while this was in flight is the reader's and stays.
+    epoch.current += 1;
+    pending.current += 1;
+    const run = chain.current.then(async () => {
+      let next = null;
+      let error = null;
+      try {
+        next = await setFavourite(kind, id, on);
+      } catch (err) {
+        error = err;
+      }
+      pending.current -= 1;
+      if (error == null) {
+        // Only the LAST answer is applied or announced: it reflects every change before it, a dropped older one is
+        // not shown as if it were current.
+        if (pending.current === 0) {
+          setBody(next);
+          show(undo
+            ? { message: 'Undone.', returnTo }
+            : {
+              message: starToastText(kind, name, on),
+              returnTo,
+              // Void: Undo is a press handler, nothing waits on the second request.
+              onUndo: () => { void setStarRef.current(kind, id, name, !on, true); },
+            });
+        }
+        return true;
+      }
+      // Only this change goes back: a later change the reader made stays; then re-read the server's truth.
       setBody(applyStar(bodyRef.current, kind, id, !on));
-      show({ message: err?.response?.status === 409 ? apiErrorMessage(err, FAVOURITE_FAILED) : FAVOURITE_FAILED });
+      show({
+        message: error?.response?.status === 409 ? apiErrorMessage(error, FAVOURITE_FAILED) : FAVOURITE_FAILED,
+        returnTo,
+      });
+      if (pending.current === 0) reconcile();
       return false;
-    }
-  }, [setBody, show]);
+    });
+    chain.current = run;
+    return run;
+  }, [setBody, show, reconcile]);
   useEffect(() => { setStarRef.current = setStar; }, [setStar]);
 
   const value = useMemo(() => {
@@ -140,6 +194,8 @@ export function FavouritesProvider({ pro, children }) {
       status,
       ...sets,
       starredAreas,
+      // Starred areas the directory has not named (yet): the watchlist says so rather than hiding them.
+      areasUnresolved: Math.max(0, sets.areaIds.size - starredAreas.length),
       isPlaceStarred: (id) => sets.placeIds.has(id),
       isAreaStarred: (id) => sets.areaIds.has(id),
       setStar,

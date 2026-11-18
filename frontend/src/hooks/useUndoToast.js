@@ -17,7 +17,7 @@ export const UNDO_TOAST_MS = 10000;
  * @param {object} [options]
  * @param {number} [options.duration] ms before it dismisses itself; never below {@link UNDO_TOAST_MS}
  * @returns {{toast: ?{id: number, message: string, onUndo: ?function, returnTo: ?Element},
- *   show: function({message: string, onUndo?: function}): void, dismiss: function(): void,
+ *   show: function({message: string, onUndo?: function, returnTo?: ?Element}): void, dismiss: function(): void,
  *   pause: function(): void, resume: function(): void}}
  */
 export default function useUndoToast({ duration = UNDO_TOAST_MS } = {}) {
@@ -26,13 +26,14 @@ export default function useUndoToast({ duration = UNDO_TOAST_MS } = {}) {
   const seq = useRef(0);
   const ms = Math.max(duration, UNDO_TOAST_MS);
 
-  const show = useCallback(({ message, onUndo = null }) => {
+  const show = useCallback(({ message, onUndo = null, returnTo = undefined }) => {
     seq.current += 1;
-    // Where the press came from, so focus can go back there when the toast's own button is pressed and unmounts.
-    const { activeElement } = document;
+    // Where the press came from, so focus can go back there when the toast's own button is pressed and unmounts. A
+    // caller whose toast lands later (after a request) passes what had focus at PRESS time; otherwise it is read now.
+    const origin = returnTo === undefined ? document.activeElement : returnTo;
     setPaused(false);
     setToast({
-      id: seq.current, message, onUndo, returnTo: activeElement === document.body ? null : activeElement,
+      id: seq.current, message, onUndo, returnTo: origin === document.body ? null : origin,
     });
   }, []);
   const dismiss = useCallback(() => setToast(null), []);

@@ -9,7 +9,7 @@ import useDialogFocus from '../../hooks/useDialogFocus.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 import { useFavourites } from '../../context/FavouritesContext.jsx';
-import { FavouriteUpsell, useFavouriteUpsell } from '../shared/FavouriteToggle.jsx';
+import { FavouriteUpsell, upsellEscape, useFavouriteUpsell } from '../shared/FavouriteToggle.jsx';
 import { pickerEntries } from '../../utils/favourites.js';
 
 /**
@@ -143,7 +143,7 @@ export default function RegionsJump({
   let favouriteSection = null;
   if (onSelectFavourite && favourites.status === 'locked') {
     favouriteSection = (
-      <div className="wf-fav-section" data-testid="wf-jump-favourites-locked">
+      <div className="wf-fav-section" role="group" aria-label="Your places" data-testid="wf-jump-favourites-locked">
         <button
           type="button"
           ref={bindFavouriteTrigger}
@@ -152,8 +152,9 @@ export default function RegionsJump({
           aria-expanded={favouriteUpsell.open}
           aria-controls={favouriteUpsell.open ? favouriteUpsell.id : undefined}
           onClick={favouriteUpsell.toggle}
+          onKeyDown={upsellEscape(favouriteUpsell)}
         >
-          <span className="wf-jump-name">★ My places</span>
+          <span className="wf-jump-name"><span aria-hidden="true">★ </span>My places</span>
           <span className="wf-jump-drive" />
           <span className="wf-jump-score"><span className="wf-lens-pro">Pro</span></span>
         </button>
@@ -164,7 +165,7 @@ export default function RegionsJump({
     const entries = pickerEntries(favourites, favourites.starredAreas);
     if (entries.length > 0) {
       favouriteSection = (
-        <div className="wf-fav-section" data-testid="wf-jump-favourites">
+        <div className="wf-fav-section" role="group" aria-label="Your places" data-testid="wf-jump-favourites">
           {entries.map((entry) => (
             <button
               key={entry.key}
@@ -174,7 +175,7 @@ export default function RegionsJump({
               aria-current={entry.key === activeFavourite ? 'true' : undefined}
               onClick={() => onSelectFavourite(entry)}
             >
-              <span className="wf-jump-name">{entry.label}</span>
+              <span className="wf-jump-name"><span aria-hidden="true">★ </span>{entry.name}</span>
               <span className="wf-jump-drive">{`${entry.count} ${entry.count === 1 ? 'place' : 'places'}`}</span>
               <span className="wf-jump-score" />
             </button>

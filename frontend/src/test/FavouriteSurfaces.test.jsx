@@ -192,7 +192,7 @@ describe('the popup region rail', () => {
     options,
   );
   const FAV = (onSelect = vi.fn(), selected = null) => ({
-    cells: [{ key: 'places', label: '★ My places', count: 2 }, { key: 'area:9', label: "★ Hadrian's Wall", count: 1 }],
+    cells: [{ key: 'places', name: 'My places', count: 2 }, { key: 'area:9', name: "Hadrian's Wall", count: 1 }],
     selected,
     onSelect,
   });
@@ -223,6 +223,27 @@ describe('the popup region rail', () => {
     expect(locked).toHaveTextContent('Pro');
     fireEvent.click(locked);
     expect(screen.getByTestId('wf-region-favourite-upsell-panel')).toHaveTextContent('Pro keeps your own list');
+  });
+
+  it('⚠️ the cells are a labelled section, and the ★ glyph is hidden so the name reads "My places", not "black star"', () => {
+    render(rail({ places: [1] }, FAV()));
+    expect(screen.getByRole('group', { name: 'Your places' })).toContainElement(screen.getAllByTestId('wf-region-favourite')[0]);
+    const cell = screen.getAllByTestId('wf-region-favourite')[0];
+    expect(cell.querySelector('[aria-hidden="true"]')).toHaveTextContent('★');
+    expect(cell).toHaveAccessibleName(/^My places 2 places/);
+    expect(cell).not.toHaveAccessibleName(/★/);
+  });
+
+  it('⚠️ Escape on the Lite trigger with the upsell open closes only the panel, and the key does not escape', () => {
+    const onKey = vi.fn();
+    document.addEventListener('keydown', onKey);
+    render(rail({ status: 'locked' }, FAV()));
+    const locked = screen.getByTestId('wf-region-favourite-locked');
+    fireEvent.click(locked);
+    fireEvent.keyDown(locked, { key: 'Escape' });
+    expect(screen.queryByTestId('wf-region-favourite-upsell-panel')).toBeNull();
+    expect(onKey).not.toHaveBeenCalled();
+    document.removeEventListener('keydown', onKey);
   });
 });
 
@@ -258,6 +279,22 @@ describe('the Map Regions list', () => {
     render(jump({ status: 'locked' }));
     fireEvent.click(screen.getByTestId('wf-jump-favourite-locked'));
     expect(screen.getByTestId('wf-jump-favourite-upsell-panel')).toBeInTheDocument();
+  });
+
+  it('⚠️ the entries are a labelled section with the ★ hidden from assistive tech, and Escape on the Lite trigger closes only the panel', () => {
+    const { unmount } = render(jump({ places: [1], locationIds: [1] }));
+    expect(screen.getByRole('group', { name: 'Your places' })).toBeInTheDocument();
+    expect(screen.getAllByTestId('wf-jump-favourite')[0]).toHaveAccessibleName(/^My places/);
+    unmount();
+    const onKey = vi.fn();
+    document.addEventListener('keydown', onKey);
+    render(jump({ status: 'locked' }));
+    const trigger = screen.getByTestId('wf-jump-favourite-locked');
+    fireEvent.click(trigger);
+    fireEvent.keyDown(trigger, { key: 'Escape' });
+    expect(screen.queryByTestId('wf-jump-favourite-upsell-panel')).toBeNull();
+    expect(onKey).not.toHaveBeenCalled();
+    document.removeEventListener('keydown', onKey);
   });
 
   it('draws no section at all without the handler', () => {
@@ -344,6 +381,32 @@ describe('the Coming up watchlist', () => {
     fireEvent.click(rows[1]);
     expect(onOpenArea).toHaveBeenCalledWith(AREA);
     expect(onOpenPlace).toHaveBeenCalledWith(SPOTS[0]);
+  });
+
+  it('⚠️ an area-only reader whose directory has not named the area never sees the empty-state advice', async () => {
+    // Served list: one area starred. Directory unresolved: starredAreas is empty.
+    render(list({ areas: [9], locationIds: [3], starredAreas: [] }));
+    expect(screen.queryByTestId('coming-up-watchlist-empty')).toBeNull();
+    expect(await screen.findByTestId('coming-up-watchlist-areas-pending')).toHaveTextContent('1 starred area is not shown yet.');
+    expect(screen.queryByTestId('coming-up-watchlist-offplan')).toBeNull();
+  });
+
+  it('a starred place that is not on the plan says so rather than printing the empty-state advice', async () => {
+    render(list({ places: [999] }));
+    expect(screen.queryByTestId('coming-up-watchlist-empty')).toBeNull();
+    expect(await screen.findByTestId('coming-up-watchlist-offplan')).toBeInTheDocument();
+  });
+
+  it('Escape on the Lite teaser with the upsell open closes only the panel', () => {
+    const onKey = vi.fn();
+    document.addEventListener('keydown', onKey);
+    render(list({ status: 'locked' }));
+    const teaser = screen.getByTestId('coming-up-watchlist-teaser-button');
+    fireEvent.click(teaser);
+    fireEvent.keyDown(teaser, { key: 'Escape' });
+    expect(screen.queryByTestId('coming-up-watchlist-upsell-panel')).toBeNull();
+    expect(onKey).not.toHaveBeenCalled();
+    document.removeEventListener('keydown', onKey);
   });
 
   it('says what to do when nothing is starred, and draws no outlook request without a starred area', async () => {

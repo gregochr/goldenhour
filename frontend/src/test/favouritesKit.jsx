@@ -25,6 +25,7 @@ export function favouritesValue({
     areaIds,
     locationIds: new Set(locationIds),
     starredAreas,
+    areasUnresolved: Math.max(0, areaIds.size - starredAreas.length),
     isPlaceStarred: (id) => placeIds.has(id),
     isAreaStarred: (id) => areaIds.has(id),
     setStar: vi.fn(() => Promise.resolve(true)),
