@@ -185,6 +185,10 @@ function subscribeForeignModalDom(onChange) {
  * @param {Function} props.onSelectDate    hands a new date back to {@code App}
  * @param {object}   [props.handoff]       a handoff the reader ASKED to land on (a door), which this
  *                                         pane must not act on while it is hidden
+ * @param {?object}  [props.findPick]      a place or region the reader picked in Find on this tab
+ *                                         ({@code {kind: 'location'|'region', id?, name, nonce}}), which
+ *                                         {@code MapView} applies once per nonce while the pane is shown
+ * @param {boolean}  [props.findOpen]      whether Find is open, so the map closes its menus
  * @param {string}   [props.autoEventType] the auto-selected event type
  * @param {Map}      [props.briefingScores]
  * @param {Array}    [props.seasonalFeatures]
@@ -214,6 +218,7 @@ function subscribeForeignModalDom(onChange) {
  */
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
+  findPick = null, findOpen = false,
   briefingScores = new Map(),
   seasonalFeatures = [], homeCoords,
   mapColourScale = null, mapTideMode = 'auto', saveTideMode = null,
@@ -901,6 +906,10 @@ export default function WindowFirstMapPane({
         // A structured handoff - the ONE prop a handoff reaches `MapView` through (overlay
         // convergence C5 deleted the legacy per-field `handoff*` props with the overlay's hatch).
         planHandoff={planHandoff}
+        // Find's place or region pick, and whether Find is open (find-and-favourites-plan.md F1). Its own
+        // channel, never `planHandoff`: a Find pick carries no window and no lens, so it leaves the reader's own.
+        findPick={findPick}
+        findOpen={findOpen}
         briefingScores={briefingScores}
         seasonalFeatures={seasonalFeatures}
         homeCoords={homeCoords}
@@ -967,6 +976,13 @@ WindowFirstMapPane.propTypes = {
   dates: PropTypes.arrayOf(PropTypes.string).isRequired,
   selectedDate: PropTypes.string,
   onSelectDate: PropTypes.func.isRequired,
+  findPick: PropTypes.shape({
+    kind: PropTypes.oneOf(['location', 'region']).isRequired,
+    id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    name: PropTypes.string.isRequired,
+    nonce: PropTypes.number.isRequired,
+  }),
+  findOpen: PropTypes.bool,
   handoff: PropTypes.shape({
     // 'plan' for a door handoff (D2), 'map' for the sheet footer pressed over the map.
     source: PropTypes.string,

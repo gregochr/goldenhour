@@ -61,7 +61,7 @@ const back = async () => {
 const popup = () => screen.queryByTestId('window-sheet');
 const spotSheet = () => screen.queryByRole('dialog', { name: /^All spots/ });
 const locationSheet = () => screen.queryByRole('dialog', { name: /the next \d+ windows?/ });
-const searchButton = () => screen.getByRole('button', { name: 'Search days, regions and places' });
+const searchButton = () => screen.getByRole('button', { name: /Find a place, region or day/ });
 const guideDoor = () => screen.getByRole('button', { name: 'Guide for this tab' });
 const seeAllSpots = () => screen.getByRole('button', { name: /See all spots/ });
 const guideDialog = () => screen.queryByTestId('guide-dialog');

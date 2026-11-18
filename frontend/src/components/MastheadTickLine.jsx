@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { GOLDEN } from './shared/MastheadLight.jsx';
 import { watchDeparture } from '../utils/watchDeparture.js';
 import { SET_POSTCODE_LONG, SET_POSTCODE_SHORT } from '../utils/postcodeNudge.js';
+import { findKeyHint } from '../utils/findKey.js';
 
 /**
  * One clock time in the row, carrying two different words for two different readers.
@@ -88,22 +89,20 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * purpose, because "you have not set a postcode" is a claim about the reader's account that a 502
  * is no evidence for. Nothing here may collapse the two.
  *
- * <h2>Search is offered only where a handler is — the Plan tab</h2>
+ * <h2>Find is offered wherever a handler is — Plan, Coming up and Map</h2>
  *
- * <p>Two controls here open search: the origin button and the ⌕ beside it. Both render only when
- * {@code onOpenSearch} is handed over, and the shell hands it over on the Plan tab alone. Everything
- * search finds is a Plan object (a window, a region to plan from, a place's four-day sheet), and
- * until 2026-09-16 a pick made on Coming up opened a Plan dialog over the feed. With no handler the
- * origin is drawn as a non-interactive STATEMENT in the button's place and the ⌕ is not drawn at all:
- * withheld, never rendered with nothing behind it, because plan-matrix §3 rule 14 bans a control with
- * no visible effect.
+ * <p>Two controls here open Find: the origin button and the labelled {@code ⌕ Find} beside it. Both
+ * render only when {@code onOpenSearch} is handed over, and the shell hands it over on every tab that
+ * has a meaning for a pick (find-and-favourites-plan.md F1: each tab gives a pick its own meaning, so
+ * a pick never opens a dialog on the wrong tab, which is what withheld search from Coming up and Map
+ * from 2026-09-16 until F1). With no handler (Operations) the origin is drawn as a non-interactive
+ * STATEMENT in the button's place and the Find button is not drawn at all: withheld, never rendered
+ * with nothing behind it, because plan-matrix §3 rule 14 bans a control with no visible effect.
  *
- * <p>The statement was the Map tab's first (map-tab-v2-plan.md §3 P11: "on a map, panning IS the
- * search"), and {@code isMapTab} keeps that rule as its own — it withholds search even from a caller
- * that hands a handler over — and adds the one thing the other tabs' statement does not draw, the
- * "drive times from here" caption. The shell never hands the Map tab a handler, so in the app the
- * two reasons agree; they are kept apart because they are two decisions, and the Map's must not
- * start depending on which tabs the shell happens to search from.
+ * <p>The Map's old rule, "on a map, panning IS the search" (map-tab-v2-plan.md §3 P11), is retired:
+ * a place picked in Find flies the map to it. {@code isMapTab} keeps the one thing that is still the
+ * Map's own, the "drive times from here" caption, which now rides the interactive origin button. On
+ * the phone Map at Home ({@code hideAtHome}) the row draws the Find button alone.
  *
  * <h2>The nudge is the origin button's empty state, and it is a different control</h2>
  *
@@ -271,7 +270,9 @@ export default function MastheadTickLine({
   // Whether this row offers search at all — the one question both search controls answer from. Two
   // reasons it may not, and either is enough: no handler was handed over (every tab but Plan — see
   // the class comment), or this is the Map tab, where panning IS the search whatever a caller passes.
-  const searchable = typeof onOpenSearch === 'function' && !isMapTab;
+  // ⚠️ Find is offered wherever the shell hands a handler over (Plan, Coming up and Map; not Operations), and
+  // the Map is no longer an exception: `isMapTab` keeps only its caption (find-and-favourites-plan.md F1).
+  const searchable = typeof onOpenSearch === 'function';
   // The statement, drawn INSTEAD of the interactive origin button wherever there is no search to
   // open — never instead of the empty-state nudge, which stays exactly as it is on every tab
   // (CLAUDE.md's do-not-re-gate-the-postcode rule: the band's empty state nudges the reader to this
@@ -281,10 +282,13 @@ export default function MastheadTickLine({
     ? `${origin.name} · from ${origin.baseName}`
     : (homePlace ? `Home · ${homePlace}` : 'Home');
 
-  // The phone Map's Home draws no row (compact-chrome plan R2): the HOME marker and reach rings show
+  // The phone Map's Home draws no origin (compact-chrome plan R2): the HOME marker and reach rings show
   // the origin. Decided HERE, off `noHome` and `away`, so the shell never re-derives either; every
-  // hook above has already run, and the focus hand-off falls back to `fallbackFocus`.
-  if (hideAtHome && !away && !noHome) return null;
+  // hook above has already run, and the focus hand-off falls back to `fallbackFocus`. With Find on
+  // the Map the row is no longer empty at Home: it draws the Find button alone, and only without a
+  // handler is there still nothing to draw.
+  const findOnly = hideAtHome && !away && !noHome;
+  if (findOnly && !searchable) return null;
 
   // ⌂ sits LEFT of the group on the compact row (spec §2) and right of it everywhere else; the DOM
   // order follows the visual order so Tab does.
@@ -329,7 +333,7 @@ export default function MastheadTickLine({
           data-unset={noHome ? 'true' : undefined}
           data-statement={statement ? 'true' : 'false'}
         >
-          {noHome ? (
+          {findOnly ? null : noHome ? (
             <button
               type="button"
               ref={trackOriginSlot}
@@ -394,43 +398,61 @@ export default function MastheadTickLine({
               // dictating what they could see matched nothing. Without the interpolation at all the
               // home arm had the same defect one step worse — it drew `Home · Durham` under a name of
               // "Planning from home", so "Durham" appeared in no accessible name anywhere.
-              aria-label={away
+              aria-label={`${away
                 ? `Planning from ${origin.name}, from ${origin.baseName}. Search to change it.`
                 : (homePlace
                   ? `Planning from home · ${homePlace}. Search to change it.`
-                  : 'Planning from home. Search to change it.')}
+                  : 'Planning from home. Search to change it.')}${isMapTab ? ' Drive times are measured from here.' : ''}`}
             >
               <Pin away={away} />
               {/* `.wf-tick-place` carries the truncation, not the button: `text-overflow` applies to
                   block containers and the button is a flex container — the span blockifies as a flex
                   item, which is what makes the idiom work here and not one level up. */}
               <span aria-hidden="true" className="wf-tick-place">{originLabel}</span>
+              {/* The Map's caption, which the statement used to carry alone: with Find on the Map the origin
+                  is the interactive button, and every drive time on the map is still measured from it. Its
+                  words are spoken in the button's name above. */}
+              {isMapTab && (
+                <span aria-hidden="true" data-testid="masthead-origin-caption" className="wf-tick-caption">
+                  drive times from here
+                </span>
+              )}
             </button>
           )}
           {/* Full-height hairline between the two controls, exactly as the bundle draws it. Purely
               visual: the two buttons are already separate tab stops with separate names.
-              ⚠️ Omitted with the ⌕ wherever this row offers no search — every tab but Plan. The
-              Map tab withheld it first, by its own rule (README "Masthead change": "the ⌕ search
-              button is absent", because panning IS the search there); Coming up and Operations
-              followed on 2026-09-16 through a missing handler, because a pick from a search opened
-              there put a Plan dialog over that tab. */}
+              ⚠️ Omitted with the Find button wherever this row offers none (Operations, which has no
+              handler), and when Find stands alone on the phone Map at Home. */}
           {searchable && (
             <>
-              <span aria-hidden="true" className="wf-tick-sep" />
+              {!findOnly && <span aria-hidden="true" className="wf-tick-sep" />}
               <button
                 type="button"
                 onClick={onOpenSearch}
                 data-testid="window-first-search"
                 className="wf-tick-search"
                 tabIndex={searchOpen ? -1 : undefined}
-                // Named for what it searches, matching the dialog's own accessible name, so a reader
-                // who opens it hears the same words the button promised.
-                aria-label="Search days, regions and places"
+                // ⚠️ NO `aria-label`: the name is the button's own visible words (WCAG 2.5.3, and axe's
+                // `label-content-name-mismatch`, which an override that left the keycap out of the name failed). The
+                // phone draws `Find`, a wider screen `Find a place, region or day` and, from `lg`, the keycap, and the
+                // name follows what is drawn. Only the ⌕ is decorative. The dialog's own name and the input's keep
+                // their wording until F2 adds areas to what Find searches.
+                aria-keyshortcuts="Meta+K Control+K"
               >
-                {/* ⚠️ No `/` key cap here any more. The cap advertised the search shortcut, and `/` moved
-                    to Ask at F2 (plan §6 Q1): this button is now the way into search, and a cap on it
-                    would name a key that opens a different surface — the Ask field draws the one. */}
+                {/* Find's keyboard cap is ⌘K / Ctrl K (`/` is Ask's). The cap is drawn from `lg` up, where a
+                    keyboard is likely; the shortcut itself is live at every width. It is part of the
+                    name when drawn, so the name matches what is on screen. */}
                 <span aria-hidden="true" className="wf-tick-glyph">⌕</span>
+                <span>
+                  <span className="sm:hidden">Find</span>
+                  <span className="hidden sm:inline">Find a place, region or day</span>
+                </span>
+                <kbd
+                  data-testid="window-first-search-key"
+                  className="hidden lg:inline font-mono text-[9px] tracking-normal normal-case border border-plex-border-light rounded px-1"
+                >
+                  {findKeyHint()}
+                </kbd>
               </button>
             </>
           )}
@@ -480,9 +502,8 @@ MastheadTickLine.propTypes = {
   }),
   homePlace: PropTypes.string,
   /**
-   * Opens search. Absent means this row offers none: the origin is a statement and the ⌕ is not
-   * drawn. The shell hands it over on the Plan tab only; see the class comment. (`isMapTab` withholds
-   * search on its own too.)
+   * Opens Find. Absent means this row offers none: the origin is a statement and the Find button is not
+   * drawn. The shell hands it over on Plan, Coming up and Map; see the class comment.
    */
   onOpenSearch: PropTypes.func,
   onGoHome: PropTypes.func.isRequired,
@@ -501,11 +522,11 @@ MastheadTickLine.propTypes = {
   searchOpen: PropTypes.bool,
   /**
    * Whether the Map tab is the active tab (map-tab-v2-plan.md §3 P11) — a per-tab STATE of this
-   * component, not a fork: the origin control renders as a non-interactive statement (pin, place,
-   * caption) and the `⌕` search button is withheld, because on a map panning IS the search — whatever
-   * `onOpenSearch` says. ⚠️ Since 2026-09-16 the statement is not the Map's alone: a missing
-   * `onOpenSearch` draws it on every other tab but Plan too, without the caption, which stays this
-   * prop's. The empty-state nudge (`noHome`) is unaffected on every tab — see `statement`'s derivation.
+   * component, not a fork: it adds the "drive times from here" caption, which every drive time on
+   * the map is measured against. Since find-and-favourites-plan.md F1 it no longer withholds Find
+   * (a place picked in Find flies the map to it). A missing `onOpenSearch` still draws the
+   * statement, with the caption on the Map. The empty-state nudge (`noHome`) is unaffected on every
+   * tab — see `statement`'s derivation.
    */
   isMapTab: PropTypes.bool,
   /**

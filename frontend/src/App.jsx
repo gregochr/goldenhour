@@ -717,6 +717,19 @@ function AppInner() {
   const [locationSheetHandoff, setLocationSheetHandoff] = useState(null);
 
   /**
+   * A place or region the reader picked in FIND while on the Map tab (find-and-favourites-plan.md F1): fly
+   * there and open its callout, or pan and frame the region. Its own channel, for the reason the two above are
+   * kept apart from `tabRequest`: the Map pane is never unmounted, so only an explicit pick may reach it, and
+   * it is nonce'd because the same place can be picked twice running and the second pick must move the map
+   * back if the reader has moved it since. Not `mapTabHandoff`: that channel is a DOOR (it carries a window
+   * and, from the Plan tab, the Plan's whole lens), and a Find pick keeps the reader's own window and filters.
+   * `mapFindOpen` is the shell telling the pane Find is up, so the pane closes its menus (they are not dialogs).
+   */
+  const [mapFindPick, setMapFindPick] = useState(null);
+  const [mapFindOpen, setMapFindOpen] = useState(false);
+  const openFindOnMap = (pick) => setMapFindPick({ ...pick, nonce: handoffNonce.current++ });
+
+  /**
    * Open one location's four-day sheet, asked for from the Map tab's selection callout.
    *
    * <p>⚠️ <b>The tab move is the callout's choice, not this function's, and it does NOT ride
@@ -1073,6 +1086,10 @@ function AppInner() {
               locations={visibleLocations}
               tabRequest={tabRequest}
               locationSheetHandoff={locationSheetHandoff}
+              // Find's Map picks (a place or a region), and Find's open state for the Map's menus. Withheld
+              // with the Map door, under the same rule: a pick onto no map is a control that does nothing.
+              onFindOnMap={hasForecastData || auroraTabOn ? openFindOnMap : undefined}
+              onFindOpenChange={setMapFindOpen}
               // Withheld when there is nothing to map, which is the same rule the Operations tab
               // follows and §6's ban on controls that open nothing. `hasForecastData` is false
               // whenever `GET /api/forecast` returned no rows for a visible location, and a Map tab
@@ -1090,6 +1107,8 @@ function AppInner() {
                     // after sunset would still show the morning's event.
                     autoEventType={autoSelection?.eventType ?? null}
                     handoff={mapTabHandoff}
+                    findPick={mapFindPick}
+                    findOpen={mapFindOpen}
                     briefingScores={briefingScores}
                     // The Map tab's older-day fetch (outcome-rating-plan.md §2 #2): `useForecasts` owns
                     // the fetch and merges the day into `locations`, so `allDates` above widens by itself.

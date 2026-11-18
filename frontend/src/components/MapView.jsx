@@ -1281,7 +1281,7 @@ CentreOnHomeControl.propTypes = {
  *       draws as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, reachLens = null, reachMeasured = null, reachScope = null, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, reachLens = null, reachMeasured = null, reachScope = null, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS, findPick = null, findOpen = false }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1477,7 +1477,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Filtering by drive time is Pro at every origin (docs/engineering/pro-features-gate-plan.md §9). The value is forced
   // to Any where it is APPLIED, not at the setters (a click, the reset and the breadcrumb all set it), so a locked
   // reader can never narrow the map by it; the count badge, the popover and the breadcrumb read this effective value.
-  const effectiveDriveTimeFilter = driveLocked || !driveTierMeasured ? 0 : (driveTier?.limitMinutes ?? 0);
+  // A Find pick relaxes the drive filter for the Map ALONE and in memory: the shared reach lens (which persists and
+  // moves the Plan bar too) is never written. The override names the place it was made for and lapses with that
+  // selection, so the reader's own tier is back the moment they look at anything else.
+  const [driveRelaxedFor, setDriveRelaxedFor] = useState(null);
+  const driveRelaxed = driveRelaxedFor != null && driveRelaxedFor === selectedLocationName;
+  const effectiveDriveTimeFilter = driveLocked || !driveTierMeasured || driveRelaxed
+    ? 0 : (driveTier?.limitMinutes ?? 0);
   /** Sets the shared tier from the popover's minutes (0 is Any). */
   const setDriveTimeFilter = useCallback((minutes) => {
     selectDriveTier(minutes > 0 ? String(minutes) : ANY_TIER_ID);
@@ -4149,6 +4155,99 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // moment it fires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askWindow?.nonce, paneVisible, askRowFound]);
+
+  /**
+   * What the last Find pick relaxed so its place could be seen — `{name, text}`, or null. Shown only while that
+   * place is still the selection ({@code findNoteShown}), so it can never describe a map the reader has left.
+   */
+  const [findNote, setFindNote] = useState(null);
+  /** The last Find pick this map applied. Seeded with whatever is in flight at mount, which is spent: see below. */
+  const appliedFindNonce = useRef(findPick?.nonce ?? null);
+  // Find is a modal over the pane, and the menus (Filters, Regions, the phone's peek sections) are not dialogs, so
+  // opening it does not take them down: one left open would sit under the callout the pick is about to open.
+  // Adjusted during render on the rising edge (React's "derive state from a changed prop" shape), so no effect
+  // and no commit in which both a menu and Find stand.
+  const [findWasOpen, setFindWasOpen] = useState(findOpen);
+  if (findOpen !== findWasOpen) {
+    setFindWasOpen(findOpen);
+    if (findOpen) setOpenMapMenu(null);
+  }
+  /**
+   * A place or region picked in Find (find-and-favourites-plan.md F1). Its own channel and its own effect, like
+   * {@code askWindow} above and for the same reason: {@code planHandoff} is a DOOR, which carries a window and
+   * the Plan's lens, and a Find pick carries neither.
+   *
+   * <p><b>A region</b> is the Regions picker's own jump ({@code jumpToRegion}): a pan and a frame, switching the
+   * scope to Everywhere only when the region is outside the area, exactly as the picker does. It never calls
+   * {@code setOrigin} — an origin move reaches the rings and every drive time — and nothing here can.
+   *
+   * <p><b>A place</b> is selected (its callout is the destination) and the camera goes to it, with the reader's
+   * window left exactly as it was. The filters that would HIDE the place are relaxed in memory, and only those
+   * (star floor, drive tier, subject chips, dark sky, the My area scope), and the reader is told which: the
+   * saved star floor is never written, so a reload brings their own back. A place with no rating for the window is
+   * not hidden by the floor at all — the selected place is always drawn, with the callout's own "Not scored yet".
+   *
+   * <p>Applied ONCE per nonce, and only while the pane is on screen ({@code paneVisible}, the camera's own gate):
+   * Find's modal is still in the DOM the render the pick arrives in, so the effect re-runs the moment it is gone.
+   */
+  useEffect(() => {
+    if (!findPick || !paneVisible || appliedFindNonce.current === findPick.nonce) return;
+    appliedFindNonce.current = findPick.nonce;
+    (async () => {
+      if (findPick.kind === 'region') {
+        jumpToRegion(findPick.name);
+        return;
+      }
+      const loc = (findPick.id != null ? locations.find((l) => l.id === findPick.id) : null)
+        ?? locations.find((l) => l.name === findPick.name);
+      if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) return;
+      const relaxed = [];
+      const rating = getRatingForLocation(loc);
+      if (rating != null && rating < minStars) {
+        // In memory only: `writeMapFilter` is what persists the floor, and this does not call it.
+        setMinStars(rating);
+        relaxed.push(`the ${minStars}★ floor`);
+      }
+      const types = loc.locationType ?? [];
+      if (activeTypeFilters.size > 0 && types.length > 0 && !types.some((t) => activeTypeFilters.has(t))) {
+        setActiveTypeFilters(new Set([...activeTypeFilters, types[0]]));
+        relaxed.push('the place-type filter');
+      }
+      if (darkSkyFilter && !isDarkSkyLocation(loc)) {
+        toggleDarkSky();
+        relaxed.push('dark sky');
+      }
+      if (effectiveDriveTimeFilter > 0) {
+        const mins = driveMinutesFor(loc.id);
+        if (mins == null || mins > effectiveDriveTimeFilter) {
+          setDriveRelaxedFor(loc.name);
+          relaxed.push('the drive-time filter');
+        }
+      }
+      // Outside the area the map is framed to: frame its region (which widens the scope, as the picker does)
+      // rather than flying to a pin the area frame would then refit away from.
+      const outsideArea = heatArea && heat?.enabled && Boolean(loc.regionName)
+        && !(heat.areaSpots || EMPTY_POINTS).some((s) => s?.regionName === loc.regionName)
+        && (heat.spots || EMPTY_POINTS).some((s) => s?.regionName === loc.regionName);
+      if (outsideArea) {
+        jumpToRegion(loc.regionName);
+        relaxed.push('the My area scope');
+      } else {
+        setFlyTarget({ lat: loc.lat, lon: loc.lon });
+      }
+      setSelectedLocationName(loc.name);
+      if (relaxed.length > 0) {
+        const text = `Showing ${loc.name}: ${relaxed.join(', ')} relaxed for it.`;
+        setFindNote({ name: loc.name, text });
+        setTopicAnnounce(text);
+      } else {
+        setFindNote(null);
+      }
+    })();
+    // The nonce IS the trigger and the pane being on screen the other; everything else is read when it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findPick?.nonce, paneVisible]);
+  const findNoteShown = findNote != null && selectedLocationName === findNote.name ? findNote : null;
 
   /**
    * Follows one EV row as an explicit choice that touches NOTHING but the window: the event, the
@@ -7186,6 +7285,26 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             slotIndex={slotIndex}
             scoreIndex={scoreIndex}
           />
+          {/* What a Find pick relaxed so its place could be seen (find-and-favourites-plan.md F1): a row of its own
+              under the chips, shown while that place is the selection, with a way to dismiss it. The words are also
+              spoken through the tab's one status region (`topicAnnounce`), so this is the sighted half. */}
+          {findNoteShown && (
+            <div
+              data-testid="map-find-note"
+              className="wf-map-key flex-wrap !rounded-xl leading-snug max-w-full"
+            >
+              <span>{findNoteShown.text}</span>
+              <button
+                type="button"
+                data-testid="map-find-note-dismiss"
+                aria-label="Dismiss"
+                className="font-mono px-1 text-plex-text-muted hover:text-plex-text"
+                onClick={() => setFindNote(null)}
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
 
       {/* The drilldown, at whichever of its two levels is in force (map-landing-plan.md §3 L5,
@@ -8139,6 +8258,18 @@ MapView.propTypes = {
    * on the plan itself with no dialog reopened and no window key carried (plan §6 Q2, decided).
    */
   onReturnToPlan: PropTypes.func,
+  /**
+   * A place or region picked in Find on this tab (find-and-favourites-plan.md F1), applied once per `nonce`
+   * while the pane is on screen — see the effect beside the `askWindow` one. Its own channel, not `planHandoff`.
+   */
+  findPick: PropTypes.shape({
+    kind: PropTypes.oneOf(['location', 'region']).isRequired,
+    id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    name: PropTypes.string.isRequired,
+    nonce: PropTypes.number.isRequired,
+  }),
+  /** Whether Find is open: the map closes its menus while it is (they are not dialogs). */
+  findOpen: PropTypes.bool,
   /**
    * Ask PhotoCast's picks (F3) — see the six-prop note above `MapView`. {@code rating}/{@code verdict}
    * are the PICK'S window's, joined by `utils/askModel.buildPickCards`.

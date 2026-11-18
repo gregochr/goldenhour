@@ -1016,6 +1016,10 @@
 }
 .wf-tick-group[data-away='true'] .wf-tick-sep { background: rgba(143, 182, 217, 0.45); }
 .wf-tick-glyph { font-size: 12px; }
+/* Find keeps its words on one line and its width: a long away-origin name (two places in one label) is what gives
+   way, through `.wf-tick-place`'s ellipsis, never Find wrapping to a second line or being squeezed to nothing
+   between 640px and 1023px, where the label is the whole phrase. */
+.wf-tick-search { flex: 0 0 auto; white-space: nowrap; }
 .wf-tick-home {
   display: inline-flex;
   align-items: center;

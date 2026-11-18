@@ -262,13 +262,18 @@ function windowTerms(card) {
  * @param {?object} [sources.scoreIndex] from {@code buildScoreIndex}, for the location figures
  * @param {?Array} [sources.scopeRegionNames] region names in scope; absent OR EMPTY marks nothing
  * @param {?object} [sources.origin]   the origin descriptor, for the "outside" clause's wording
+ * @param {string} [sources.tab]       the tab Find is open on: {@code 'plan'} (the default) and
+ *        {@code 'coming-up'} word a region as "plan from here"; {@code 'map'} words a region, a place and a
+ *        window as something the map will show — a region pick on the Map frames it and never moves the
+ *        origin, so the origin-based refusals (no base town, already the origin) do not apply there
  * @returns {Array<{id: string, title: string, rows: Array}>} groups, empty ones omitted
  */
 export function buildSearchGroups(query, {
   windows = [], regions = [], locations = [], originId = null,
-  reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null,
+  reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, tab = 'plan',
 } = {}) {
   const q = fold(query);
+  const onMap = tab === 'map';
   const groups = [];
   /**
    * Whether any drive time exists at all — see the window rows' `figure` caption for why.
@@ -320,7 +325,7 @@ export function buildSearchGroups(query, {
             reason: `: the top rating ${reachMeasured ? 'within reach' : 'here'} is well above the places around it`,
           }
           : null),
-      action: card.away ? null : 'Open',
+      action: card.away ? null : (onMap ? 'Show' : 'Open'),
       // A tier-scoped word is printed with its scope (reach-scoped-card-plan D6): "Poor · within 45m" says what
       // the word is about, in the same spelling as the card, so the row never claims the roster-wide word.
       subParts: clauses([card.time, card.away ? 'Not forecast' : card.verdictLabel,
@@ -352,6 +357,25 @@ export function buildSearchGroups(query, {
       // every window would land on the away empty state. Shown rather than hidden, for the same
       // reason a baseless one is — the reason is the useful part.
       const { based, current, off, can } = originAction(region, originId);
+      if (onMap) {
+        // ⚠️ On the Map a region pick is a pan and a frame, never `setOrigin`: an origin move reaches the rings
+        // and every drive time (find-and-favourites-plan.md F1), so "no base town" and "already the origin"
+        // are not reasons to refuse it here. A switched-off region has no places on the map to frame.
+        return {
+          kind: 'region',
+          key: `region:${region.id}`,
+          region,
+          label: region.name,
+          glyph: GLYPH.region,
+          marks: matchRange(region.name, query),
+          figure: null,
+          action: off ? null : 'Show',
+          subParts: clauses([off ? 'Switched off' : 'Frame on the map']),
+          sub: off ? 'Switched off' : 'Frame on the map',
+          disabled: off,
+          reason: off ? 'This region is switched off' : null,
+        };
+      }
       let reason = null;
       if (off) reason = 'This region is switched off';
       else if (!based) reason = 'This region has no base town to plan from';
@@ -378,7 +402,9 @@ export function buildSearchGroups(query, {
         reason,
       };
     });
-  if (regionRows.length > 0) groups.push({ id: 'regions', title: 'Plan from here', rows: regionRows });
+  if (regionRows.length > 0) {
+    groups.push({ id: 'regions', title: onMap ? 'Regions' : 'Plan from here', rows: regionRows });
+  }
 
   // Locations — never at rest either; the strip and the map are how a reader browses.
   // ⚠️ An EMPTY scope array is unknown, not "outside everything" — `buildLocationSheet`'s own rule,
@@ -407,7 +433,7 @@ export function buildSearchGroups(query, {
         // prints it ("The next 3 days here"), so a fixed 4 in the chip above it would be a number
         // we never measured sitting beside the same number measured. The chip names the surface
         // instead, which is true at every span.
-        action: 'Next few days',
+        action: onMap ? 'Show on map' : 'Next few days',
         // Region, then the drive, then the out-of-plan note — the bundle's own order, and each
         // clause is omitted rather than filled when its source is unknown (Rule 6). The third one
         // carries a tone: it is the clause that changes what the row means, and the bundle colours

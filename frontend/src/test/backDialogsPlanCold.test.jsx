@@ -63,7 +63,7 @@ describe('a registration made by the shell, not by a lazy chunk', () => {
     renderAskShell({ width: 1280 });
     await screen.findByTestId('ask-field');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Search days, regions and places' }));
+    fireEvent.click(screen.getByRole('button', { name: /Find a place, region or day/ }));
 
     expect(screen.queryByTestId('plan-search')).toBeNull();
     expect(layers()).toBe(1);
