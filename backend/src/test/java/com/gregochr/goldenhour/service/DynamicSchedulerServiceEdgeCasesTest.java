@@ -352,11 +352,54 @@ class DynamicSchedulerServiceEdgeCasesTest {
     }
 
     @Test
+    @DisplayName("an ACTIVE weather_warning_poll is disabled when the switch is on but there is no API key")
+    void initSchedules_warningsJobSwitchOnWithoutKey_isDisabledByConfig() {
+        com.gregochr.goldenhour.config.WarningsProperties warnings =
+                new com.gregochr.goldenhour.config.WarningsProperties();
+        DynamicSchedulerService warned = new DynamicSchedulerService(repository, fireLog, taskScheduler,
+                auroraProperties, warnings, solarTriggers, solarCatchUp, Clock.fixed(NOW, ZoneOffset.UTC));
+        SchedulerJobConfigEntity poll = job(ScheduleType.FIXED_DELAY).jobKey("weather_warning_poll")
+                .fixedDelayMs(300_000L).status(SchedulerJobStatus.ACTIVE)
+                .configSource("photocast.warnings.enabled").build();
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
+
+        warned.initSchedules();
+
+        assertThat(warnings.isEnabled()).isTrue();
+        assertThat(poll.getStatus()).isEqualTo(SchedulerJobStatus.DISABLED_BY_CONFIG);
+        verify(taskScheduler, never()).scheduleWithFixedDelay(org.mockito.ArgumentMatchers.any(Runnable.class),
+                eq(Duration.ofMillis(300_000L)));
+    }
+
+    @Test
+    @DisplayName("a seeded DISABLED_BY_CONFIG weather_warning_poll becomes ACTIVE once a key is set (no migration)")
+    void initSchedules_warningsJobSeededDisabledWithKey_becomesActive() {
+        com.gregochr.goldenhour.config.WarningsProperties warnings =
+                new com.gregochr.goldenhour.config.WarningsProperties();
+        warnings.setApiKey("test-key");
+        DynamicSchedulerService warned = new DynamicSchedulerService(repository, fireLog, taskScheduler,
+                auroraProperties, warnings, solarTriggers, solarCatchUp, Clock.fixed(NOW, ZoneOffset.UTC));
+        SchedulerJobConfigEntity poll = job(ScheduleType.FIXED_DELAY).jobKey("weather_warning_poll")
+                .fixedDelayMs(300_000L).status(SchedulerJobStatus.DISABLED_BY_CONFIG)
+                .configSource("photocast.warnings.enabled").build();
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
+        when(taskScheduler.scheduleWithFixedDelay(org.mockito.ArgumentMatchers.any(Runnable.class),
+                eq(Duration.ofMillis(300_000L)))).thenReturn(mock(ScheduledFuture.class));
+        warned.registerJobTarget("weather_warning_poll", () -> { });
+
+        warned.initSchedules();
+
+        assertThat(poll.getStatus()).isEqualTo(SchedulerJobStatus.ACTIVE);
+        verify(repository).save(poll);
+    }
+
+    @Test
     @DisplayName("an ACTIVE weather_warning_poll whose flag is on is scheduled and not re-saved")
     void initSchedules_warningsJobActiveAndFlagOn_isNotResaved() {
         com.gregochr.goldenhour.config.WarningsProperties warnings =
                 new com.gregochr.goldenhour.config.WarningsProperties();
         warnings.setEnabled(true);
+        warnings.setApiKey("test-key");
         DynamicSchedulerService warned = new DynamicSchedulerService(repository, fireLog, taskScheduler,
                 auroraProperties, warnings, solarTriggers, solarCatchUp, Clock.fixed(NOW, ZoneOffset.UTC));
         SchedulerJobConfigEntity poll = job(ScheduleType.FIXED_DELAY).jobKey("weather_warning_poll")

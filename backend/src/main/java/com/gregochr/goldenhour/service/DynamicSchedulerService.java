@@ -1164,8 +1164,8 @@ public class DynamicSchedulerService {
                 config.setStatus(SchedulerJobStatus.DISABLED_BY_CONFIG);
                 config.setUpdatedAt(Instant.now());
                 repository.save(config);
-                LOG.info("Disabled job '{}' — {}=false", config.getJobKey(),
-                        config.getConfigSource());
+                LOG.info("Disabled job '{}' — config gate {} is not satisfied (a switch is off or a required key"
+                        + " such as an API key is missing)", config.getJobKey(), config.getConfigSource());
             }
         } else if (config.getStatus() == SchedulerJobStatus.DISABLED_BY_CONFIG) {
             SchedulerJobStatus restored = config.getStatusBeforeConfigDisable() != null
@@ -1191,7 +1191,7 @@ public class DynamicSchedulerService {
             return auroraProperties::isEnabled;
         }
         if (WARNINGS_CONFIG_SOURCE.equals(configSource)) {
-            return warningsProperties::isEnabled;
+            return warningsProperties::isActive;
         }
         return null;
     }

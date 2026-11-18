@@ -56,6 +56,7 @@ class ComingUpWarningMergerClockTest {
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
+        properties.setApiKey("test-key");
     }
 
     /** A merger at the given instant that will read exactly these stored versions and one enabled place. */
@@ -163,6 +164,16 @@ class ComingUpWarningMergerClockTest {
         assertThat(merged).isNotEqualTo(cached);
         assertThat(merged.entries().getFirst().meta()).containsEntry("upgradedFrom", "YELLOW")
                 .containsEntry("level", "AMBER");
+    }
+
+    @Test
+    @DisplayName("on but with no API key: the same instance and the store is never read")
+    void noKeyReadsNothing() {
+        properties.setApiKey("");
+
+        ComingUpResponse feed = oneAlmanac();
+        assertThat(mergerWithoutStubs(NOW).merge(feed, 90)).isSameAs(feed);
+        verifyNoInteractions(repository, locations);
     }
 
     @Test

@@ -51,7 +51,7 @@ class WarningsControllerTest {
     @Test
     @DisplayName("the status endpoint returns the service's admin status")
     void adminStatus() {
-        WarningsAdminStatus status = new WarningsAdminStatus(true, true, true, null, null, true, 0, 0, Map.of(),
+        WarningsAdminStatus status = new WarningsAdminStatus(true, true, true, true, null, null, true, 0, 0, Map.of(),
                 List.of());
         when(service.adminStatus()).thenReturn(status);
 

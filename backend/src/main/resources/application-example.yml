@@ -192,13 +192,15 @@ photocast:
   #   meteor:
   #     imo:
   #       base-url: https://www.imo.net/files/meteor-shower/
-  # Met Office weather warnings (docs/engineering/weather-warnings-plan.md, W1a/W1c). Off by default. Needs an
-  # NSWWS API key. The key is sent only in the api-key-header header and is never logged or served. Changing the
-  # flag needs a backend restart (the scheduler row syncs at startup).
+  # Met Office weather warnings (docs/engineering/weather-warnings-plan.md, W1a/W1c, section 15). On by default, but
+  # dormant until an NSWWS API key is set: with no key nothing calls the Met Office and no user surface shows
+  # anything (the poll job row is DISABLED_BY_CONFIG). enabled=false is the kill switch. The key is sent only in the
+  # api-key-header header and is never logged or served. Changing either needs a backend restart (the scheduler row
+  # syncs at startup).
   #   warnings:
-  #     enabled: false              # PHOTOCAST_WARNINGS_ENABLED; false = the poll job is DISABLED_BY_CONFIG
+  #     enabled: true               # PHOTOCAST_WARNINGS_ENABLED; false = the kill switch (everything off)
   #     base-url: https://data.hub.api.metoffice.gov.uk/nswws/v1.1   # the NSWWS v1.1 root (no trailing slash)
-  #     api-key: ""                 # PHOTOCAST_WARNINGS_API_KEY
+  #     api-key: ""                 # PHOTOCAST_WARNINGS_API_KEY; empty = dormant, never calls the Met Office
   #     api-key-header: apikey      # the header name the key is sent in
   #     public-url: https://www.metoffice.gov.uk/public/weather/warnings/   # the Met Office link on every warning
   #     attribution: "Met Office Weather Warnings © Crown Copyright 2026"   # served beside warning text

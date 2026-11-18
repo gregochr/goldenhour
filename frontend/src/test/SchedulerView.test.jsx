@@ -493,6 +493,13 @@ describe('SchedulerView: Pause, Resume and a job that is off in config', () => {
     expect(await screen.findByTestId('scheduler-action-error')).toHaveTextContent("Couldn't resume Aurora Polling.");
   });
 
+  it('the weather-warnings job off in config says it also needs an API key; other jobs do not', async () => {
+    mount([pollingJob({ jobKey: 'weather_warning_poll', status: 'DISABLED_BY_CONFIG', configSource: 'photocast.warnings.enabled' })]);
+    await openPanel('weather_warning_poll');
+
+    expect(screen.getByTestId('requires-weather_warning_poll')).toHaveTextContent('Requires photocast.warnings.enabled and an API key');
+  });
+
   it('a job that is off in config shows what it requires, in mono, and every action is disabled', async () => {
     mount([
       pollingJob({ status: 'DISABLED_BY_CONFIG', configSource: 'aurora.enabled' }),

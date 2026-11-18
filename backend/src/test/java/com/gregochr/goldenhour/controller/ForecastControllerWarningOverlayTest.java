@@ -43,6 +43,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -87,6 +89,7 @@ class ForecastControllerWarningOverlayTest {
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
+        properties.setApiKey("test-key");
         RegionEntity region = RegionEntity.builder().id(1L).name("Dales").build();
         inside = LocationEntity.builder().id(10L).name("Hartside").lat(54.7).lon(-2.4).region(region).build();
         outside = LocationEntity.builder().id(11L).name("Hexham").lat(54.9).lon(-1.5).region(region).build();
@@ -220,6 +223,18 @@ class ForecastControllerWarningOverlayTest {
     }
 
     @Test
+    @DisplayName("with no API key the rows are exactly what they were")
+    void noKeyChangesNothing() {
+        properties.setApiKey("");
+        rows(row(1L, inside, 4, TOMORROW_SUNSET));
+        Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
+
+        assertThat(controller().getForecasts(pro).get(0).warningIds()).isNull();
+        // inactive means the warning store is never even asked (an overlay keyed on the raw switch would ask)
+        verify(warnings, never()).findAllVersionsOfWarningsValidAfter(NOW_AT);
+    }
+
+    @Test
     @DisplayName("with the flag off the rows are exactly what they were")
     void flagOffChangesNothing() {
         properties.setEnabled(false);
@@ -227,5 +242,7 @@ class ForecastControllerWarningOverlayTest {
         Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
 
         assertThat(controller().getForecasts(pro).get(0).warningIds()).isNull();
+        // inactive means the warning store is never even asked (an overlay keyed on the raw switch would ask)
+        verify(warnings, never()).findAllVersionsOfWarningsValidAfter(NOW_AT);
     }
 }

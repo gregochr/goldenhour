@@ -396,3 +396,17 @@ export function fireTook(fire) {
   const total = Math.round((end - start) / 1000);
   return total < 1 ? '<1s' : formatSeconds(total);
 }
+
+/** The config key whose job also needs an API key before it can run (weather warnings). */
+const WARNINGS_CONFIG_SOURCE = 'photocast.warnings.enabled';
+
+/**
+ * What a config-disabled job still needs, after the config key itself: the weather-warnings job is also dormant
+ * without an API key, and its switch is on by default, so naming the switch alone would mislead.
+ *
+ * @param {?string} configSource the job's config gate
+ * @returns {string} text to show after the key ('' for every other job)
+ */
+export function configRequirementSuffix(configSource) {
+  return configSource === WARNINGS_CONFIG_SOURCE ? ' and an API key' : '';
+}

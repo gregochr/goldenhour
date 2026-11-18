@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.WeatherWarningVersionEntity;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.ForecastListDto;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.BriefingWindow.WarningPlaceCount;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
@@ -63,6 +64,7 @@ class WarningOverlayTest {
     void setUp() {
         properties = new WarningsProperties();
         properties.setEnabled(true);
+        properties.setApiKey("test-key");
         overlay = new WarningOverlay(repository, new WarningTimeline(CLOCK), new WarningCoverage(), locations,
                 properties, CLOCK, solarEventFreshness);
         RegionEntity dales = RegionEntity.builder().id(1L).name("Dales").build();
@@ -227,10 +229,29 @@ class WarningOverlayTest {
         verifyNoInteractions(repository);
 
         properties.setEnabled(true);
+
+        properties.setApiKey("test-key");
         assertThat(overlay.overlay(null)).isNull();
         when(repository.findAllVersionsOfWarningsValidAfter(NOW)).thenReturn(List.of());
         assertThat(overlay.overlay(in)).isSameAs(in);
         verify(locations, never()).findAllByEnabledTrueOrderByNameAsc();
+    }
+
+    @Test
+    @DisplayName("on but with no API key the overlay is dormant: input returned, nothing read")
+    void noKeyIsDormant() {
+        properties.setApiKey("");
+        DailyBriefingResponse in = briefing(window(EVENT), "Dales");
+
+        assertThat(overlay.overlay(in)).isSameAs(in);
+        assertThat(overlay.snapshot().isEmpty()).isTrue();
+        List<ForecastListDto> rows = List.of();
+        assertThat(overlayRowsOf(rows)).isSameAs(rows);
+        verifyNoInteractions(repository, locations);
+    }
+
+    private List<ForecastListDto> overlayRowsOf(List<ForecastListDto> rows) {
+        return overlay.overlayRows(rows, List.of());
     }
 
     @Test

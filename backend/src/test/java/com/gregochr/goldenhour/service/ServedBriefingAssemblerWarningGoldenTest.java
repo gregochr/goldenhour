@@ -87,6 +87,7 @@ class ServedBriefingAssemblerWarningGoldenTest {
                 .thenReturn(EvaluationViewService.ServeTriage.EMPTY);
         WarningsProperties on = new WarningsProperties();
         on.setEnabled(true);
+        on.setApiKey("test-key");
         WarningOverlay overlay = new WarningOverlay(warningRepository, new WarningTimeline(CLOCK),
                 new WarningCoverage(), locationRepository, on, CLOCK, solarEventFreshness);
         plain = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService, windowTideRollupBuilder,

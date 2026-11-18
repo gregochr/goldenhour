@@ -93,7 +93,7 @@ public class WarningOverlay {
      * @return the snapshot; empty when the feature is off, nothing is in force, or the lookup failed
      */
     public Snapshot snapshot() {
-        if (!properties.isEnabled()) {
+        if (!properties.isActive()) {
             return Snapshot.EMPTY;
         }
         try {
@@ -123,7 +123,7 @@ public class WarningOverlay {
      * @return the same response when there is nothing to add, otherwise a copy whose windows carry the overlay
      */
     public DailyBriefingResponse overlay(DailyBriefingResponse response) {
-        if (response == null || !properties.isEnabled()) {
+        if (response == null || !properties.isActive()) {
             return response;
         }
         Snapshot snapshot = snapshot();
@@ -157,7 +157,7 @@ public class WarningOverlay {
      * @return the same list when nothing applies, otherwise copies carrying the ids
      */
     public List<ForecastListDto> overlayRows(List<ForecastListDto> rows, List<LocationEntity> enabled) {
-        if (!properties.isEnabled()) {
+        if (!properties.isActive()) {
             return rows;
         }
         Snapshot snapshot = snapshot();

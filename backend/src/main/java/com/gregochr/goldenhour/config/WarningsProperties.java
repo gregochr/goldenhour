@@ -11,8 +11,12 @@ import org.springframework.validation.annotation.Validated;
  * Bound to the {@code photocast.warnings} section of {@code application.yml}: the Met Office weather-warnings
  * ingest ({@code WarningPollingJob}).
  *
- * <p>Off by default. {@link #apiKey} is a secret: it is sent only as the {@link #apiKeyHeader} header (default
- * {@code apikey}), is excluded from {@link #toString()} and is never logged or served.
+ * <p>On by default (owner decision 2026-11-18), but the feature is <em>active</em> only when it is both enabled
+ * and has an API key ({@link #isActive()}): a build without a key is completely dormant and never calls the
+ * Met Office. {@code enabled=false} remains the kill switch.
+ *
+ * <p>{@link #apiKey} is a secret: it is sent only as the {@link #apiKeyHeader} header (default {@code apikey}), is
+ * excluded from {@link #toString()} and is never logged or served.
  */
 @Component
 @ConfigurationProperties(prefix = "photocast.warnings")
@@ -21,8 +25,11 @@ import org.springframework.validation.annotation.Validated;
 @Setter
 public class WarningsProperties {
 
-    /** Whether the poll job runs and the warnings endpoints serve anything. Defaults to {@code false}. */
-    private boolean enabled = false;
+    /**
+     * The kill switch: whether the feature may run at all. Defaults to {@code true}; whether it actually does is
+     * {@link #isActive()}, which also needs an API key.
+     */
+    private boolean enabled = true;
 
     /** The NSWWS v1.1 base URL; the client appends {@code /objects/feed/}, {@code /objects/updated/{uuid}/} etc. */
     private String baseUrl = "https://data.hub.api.metoffice.gov.uk/nswws/v1.1";
@@ -44,12 +51,32 @@ public class WarningsProperties {
     private int pollStaleMinutes = 10;
 
     /**
+     * Whether the API key is set (non-blank).
+     *
+     * @return true when a key is present
+     */
+    public boolean hasApiKey() {
+        return apiKey != null && !apiKey.isBlank();
+    }
+
+    /**
+     * The one effective-on notion every user-visible read uses: the kill switch is on <em>and</em> an API key is set.
+     * Without a key the Met Office is never called and every user surface behaves exactly as with the switch off.
+     *
+     * @return true when warnings should poll and be served
+     */
+    public boolean isActive() {
+        return enabled && hasApiKey();
+    }
+
+    /**
      * Excludes the key: a config dump or a logged properties object must never reveal it.
      *
      * @return a description without the secret
      */
     @Override
     public String toString() {
-        return "WarningsProperties[enabled=" + enabled + ", pollStaleMinutes=" + pollStaleMinutes + "]";
+        return "WarningsProperties[enabled=" + enabled + ", keyConfigured=" + hasApiKey()
+                + ", pollStaleMinutes=" + pollStaleMinutes + "]";
     }
 }

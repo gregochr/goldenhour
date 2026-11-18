@@ -48,11 +48,12 @@ class WarningsPropertiesTest {
     }
 
     @Test
-    @DisplayName("defaults: off, the real v1.1 base URL, apikey header, no key, public link, attribution, 30 minutes")
+    @DisplayName("defaults: on (kill switch), inactive without a key, real base URL, apikey header, 10 minutes")
     void defaults() {
         WarningsProperties properties = new WarningsProperties();
 
-        assertThat(properties.isEnabled()).isFalse();
+        assertThat(properties.isEnabled()).isTrue();
+        assertThat(properties.isActive()).isFalse();
         assertThat(properties.getBaseUrl()).isEqualTo("https://data.hub.api.metoffice.gov.uk/nswws/v1.1");
         assertThat(properties.getApiKeyHeader()).isEqualTo("apikey");
         assertThat(properties.getApiKey()).isEmpty();
@@ -62,13 +63,35 @@ class WarningsPropertiesTest {
     }
 
     @Test
+    @DisplayName("active only when the switch is on and a non-blank key is set")
+    void activeNeedsSwitchAndKey() {
+        WarningsProperties properties = new WarningsProperties();
+        assertThat(properties.isActive()).isFalse();
+
+        properties.setApiKey("   ");
+        assertThat(properties.isActive()).isFalse();
+        properties.setApiKey(null);
+        assertThat(properties.isActive()).isFalse();
+        assertThat(properties.hasApiKey()).isFalse();
+
+        properties.setApiKey("k");
+        assertThat(properties.hasApiKey()).isTrue();
+        assertThat(properties.isActive()).isTrue();
+
+        properties.setEnabled(false);
+        assertThat(properties.isActive()).isFalse();
+        assertThat(properties.isEnabled()).isFalse();
+    }
+
+    @Test
     @DisplayName("toString never includes the API key")
     void toStringHidesKey() {
         WarningsProperties properties = new WarningsProperties();
         properties.setApiKey("super-secret-key");
         properties.setEnabled(true);
 
-        assertThat(properties.toString()).doesNotContain("super-secret-key").contains("enabled=true");
+        assertThat(properties.toString()).doesNotContain("super-secret-key")
+                .contains("enabled=true").contains("keyConfigured=true");
     }
 
     @Test
