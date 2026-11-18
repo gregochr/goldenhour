@@ -109,14 +109,26 @@ describe('MastheadTickLine — the origin control', () => {
     expect(onOpenSearch).toHaveBeenCalledTimes(2);
   });
 
-  it('⚠️ the ⌕ carries no `/` key cap: the key moved to Ask (F2), and a cap would name it for search', () => {
-    // The cap used to advertise Plan search's shortcut. `/` now opens the Ask dock, whose own field
-    // draws the one cap on the page; a second, on the search button, would be a lie told twice.
+  it('⚠️ the Find button names ⌘K / Ctrl K, never the `/` that moved to Ask (F2)', () => {
+    // `/` opens the Ask dock, whose own field draws the one `/` cap on the page; Find's shortcut is
+    // ⌘K / Ctrl K, advertised through `aria-keyshortcuts` and a decorative keycap from `lg` up.
     renderTick({ onOpenSearch: vi.fn() });
     const search = screen.getByTestId('window-first-search');
-    expect(search.querySelector('kbd')).toBeNull();
+    expect(search).toHaveAttribute('aria-keyshortcuts', 'Meta+K Control+K');
+    const cap = search.querySelector('kbd');
+    expect(cap).not.toBeNull();
+    expect(cap).toHaveAttribute('aria-hidden', 'true');
+    expect(cap.textContent).toMatch(/^(⌘K|Ctrl K)$/);
     expect(search).not.toHaveTextContent('/');
-    expect(search).not.toHaveAttribute('aria-keyshortcuts');
+  });
+
+  it('⚠️ the Find button is named "Find a place, region or day", which holds its visible word at every width (WCAG 2.5.3)', () => {
+    renderTick({ onOpenSearch: vi.fn() });
+    const search = screen.getByRole('button', { name: 'Find a place, region or day' });
+    expect(search).toBe(screen.getByTestId('window-first-search'));
+    // Phone draws `Find`, a wider screen the whole phrase; both are inside the name.
+    expect(search.textContent).toContain('Find');
+    expect(search.textContent).toContain('Find a place, region or day');
   });
 
   it('offers the way home only when the origin has moved', () => {
@@ -412,7 +424,7 @@ describe('MastheadTickLine — with no search handler (every tab but Plan)', () 
     renderTick(noSearch);
 
     expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Search days, regions and places' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Find a place, region or day' })).toBeNull();
     const statement = screen.getByTestId('window-first-origin-statement');
     expect(statement.tagName).toBe('SPAN');
     expect(statement).toHaveTextContent('Home · Durham');
@@ -471,32 +483,33 @@ describe('MastheadTickLine — with no search handler (every tab but Plan)', () 
 });
 
 /**
- * The Map tab's per-tab STATEMENT variant (map-tab-v2-plan.md §3 P11, README "Masthead change") —
- * "on a map, panning IS the search". `isMapTab` is a per-tab STATE of this one component, never a
- * fork, and this block adds only what changes when the prop flips.
+ * The Map tab (map-tab-v2-plan.md §3 P11, README "Masthead change"; find-and-favourites-plan.md F1).
+ * `isMapTab` is a per-tab STATE of this one component, never a fork, and this block adds only what
+ * changes when the prop flips.
  *
- * <p>⚠️ It is no longer the only statement. Coming up and Operations draw one too since 2026-09-16,
- * through the absence of a search handler (the block above). The Map keeps its OWN rule here: every
- * test in this block hands over a handler (the `renderTick` default) and still gets no search,
- * because panning is the search on the map whatever a caller passes. The caption stays the Map's
- * alone. The blocks further above render with a handler and without `isMapTab`, which is the Plan
- * tab, not "the other tabs".
+ * <p>⚠️ The Map used to withhold search whatever a caller passed ("on a map, panning IS the search").
+ * F1 retired that: a place picked in Find flies the map to it, so a handler handed to the Map tab gets
+ * the interactive origin button, the hairline and the Find button, exactly as the Plan tab does. What
+ * stays the Map's own is the "drive times from here" caption, and the statement when there is no
+ * handler (the shell hands none to Operations).
  */
-describe('MastheadTickLine — the Map tab statement (map-tab-v2-plan.md §3 P11)', () => {
-  it('renders a non-interactive statement instead of the origin button, and withholds the ⌕ search button', () => {
-    // WITH a handler, as `renderTick` hands one over: the Map's own rule, not the shell's handler.
-    renderTick({ isMapTab: true });
+describe('MastheadTickLine — the Map tab (map-tab-v2-plan.md §3 P11; find-and-favourites-plan.md F1)', () => {
+  it('⚠️ offers Find on the Map when handed a handler — the origin button, the hairline and the Find button', () => {
+    const onOpenSearch = vi.fn();
+    const { container } = renderTick({ isMapTab: true, onOpenSearch });
 
-    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-    expect(screen.queryByTestId('window-first-search')).toBeNull();
-    const statement = screen.getByTestId('window-first-origin-statement');
-    expect(statement.tagName).toBe('SPAN');
-    expect(statement).toHaveTextContent('Home · Durham');
+    expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
+    expect(container.querySelector('.wf-tick-sep')).not.toBeNull();
+    fireEvent.click(screen.getByTestId('window-first-origin-chip'));
+    fireEvent.click(screen.getByTestId('window-first-search'));
+    expect(onOpenSearch).toHaveBeenCalledTimes(2);
   });
 
-  it('draws the caption, and only in the statement — never on the interactive arm', () => {
+  it('keeps the "drive times from here" caption on the Map, on the origin button, and says it in its name', () => {
     const { rerender } = renderTick({ isMapTab: true });
     expect(screen.getByTestId('masthead-origin-caption')).toHaveTextContent('drive times from here');
+    expect(screen.getByTestId('window-first-origin-chip').getAttribute('aria-label'))
+      .toBe('Planning from home · Durham. Search to change it. Drive times are measured from here.');
 
     rerender(
       <MastheadTickLine
@@ -508,20 +521,26 @@ describe('MastheadTickLine — the Map tab statement (map-tab-v2-plan.md §3 P11
     expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
   });
 
-  it('drops the hairline separator along with the search button — nothing left for it to separate', () => {
-    const { container } = renderTick({ isMapTab: true });
+  it('still draws the statement, with its caption, where there is no handler', () => {
+    const { container } = renderTick({ isMapTab: true, onOpenSearch: undefined });
+
+    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
+    expect(screen.queryByTestId('window-first-search')).toBeNull();
     expect(container.querySelector('.wf-tick-sep')).toBeNull();
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(statement.tagName).toBe('SPAN');
+    expect(statement).toHaveTextContent('Home · Durham');
+    expect(statement).toHaveTextContent('drive times from here');
   });
 
   it('still names the away origin correctly — the map tab does not stop being honest about where drive times come from', () => {
     renderTick({ isMapTab: true, origin: LAKES });
 
-    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-    const statement = screen.getByTestId('window-first-origin-statement');
-    expect(statement).toHaveTextContent('The Lake District · from Keswick');
-    expect(statement).toHaveTextContent('drive times from here');
-    // The way-home pin is a DIFFERENT control from the ⌕ search button withheld above — it is not a
-    // text field, and leaving the origin remains reachable from every tab.
+    const chip = screen.getByTestId('window-first-origin-chip');
+    expect(chip).toHaveTextContent('The Lake District · from Keswick');
+    expect(chip).toHaveTextContent('drive times from here');
+    // The way-home pin is a DIFFERENT control from the Find button, and leaving the origin remains
+    // reachable from every tab.
     expect(screen.getByTestId('window-first-origin-home')).toBeInTheDocument();
   });
 
@@ -532,27 +551,28 @@ describe('MastheadTickLine — the Map tab statement (map-tab-v2-plan.md §3 P11
     });
 
     expect(screen.getByTestId('masthead-set-postcode')).toBeInTheDocument();
-    // Still no caption and no search button on the map tab, but the nudge itself is the SAME
-    // button (`onSetPostcode`, not a dead statement) every other tab already renders.
+    // No caption beside the nudge (no origin to be measured from), but Find stays on the Map, and the
+    // nudge itself is the SAME button (`onSetPostcode`, not a dead statement) every other tab renders.
     expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
-    expect(screen.queryByTestId('window-first-search')).toBeNull();
+    expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('masthead-set-postcode'));
     expect(onSetPostcode).toHaveBeenCalledTimes(1);
   });
 
-  it('the Plan tab is unaffected — handed a handler off the map, both search buttons still render', () => {
+  it('the Plan tab is unaffected — both search buttons render, with no caption', () => {
     renderTick({ isMapTab: false });
 
     expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
     expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
     expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
+    expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
   });
 
   it('keeps the statement out of the Tab order — focus can be PUT there, never Tabbed to', () => {
-    // "Panning IS the search": the statement is not a control, so it must not be a tab stop. It is
-    // a place focus can be put, for the one route that needs it (the block below).
-    renderTick({ isMapTab: true });
+    // The statement is not a control, so it must not be a tab stop. It is a place focus can be put,
+    // for the one route that needs it (the block below).
+    renderTick({ isMapTab: true, onOpenSearch: undefined });
     expect(screen.getByTestId('window-first-origin-statement')).toHaveAttribute('tabindex', '-1');
   });
 });
@@ -569,12 +589,14 @@ describe('MastheadTickLine — the Map tab statement (map-tab-v2-plan.md §3 P11
  * BUTTON, React reuses the node, and focus rides it.
  */
 describe('MastheadTickLine — the origin slot keeps focus when its element is swapped', () => {
+  // ⚠️ `isMapTab: true` here stands for "the tab that draws the STATEMENT": since F1 the Map is handed a search
+  // handler like Plan, so the statement the swap tests below exercise now comes from no handler (Operations).
   const tick = (props = {}) => (
     <MastheadTickLine
       light={LIGHT}
       origin={null}
       homePlace="Durham"
-      onOpenSearch={vi.fn()}
+      onOpenSearch={props.isMapTab ? undefined : vi.fn()}
       onGoHome={vi.fn()}
       onSetPostcode={vi.fn()}
       {...props}
@@ -823,11 +845,11 @@ describe('MastheadTickLine — ⌂ hands focus to the origin slot when its own p
   });
 
   it.each([
-    ['on the Map tab', { isMapTab: true }],
-    // Since #860 the shell hands `onOpenSearch` to the Plan tab alone, and a slot with no search to
-    // open draws the statement on every tab. The landing is whatever the slot holds, so this arm pins
-    // that the handoff does not quietly depend on `isMapTab`.
-    ['on a tab with no search — Coming up, Operations', { onOpenSearch: undefined }],
+    ['on the Map tab with no handler', { isMapTab: true, onOpenSearch: undefined }],
+    // A slot with no search to open draws the statement (since F1 only Operations is handed none).
+    // The landing is whatever the slot holds, so this arm pins that the handoff does not quietly
+    // depend on `isMapTab`.
+    ['on a tab with no search — Operations', { onOpenSearch: undefined }],
   ])('⚠️ lands on the statement %s — a place focus can be put, never a tab stop', (_label, props) => {
     render(<Away {...props} />);
     const button = home();
@@ -842,7 +864,10 @@ describe('MastheadTickLine — ⌂ hands focus to the origin slot when its own p
 
   it.each([
     ['on the Plan tab, where the origin button\'s node BECOMES the nudge', { isMapTab: false }, false],
-    ['on the Map tab, where the nudge REPLACES the statement in the same commit', { isMapTab: true }, true],
+    ['on the Map tab (as the shell hands it, a handler), where the origin button\'s node BECOMES the nudge too',
+      { isMapTab: true }, false],
+    ['with no handler on the Map, where the nudge REPLACES the statement in the same commit',
+      { isMapTab: true, onOpenSearch: undefined }, true],
     ['on a tab with no search, where it replaces the statement too', { onOpenSearch: undefined }, true],
   ])('with no home saved, lands on the nudge — %s', (_label, props, replaced) => {
     // Going home with no postcode turns the slot's origin into its nudge, by one of two mechanisms,
@@ -1079,14 +1104,33 @@ describe('MastheadTickLine — hideAtHome (the phone Map)', () => {
     );
   }
 
-  it('renders nothing at Home, decided by its own rule', () => {
-    renderTick({ hideAtHome: true, isMapTab: true });
+  it('renders nothing at Home with no Find handler, decided by its own rule', () => {
+    renderTick({ hideAtHome: true, isMapTab: true, onOpenSearch: undefined });
     expect(screen.queryByTestId('window-first-tickline')).toBeNull();
   });
 
-  it('renders nothing while the place is still unknown — Home is still the origin', () => {
-    renderTick({ hideAtHome: true, isMapTab: true, homePlace: undefined, light: LIGHT });
+  it('renders nothing while the place is still unknown with no Find handler — Home is still the origin', () => {
+    renderTick({
+      hideAtHome: true, isMapTab: true, homePlace: undefined, light: LIGHT, onOpenSearch: undefined,
+    });
     expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+  });
+
+  it('⚠️ at Home with Find on the Map, draws the Find button ALONE — no origin, no hairline', () => {
+    const onOpenSearch = vi.fn();
+    const { container } = renderTick({ hideAtHome: true, isMapTab: true, onOpenSearch });
+    expect(screen.getByTestId('window-first-tickline')).toHaveAttribute('data-compact', 'true');
+    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
+    expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
+    expect(container.querySelector('.wf-tick-sep')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Find a place, region or day' }));
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('also draws it while the place is still unknown — Home is still the origin', () => {
+    renderTick({ hideAtHome: true, isMapTab: true, homePlace: undefined, light: LIGHT });
+    expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
+    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
   });
 
   it.each([

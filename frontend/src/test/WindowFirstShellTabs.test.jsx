@@ -594,24 +594,20 @@ describe('WindowFirstShell — the reach lens across tabs', () => {
 });
 
 /**
- * Search is a Plan-tab control, like the lens bar above.
+ * Find is offered on Plan, Coming up and Map, and withheld on Operations
+ * (find-and-favourites-plan.md F1).
  *
- * <p>Everything search finds is a Plan object — one of the six windows, a region to plan from, or a
- * place's four-day sheet — and every pick opens a Plan dialog or moves the Plan's origin. The `/`
- * shortcut was Plan-only from M3 until F2 handed the key to Ask; search is now reached through the two
- * buttons alone. Until 2026-09-16 the masthead's two buttons were not Plan-only: on
- * Coming up (and Operations) the ⌕ and the origin button both opened search, and a pick then opened
- * the window popup or the four-day sheet over a pane that was not the Plan's. `selectTab` exists to
- * prevent exactly that state, and nothing moved the tab. Reproduced in jsdom through both buttons
- * before the fix.
- *
- * <p>So the masthead withholds both buttons off Plan rather than refusing their presses: plan-matrix
- * §3 rule 14 bans a control with no visible effect. The origin is still stated, as it is on the Map
- * tab, and the controls that do something else stay: the nudge opens settings, and ⌂ moves the
- * origin home.
+ * <p>Until F1 search was a Plan-tab control: everything it found was a Plan object, and a pick made on
+ * Coming up opened the window popup or the four-day sheet over a pane that was not the Plan's, a state
+ * `selectTab` exists to prevent (reproduced in jsdom through both buttons on 2026-09-16, which is when
+ * the masthead withheld them). F1 lifts the gate by giving each tab its own meaning for a pick (the
+ * per-tab pick tests are in `WindowFirstShellFind.test.jsx`), so the two buttons are back on all three
+ * tabs. Operations has no meaning for a pick, so it still draws the origin as a statement, with no Find
+ * button: withheld rather than refused (plan-matrix §3 rule 14). The controls that do something else
+ * stay everywhere: the nudge opens settings, and ⌂ moves the origin home.
  */
-describe('WindowFirstShell — search across tabs', () => {
-  const PLAN_CONTROLS = ['window-first-settings', 'window-first-guide', 'window-first-signout',
+describe('WindowFirstShell — Find across tabs', () => {
+  const FIND_CONTROLS = ['window-first-settings', 'window-first-guide', 'window-first-signout',
     'window-first-origin-chip', 'window-first-search'];
 
   /** The band's buttons in DOM order, as an exact list — a count passes when one is swapped. */
@@ -619,71 +615,52 @@ describe('WindowFirstShell — search across tabs', () => {
     .getAllByRole('button').map((b) => b.getAttribute('data-testid'));
 
   it.each([
-    ['at home', {},
-      ['window-first-settings', 'window-first-guide', 'window-first-signout'],
-      'Home · Newcastle'],
+    ['at home', {}, FIND_CONTROLS, 'Home · Newcastle'],
     ['away, where the way home stays', { origin: { id: 7, name: 'The Lake District', baseName: 'Keswick' } },
-      ['window-first-settings', 'window-first-guide', 'window-first-signout', 'window-first-origin-home'],
+      [...FIND_CONTROLS, 'window-first-origin-home'],
       'The Lake District · from Keswick'],
-  ])('⚠️ offers no search trigger on Coming up, %s — neither the ⌕ nor the origin button', async (
+  ])('⚠️ offers both Find doors on Coming up, %s — the origin button and the Find button', async (
     _label, overrides, controls, place,
   ) => {
     renderShell(overrides);
     await openComingUp();
 
     expect(mastheadControls()).toEqual(controls);
-    expect(screen.queryByRole('button', { name: 'Search days, regions and places' })).toBeNull();
-    // Still stated: the tick line is the page's one statement of where the plan is computed from,
-    // and a tab change must not take that away with the control.
-    const statement = screen.getByTestId('window-first-origin-statement');
-    expect(statement.tagName).toBe('SPAN');
-    expect(statement).toHaveTextContent(place);
+    expect(screen.getByRole('button', { name: 'Find a place, region or day' })).toBeInTheDocument();
+    expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
+    expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent(place);
   });
 
-  it('keeps the postcode nudge on Coming up, because it opens settings rather than search', async () => {
+  it('keeps the postcode nudge on Coming up, because it opens settings rather than Find', async () => {
     // CLAUDE.md: never re-gate the postcode input. The nudge is the origin button's empty state, but
-    // its job is a setting, and that job exists on every tab — the Map tab keeps it for the same
-    // reason. Only the ⌕ beside it goes.
+    // its job is a setting, and that job exists on every tab. Find sits beside it.
     const { onOpenSettings } = renderShell({ homePlace: null });
     await openComingUp();
 
     expect(mastheadControls()).toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
-      'masthead-set-postcode']);
+      'masthead-set-postcode', 'window-first-search']);
     fireEvent.click(screen.getByRole('button', { name: 'Set a postcode for light and drive times' }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('⚠️ opens nothing when the place in the tick line is pressed on Coming up', async () => {
-    // The statement is drawn where the origin button was, with the same words. A click handler left
-    // on it would reopen the route with no button for the inventory above to count.
+  it('opens Find from the place in the tick line, on Coming up as on Plan', async () => {
     renderShell();
-    const place = () => within(screen.getByTestId('window-first-tickline')).getByText('Home · Newcastle');
-
-    // Control, and it loads search's chunk. `PlanSearch` is lazy, so an absence asserted before its
-    // chunk has ever resolved passes whether or not anything asked for it. Once it has resolved, a
-    // press that did open search renders it in that press's own commit.
-    fireEvent.click(place());
-    expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByTestId('plan-search')).toBeNull();
-
     await openComingUp();
-    fireEvent.click(place());
-    expect(screen.queryByTestId('plan-search')).toBeNull();
-    expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+    fireEvent.click(within(screen.getByTestId('window-first-tickline')).getByText('Home · Newcastle'));
+    expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
   });
 
-  it('gives both triggers back on the way to Plan', async () => {
+  it('opens Find from the Find button on the way back to Plan too', async () => {
     renderShell();
     await openComingUp();
     fireEvent.click(tab('At a Glance'));
 
-    expect(mastheadControls()).toEqual(PLAN_CONTROLS);
-    fireEvent.click(screen.getByRole('button', { name: 'Search days, regions and places' }));
+    expect(mastheadControls()).toEqual(FIND_CONTROLS);
+    fireEvent.click(screen.getByRole('button', { name: 'Find a place, region or day' }));
     expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
   });
 
-  it('⚠️ withholds them on Operations too — the rule is "only on Plan", not "not on Coming up"', async () => {
+  it('⚠️ withholds Find on Operations — a pick there would have no meaning', async () => {
     renderShell({}, { operationsPane: <p data-testid="ops-pane">operations pane</p> });
     fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
     // Settles the feed request every mount makes, which would otherwise land outside `act`.
@@ -693,16 +670,16 @@ describe('WindowFirstShell — search across tabs', () => {
     expect(screen.getByTestId('window-first-origin-statement')).toHaveTextContent('Home · Newcastle');
   });
 
-  it('captions the statement "drive times from here" on the Map tab alone', async () => {
+  it('⚠️ offers Find on the Map, with the "drive times from here" caption kept on the origin button', async () => {
     // The caption is true on the map, where every drive time and leave-by on screen is measured from
     // this place. Coming up shows no drive time at all, so there it would be a claim about nothing.
     renderShell({}, { mapPane: <p data-testid="map-pane">map pane</p> });
     fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(mastheadControls()).toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout']);
+    expect(mastheadControls()).toEqual(FIND_CONTROLS);
     expect(screen.getByTestId('masthead-origin-caption')).toHaveTextContent('drive times from here');
 
     await openComingUp();
-    expect(screen.getByTestId('window-first-origin-statement')).toHaveTextContent('Home · Newcastle');
+    expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Newcastle');
     expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
   });
 });

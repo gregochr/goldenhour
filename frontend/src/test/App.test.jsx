@@ -1618,7 +1618,12 @@ describe('App — the settings dialog hands focus back to the tick line\'s origi
     fireEvent.click(nudge);
   }
 
-  it('⚠️ lands the reader on the statement after a save replaced the nudge under the open dialog', async () => {
+  // ⚠️ Since Find (F1) the Map is handed a search handler like Plan, so a saved home turns the nudge into the
+  // origin BUTTON — the same node, which React reuses — rather than into the statement `<span>` that replaced it
+  // before. The two tests below keep their orders and now pin that focus rides the reused node. (The statement
+  // swap that destroyed the node survives only where there is no handler, Operations, and is pinned in
+  // `MastheadTickLine.test.jsx`'s slot-handoff block.)
+  it('⚠️ keeps the reader on the origin button after a save turned the nudge into it under the open dialog', async () => {
     getSettings.mockResolvedValue(SETTINGS_NO_HOME);
     lookupPostcode.mockResolvedValue(LOOKUP_KESWICK);
     const save = deferred();
@@ -1633,18 +1638,17 @@ describe('App — the settings dialog hands focus back to the tick line\'s origi
 
     await land(() => save.resolve(SAVED_KESWICK));
 
-    expect(nudge.isConnected, 'precondition: the save replaced the nudge while the dialog was open')
-      .toBe(false);
-    const statement = screen.getByTestId('window-first-origin-statement');
-    expect(statement).toHaveTextContent('Home · Keswick');
-    expect(statement, 'precondition: the dialog still holds the reader').not.toHaveFocus();
+    const origin = screen.getByTestId('window-first-origin-chip');
+    expect(origin, 'precondition: the save turned the nudge into the origin button, the same node').toBe(nudge);
+    expect(origin).toHaveTextContent('Home · Keswick');
+    expect(origin, 'precondition: the dialog still holds the reader').not.toHaveFocus();
 
     closeSettings(dialog);
 
-    await waitFor(() => expect(statement).toHaveFocus());
+    await waitFor(() => expect(origin).toHaveFocus());
   });
 
-  it('⚠️ hands focus on to the statement when the dialog\'s own read replaces the nudge after the close', async () => {
+  it('⚠️ keeps focus on the nudge\'s node when the dialog\'s own read turns it into the origin button after the close', async () => {
     const dialogRead = deferred();
     getSettings
       .mockResolvedValueOnce(SETTINGS_NO_HOME) // App's mount read: no home, so the nudge shows
@@ -1663,10 +1667,10 @@ describe('App — the settings dialog hands focus back to the tick line\'s origi
     // A home saved elsewhere — another device — is what the late read brings back.
     await land(() => dialogRead.resolve(SETTINGS_KESWICK));
 
-    expect(nudge.isConnected, 'precondition: the read replaced the nudge after the close').toBe(false);
-    const statement = screen.getByTestId('window-first-origin-statement');
-    expect(statement).toHaveTextContent('Home · Keswick');
-    expect(statement).toHaveFocus();
+    const origin = screen.getByTestId('window-first-origin-chip');
+    expect(origin, 'precondition: the read turned the nudge into the origin button after the close').toBe(nudge);
+    expect(origin).toHaveTextContent('Home · Keswick');
+    expect(origin).toHaveFocus();
   });
 
   it('⚠️ forgets the nudge\'s return address on close, so a later opening from the cog cannot use it', async () => {

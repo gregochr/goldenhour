@@ -159,11 +159,14 @@ Highlight.propTypes = {
  * @param {?object}  [props.origin]    the origin descriptor, for that clause's wording
  * @param {boolean}  [props.stacked]   the guide's dialog is over this one (G2): inert, no
  *        {@code aria-modal}, and Escape withheld, as {@code Modal}'s stacked protocol requires
+ * @param {string}   [props.tab]       the tab Find is open on ({@code 'plan'}, {@code 'coming-up'} or
+ *        {@code 'map'}); only the Map words its rows differently — see {@code buildSearchGroups}
  */
 export default function PlanSearch({
   windows, regions, locations, originId = null, initialQuery = '',
   onClose, onPickWindow, onPickRegion, onPickLocation,
   reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, stacked = false,
+  tab = 'plan',
 }) {
   // Seeded once. The caller keys this component on the seed, so a new seed mounts a fresh box
   // rather than overwriting what the reader has since typed into an open one.
@@ -172,10 +175,10 @@ export default function PlanSearch({
 
   const groups = useMemo(
     () => buildSearchGroups(query, {
-      windows, regions, locations, originId, reachById, scoreIndex, scopeRegionNames, origin,
+      windows, regions, locations, originId, reachById, scoreIndex, scopeRegionNames, origin, tab,
     }),
     [query, windows, regions, locations, originId, reachById, scoreIndex,
-      scopeRegionNames, origin],
+      scopeRegionNames, origin, tab],
   );
   const rows = useMemo(() => flattenRows(groups), [groups]);
 
@@ -414,6 +417,7 @@ PlanSearch.propTypes = {
   originId: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   initialQuery: PropTypes.string,
   stacked: PropTypes.bool,
+  tab: PropTypes.oneOf(['plan', 'coming-up', 'map']),
   onClose: PropTypes.func.isRequired,
   onPickWindow: PropTypes.func,
   onPickRegion: PropTypes.func,

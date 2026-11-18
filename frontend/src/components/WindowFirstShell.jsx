@@ -42,6 +42,7 @@ import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
 import { normalizeMapTrigger, outlierKeysOf } from '../utils/mapDoor.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
+import { isFindKey, isTypingTarget } from '../utils/findKey.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
@@ -413,6 +414,12 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *        type control and the id/name lookup for the sheet's spot.
  *        Not fetched by this arm's provider: {@code App} already holds them, and a second request
  *        for a list the page has would be waste.
+ * @param {?Function} [props.onFindOnMap] hands the Map a Find pick that is not a window:
+ *        {@code {kind: 'location', id, name}} (fly and open the callout) or {@code {kind: 'region', name}}
+ *        (pan and frame, never the origin). {@code App} nonces it and forwards it to the Map pane. Absent
+ *        means no Map pane: Find then offers the Map no pick.
+ * @param {?Function} [props.onFindOpenChange] told {@code true} while Find is open and {@code false} when it
+ *        closes, so the Map pane can close its own menus (they are not dialogs, and Find is a modal over them)
  * @param {?Array<string>} [props.forecastDates] the dates (`YYYY-MM-DD`) the reader holds a colour
  *        forecast for — {@code App}'s {@code allDates}. Forwarded untouched to the Coming up tab,
  *        which withholds a map door whose date is not in it. Three-valued: null (the default) is
@@ -441,7 +448,7 @@ export default function WindowFirstShell({
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
   healthDot = null, healthStatusLine = null, light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
   locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false, initialTab = null,
-  forecastDates = null, registerCloseDialogs = null,
+  forecastDates = null, registerCloseDialogs = null, onFindOnMap = null, onFindOpenChange = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
@@ -1292,6 +1299,8 @@ export default function WindowFirstShell({
   const askSheetReturnRef = useRef(false);
   // True while the sheet up came from an `inPlan` handoff (set by the handoff effect).
   const sheetTabReturnRef = useRef(false);
+  // True while the location sheet up was opened by a Find pick: its close returns focus to the Find button.
+  const sheetFromFindRef = useRef(false);
   const sheetHandoffNonce = locationSheetHandoff?.nonce ?? null;
   const lastHandledSheetHandoff = useRef(locationSheetHandoff?.nonce ?? null);
   useEffect(() => {
@@ -1875,6 +1884,12 @@ export default function WindowFirstShell({
   const askSheetFallback = useCallback(
     () => {
       if (askSheetReturnRef.current) return askRestoreFallback();
+      // A sheet a Find pick opened goes back to the Find button, the door the reader came through (Safari and
+      // Firefox on macOS do not focus a button on a click, and a ⌘K open has no focused trigger at all).
+      if (sheetFromFindRef.current) {
+        const find = shellRef.current?.querySelector('[data-testid="window-first-search"]');
+        if (find?.isConnected) return find;
+      }
       return sheetTabReturnRef.current ? selectedTabNode() : null;
     },
     [askRestoreFallback, selectedTabNode],
@@ -1926,6 +1941,7 @@ export default function WindowFirstShell({
     if (sheetSpot != null) return;
     askSheetReturnRef.current = false;
     sheetTabReturnRef.current = false;
+    sheetFromFindRef.current = false;
     const opener = askOpenerRef.current;
     if (!opener) return;
     askOpenerRef.current = null;
@@ -2206,6 +2222,131 @@ export default function WindowFirstShell({
   const handleSpot = (card, spot) => (
     showOnMap?.(card.date, card.targetType, spot.locationName)
   );
+  /**
+   * Find — the masthead's labelled button, ⌘K / Ctrl K, and what a pick does on each tab
+   * (find-and-favourites-plan.md F1).
+   *
+   * <h2>Where it is offered</h2>
+   * <p>Plan, Coming up and Map: the three tabs that give a pick a meaning of their own. Operations has none, so
+   * the tick line draws its origin as a statement there and no button. Until F1 the Plan tab alone had it,
+   * because a pick made elsewhere opened a Plan dialog over the wrong tab; each tab now gives a pick its own
+   * meaning instead (the table in the plan), and a pick that needs the Plan tab goes there through
+   * {@code selectTab} first, the way {@code askOpenInPlan} does (decision D6).
+   *
+   * <h2>The guards</h2>
+   * <p>The button refuses while the next-days sheet, the pick dialog or the guide's modal is up (the two-deep
+   * rule: Find is a layer over at most the window popup). The key is NOT a copy of {@code /}: it takes the
+   * button's guard, any dialog this shell does not own ({@code foreignDialogOpen}, which covers settings and
+   * Ask's sheet), and a field the reader is typing in, and it does NOT read {@code askKeyRefused}, which
+   * would take ⌘K from a LITE reader, from a dead Ask backend, from a window narrower than 1024px and from
+   * a reader with the window popup open. A second press while Find is open closes it, ahead of every
+   * refusal (the focus is in Find's own field by then). {@code preventDefault} only when the key acts, so
+   * a refused ⌘K still reaches the browser. The listener is mounted at every width and for every role.
+   */
+  const findOffered = effectiveTab === 'plan' || effectiveTab === 'coming-up' || effectiveTab === 'map';
+  const findNode = () => shellRef.current?.querySelector('[data-testid="window-first-search"]') ?? null;
+  const openFind = () => {
+    if (!findOffered || stackedOverPopup || guideModal) return;
+    setSearchSeed('');
+  };
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (!isFindKey(event)) return;
+      // Held keys repeat: a long press must not open Find and close it again, or reopen it on a held chord.
+      if (event.repeat) return;
+      if (searchSeed != null) {
+        // The guide's modal stacked over Find owns the key: closing the dialog under it would strand the guide.
+        if (guideModal) return;
+        event.preventDefault();
+        setSearchSeed(null);
+        return;
+      }
+      if (!findOffered || stackedOverPopup || guideModal) return;
+      if (foreignDialogOpen(shellRef.current)) return;
+      if (isTypingTarget(event.target)) return;
+      event.preventDefault();
+      setSearchSeed('');
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [searchSeed, findOffered, stackedOverPopup, guideModal]);
+  // The Map pane closes its own menus while Find is up: the Filters and Regions popovers and the phone's peek
+  // sections are not dialogs, so Find's modal does not take them down, and one left open would sit under the
+  // callout a pick is about to open.
+  useEffect(() => { onFindOpenChange?.(searchSeed != null); }, [searchSeed, onFindOpenChange]);
+  // Focus, when Find closes with nobody holding it: a ⌘K open has no focused trigger (and Safari and Firefox on
+  // macOS do not focus a button on a click), so `Modal`'s own restore has nowhere to go. It goes back to the Find
+  // button, unless a pick left a dialog standing, which holds focus itself.
+  const findWasOpen = useRef(false);
+  useEffect(() => {
+    const was = findWasOpen.current;
+    findWasOpen.current = searchSeed != null;
+    if (!was || searchSeed != null) return;
+    if (sheetSpot != null || openWindowKey != null || sheetKey != null || openPick != null) return;
+    const focused = document.activeElement;
+    if (focused && focused !== document.body && focused !== document.documentElement) return;
+    findNode()?.focus({ preventScroll: true });
+    // Closed-over `findNode` reads the ref only; the open flag is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchSeed]);
+  /** Where a Coming up pick that needs the Plan tab lands: the tab's own button, as `goToPlanWindow` does. */
+  const focusPlanTab = () => tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
+  /** The windows Find offers on the Map: only those the map's own window control can reach. */
+  const mapFindWindows = useMemo(
+    () => (Array.isArray(forecastDates)
+      ? heatStripCards.filter((card) => forecastDates.includes(card.date))
+      : heatStripCards),
+    [heatStripCards, forecastDates],
+  );
+  /**
+   * A place picked in Find, by tab. Plan: the next-days sheet, as ever. Coming up: the Plan tab, then that sheet
+   * in the same batch (D6). Map: fly there and open its callout, through the Map pane's own channel.
+   */
+  const pickFindLocation = (spot) => {
+    if (effectiveTab === 'map') {
+      onFindOnMap?.({ kind: 'location', id: spot.id ?? null, name: spot.name });
+      return;
+    }
+    sheetFromFindRef.current = true;
+    if (effectiveTab === 'coming-up') {
+      warmStackedChunks();
+      selectTab('plan');
+      openOverPopup({ spot });
+      focusPlanTab();
+      return;
+    }
+    openWindow(null);
+    openOverPopup({ spot });
+  };
+  /** A window picked in Find: the popup on Plan, the Plan tab and then the popup from Coming up, the Map's own window on the Map. */
+  const pickFindWindow = (key) => {
+    if (effectiveTab === 'map') {
+      const [date, targetType] = String(key).split(':');
+      openMapTab({ date, targetType });
+      return;
+    }
+    if (effectiveTab === 'coming-up') {
+      selectTab('plan');
+      focusPlanTab();
+      openWindow(key);
+      return;
+    }
+    openOverPopup(null);
+    openWindow(key);
+  };
+  /**
+   * A region picked in Find. Plan and Coming up plan from it (the origin moves, as ever); the Map only pans and
+   * frames it, and never calls {@code setOrigin}, because an origin move reaches the rings and every drive time.
+   */
+  const pickFindRegion = (region) => {
+    if (effectiveTab === 'map') {
+      onFindOnMap?.({ kind: 'region', name: region.name });
+      return;
+    }
+    openOverPopup(null);
+    openWindow(null);
+    setOrigin?.(region);
+  };
   /**
    * {@code /} moves to Ask — at 1024px and up, on Plan, Coming up and the Map (plan §6 Q1, decided).
    * It opens the dock when it is closed and puts the cursor in its question field when it is open.
@@ -2579,19 +2720,15 @@ export default function WindowFirstShell({
           light={light}
           origin={origin ?? null}
           homePlace={homePlace}
-          // ⚠️ HANDED OVER ON THE PLAN TAB ONLY — the tab rule the old `/` search shortcut had, which
-          // the tick line's two search buttons (the ⌕ and the origin button) did not follow until
-          // 2026-09-16. They are search's ONLY way in since F2: `/` is Ask's.
-          // Everything search finds is a Plan object, and every pick acts on the Plan: a window opens
-          // the popup, a place opens the four-day sheet, a region moves the origin. On Coming up the
-          // first two opened over the almanac feed with the tab unmoved (reproduced in jsdom through
-          // both buttons) — the state `selectTab` exists to prevent — and Operations offered the
-          // same two buttons.
-          // WITHHELD rather than refused: with no handler the tick line draws the origin as a
-          // statement and no ⌕, where a handler that did nothing would leave two controls with no
-          // visible effect (plan-matrix §3 rule 14). The Map tab withheld both before this for its
-          // own reason (P11: panning is the search there). The beyond line, the third trigger, sits
-          // inside the Plan pane and is hidden with it.
+          // ⚠️ HANDED OVER ON PLAN, COMING UP AND MAP (find-and-favourites-plan.md F1). It was the Plan tab
+          // alone, because every pick acted on the Plan: on Coming up a window or a place opened a Plan
+          // dialog over the almanac feed with the tab unmoved — the state `selectTab` exists to prevent.
+          // Each tab now gives a pick its own meaning (`pickFindLocation`, `pickFindWindow`,
+          // `pickFindRegion`), so both doors are offered on all three. WITHHELD rather than refused on
+          // Operations, which has no meaning for a pick: with no handler the tick line draws the origin as
+          // a statement and no Find button, where a handler that did nothing would leave two controls with
+          // no visible effect (plan-matrix §3 rule 14). The beyond line, the third trigger, sits inside
+          // the Plan pane and is hidden with it.
           //
           // ⚠️ And the SAME stacking guard the old `/` search shortcut carried, which M5 added because
           // the button did not. Measured in a browser: from an open location sheet a keyboard reader
@@ -2602,9 +2739,7 @@ export default function WindowFirstShell({
           // shortcut's own comment (since deleted with it) had settled the rule this restores — "those
           // are already stacked on the popup, and a third layer has nowhere to go" — so the button was
           // simply bypassing it.
-          onOpenSearch={effectiveTab === 'plan'
-            ? () => { if (!stackedOverPopup && !guideModal) setSearchSeed(''); }
-            : undefined}
+          onOpenSearch={findOffered ? openFind : undefined}
           // ⚠️ Takes every dialog down first — but at M5 the two calls stopped being on the same
           // footing, and the difference is worth stating so neither is later read as dead.
           //
@@ -2650,9 +2785,8 @@ export default function WindowFirstShell({
           // map-tab-v2-plan.md §3 P11: a per-tab STATE of the tick line, read off the SAME
           // `effectiveTab` every other map-only branch in this file already keys on (the full-frame
           // recast at `:1154`/`:1355`, the search/sheet gates below) — never a second "which tab"
-          // test that could disagree with them. ⚠️ Since 2026-09-16 the statement is not the Map's
-          // alone: `onOpenSearch` above is withheld on every tab but Plan, which draws it there too.
-          // This prop keeps the Map's own no-search rule and the caption only the Map draws.
+          // test that could disagree with them. Since F1 it no longer withholds Find from the Map;
+          // it keeps the caption only the Map draws ("drive times from here").
           isMapTab={effectiveTab === 'map'}
           // Phone only (compact-chrome plan D-1, R2): the Map hides the row at Home — the HOME marker
           // and reach rings show the origin there, and on the Plan tab the row is search's only way
@@ -3328,7 +3462,8 @@ export default function WindowFirstShell({
             key={searchSeed}
             stacked={guideModal}
             initialQuery={searchSeed}
-            windows={heatStripCards}
+            tab={findOffered ? effectiveTab : 'plan'}
+            windows={effectiveTab === 'map' ? mapFindWindows : heatStripCards}
             regions={regions}
             locations={heatSpots}
             originId={origin?.id ?? null}
@@ -3366,15 +3501,15 @@ export default function WindowFirstShell({
             // stated once per route — `onGoHome` above and the sheet's own footer state it too —
             // and a route added later inherits it instead of rediscovering why this one was
             // exempt. One rule, every route.
-            onPickRegion={(region) => {
-              openOverPopup(null); openWindow(null); setOrigin?.(region);
-            }}
+            // Per tab since F1: Plan and Coming up plan from the region (the line above is why the popup and
+            // any sheet close in the same commit); the Map only pans and frames it — see `pickFindRegion`.
+            onPickRegion={pickFindRegion}
             // ⚠️ The same belt here, and for the reason above rather than a new one: nothing can
             // be over the popup when a search pick fires, because that layer is what refuses
             // search. Were one ever up, the pick would land on a popup nobody can see — search
             // closes, `openWindowKey` moves, and the layer is still on top, so from the reader's
             // side choosing a window did nothing until the next Escape.
-            onPickWindow={(key) => { openOverPopup(null); openWindow(key); }}
+            onPickWindow={pickFindWindow}
             // P8: a location result opens that place's own six-window timeline rather than jumping
             // straight to the map. The map is not lost — the sheet's footer carries it and names
             // the window it opens.
@@ -3384,7 +3519,7 @@ export default function WindowFirstShell({
             // reader is already looking at that window. Arriving from search is a different
             // gesture, and it is the one the shell's own "closes FIRST" rule already governs
             // everywhere else.
-            onPickLocation={(spot) => { openWindow(null); openOverPopup({ spot }); }}
+            onPickLocation={pickFindLocation}
           />
         </Suspense>
       )}
@@ -3577,6 +3712,13 @@ WindowFirstShell.propTypes = {
    * four-day sheet down before it changes the window under it.
    */
   registerCloseDialogs: PropTypes.func,
+  /**
+   * Hands the Map a Find pick that is not a window (find-and-favourites-plan.md F1): `{kind: 'location', id,
+   * name}` or `{kind: 'region', name}`. Absent when there is no Map pane to receive it.
+   */
+  onFindOnMap: PropTypes.func,
+  /** Told whether Find is open, so the Map pane can close its menus while it is. */
+  onFindOpenChange: PropTypes.func,
   /** The Map tab callout's four-day-sheet handoff (map-tab-v2-plan.md §3 P9) — `App.jsx`'s
    * `openLocationSheet`, `openFullMapTab`'s shape in reverse. `inPlan` is the destination: true
    * moves to the Plan tab (the callout's `Open in Plan` button), false/absent leaves the reader on
