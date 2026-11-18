@@ -228,4 +228,52 @@ describe('WarningsProvider', () => {
       expect(latest.enabled).toBe(false);
     });
   });
+
+  describe('lastAttemptFailed', () => {
+    let latest;
+    function Grab() {
+      const w = useWarnings();
+      useEffect(() => { latest = w; });
+      return null;
+    }
+
+    it('is false outside a provider and before anything is asked', () => {
+      expect(NO_WARNINGS.lastAttemptFailed).toBe(false);
+    });
+
+    it('says so when the very first request fails, before any list has ever arrived', async () => {
+      getWarnings.mockRejectedValue(new Error('offline'));
+      render(<WarningsProvider><Grab /></WarningsProvider>);
+      await act(async () => {});
+
+      expect(latest.enabled).toBe(false);
+      expect(latest.lastAttemptFailed).toBe(true);
+    });
+
+    it('clears when a reply finally lands', async () => {
+      getWarnings.mockRejectedValueOnce(new Error('offline'));
+      getWarnings.mockResolvedValue(response([]));
+      render(<WarningsProvider><Grab /></WarningsProvider>);
+      await act(async () => {});
+      expect(latest.lastAttemptFailed).toBe(true);
+
+      await act(async () => { await latest.refresh(); });
+
+      expect(latest.lastAttemptFailed).toBe(false);
+      expect(latest.enabled).toBe(true);
+    });
+
+    it('is set after a good list too when a later request fails', async () => {
+      getWarnings.mockResolvedValueOnce(response([]));
+      getWarnings.mockRejectedValue(new Error('offline'));
+      render(<WarningsProvider><Grab /></WarningsProvider>);
+      await act(async () => {});
+      expect(latest.lastAttemptFailed).toBe(false);
+
+      await act(async () => { await latest.refresh(); });
+
+      expect(latest.lastAttemptFailed).toBe(true);
+      expect(latest.enabled).toBe(true);
+    });
+  });
 });

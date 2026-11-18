@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 import PropTypes from 'prop-types';
 import WarningChip, { WarningFooter } from '../WarningChip.jsx';
 import { useWarnings } from '../../context/WarningsContext.jsx';
+import { appNow } from '../../utils/rewind.js';
 import { instantMs, validityText, warningLabel } from '../../utils/warnings.js';
+
+/** How long an answer's warning facts stand unconfirmed: the licence's ten-minute bound (plan §12). */
+const FACTS_FRESH_MS = 10 * 60 * 1000;
 
 /**
  * How the polled list is ordered against the answer's facts. Both carry the time the Met Office feed was last read
@@ -70,22 +74,33 @@ const RETIRED_TEXT = {
  */
 export default function AskWarnings({ warnings }) {
   const served = useWarnings();
-  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [, tick] = useReducer((n) => n + 1, 0);
   const order = warnings ? listAgainstAnswer(warnings.checkedAt, served) : 'unknown';
   const comparable = order === 'current';
   const needsRefresh = order === 'older';
   const { refresh, lastCheckedAt } = served;
+  const answerMs = warnings ? instantMs(warnings.checkedAt) : Number.NaN;
   // A list older than the answer's facts is brought up to date now, not at the next poll; meanwhile the answer's own
   // facts stand. It re-runs when a poll brings a different (still older) list, but not for the same one, so an
-  // unchanged feed cannot loop. A failed refresh is said out loud (the stale line), never read as "still in force".
+  // unchanged feed cannot loop. A failed refresh is said out loud through the provider's own state (below).
   useEffect(() => {
-    if (!needsRefresh) return undefined;
-    let current = true;
-    refresh().then((ok) => { if (current) setRefreshFailed(ok === false); });
-    return () => { current = false; };
+    if (needsRefresh) refresh();
   }, [needsRefresh, refresh, lastCheckedAt]);
+  // The facts age whether or not anything re-renders: with no live list to confirm them, wake up when they cross the
+  // licence's ten-minute bound so an answer left open says so by itself.
+  useEffect(() => {
+    if (!warnings || comparable || Number.isNaN(answerMs)) return undefined;
+    const remaining = answerMs + FACTS_FRESH_MS - appNow().getTime();
+    if (remaining <= 0) return undefined;
+    const timer = setTimeout(tick, remaining + 1);
+    return () => clearTimeout(timer);
+  }, [warnings, comparable, answerMs]);
   if (!warnings) return null;
-  const stale = warnings.stale || (served.enabled && served.stale) || (needsRefresh && refreshFailed);
+  // Stale when the server said so, when the provider's own list is, or when nothing live confirms the facts and
+  // either the newest fetch failed (an initial failure included) or the facts are older than the licence bound.
+  const unconfirmedAndOld = !comparable && !Number.isNaN(answerMs) && appNow().getTime() - answerMs > FACTS_FRESH_MS;
+  const stale = warnings.stale || (served.enabled && served.stale)
+    || (!comparable && (served.lastAttemptFailed || unconfirmedAndOld));
   return (
     <div
       className="flex flex-col gap-1.5 py-1.5"

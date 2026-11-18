@@ -29,6 +29,8 @@ export const NO_WARNINGS = Object.freeze({
   warnings: Object.freeze([]),
   metOfficeUrl: DEFAULT_MET_OFFICE_URL,
   attribution: DEFAULT_ATTRIBUTION,
+  // True while the newest request failed and no later reply has landed (an initial failure included).
+  lastAttemptFailed: false,
   // Outside a provider there is nothing to refresh: null says so (true applied a reply, false a failed request).
   refresh: () => Promise.resolve(null),
 });
@@ -51,6 +53,7 @@ export function WarningsProvider({ children }) {
   const lastOkAtRef = useRef(null);
   const [lastOkAt, setLastOkAt] = useState(null);
   const [clientStale, setClientStale] = useState(false);
+  const [lastAttemptFailed, setLastAttemptFailed] = useState(false);
   const requestedRef = useRef(0);
   const appliedRef = useRef(0);
 
@@ -66,9 +69,12 @@ export function WarningsProvider({ children }) {
       lastOkAtRef.current = Date.now();
       setLastOkAt(lastOkAtRef.current);
       setClientStale(false);
+      setLastAttemptFailed(false);
       setResponse(data);
       return true;
     } catch {
+      // A failure older than a reply already applied is history; the newest one is what the consumers must hear.
+      if (request > appliedRef.current) setLastAttemptFailed(true);
       // Transient: keep what is on screen, but once no reply has landed for too long say so (stale line).
       if (lastOkAtRef.current != null && Date.now() - lastOkAtRef.current > WARNINGS_CLIENT_STALE_MS) {
         setClientStale(true);
@@ -96,7 +102,7 @@ export function WarningsProvider({ children }) {
 
   const value = useMemo(() => {
     if (!response || typeof response !== 'object' || response.enabled !== true) {
-      return { ...NO_WARNINGS, refresh };
+      return { ...NO_WARNINGS, lastAttemptFailed, refresh };
     }
     const warnings = orderWarnings(response.warnings);
     return {
@@ -109,9 +115,10 @@ export function WarningsProvider({ children }) {
       warnings,
       metOfficeUrl: response.metOfficeUrl || DEFAULT_MET_OFFICE_URL,
       attribution: response.attribution || DEFAULT_ATTRIBUTION,
+      lastAttemptFailed,
       refresh,
     };
-  }, [response, clientStale, lastOkAt, refresh]);
+  }, [response, clientStale, lastOkAt, lastAttemptFailed, refresh]);
 
   return <WarningsContext.Provider value={value}>{children}</WarningsContext.Provider>;
 }
