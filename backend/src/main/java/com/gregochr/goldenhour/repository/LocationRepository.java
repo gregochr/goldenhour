@@ -57,6 +57,15 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
     List<LocationEntity> findAllByEnabledTrueOrderByNameAsc();
 
     /**
+     * Returns the id of every enabled location, in no particular order: one flat statement, for the readers
+     * that only need to know which members of an area are enabled.
+     *
+     * @return the enabled locations' ids
+     */
+    @Query("SELECT l.id FROM LocationEntity l WHERE l.enabled = true")
+    List<Long> findEnabledIds();
+
+    /**
      * Returns every enabled location that has a region, with the region fetched.
      *
      * <p>Ask's later-window roster: the Ready precompute builds its snapshot outside any transaction, where a

@@ -186,7 +186,7 @@ function subscribeForeignModalDom(onChange) {
  * @param {object}   [props.handoff]       a handoff the reader ASKED to land on (a door), which this
  *                                         pane must not act on while it is hidden
  * @param {?object}  [props.findPick]      a place or region the reader picked in Find on this tab
- *                                         ({@code {kind: 'location'|'region', id?, name, nonce}}), which
+ *                                         ({@code {kind: 'location'|'region'|'area', id?, ids?, name, nonce}}), which
  *                                         {@code MapView} applies once per nonce while the pane is shown
  * @param {boolean}  [props.findOpen]      whether Find is open, so the map closes its menus
  * @param {string}   [props.autoEventType] the auto-selected event type
@@ -977,8 +977,9 @@ WindowFirstMapPane.propTypes = {
   selectedDate: PropTypes.string,
   onSelectDate: PropTypes.func.isRequired,
   findPick: PropTypes.shape({
-    kind: PropTypes.oneOf(['location', 'region']).isRequired,
+    kind: PropTypes.oneOf(['location', 'region', 'area']).isRequired,
     id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    ids: PropTypes.arrayOf(PropTypes.number),
     name: PropTypes.string.isRequired,
     nonce: PropTypes.number.isRequired,
   }),

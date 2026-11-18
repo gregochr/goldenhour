@@ -80,6 +80,11 @@ public class HttpCachingConfig {
             // treatment of the payload it derives from.
             "/api/briefing/digest",
             "/api/briefing/evaluate/scores",
+            // The areas Find offers: roster data (names, aliases, enabled members), identical for every
+            // reader and role in v1, so no personal data. If it is ever narrowed per reader it must move to
+            // HttpCachingConfigTest.personalDataPathsAreNeverFiltered. "/api/areas/outlook" is the reader's
+            // own shaped view and is deliberately absent (the set is matched exactly, never by prefix).
+            "/api/areas/directory",
             "/api/astro/conditions",
             "/api/astro/conditions/available-dates",
             "/api/aurora/status",

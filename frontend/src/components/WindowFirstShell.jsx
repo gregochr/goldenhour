@@ -40,12 +40,14 @@ import {
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
+import { areaMapWindow } from '../utils/areaFind.js';
 import { normalizeMapTrigger, outlierKeysOf } from '../utils/mapDoor.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
 import { isFindKey, isTypingTarget } from '../utils/findKey.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
+import useAreaFind from '../hooks/useAreaFind.js';
 import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
@@ -83,6 +85,12 @@ const WindowFirstHeatStrip = lazy(() => import('./WindowFirstHeatStrip.jsx'));
  * the shell already has (the matching lives in {@code planSearch.js}).
  */
 const PlanSearch = lazy(() => import('./PlanSearch.jsx'));
+
+/**
+ * An area's spots (find-and-favourites-plan.md F2): a dialog reached only from an Areas row in Find, so it is lazy
+ * for the same reason search is.
+ */
+const AreaSheet = lazy(() => import('./AreaSheet.jsx'));
 
 /**
  * The window popup, on the same terms — a dialog, not a first-paint element, and the boundary is
@@ -175,6 +183,7 @@ function warmStackedChunks() {
   // already in the entry graph, which is why they never show the gap.
   import('./LocationFourDaySheet.jsx').catch(() => {});
   import('./PlanSearch.jsx').catch(() => {});
+  import('./AreaSheet.jsx').catch(() => {});
 }
 
 /** The matrix's Ask highlight when there is none to show: one shared, empty map, so nothing re-renders for it. */
@@ -500,6 +509,14 @@ export default function WindowFirstShell({
    * closed; a string — possibly empty — is open.
    */
   const [searchSeed, setSearchSeed] = useState(null);
+  /**
+   * The area whose sheet is open (a directory entry), or null (find-and-favourites-plan.md F2). Reached only from an
+   * Areas row in Find on Plan or Coming up; the place sheet may stack over it, so it is never more than two deep
+   * (Find having closed on the pick).
+   */
+  const [areaSheet, setAreaSheet] = useState(null);
+  // The area directory and the reader's outlook, fetched lazily: nothing is requested until Find first opens.
+  const areaFind = useAreaFind(searchSeed != null || areaSheet != null);
   // The phone masthead (compact-chrome plan): whether the ⋯ menu is open, and its button, which is
   // also the focus fallback for the tick line when its origin slot is empty. Both unused off the phone.
   const isMobile = useIsMobile();
@@ -919,6 +936,8 @@ export default function WindowFirstShell({
     setSheetSpot(null);
     setSheetWindowKey(null);
     setSearchSeed(null);
+    // The area sheet is a Plan dialog like the rest: every route out of the Plan tab closes it.
+    setAreaSheet(null);
     // Ask's sheet is a layer like the rest: arriving anywhere ends it, and every route that only
     // wants the dialogs gone (the cog, the nudge, the settings edge) takes it down with them. The
     // CONVERSATION is not touched — it is context state, and this body may call only our own setters.
@@ -1127,7 +1146,8 @@ export default function WindowFirstShell({
    * actions included - they used to open the overlay first and close second.
    */
   const openMapTab = useCallback((door) => openMapDoor({
-    openOverPopup,
+    // Every map door takes the layers under it down too, the area sheet included (it can sit under a place sheet).
+    openOverPopup: (next) => { setAreaSheet(null); openOverPopup(next); },
     openWindow,
     onOpenMapTab,
     ratingLens,
@@ -1301,6 +1321,8 @@ export default function WindowFirstShell({
   const sheetTabReturnRef = useRef(false);
   // True while the location sheet up was opened by a Find pick: its close returns focus to the Find button.
   const sheetFromFindRef = useRef(false);
+  // True while the area sheet up was opened by a Find pick: its close returns focus to the Find button.
+  const areaFromFindRef = useRef(false);
   const sheetHandoffNonce = locationSheetHandoff?.nonce ?? null;
   const lastHandledSheetHandoff = useRef(locationSheetHandoff?.nonce ?? null);
   useEffect(() => {
@@ -1397,6 +1419,7 @@ export default function WindowFirstShell({
   useBackLayer({ open: sheetCard != null, onBack: () => openOverPopup(null) });
   useBackLayer({ open: sheetSpot != null, onBack: () => openOverPopup(null) });
   useBackLayer({ open: openPick?.pick != null, onBack: () => openOverPopup(null) });
+  useBackLayer({ open: areaSheet != null, onBack: () => setAreaSheet(null) });
   useBackLayer({ open: searchSeed != null, onBack: () => setSearchSeed(null) });
   /**
    * The popup's dawn-race source — each location's lunar eclipse sight per window (L4,
@@ -1562,7 +1585,7 @@ export default function WindowFirstShell({
    * then the popup", not as a three-rung sequence to walk down: the two upper rungs are
    * alternatives, and each {@code escapeEnabled} prop below is written for whichever one is up.
    */
-  const stackedOverPopup = sheetCard != null || sheetSpot != null || openPick != null;
+  const stackedOverPopup = sheetCard != null || sheetSpot != null || openPick != null || areaSheet != null;
   /**
    * The same question with search folded in — live since M3; see the note above.
    *
@@ -1937,6 +1960,11 @@ export default function WindowFirstShell({
     });
     setSheetWindowKey(card.windowKey);
   };
+  // The area sheet's focus-return flag is spent once it is gone (the dialog's own restore has read it by then: a
+  // child's cleanup runs before this effect).
+  useEffect(() => {
+    if (areaSheet == null) areaFromFindRef.current = false;
+  }, [areaSheet]);
   useEffect(() => {
     if (sheetSpot != null) return;
     askSheetReturnRef.current = false;
@@ -2113,8 +2141,10 @@ export default function WindowFirstShell({
     // place's own best window from the same id-first index, so the box and the sheet it opens can
     // never disagree about what a place is rated. Still gated — a reader who opens neither pays
     // nothing, which is the whole point of building it here rather than in the provider.
-    () => ((sheetSpot || searchSeed != null) ? buildScoreIndex(scoreRows) : null),
-    [sheetSpot, searchSeed, scoreRows],
+    // ⚠️ A THIRD reader since F2: the area sheet prints each of its spots' own best window from this index. It stays
+    // open after Find has closed (`searchSeed` is null by then), so without it every row read "Not rated".
+    () => ((sheetSpot || searchSeed != null || areaSheet != null) ? buildScoreIndex(scoreRows) : null),
+    [sheetSpot, searchSeed, areaSheet, scoreRows],
   );
   /**
    * The region names the page is planning over — the planning area at home, the origin's own region
@@ -2282,7 +2312,7 @@ export default function WindowFirstShell({
     const was = findWasOpen.current;
     findWasOpen.current = searchSeed != null;
     if (!was || searchSeed != null) return;
-    if (sheetSpot != null || openWindowKey != null || sheetKey != null || openPick != null) return;
+    if (sheetSpot != null || openWindowKey != null || sheetKey != null || openPick != null || areaSheet != null) return;
     const focused = document.activeElement;
     if (focused && focused !== document.body && focused !== document.documentElement) return;
     findNode()?.focus({ preventScroll: true });
@@ -2346,6 +2376,44 @@ export default function WindowFirstShell({
     openOverPopup(null);
     openWindow(null);
     setOrigin?.(region);
+  };
+  /**
+   * An area picked in Find. Plan: its sheet. Coming up: the Plan tab, then the sheet in the same batch (D6). Map: fly
+   * to it and apply the named-spot lens, through the Map pane's own channel; the pick carries member ids, and the map
+   * resolves them to names against its own roster.
+   */
+  const pickFindArea = (area) => {
+    if (effectiveTab === 'map') {
+      onFindOnMap?.({ kind: 'area', id: area.id, name: area.name, ids: area.locationIds });
+      return;
+    }
+    areaFromFindRef.current = true;
+    if (effectiveTab === 'coming-up') {
+      warmStackedChunks();
+      selectTab('plan');
+      setAreaSheet(area);
+      focusPlanTab();
+      return;
+    }
+    openWindow(null);
+    openOverPopup(null);
+    setAreaSheet(area);
+  };
+  /** The area sheet's foot: the Map on the area's best window, with the area's spots as the named-spot lens. */
+  const showAreaOnMap = (area) => {
+    const target = areaMapWindow(heatStripCards, areaFind.outlook?.get(area.id));
+    if (!target) return;
+    const members = new Set(area.locationIds);
+    const names = heatSpots.filter((spot) => members.has(spot.id)).map((spot) => spot.name);
+    setAreaSheet(null);
+    openMapTab({
+      ...target,
+      region: null,
+      locationName: null,
+      focusNames: names,
+      title: area.name,
+      caption: `${names.length} ${names.length === 1 ? 'spot' : 'spots'}`,
+    });
   };
   /**
    * {@code /} moves to Ask — at 1024px and up, on Plan, Coming up and the Map (plan §6 Q1, decided).
@@ -3520,6 +3588,34 @@ export default function WindowFirstShell({
             // gesture, and it is the one the shell's own "closes FIRST" rule already governs
             // everywhere else.
             onPickLocation={pickFindLocation}
+            areas={areaFind.directory}
+            areaOutlook={areaFind.outlook}
+            onPickArea={pickFindArea}
+          />
+        </Suspense>
+      )}
+
+      {/* The area sheet (F2): under the place sheet when a row of it is opened (two deep, Find having closed on the
+          pick), so it is inert and withholds Escape while that sheet stands. Focus goes back to the Find button, the
+          door the reader came through. */}
+      {areaSheet && (
+        <Suspense fallback={null}>
+          <AreaSheet
+            key={areaSheet.id}
+            area={areaSheet}
+            spots={heatSpots}
+            windows={heatStripCards}
+            scoreIndex={detailScoreIndex}
+            reachById={effectiveReachById}
+            allowedLocationIds={allowedLocationIds}
+            stacked={sheetSpot != null || guideModal}
+            restoreFocusFallback={() => {
+              const find = shellRef.current?.querySelector('[data-testid="window-first-search"]');
+              return areaFromFindRef.current && find?.isConnected ? find : null;
+            }}
+            onClose={() => setAreaSheet(null)}
+            onOpenSpot={(spot) => openOverPopup({ spot })}
+            onShowOnMap={onOpenMapTab ? showAreaOnMap : null}
           />
         </Suspense>
       )}
@@ -3588,6 +3684,8 @@ export default function WindowFirstShell({
             onPlanFrom={sheetPlanFrom?.region
               ? () => {
                 openWindow(null);
+                // An area sheet under this place sheet goes with it: the origin must not move under an open surface.
+                setAreaSheet(null);
                 setOrigin?.(sheetPlanFrom.region);
                 // ⚠️ The focus move, and the reason is the one `applyConflictAction` already
                 // records: this commit unmounts BOTH dialogs, so `useDialogFocus`'s restore finds

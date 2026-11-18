@@ -424,3 +424,117 @@ describe('⚠️ one Escape closes only Find over a selected callout', () => {
     expect(calloutName()).toBe('Near');
   });
 });
+
+describe('an area picked in Find (F2)', () => {
+  const areaPick = (over = {}) => ({
+    kind: 'area', id: 9, name: 'Lake District', ids: [FAR.id], nonce: 1, ...over,
+  });
+
+  it('applies the named-spot lens and says so with a chip, drawing no cluster or area marker', async () => {
+    await renderTab();
+    expect(lastLabelNames()).toEqual(['Near']);
+
+    await rerenderTab({ findPick: areaPick() });
+
+    expect(screen.getByTestId('map-find-area')).toHaveTextContent('Showing Lake District');
+    // The lens is by member name: only the area's spot is on the map now, and the scope widened to reach it.
+    expect(lastLabelNames()).toEqual(['Far']);
+    // A pick is never a selection: no callout, and never a marker standing for the area.
+    expect(calloutName()).toBeNull();
+    expect(screen.queryByTestId('map-find-note')).toBeNull();
+  });
+
+  it('clear lifts the lens whole and takes the chip down', async () => {
+    await renderTab();
+    await rerenderTab({ findPick: areaPick() });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('map-find-area-clear')); });
+
+    expect(screen.queryByTestId('map-find-area')).toBeNull();
+    expect(lastLabelNames()).toEqual(expect.arrayContaining(['Near', 'Far']));
+  });
+
+  it('is applied once per nonce: a clear is not undone by a re-render, and a new nonce applies again', async () => {
+    await renderTab();
+    await rerenderTab({ findPick: areaPick() });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-find-area-clear')); });
+
+    await rerenderTab({ findPick: areaPick() });
+    expect(screen.queryByTestId('map-find-area')).toBeNull();
+
+    await rerenderTab({ findPick: areaPick({ nonce: 2 }) });
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+  });
+
+  it('does nothing for an area whose members this map does not hold', async () => {
+    await renderTab();
+
+    await rerenderTab({ findPick: areaPick({ ids: [999] }) });
+
+    expect(screen.queryByTestId('map-find-area')).toBeNull();
+    expect(lastLabelNames()).toEqual(['Near']);
+  });
+
+  it('frames the members, widening the scope to Everywhere when they lie outside the area in force', async () => {
+    await renderTab({ heat: HEAT_WITH_HOME });
+    expect(h.filters.at(-1).heatArea).toBe(true);
+
+    await rerenderTab({ heat: HEAT_WITH_HOME, findPick: areaPick() });
+
+    expect(h.filters.at(-1).heatArea).toBe(false);
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+  });
+
+  it('a place picked afterwards leaves the chip honest: it names a lens that is still in force', async () => {
+    await renderTab();
+    await rerenderTab({ findPick: areaPick() });
+
+    await rerenderTab({ findPick: pickOf({ id: NEAR.id, name: 'Near', nonce: 2 }) });
+
+    expect(calloutName()).toBe('Near');
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+  });
+
+  describe('over a standing plan-door lens', () => {
+    const door = {
+      source: 'plan', eventType: 'SUNSET', date: TODAY, region: null, minRating: null, limitMinutes: null,
+      locationName: null, focusNames: ['Near'], title: 'Coast door', nonce: 1,
+    };
+    const breadcrumb = () => screen.queryByTestId('wf-map-breadcrumb')?.textContent ?? '';
+
+    it('⚠️ the area replaces the door\'s named set, the breadcrumb never describes it, and clear leaves no door state', async () => {
+      await renderTab({ planHandoff: door });
+      expect(lastLabelNames()).toEqual(['Near']);
+      expect(breadcrumb()).toContain('showing 1 spot');
+
+      await rerenderTab({ planHandoff: door, findPick: areaPick() });
+
+      expect(lastLabelNames()).toEqual(['Far']);
+      expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+      expect(breadcrumb()).not.toContain('showing');
+
+      await act(async () => { fireEvent.click(screen.getByTestId('map-find-area-clear')); });
+
+      // Neither the area's set nor the door's own set is left standing.
+      expect(lastLabelNames()).toEqual(expect.arrayContaining(['Near', 'Far']));
+      expect(breadcrumb()).not.toContain('showing');
+    });
+  });
+
+  it('flies to a member the heat catalogue does not hold, and skips one with no coordinates', async () => {
+    const heatWithoutFar = { ...HEAT, spots: HEAT.spots.filter((sp) => sp.name !== 'Far') };
+    await renderTab({ heat: heatWithoutFar });
+    h.flyTo.mockClear();
+
+    await rerenderTab({ heat: heatWithoutFar, findPick: areaPick() });
+    expect(h.flyTo).toHaveBeenCalledTimes(1);
+    expect(h.flyTo.mock.calls[0][0]).toEqual([FAR.lat, FAR.lon]);
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+
+    h.flyTo.mockClear();
+    const noCoords = [NEAR, WEAK, { ...FAR, lat: undefined, lon: undefined }];
+    await rerenderTab({ heat: heatWithoutFar, locations: noCoords, findPick: areaPick({ nonce: 2 }) });
+    expect(h.flyTo).not.toHaveBeenCalled();
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+  });
+});

@@ -14,6 +14,15 @@ import { verdictScopeText } from './reachLens.js';
  * resting list is the rendered windows (up to eight), which are the one group that is both small and complete: every
  * row is somewhere the reader can already see, so the list is a shortcut rather than a catalogue.
  *
+ * <h2>Ranking: exact first, one typo forgiven after (F2)</h2>
+ *
+ * <p>Each group runs an exact pass (the substring match below), then a fuzzy pass over only the rows the exact
+ * pass rejected: every query word is found exactly or, when it has 5+ letters, one slip away (a swapped pair, a
+ * missing, an extra or a wrong letter), and at least one word needed the slip. Fuzzy rows follow the exact ones,
+ * carry no {@code <mark>} (a typed word is not in the label), and the cap of eight is applied AFTER the merge so a
+ * typo never displaces an exact match. Words under 5 letters stay exact ({@code st}, {@code bay}). Areas match on
+ * their name and on the aliases the directory serves, so {@code roman wall} finds Hadrian's Wall.
+ *
  * <h2>Matching is a plain substring over a folded string, on purpose</h2>
  *
  * <p>The catalogue is ~200 locations and ~10 regions and the box re-filters on every keystroke, so
@@ -31,9 +40,9 @@ import { verdictScopeText } from './reachLens.js';
  * wrong: a reader typing a place from memory is exactly the reader who leaves the apostrophe out.
  * So {@link fold} now also strips accents, turns {@code &} into {@code and}, folds {@code saint} to
  * {@code st}, and treats {@code ' - . ,} as spaces; a second, whitespace-blind pass catches
- * {@code stmarys}. Aliases ({@code bait island} → St Mary's) are still NOT here: they need a store
- * that does not exist (plan-matrix A13 / §8 O-3), and inventing a client-side list would put a
- * roster fact in the frontend.
+ * {@code stmarys}. A PLACE's aliases ({@code bait island} → St Mary's) are still NOT here: they need
+ * a store the client does not hold, and inventing a client-side list would put a roster fact in the frontend.
+ * An AREA's aliases are served with the directory, so they are matched (see above).
  *
  * <p><b>Highlighting runs on a different, narrower fold</b> — {@code foldPlain}, which is 1:1 or
  * 1:0 <em>per source character</em> and therefore can carry an index map back to the original
@@ -155,7 +164,7 @@ export function matchRange(label, query) {
  * The glyph column, by kind. The bundle's own three characters, and they are decorative: every row
  * announces its kind through its group heading, so these are `aria-hidden` at the render.
  */
-const GLYPH = { location: '◇', region: '◎', window: '◷' };
+const GLYPH = { location: '◇', region: '◎', window: '◷', area: '▦' };
 
 /**
  * The best rated window this ONE location has, and which window it is.
@@ -181,7 +190,7 @@ const GLYPH = { location: '◇', region: '◎', window: '◷' };
  * @param {?object} scoreIndex from {@code buildScoreIndex} — id-first, name-fallback
  * @returns {?{rating: number, label: string}} the figure and its caption, or null
  */
-function topWindowFor(spot, windows, scoreIndex) {
+export function topWindowFor(spot, windows, scoreIndex) {
   if (!scoreIndex || spot?.skySubject === false) return null;
   let best = null;
   for (const card of windows || []) {
@@ -200,7 +209,7 @@ function topWindowFor(spot, windows, scoreIndex) {
 }
 
 /** A rating as the figure column draws it. Integers only — the pipeline produces no half stars. */
-const starFigure = (rating) => (rating == null ? null : `${rating}★`);
+export const starFigure = (rating) => (rating == null ? null : `${rating}★`);
 
 /**
  * A sub-line's clauses, dropping the unknown ones and normalising a bare string to a toneless part.
@@ -211,6 +220,119 @@ const starFigure = (rating) => (rating == null ? null : `${rating}★`);
 const clauses = (parts) => parts
   .filter(Boolean)
   .map((part) => (typeof part === 'string' ? { text: part, tone: null } : { tone: null, ...part }));
+
+/** A query word needs at least this many letters before one slip is forgiven: `st` and `bay` stay exact. */
+const MIN_FUZZY_LETTERS = 5;
+
+/**
+ * Whether two strings differ by at most one slip: an adjacent pair swapped, a letter missing, an extra letter, or
+ * a wrong letter. Equal strings are within one slip.
+ *
+ * @param {string} a the query word
+ * @param {string} b a candidate fragment
+ * @returns {boolean} true when at most one slip separates them
+ */
+export function withinOneSlip(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
+  if (a.length === b.length) {
+    // One wrong letter, or an adjacent pair swapped.
+    return a.slice(i + 1) === b.slice(i + 1)
+      || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
+  }
+  const [longer, shorter] = a.length > b.length ? [a, b] : [b, a];
+  return longer.slice(i + 1) === shorter.slice(i);
+}
+
+/** Whether a word of 5+ letters is one slip away from some stretch of one word of the haystack. */
+function fuzzyWordHits(word, hay) {
+  return hay.split(' ').some((token) => {
+    for (let len = word.length - 1; len <= word.length + 1; len += 1) {
+      for (let at = 0; at + len <= token.length; at += 1) {
+        if (withinOneSlip(word, token.slice(at, at + len))) return true;
+      }
+    }
+    return false;
+  });
+}
+
+/**
+ * Whether a folded haystack answers a folded query only once a typo is forgiven: every query word is found
+ * exactly or (when it has 5+ letters) one slip away, and at least one needed the slip. A query that matched
+ * exactly never lands here (the exact pass already took it), and a word under 5 letters never slips.
+ *
+ * @param {string} hay a {@link fold}ed candidate
+ * @param {string} q   a {@link fold}ed, non-empty query
+ * @returns {boolean} true when the row is a fuzzy match
+ */
+export function fuzzyMatches(hay, q) {
+  let slipped = false;
+  for (const word of q.split(' ').filter(Boolean)) {
+    if (hay.includes(word)) continue;
+    if (word.length >= MIN_FUZZY_LETTERS && fuzzyWordHits(word, hay)) {
+      slipped = true;
+    } else {
+      return false;
+    }
+  }
+  return slipped;
+}
+
+/**
+ * Orders one group's candidates: the exact matches in catalogue order, then the fuzzy matches the exact pass
+ * rejected, and only THEN the cap. Capping after the merge is what lets neither pass drop the other, and a typo
+ * can never push an exact match out of the group.
+ *
+ * @param {Array}    items   the group's candidates, in catalogue order
+ * @param {string}   q       the folded query ('' matches everything and is never fuzzy)
+ * @param {Function} textsOf the folded strings an item answers to (its name, its aliases, ...)
+ * @returns {Array<{item: *, fuzzy: boolean}>} at most {@link MAX_RESULTS_PER_GROUP} rows
+ */
+function rankMatches(items, q, textsOf) {
+  const exact = [];
+  const rest = [];
+  for (const item of items) {
+    (textsOf(item).some((text) => matches(text, q)) ? exact : rest).push(item);
+  }
+  const fuzzy = q === '' ? [] : rest.filter((item) => textsOf(item).some((text) => fuzzyMatches(text, q)));
+  return [
+    ...exact.map((item) => ({ item, fuzzy: false })),
+    ...fuzzy.map((item) => ({ item, fuzzy: true })),
+  ].slice(0, MAX_RESULTS_PER_GROUP);
+}
+
+/** What an area row reads as: the kind the directory names, never a verdict. */
+const AREA_KIND_LABEL = { SUB_REGION: 'Sub-region', NAMED: 'Named area' };
+
+/**
+ * One area's figure for the windows the strip shows: the window with the highest top rating (the first in render
+ * order on a tie), else the first window that has any member rated or gated.
+ *
+ * <p>Never a verdict and never "the best of the area": it is the served per-reader outlook
+ * ({@code GET /api/areas/outlook}), a count and a top figure with the window it belongs to. Away days and
+ * windows the strip does not show are skipped; a window past what has been scored has no outlook entry at all.
+ *
+ * @param {?Array} outlookWindows the area's {@code windows} from the outlook, or null when not loaded
+ * @param {?Array} cards          the strip's window descriptors, in render order
+ * @returns {?{label: string, topRating: ?number, ratedMembers: number, gatedMembers: number, totalMembers: number}}
+ */
+export function areaFigure(outlookWindows, cards) {
+  if (!Array.isArray(outlookWindows) || outlookWindows.length === 0) return null;
+  const byKey = new Map(outlookWindows.map((w) => [`${w.date}:${w.targetType}`, w]));
+  let best = null;
+  let first = null;
+  for (const card of cards || []) {
+    const hit = card && !card.away ? byKey.get(card.key) : null;
+    if (!hit) continue;
+    const label = card.label || `${card.dow} ${card.sunrise ? 'sunrise' : 'sunset'}`;
+    const candidate = { ...hit, label };
+    if (!first) first = candidate;
+    if (hit.topRating != null && (!best || hit.topRating > best.topRating)) best = candidate;
+  }
+  return best ?? first;
+}
 
 /** Every word a window answers to: its printed label, its weekday, and its event. */
 function windowTerms(card) {
@@ -262,6 +384,10 @@ function windowTerms(card) {
  * @param {?object} [sources.scoreIndex] from {@code buildScoreIndex}, for the location figures
  * @param {?Array} [sources.scopeRegionNames] region names in scope; absent OR EMPTY marks nothing
  * @param {?object} [sources.origin]   the origin descriptor, for the "outside" clause's wording
+ * @param {?Array} [sources.areas]     the area directory ({@code GET /api/areas/directory}): matched on the name and
+ *        every alias, and listed after the regions and before the places
+ * @param {?Map}   [sources.areaOutlook] the reader's outlook by area id ({@code GET /api/areas/outlook}), for each
+ *        area row's figure
  * @param {string} [sources.tab]       the tab Find is open on: {@code 'plan'} (the default) and
  *        {@code 'coming-up'} word a region as "plan from here"; {@code 'map'} words a region, a place and a
  *        window as something the map will show — a region pick on the Map frames it and never moves the
@@ -271,6 +397,7 @@ function windowTerms(card) {
 export function buildSearchGroups(query, {
   windows = [], regions = [], locations = [], originId = null,
   reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, tab = 'plan',
+  areas = null, areaOutlook = null,
 } = {}) {
   const q = fold(query);
   const onMap = tab === 'map';
@@ -289,16 +416,14 @@ export function buildSearchGroups(query, {
     && Array.from(reachById.values()).some((entry) => entry?.driveMinutes != null);
 
   // Windows — the resting list, and matched when typed.
-  const windowRows = (windows || [])
-    .filter((card) => card && matches(windowTerms(card), q))
-    .slice(0, MAX_RESULTS_PER_GROUP)
-    .map((card) => ({
+  const windowRows = rankMatches((windows || []).filter(Boolean), q, (card) => [windowTerms(card)])
+    .map(({ item: card, fuzzy }) => ({
       kind: 'window',
       key: `window:${card.key}`,
       windowKey: card.key,
       label: card.label,
       glyph: GLYPH.window,
-      marks: matchRange(card.label, query),
+      marks: fuzzy ? null : matchRange(card.label, query),
       // ⚠️ The descriptor's OWN `bestReach`, which `buildHeatStripCards` already folds on from the
       // matching card — not a second channel keyed back to `windowCards`. The first cut took a
       // `cards` prop and joined on the window key to get the identical object; one field in hand
@@ -345,10 +470,8 @@ export function buildSearchGroups(query, {
   }
 
   // Regions — never at rest. An empty query returns none, which is the whole of that rule.
-  const regionRows = q === '' ? [] : (regions || [])
-    .filter((region) => region && matches(fold(region.name), q))
-    .slice(0, MAX_RESULTS_PER_GROUP)
-    .map((region) => {
+  const regionRows = q === '' ? [] : rankMatches((regions || []).filter(Boolean), q, (region) => [fold(region.name)])
+    .map(({ item: region, fuzzy }) => {
       // ⚠️ ONE eligibility TEST, shared with the location sheet's `Plan from <region>` footer
       // (M4.3); the WORDS are this surface's own, because its subject is a region and the sheet's
       // is a place — "you are already planning from here" means two different things on the two,
@@ -367,7 +490,7 @@ export function buildSearchGroups(query, {
           region,
           label: region.name,
           glyph: GLYPH.region,
-          marks: matchRange(region.name, query),
+          marks: fuzzy ? null : matchRange(region.name, query),
           figure: null,
           action: off ? null : 'Show',
           subParts: clauses([off ? 'Switched off' : 'Frame on the map']),
@@ -386,7 +509,7 @@ export function buildSearchGroups(query, {
         region,
         label: region.name,
         glyph: GLYPH.region,
-        marks: matchRange(region.name, query),
+        marks: fuzzy ? null : matchRange(region.name, query),
         // No figure — see the class comment on why a region's "best" is a claim nobody owns.
         figure: null,
         action: current ? 'Planning now' : (can ? 'Plan from here' : null),
@@ -406,16 +529,52 @@ export function buildSearchGroups(query, {
     groups.push({ id: 'regions', title: onMap ? 'Regions' : 'Plan from here', rows: regionRows });
   }
 
+  // Areas — never at rest. Matched on the name and every alias; the sub-line says what the area is and how many of its
+  // spots are rated, and the figure is the served per-reader outlook with its window, never a verdict.
+  const areaRows = q === '' ? [] : rankMatches((areas || []).filter(Boolean), q,
+    (area) => [fold(area.name), ...(area.aliases || []).map(fold)])
+    .map(({ item: area, fuzzy }) => {
+      const figure = areaFigure(areaOutlook?.get(area.id), windows);
+      const hit = (text) => (fuzzy ? fuzzyMatches(fold(text), q) : matches(fold(text), q));
+      // An alias is named only when it, and not the name, is what the query found.
+      const alias = hit(area.name) ? null : (area.aliases || []).find(hit) ?? null;
+      const spots = (area.locationIds || []).length;
+      const subParts = clauses([
+        AREA_KIND_LABEL[area.kind] || AREA_KIND_LABEL.NAMED,
+        `${spots} ${spots === 1 ? 'spot' : 'spots'}`,
+        figure ? `${figure.ratedMembers} rated` : null,
+        figure?.gatedMembers > 0 ? { text: `${figure.gatedMembers} outside your picks`, tone: 'outside' } : null,
+        alias ? `also ${alias}` : null,
+      ]);
+      return {
+        kind: 'area',
+        key: `area:${area.id}`,
+        area,
+        label: area.name,
+        glyph: GLYPH.area,
+        marks: fuzzy ? null : matchRange(area.name, query),
+        figure: figure?.topRating == null ? null : {
+          value: starFigure(figure.topRating),
+          caption: figure.label,
+          reason: `: the top of ${figure.ratedMembers} rated spots, not a verdict on the area`,
+        },
+        action: onMap ? 'Show' : 'Its spots',
+        subParts,
+        sub: subParts.map((part) => part.text).join(' · '),
+      };
+    });
+  if (areaRows.length > 0) {
+    groups.push({ id: 'areas', title: 'Areas', rows: areaRows });
+  }
+
   // Locations — never at rest either; the strip and the map are how a reader browses.
   // ⚠️ An EMPTY scope array is unknown, not "outside everything" — `buildLocationSheet`'s own rule,
   // and the badge here makes the identical claim. At home `scopeRegions` folds to `areaRegions`,
   // which is empty whenever the catalogue is, and an unloaded planning area is no evidence that a
   // place is out of the plan.
   const scopeKnown = Array.isArray(scopeRegionNames) && scopeRegionNames.length > 0;
-  const locationRows = q === '' ? [] : (locations || [])
-    .filter((spot) => spot && matches(fold(spot.name), q))
-    .slice(0, MAX_RESULTS_PER_GROUP)
-    .map((spot) => {
+  const locationRows = q === '' ? [] : rankMatches((locations || []).filter(Boolean), q, (spot) => [fold(spot.name)])
+    .map(({ item: spot, fuzzy }) => {
       const top = topWindowFor(spot, windows, scoreIndex);
       const drive = (spot?.id == null ? null : reachById?.get(spot.id)?.driveMinutes) ?? null;
       const outside = scopeKnown && Boolean(spot.regionName)
@@ -426,7 +585,7 @@ export function buildSearchGroups(query, {
         spot,
         label: spot.name,
         glyph: GLYPH.location,
-        marks: matchRange(spot.name, query),
+        marks: fuzzy ? null : matchRange(spot.name, query),
         figure: top ? { value: starFigure(top.rating), caption: top.label } : null,
         // ⚠️ NOT the bundle's `4 DAYS`. The sheet this opens derives its own span — the rendered
         // events fall across three days only once both of today's windows have passed (otherwise four) — and
