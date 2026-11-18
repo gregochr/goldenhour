@@ -130,7 +130,7 @@ Follows the `bigSeas` precedent: attached **last** in `ServedBriefingAssembler.a
 `PlanWindowProjector`, `BriefingHonestyFilter`, the sample gate and the slot-tide strip, before the `briefingVersion`
 stamp), derived per serve from the database, `WarningTimeline` and `WarningCoverage`, **never written to
 `daily_briefing_cache`** and omitted from JSON when null (`@JsonInclude(NON_NULL)`, `PersistedBriefingRemovedKeysTest`).
-`WarningOverlay` is a no-op (input returned as the same instance) when `photocast.warnings.enabled` is off, when nothing
+`WarningOverlay` is a no-op (input returned as the same instance) when warnings are not active (switch off or no API key), when nothing
 in force covers an enabled place, or when the lookup throws (fail-soft, logged at WARN). Simulated rows and cancelled or
 expired warnings never appear, for any role. "Now" is the injected `Clock`, so Rewind shows the warnings as we had them.
 
@@ -209,7 +209,7 @@ no Docker locally).
 
 ## The client, W2 (chips on the location sheet and the map callout)
 
-Phase W2 is the first reader-facing UI. It stays dark while `photocast.warnings.enabled` is false: the server then answers
+Phase W2 is the first reader-facing UI. It stays dark while warnings are not active (switch off, or no API key): the server then answers
 `enabled: false` with no warnings and the client prints nothing (not even the attribution).
 
 | Piece | Role |
@@ -302,7 +302,7 @@ Tests: `warningsW3.test.js`, `WarningMatrix.test.jsx`, `WindowWarningRow.test.js
 ## Coming up, W3b (warning entries in the dated feed)
 
 Phase W3b adds Met Office warning entries to the **Coming up** feed (`GET /api/almanac`), for warnings that reach past the
-scored days. It stays dark while `photocast.warnings.enabled` is false: the merge returns the very same feed instance, so the
+scored days. It stays dark while warnings are not active (switch off, or no API key): the merge returns the very same feed instance, so the
 body and its body-hashed ETag are byte-identical to a build without it (tested).
 
 | Piece | Role |
@@ -411,21 +411,26 @@ popup row, location sheet, Map chip row and callout, and Coming up all get it fr
 The copy says only what is built: no map outlines, the matrix with no invented words, the "Raised from" line only on Coming up cards, no
 Met Office logo or icons.
 
-### Go-live checklist (default on since 2026-11-18; the feature goes live when the key is set)
+### Go-live checklist (default on since 2026-11-18; the next app release is the go-live moment)
 
-The switch defaults to on, so the single act that makes warnings live in production is setting `PHOTOCAST_WARNINGS_API_KEY` and restarting.
-Until then the build is dormant: no Met Office call, no poll error logs (one startup INFO line says which state it is in), no user
-surface (`/api/warnings` answers `enabled: false`, empty and stale, which the client renders as nothing). Kill switch:
-`PHOTOCAST_WARNINGS_ENABLED=false` and a restart. The Operations panel's "State" row reads "Switched off", "On but no API key (dormant)"
-or "On and polling". The admin simulation insert works in every state and its rows never reach users.
-Do these before setting the key (the landing release goes out together with the app release that carries default-on):
+State at 2026-11-18: the API key is **already set** in production's `backend/.env` and the landing site (guide pages) is **already released**.
+The switch defaults to on, so the next app release containing the default-on change makes warnings live. Before then the build was dormant:
+no Met Office call, no poll error logs (one startup INFO line says which state it is in), no user surface (`/api/warnings` answers
+`enabled: false`, empty and stale, which the client renders as nothing). The Operations panel's "State" row reads "Switched off",
+"On but no API key (dormant)" or "On and polling"; the admin simulation insert works in every state and its rows never reach users.
+
+Remaining: the licence check (item 2). **Kill switch:** `PHOTOCAST_WARNINGS_ENABLED=false` in the production `.env`, then recreate the backend
+container; set before the release it prevents go-live, set after it reverts it. After the release, verify on Operations, Testing, Warnings
+(State "On and polling", a successful poll, a fresh status).
+
+Reference list (items 1, 4 and 6 are done or no longer separate steps):
 
 1. Guides shipped: W5 merged, and the landing site released (`release-landing.sh`, the owner runs it) **together with the app release that carries default-on, and not before the licence check (item 2)**: the landing index, FAQ, hub card, Lite/Pro row, terms and acknowledgements describe warnings as a live feature, and they must not go public while it is dark. The FAQ answer is worded "When it is switched on, yes" as a softener only; so the guide the `?` opens, the acknowledgements and terms are live. The app's `?` opens `https://photocast.online/guide/weather-warnings.html`; before the landing release it would open the hub's not-found page.
 2. Licence: the owner reads the NSWWS and Open Licence terms on Weather DataHub and confirms the "business use only" remark (plan section 10) does not bar PhotoCast. The acknowledgements and terms wording ("used under the licence terms for the Met Office's warnings service", no licence named) was written without naming one; adjust it once the owner has read the terms.
 3. Timeliness: confirm on a live feed that a new, updated or cancelled warning shows within the 10-minute bound (poller 5 min, 30 s briefing memo, 2 min client poll).
 4. API key: `PHOTOCAST_WARNINGS_API_KEY` set in the production server environment (never in the repo or the image); header name `apikey` (`photocast.warnings.api-key-header`) confirmed against the live API.
 5. Stale threshold: `photocast.warnings.poll-stale-minutes` now defaults to 10 (was 30), matching the style guide's expectation that an outage beyond about 10 minutes shows the stale line. Do not raise it without re-reading plan section 12 (Timeliness).
-6. Then set the key and restart (the scheduler row is config-gated and syncs at startup); watch the Operations warnings panel for a successful poll.
+6. Then restart (the scheduler row is config-gated and syncs at startup); watch the Operations warnings panel for a successful poll.
 
 ## Ask, W6 (Ask PhotoCast mentions warnings)
 

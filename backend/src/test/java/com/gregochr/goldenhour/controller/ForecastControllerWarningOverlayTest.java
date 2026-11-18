@@ -43,6 +43,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -228,6 +230,8 @@ class ForecastControllerWarningOverlayTest {
         Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
 
         assertThat(controller().getForecasts(pro).get(0).warningIds()).isNull();
+        // inactive means the warning store is never even asked (an overlay keyed on the raw switch would ask)
+        verify(warnings, never()).findAllVersionsOfWarningsValidAfter(NOW_AT);
     }
 
     @Test
@@ -238,5 +242,7 @@ class ForecastControllerWarningOverlayTest {
         Authentication pro = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
 
         assertThat(controller().getForecasts(pro).get(0).warningIds()).isNull();
+        // inactive means the warning store is never even asked (an overlay keyed on the raw switch would ask)
+        verify(warnings, never()).findAllVersionsOfWarningsValidAfter(NOW_AT);
     }
 }

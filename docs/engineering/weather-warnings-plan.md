@@ -263,7 +263,7 @@ Built as specified, with these engineering decisions (full detail in `reference/
 
 Owner decision "Default on, keep switch": `photocast.warnings.enabled` (`PHOTOCAST_WARNINGS_ENABLED`) now defaults to **true** and remains the kill switch
 (`false` turns everything off exactly as before). The feature is **active** only when the switch is on **and** `photocast.warnings.api-key` is non-blank
-(`WarningsProperties.isActive()`); the owner has not yet put a key on the production host, so a default-on build without one must be completely dormant.
+(`WarningsProperties.isActive()`); a default-on build without a key must be completely dormant (as it was until the owner set one).
 Without that rule, "no successful poll" reads as stale and every surface would show the stale line forever.
 
 - One effective-on check for everything user-visible: `WarningService.served()` (so `/api/warnings`, Coming up and Ask), `WarningOverlay` and the
@@ -272,4 +272,4 @@ Without that rule, "no successful poll" reads as stale and every surface would s
 - The poll job with no key records `NOT_CONFIGURED`, reports SKIPPED and makes no outbound call; it logs one INFO line at startup and nothing at WARN.
 - The admin status gains `active`; the Operations panel shows "Switched off", "On but no API key (dormant)" or "On and polling". Admin simulation still
   works in every state; simulated rows never reach users.
-- Going live is therefore: landing release with the app release, licence check, then set the key and restart (reference doc, "Go-live checklist").
+- As of 2026-11-18 the owner has set the key in production's `backend/.env` and released the landing site, so **the next app release containing this change is the go-live moment**. Remaining: the licence check. The kill switch `PHOTOCAST_WARNINGS_ENABLED=false` in the production `.env` (then recreate the backend container) prevents or reverts go-live; verify afterwards on Operations, Testing, Warnings (reference doc, "Go-live checklist").

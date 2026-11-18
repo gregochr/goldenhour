@@ -1,7 +1,7 @@
 import PropTypes from 'prop-types';
 import PanelSection from '../data/PanelSection.jsx';
 import { isCycleJob } from '../../utils/schedulerSolar.js';
-import { STATUS_ACTIVE, STATUS_OFF } from '../../utils/schedulerView.js';
+import { STATUS_ACTIVE, STATUS_OFF, configRequirementSuffix } from '../../utils/schedulerView.js';
 
 /** What Run now says it does: a cycle job starts a cycle and tonight's still runs; any other just runs. */
 const RUN_NOW_CYCLE = "Starts a cycle straight away. Tonight's still runs.";
@@ -84,6 +84,7 @@ export default function JobActions({ job, actions, onRunNow, onPause, onResume }
         {off && job.configSource && (
           <p className="text-xs text-plex-text-secondary" data-testid={`requires-${job.jobKey}`}>
             Requires <span className="break-all font-mono text-plex-text">{job.configSource}</span>
+            {configRequirementSuffix(job.configSource)}
           </p>
         )}
         <RunNowButton
