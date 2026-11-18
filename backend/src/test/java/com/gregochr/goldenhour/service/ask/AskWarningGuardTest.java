@@ -190,6 +190,49 @@ class AskWarningGuardTest {
         assertThat(result.answer().summary()).isEqualTo("Whitby looks good.");
     }
 
+    @ParameterizedTest(name = "absence claim never kept: {0}")
+    @ValueSource(strings = {
+        "There aren't any weather warnings for Whitby.",
+        "There aren’t any weather warnings for Whitby.",
+        "There are no active Met Office weather warnings for Whitby.",
+        "There isn't a warning for Whitby.",
+        "There isn’t a weather warning in force for Whitby.",
+        "The Met Office doesn't have any warnings out for the coast.",
+        "The Met Office hasn’t issued a warning for Whitby.",
+        "There's no warning for Whitby tomorrow.",
+        "There’s no weather warning in force.",
+        "Whitby is not under any current weather warning.",
+        "Nothing is in force for Whitby, no alerts at all.",
+        "Nothing in force for the coast.",
+        "Whitby is free of warnings.",
+        "Whitby is free from any weather warnings.",
+        "It is all clear of warnings for Whitby.",
+        "No warnings are in place.",
+        "The Amber warning has been lifted.",
+    })
+    void absenceClaims_areNeverKept_shownOrNot(String claim) {
+        Result none = validate("Whitby looks good. " + claim, snapshot(served(AMBER_SNOW)), nothingShown());
+        Result shownWarning = validate("Whitby looks good. " + claim, snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(none.answer().summary()).isEqualTo("Whitby looks good.");
+        assertThat(shownWarning.answer().summary()).isEqualTo("Whitby looks good.");
+        assertThat(shownWarning.answer().warnings()).isNull();
+    }
+
+    @ParameterizedTest(name = "ordinary sentence left alone: {0}")
+    @ValueSource(strings = {
+        "Never look at the sun without a safety warning filter.",
+        "Don't look at the sun without a safety warning filter.",
+        "Don’t park by the warning sign.",
+        "Skies aren't all that clear, but the red sky is lovely.",
+        "It isn't far to the amber light of the harbour.",
+    })
+    void ordinarySentences_areLeftAlone(String text) {
+        Result result = validate(text, snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().summary()).isEqualTo(text);
+    }
+
     @Test
     @DisplayName("a claim at a level that was not shown is removed even when the sentence also names the Met Office")
     void aDifferentLevelInAMetOfficeSentence_isRemoved() {

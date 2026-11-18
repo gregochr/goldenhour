@@ -58,10 +58,25 @@ final class AskWarningGuard {
                     + "|\\b(?:warned|warns)\\s+(?:of|about)\\b",
             FLAGS);
 
-    /** A warning said not to exist, or to have been lifted: never supported, shown warning or not. */
+    /** A negator: no, not, none, nothing, any contraction (isn't, aren't, doesn't, with a straight or curly mark). */
+    private static final String NEGATOR = "(?:\\b(?:no|not|none|nothing)\\b|\\b\\w+n['\u2019]t\\b"
+            + "|\\bfree\\s+(?:of|from)\\b|\\bclear\\s+(?:of|from)\\b)";
+
+    /** A warning word that is not the start of an ordinary noun phrase (a warning sign, a safety warning filter). */
+    private static final String WARN_NOT_SIGN = WARN_WORD + "\\b(?!\\s+(?:sign|signs|filter|filters|label|labels"
+            + "|notice|notices|light|lights))";
+
+    /**
+     * A warning said not to exist or to have been lifted: never supported, a warning shown or not. The negator may be
+     * up to six words from the warning ("there aren't any active Met Office weather warnings", "no warning", "nothing
+     * in force", "all clear" beside a warning), and the contraction marks are straight or curly.
+     */
     private static final Pattern NEGATED = Pattern.compile(
-            "\\b(?:no|not|none|clear\\s+of|free\\s+of)\\b(?:[\\s-]+\\w+){0,3}?[\\s-]+" + WARN_WORD + "\\b"
-                    + "|\\b" + WARN_WORD + "\\b[^.!?]{0,25}\\b(?:lifted|cancelled|canceled|withdrawn|expired|ended)\\b",
+            NEGATOR + "(?:[\\s-]+\\w+(?:['\u2019]\\w+)?){0,6}?[\\s-]+" + WARN_NOT_SIGN
+                    + "|\\b" + WARN_WORD + "\\b[^.!?]{0,25}\\b(?:lifted|cancelled|canceled|withdrawn|expired|ended)\\b"
+                    + "|\\bnothing\\s+(?:is\\s+)?in\\s+(?:force|place|effect)\\b"
+                    + "|\\ball[\\s-]clear\\b[^.!?]{0,40}\\bwarn"
+                    + "|\\bwarn[^.!?]{0,40}\\ball[\\s-]clear\\b",
             FLAGS);
 
     private static final Pattern SENTENCE_BREAK = Pattern.compile("(?<=[.!?])\\s+");
