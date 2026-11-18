@@ -186,17 +186,18 @@ browser-verified test. Map picks always stay on Map (fly + callout).
   `favouriteArea`); touches `userLess()`, `AskDryRunService`, `AskService`. **`rank_night_spots` is unchanged**
   (favourites do not apply to night ranking).
 - **Pair shape (D4b):** `rank_spots` computes both orders server-side (with and without the favourite key) and the
-  result carries `lead` plus an optional `companion` (with a `companionKind`: `TIED` or `YOUR_FAVOURITE`), so the
-  model never derives the second slot itself. The pair is emitted only on `favourites:true` or when the two orders
-  differ in the returned head; an unchanged head keeps the shared, single-answer result. Prompt lines (WITH_USER
+  result carries `lead` plus an optional `companion` (with a `companionKind`: `TIED`, `YOUR_FAVOURITE`, or, for a `favourites: true` question, `HIGHER_ELSEWHERE`), so the
+  model never derives the second slot itself. The pair is emitted when the asker has an in-scope favourite that is not
+  the lead (see the next bullet); otherwise the shared, single-answer result is kept. Prompt lines (WITH_USER
   only) fix the wording above. New prompt-regression cases: tie pair, lower-rated favourite companion, clear-best
   single answer, no favourites; existing assertions untouched.
-- **The model sees favourites only when asked:** `SpotInfo.favourite` / `favouriteArea` are emitted **only when
-  `rank_spots.favourites: true` was used** (which sets `personal`). The implicit tie-break stays invisible to the
-  model, so an unchanged order gives a byte-identical (shareable) result.
-- **`personal`** is also set when the favourite key **changed the post-`limit` returned list** (compare with and
-  without the key). Otherwise the answer stays shared.
-- **Cache correctness:** a personal answer carries a favourites fingerprint (hash of the sorted id set) in its owner
+- **Marks and the pair (revised after review, owner 2026-11-18):** whenever a typed asker has an in-scope,
+  pick-eligible favourite that is not the lead, `rank_spots` emits the pair (and `SpotInfo.favourite` /
+  `favouriteArea`) without `favourites: true`; an unchanged head with no in-scope favourite keeps the byte-identical
+  shared result. `favourites: true` is for "my places" questions (see Built).
+- **`personal`** is set when the favourite key changed the post-`limit` list or a companion is emitted; otherwise
+  the answer stays shared.
+- **Cache correctness:** a personal answer carries a favourites fingerprint (the sorted ids and area names, joined) in its owner
   key, so a star change cannot serve a stale answer (test: star, ask, unstar, ask). The shared-first `lookup` is
   skipped when the user's favourites intersect the scope, so a Pro asker is not handed another asker's order.
 - **Prompt and schema:** the two prompt lines go in `WITH_USER` only (keeping `RULES` and `USER_LESS` byte-for-byte,
@@ -210,14 +211,18 @@ browser-verified test. Map picks always stay on Map (fly + callout).
 - Tests: tie-break (equal rating/pick/tide, second alphabetically starred → first), starred 3★ vs unstarred 4★,
   Best vs starred non-Best, scope, empty note, cache shareable and personal paths, fingerprint invalidation.
 
-- **Built (2026-11-18).** `AskTools.rank(AskUserContext)` replaces `RANK`; `AskUserContext` gained `favourites`
+- **Built (2026-11-18, revised after adversarial review).** `AskTools.rank(AskUserContext)` replaces `RANK`; `AskUserContext` gained `favourites`
   (`FavouriteLocations`, read by `UserFavouritesService.forAsk`); `RankSpotsResult` gained `lead`, `companion` and
   `companionKind`, `SpotInfo` gained `favourite` and `favouriteArea`; the cache key gained the fingerprint and the
-  shared-hit bypass. Readings worth recording: the **pair is emitted** when `favourites: true` or when the favourite key
-  changed the post-`limit` list (compared over the whole matching set, so a tie beyond the limit is still seen); with
-  `favourites: true` the `spots` list holds the favourites only while `lead` / `companion` are computed over the whole
-  matching set (that is how "Bamburgh 5★, your Mary's 4★" arises); `favouriteArea` names the alphabetically first
-  starred area a member belongs to. `AskDryRunService` carries the admin's own favourites. No frontend change: Ask's
+  shared-hit bypass. Readings worth recording: the **pair is emitted**
+  for a plain typed question whenever the asker has an in-scope favourite that is not the lead (`TIED` when the lead
+  won only on a star, `YOUR_FAVOURITE` when the best favourite ranks lower), and the answer is then personal for that
+  asker only; with `favourites: true` the `spots` list holds the favourites only, the lead is the best matching
+  favourite (none: no lead, the empty note) and the blind winner is the companion (`TIED`, or `HIGHER_ELSEWHERE`).
+  A shared answer stored for an asker whose favourites touch the scope is also stored under their own key.
+  `favouriteArea` names the alphabetically first starred area a member belongs to. **Known limitation:** a question
+  matched to a Ready answer is served favourite-blind (Ready is user-less and shared; `ReadyIntentRules` untouched).
+  `AskDryRunService` carries the admin's own favourites. No frontend change: Ask's
   client renders served picks, so there was no `SpotInfo` to mark; the Ready-pick ★ is left to a later phase.
   `AskWarningPromptTest`'s two typed fingerprints and the two `tool-schemas-with-user*.txt` goldens were re-pinned (the
   intended `WITH_USER` and schema change); the user-less fingerprints are unchanged, proving `RULES` and `USER_LESS`
@@ -252,7 +257,7 @@ Dialog stacking/Back; ⌘K refusals; personal data off shared paths; Lite gating
 Four reviewers (2026-11-18). Material changes from the first draft: D3 reversed (backend outlook); ⌘K guard
 rewritten (not `askKeyRefused`); Map "All" filter replaced by relax-only-what-hides; area filter via
 `focusLensNames`; Coming up pick conflicts with the `selectTab` invariant (D6); F2 introduces search ranking;
-F4b flags emitted only on `favourites:true`, fingerprinted personal cache key, shared-hit bypass, prompt in
+F4b flags emitted only when a favourite is in play (revised: no longer only on `favourites:true`), fingerprinted personal cache key, shared-hit bypass, prompt in
 `WITH_USER` only, no thread-state claim; D1 own controller, enabled-only, no N+1; Undo toast is a new primitive;
 the release gate includes `release-landing.sh`; F5 file list completed.
 

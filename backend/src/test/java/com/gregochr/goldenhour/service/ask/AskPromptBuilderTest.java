@@ -528,10 +528,11 @@ class AskPromptBuilderTest {
     void favouritesWordingIsTypedOnly() {
         String withUser = flat(AskPromptBuilder.WITH_USER);
 
-        assertThat(withUser).contains("pass favourites true to rank_spots")
+        assertThat(withUser).contains("pass favourites true only for a question about their own places")
                 .contains("the lead is the answer")
                 .contains("TIED also scores the same as the lead")
-                .contains("YOUR_FAVOURITE is the reader's favourite and scores lower: say your <name> is <n>★")
+                .contains("YOUR_FAVOURITE is the reader's favourite and ranks lower: say your <name> is <n>★")
+                .contains("HIGHER_ELSEWHERE scores higher than the lead: say <name> scores higher elsewhere")
                 .contains("Never call a favourite the best unless it is the lead")
                 .doesNotContain("wildcard");
         for (String shared : List.of(AskPromptBuilder.RULES, AskPromptBuilder.USER_LESS)) {

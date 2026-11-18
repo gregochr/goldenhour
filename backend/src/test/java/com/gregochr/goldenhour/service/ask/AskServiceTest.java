@@ -322,11 +322,19 @@ class AskServiceTest {
 
         ask("Best spot tonight?");
 
+        ArgumentCaptor<AskQuestion> askedOfCache = ArgumentCaptor.forClass(AskQuestion.class);
         ArgumentCaptor<AskUserContext> looked = ArgumentCaptor.forClass(AskUserContext.class);
-        verify(cache).lookup(any(), eq(snapshot), looked.capture());
+        verify(cache).lookup(askedOfCache.capture(), eq(snapshot), looked.capture());
+        assertThat(askedOfCache.getValue().sanitised()).isEqualTo("Best spot tonight?");
         assertThat(looked.getValue().favourites()).isEqualTo(stars);
-        assertThat(contextSent().favourites()).isEqualTo(stars);
-        assertThat(contextSent().isFavourite(3L)).isTrue();
+        ArgumentCaptor<AskQuestion> askedOfEngine = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskUserContext> sent = ArgumentCaptor.forClass(AskUserContext.class);
+        ArgumentCaptor<AskRunOptions> options = ArgumentCaptor.forClass(AskRunOptions.class);
+        verify(engine).run(askedOfEngine.capture(), eq(snapshot), sent.capture(), options.capture());
+        assertThat(askedOfEngine.getValue().sanitised()).isEqualTo("Best spot tonight?");
+        assertThat(sent.getValue().favourites()).isEqualTo(stars);
+        assertThat(sent.getValue().isFavourite(3L)).isTrue();
+        assertThat(options.getValue()).isEqualTo(AskRunOptions.none());
     }
 
     @Test

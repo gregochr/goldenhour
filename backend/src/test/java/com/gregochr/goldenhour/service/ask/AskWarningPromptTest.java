@@ -35,8 +35,8 @@ class AskWarningPromptTest {
      * were re-pinned for find-and-favourites F4b, whose only prompt change is two sentences in {@code WITH_USER}.
      */
     private static final Map<String, String> PRE_W6 = Map.of(
-            "true,true", "13280:9f5a3fde773c3e18b265cecdf252af48f7d029528351e039257eceade735e5e3",
-            "true,false", "12009:692a7a57309becdeb436a37066cf78e963240d709e6a94e825639acfb0e1ce78",
+            "true,true", "13412:21ef20e3b5eac98a32ca431559a83e7e5cae03631974c9468aad5fa190552eb0",
+            "true,false", "12141:f7bb624af38374b2c7669f04f0dfcca2b0113c41673d4b793ea832a6aa3368a8",
             "false,true", "7337:0b85c1a6d491d428d368d7a0f6ed1721701c36fd58385b9ff110177b83e85e2a",
             "false,false", "6066:f3450faa9057041e05b61f91c42a91e32c250b289647dcad37d28f5aa3a8d608");
 

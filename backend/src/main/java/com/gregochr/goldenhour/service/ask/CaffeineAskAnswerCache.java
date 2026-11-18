@@ -46,7 +46,8 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>When the asker's favourites touch the question's scope the shared key is <em>not</em> tried: a shared answer
  * was made in the favourite-blind order, and that asker's order may differ, so they ask the engine (or hit their
- * own key) instead of being handed another asker's order.
+ * own key) instead of being handed another asker's order. So that their repeat question still hits, a shared answer
+ * stored for such an asker is also kept under their own key and fingerprint.
  *
  * <h2>Personal answers never cross users</h2>
  * {@link AskOutcome#personal()} is set by the tools themselves, the moment a conversation asks for
@@ -191,7 +192,13 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
         if (AskSimulation.active(hotTopicSimulation, auroraStateCache)) {
             return;
         }
-        entries.put(key(question, snapshot, owner, favourites), new Stored(answer, question.scope()));
+        Stored stored = new Stored(answer, question.scope());
+        entries.put(key(question, snapshot, owner, favourites), stored);
+        if (owner == null && user != null && user.hasUser() && favouritesTouchScope(question, snapshot, user)) {
+            // A shared answer this asker will never be handed (their favourites touch the scope, so the shared key
+            // is skipped for them): keep it under their own key too, so their repeat question still hits.
+            entries.put(key(question, snapshot, user.userId(), user.favouritesFingerprint()), stored);
+        }
     }
 
     /**

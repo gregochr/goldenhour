@@ -150,9 +150,42 @@ class AskToolsFavouritesTest {
     }
 
     @Test
-    @DisplayName("Bamburgh 5★ and a starred Mary's 4★, favourites asked: lead Bamburgh, companion Mary's, "
-            + "YOUR_FAVOURITE, and the list holds the favourites only")
-    void aLowerRatedFavouriteIsTheCompanion() {
+    @DisplayName("a plain question, Bamburgh 5★ and a starred Mary's 4★: lead Bamburgh, companion Mary's, "
+            + "YOUR_FAVOURITE, marked, and the answer is the reader's own")
+    void aLowerRankedFavouriteIsNamedWithoutBeingAsked() {
+        AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 5),
+                AskFixtures.slot(MARYS, "Mary's Lighthouse", 4));
+        AskTools tools = tools(snapshot, reader(MARYS));
+
+        RankSpotsResult result = tools.rankSpots(plain(null)).payload();
+
+        assertThat(result.spots()).extracting(SpotInfo::locationId).containsExactly(BAMBURGH, MARYS);
+        assertThat(result.lead().locationId()).isEqualTo(BAMBURGH);
+        assertThat(result.lead().favourite()).isNull();
+        assertThat(result.companion().locationId()).isEqualTo(MARYS);
+        assertThat(result.companion().favourite()).isTrue();
+        assertThat(result.companionKind()).isEqualTo(CompanionKind.YOUR_FAVOURITE);
+        assertThat(tools.personal()).isTrue();
+        assertThat(tools.evidence().offers(new AskEvidence.Pair(MARYS, TODAY_SUNSET))).isTrue();
+    }
+
+    @Test
+    @DisplayName("a favourite that did not match the question's filters adds nothing: the shared result, unmarked")
+    void aFavouriteThatDoesNotMatchAddsNothing() {
+        AskSnapshot snapshot = snapshotOf(AskFixtures.coastal(BAMBURGH, "Bamburgh", 5, "HIGH", true),
+                AskFixtures.slot(MARYS, "Mary's Lighthouse", 4));
+        AskTools starred = tools(snapshot, reader(MARYS));
+        AskTools plainReader = tools(snapshot, reader());
+        RankSpotsArgs coastal = new RankSpotsArgs(null, null, true, null, null, null, null);
+
+        assertThat(starred.rankSpots(coastal).content()).isEqualTo(plainReader.rankSpots(coastal).content());
+        assertThat(starred.personal()).isFalse();
+    }
+
+    @Test
+    @DisplayName("favourites asked, Bamburgh 5★ and a starred Mary's 4★: the lead is Mary's, the companion "
+            + "Bamburgh, HIGHER_ELSEWHERE, and the list holds the favourites only")
+    void askedAboutMyPlacesTheLeadIsAFavourite() {
         AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 5),
                 AskFixtures.slot(MARYS, "Mary's Lighthouse", 4));
         AskTools tools = tools(snapshot, reader(MARYS));
@@ -160,11 +193,42 @@ class AskToolsFavouritesTest {
         RankSpotsResult result = tools.rankSpots(favourites(null)).payload();
 
         assertThat(result.spots()).extracting(SpotInfo::locationId).containsExactly(MARYS);
-        assertThat(result.lead().locationId()).isEqualTo(BAMBURGH);
-        assertThat(result.lead().favourite()).isNull();
-        assertThat(result.companion().locationId()).isEqualTo(MARYS);
-        assertThat(result.companion().favourite()).isTrue();
-        assertThat(result.companionKind()).isEqualTo(CompanionKind.YOUR_FAVOURITE);
+        assertThat(result.lead().locationId()).isEqualTo(MARYS);
+        assertThat(result.lead().favourite()).isTrue();
+        assertThat(result.companion().locationId()).isEqualTo(BAMBURGH);
+        assertThat(result.companionKind()).isEqualTo(CompanionKind.HIGHER_ELSEWHERE);
+        assertThat(tools.personal()).isTrue();
+    }
+
+    @Test
+    @DisplayName("favourites asked, an equally rated Bamburgh beats Mary's only on the alphabet: the companion "
+            + "is TIED")
+    void askedAboutMyPlacesATieIsTied() {
+        AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 4),
+                AskFixtures.slot(MARYS, "Mary's Lighthouse", 4));
+
+        RankSpotsResult result = tools(snapshot, reader(MARYS)).rankSpots(favourites(null)).payload();
+
+        assertThat(result.lead().locationId()).isEqualTo(MARYS);
+        assertThat(result.companion().locationId()).isEqualTo(BAMBURGH);
+        assertThat(result.companionKind()).isEqualTo(CompanionKind.TIED);
+    }
+
+    @Test
+    @DisplayName("favourites asked, none of them in the matching set: no lead and no companion, the empty note, "
+            + "never a non-favourite as the lead")
+    void askedAboutMyPlacesWithNoneMatching() {
+        AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 5));
+        AskTools tools = tools(snapshot, reader(99L));
+
+        AskToolResult<RankSpotsResult> result = tools.rankSpots(favourites(null));
+
+        assertThat(result.error()).isFalse();
+        assertThat(result.payload().spots()).isEmpty();
+        assertThat(result.payload().lead()).isNull();
+        assertThat(result.payload().companion()).isNull();
+        assertThat(result.payload().companionKind()).isNull();
+        assertThat(result.payload().note()).isEqualTo(AskTools.NOTHING_MATCHES_NOTE);
         assertThat(tools.personal()).isTrue();
     }
 
@@ -184,20 +248,23 @@ class AskToolsFavouritesTest {
     // -- an unchanged order keeps the shared result (D4b, F4b) --------------------------------
 
     @Test
-    @DisplayName("when the star does not change the list, the result is byte-identical to the favourite-blind one "
-            + "and the answer stays shared")
+    @DisplayName("a favourite that is the clear best, or one outside the forecast, leaves the result "
+            + "byte-identical to a reader with none, and the answer shared")
     void anUnchangedHeadIsTheSharedResult() {
-        AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 5),
-                AskFixtures.slot(MARYS, "Mary's Lighthouse", 4));
-        AskTools starred = tools(snapshot, reader(MARYS));
-        AskTools blind = tools(snapshot, reader());
+        AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 4),
+                AskFixtures.slot(MARYS, "Mary's Lighthouse", 5));
+        String blind = tools(snapshot, reader()).rankSpots(plain(null)).content();
 
-        AskToolResult<RankSpotsResult> mine = starred.rankSpots(plain(null));
-        AskToolResult<RankSpotsResult> shared = blind.rankSpots(plain(null));
+        for (AskUserContext user : List.of(reader(MARYS), reader(99L))) {
+            AskTools tools = tools(snapshot, user);
 
-        assertThat(mine.content()).isEqualTo(shared.content());
-        assertThat(mine.content()).doesNotContain("favourite").doesNotContain("lead").doesNotContain("companion");
-        assertThat(starred.personal()).isFalse();
+            AskToolResult<RankSpotsResult> mine = tools.rankSpots(plain(null));
+
+            assertThat(mine.content()).isEqualTo(blind);
+            assertThat(mine.content()).doesNotContain("favourite").doesNotContain("lead")
+                    .doesNotContain("companion");
+            assertThat(tools.personal()).isFalse();
+        }
     }
 
     // -- the favourites scope -----------------------------------------------------------------
@@ -264,6 +331,12 @@ class AskToolsFavouritesTest {
 
         assertThat(one.favouritesFingerprint()).isEqualTo(sameSet.favouritesFingerprint()).isNotNull();
         assertThat(other.favouritesFingerprint()).isNotEqualTo(one.favouritesFingerprint());
+        assertThat(new FavouriteLocations(Set.of(3L, 10L), Map.of()).fingerprint())
+                .as("a sum of hashes would collide here").isNotEqualTo(
+                        new FavouriteLocations(Set.of(4L, 9L), Map.of()).fingerprint());
+        assertThat(new FavouriteLocations(Set.of(3L), Map.of(3L, "Hadrian's Wall")).fingerprint())
+                .as("an area rename changes the answer, so it changes the key")
+                .isNotEqualTo(new FavouriteLocations(Set.of(3L), Map.of(3L, "The Wall")).fingerprint());
         assertThat(FavouriteLocations.NONE.isEmpty()).isTrue();
         assertThat(FavouriteLocations.NONE.fingerprint()).isNull();
         assertThat(new FavouriteLocations(null, null).isEmpty()).isTrue();

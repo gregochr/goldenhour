@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,7 +43,9 @@ import static org.mockito.Mockito.when;
  *   <li><b>Lower-rated favourite.</b> Bamburgh 5★, the favourite Mary's 4★: the answer leads with Bamburgh and
  *       says Mary's is 4★, never that Mary's is the best;</li>
  *   <li><b>Clear best.</b> The favourite is the clear best: one answer, no "also scores the same";</li>
- *   <li><b>No favourites.</b> A reader with none: the answer mentions no favourite.</li>
+ *   <li><b>No favourites.</b> A reader with none: the answer mentions no favourite;</li>
+ *   <li><b>Plain best question.</b> "Where is best tomorrow?" from a reader whose favourite ranks lower: the
+ *       favourite is named at its own rating without being asked for.</li>
  * </ol>
  *
  * <p>Every answer must also avoid the word "wildcard". <b>New cases only.</b> The existing Ask regression
@@ -94,13 +95,17 @@ class AskFavouritesRegressionTest {
     }
 
     private static AskSnapshot forecast(int bamburgh, int marys, int cullercoats) {
+        return forecastOn(SATURDAY, bamburgh, marys, cullercoats);
+    }
+
+    private static AskSnapshot forecastOn(LocalDate date, int bamburgh, int marys, int cullercoats) {
         BriefingRegion region = AskFixtures.region("Northumberland & Tyneside", true,
                 AskFixtures.slot(BAMBURGH, "Bamburgh", bamburgh),
                 AskFixtures.slot(MARYS, "Mary's Lighthouse", marys),
                 AskFixtures.slot(CULLERCOATS, "Cullercoats", cullercoats));
-        BriefingWindow window = AskFixtures.window(LocalDateTime.of(2026, 10, 10, 6, 0), DisplayVerdict.WORTH_IT,
+        BriefingWindow window = AskFixtures.window(date.atTime(6, 0), DisplayVerdict.WORTH_IT,
                 Math.max(bamburgh, Math.max(marys, cullercoats)), null);
-        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.day(SATURDAY,
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.day(date,
                 AskFixtures.summary(TargetType.SUNRISE, window, region))), List.of()));
     }
 
@@ -200,6 +205,29 @@ class AskFavouritesRegressionTest {
         });
     }
 
+    /** (5) A plain "best" question from a reader whose favourite ranks lower: the favourite is named at its rating. */
+    @Test
+    void aPlainBestQuestionNamesALowerRankedFavourite() {
+        AskSnapshot clearBest = forecastOn(AskFixtures.TODAY.plusDays(1), 5, 4, 3);
+        passRate("plain best, lower-ranked favourite", () -> {
+            AskRun run = typed("Where is best tomorrow?", clearBest, WITH_MARYS);
+            List<String> faults = answered(run);
+            if (!faults.isEmpty()) {
+                return faults;
+            }
+            String summary = run.outcome().answer().summary();
+            List<AskPick> picks = run.outcome().answer().picks();
+            if (picks.isEmpty() || picks.getFirst().locationId() != BAMBURGH) {
+                faults.add("the lead is not Bamburgh: " + picks);
+            }
+            if (!MARYS_FOUR.matcher(summary).find()) {
+                faults.add("the reader's Mary's is not given its own 4★: " + summary);
+            }
+            addWildcardFault(summary, faults);
+            return faults;
+        });
+    }
+
     /** (4) A reader with no favourites gets the ordinary answer, with no favourite wording. */
     @Test
     void noFavouritesMeansNoFavouriteWording() {
@@ -211,7 +239,7 @@ class AskFavouritesRegressionTest {
                 return faults;
             }
             String summary = run.outcome().answer().summary().toLowerCase(Locale.ROOT);
-            if (summary.contains("favourite") || summary.contains("your ")) {
+            if (summary.contains("favourite") || summary.contains("starred")) {
                 faults.add("favourite wording for a reader with no favourites: " + summary);
             }
             addWildcardFault(summary, faults);

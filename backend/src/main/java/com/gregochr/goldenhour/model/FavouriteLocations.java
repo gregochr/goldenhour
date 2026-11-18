@@ -2,7 +2,9 @@ package com.gregochr.goldenhour.model;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 /**
  * A reader's favourites as Ask reads them (find-and-favourites-plan F4b): the ENABLED locations that count as
@@ -35,16 +37,20 @@ public record FavouriteLocations(Set<Long> locationIds, Map<Long, String> areaBy
     }
 
     /**
-     * A stable fingerprint of the favourite set, for a personal answer's cache key: the same set always gives
-     * the same text, and any star or un-star changes it. Null for no favourites, so a reader who never stars
-     * keeps the key they always had.
+     * A stable fingerprint of the favourites, for a personal answer's cache key: the sorted location ids and the
+     * sorted (location, area name) pairs, joined. It is the content itself, never a hash of it, so two different
+     * sets can never collide, and a starred area's rename changes it (the answer named the area). Null for no
+     * favourites, so a reader who never stars keeps the key they always had.
      *
-     * @return a hash of the sorted id set, or null when empty
+     * @return the fingerprint, or null when empty
      */
     public String fingerprint() {
         if (locationIds.isEmpty()) {
             return null;
         }
-        return Integer.toHexString(new TreeSet<>(locationIds).hashCode()) + "-" + locationIds.size();
+        String ids = new TreeSet<>(locationIds).stream().map(String::valueOf).collect(Collectors.joining(","));
+        String areas = new TreeMap<>(areaByLocation).entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue()).collect(Collectors.joining(";"));
+        return ids + "|" + areas;
     }
 }

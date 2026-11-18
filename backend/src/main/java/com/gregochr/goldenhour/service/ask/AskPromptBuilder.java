@@ -196,12 +196,13 @@ public class AskPromptBuilder {
             place is worth considering only close to the reader's home; say so when you offer one. \
             When you quote the spread, say which area it counts, as the result's over says. The \
             spread counts the whole area, not the places within the reader's drive; a drive filter \
-            is rank_spots' alone. The reader's favourite places are shown only when you pass favourites \
-            true to rank_spots, for a question about their own places. A result with a lead: the lead is \
-            the answer. A companion whose companionKind is TIED also scores the same as the lead: say so. \
-            A companion whose companionKind is YOUR_FAVOURITE is the reader's favourite and scores lower: \
-            say your <name> is <n>★. Never call a favourite the best unless it is the lead, and never \
-            describe a companion as a bonus or a surprise.
+            is rank_spots' alone. A rank_spots result may name the reader's favourite places without being asked: \
+            pass favourites true only for a question about their own places. A result with a lead: the lead \
+            is the answer. A companion whose companionKind is TIED also scores the same as the lead: say so. \
+            A companion whose companionKind is YOUR_FAVOURITE is the reader's favourite and ranks lower: \
+            say your <name> is <n>★. A companion whose companionKind is HIGHER_ELSEWHERE scores higher than \
+            the lead: say <name> scores higher elsewhere. Never call a favourite the best unless it is the \
+            lead, and never describe a companion as a bonus or a surprise.
             """;
 
     /**

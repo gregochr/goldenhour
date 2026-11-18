@@ -315,3 +315,11 @@ same slot: 16,233 re-ratings, $44.36.
 
 `sky_rating_eval_result.miss_direction` stores `'IN_BAND'` for passes, so count misses as
 `miss_direction <> 'IN_BAND'`.
+
+## Ask favourites (find-and-favourites F4b, 2026-11-18)
+
+Two sentences were added to `AskPromptBuilder.WITH_USER` (typed Ask only; `RULES` and `USER_LESS` are unchanged, so
+Ready is unaffected): one typed-prompt cache rewrite when it ships. A Pro asker whose favourites touch a question's
+scope no longer reads the shared cache key (their order may differ), so the first such ask is an engine call; the
+answer is stored under their own key (also when it is non-personal), so a repeat of the same question hits the cache.
+The cost is at most one extra typed call per favourite-touched question per asker per build; not measured.

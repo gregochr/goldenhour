@@ -152,6 +152,27 @@ class CaffeineAskAnswerCacheTest {
     }
 
     @Test
+    @DisplayName("a shared answer stored for an asker whose favourites touch the scope is also kept under their own "
+            + "key, so their repeat question hits, and stays shared for everyone else")
+    void aSharedAnswerIsAlsoKeptForAnAskerWhoseFavouritesTouchTheScope() {
+        AskQuestion q = question("best spot saturday sunset");
+        cache.store(q, live(), starred(1L), ok(false));
+
+        assertThat(cache.lookup(q, live(), starred(1L))).as("their repeat question").isPresent();
+        assertThat(cache.lookup(q, live(), starred(1L, 99L))).as("after a star change").isEmpty();
+        assertThat(cache.lookup(q, live(), BOB)).as("everyone else still gets the shared one").isPresent();
+        assertThat(cache.size()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a shared answer stored for an asker whose favourites do not touch the scope is stored once")
+    void aSharedAnswerForAnUnaffectedAskerIsStoredOnce() {
+        cache.store(question("best spot saturday sunset"), live(), starred(99L), ok(false));
+
+        assertThat(cache.size()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("a favourite in a region outside the question's scope does not bypass the shared answer")
     void aFavouriteOutsideTheScopeDoesNotBypass() {
         AskSnapshot twoRegions = ReadyFixtures.at(ReadyFixtures.FRIDAY_NOON,
