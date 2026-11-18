@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   cleanup, fireEvent, render, screen, waitFor, within,
 } from '@testing-library/react';
+import { withFavourites } from './favouritesKit.jsx';
 import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
@@ -157,10 +158,10 @@ function field(overrides = {}) {
   };
 }
 
-function renderDialog(props = {}) {
+function renderDialog({ wrap = (node) => node, ...props } = {}) {
   const onClose = vi.fn();
   const onStep = vi.fn();
-  const view = render(
+  const view = render(wrap(
     <WindowSheetDialog
       card={card()}
       index={0}
@@ -173,7 +174,7 @@ function renderDialog(props = {}) {
       onStep={onStep}
       {...props}
     />,
-  );
+  ));
   return { onClose, onStep, ...view };
 }
 
@@ -1524,5 +1525,38 @@ describe('WindowSheetDialog — a tier-scoped verdict word names its scope (reac
 
     expect(screen.queryByTestId('window-sheet-verdict-scope')).toBeNull();
     expect(screen.getByTestId('window-sheet-live')).toHaveTextContent(/^Tonight Sunset, 1 of 6, Worth it$/);
+  });
+});
+
+describe('WindowSheetDialog — Your places in the region rail (find-and-favourites-plan.md F4)', () => {
+  const FAVS = { places: [1], locationIds: [1], starredAreas: [] };
+  const strip = () => screen.getAllByTestId('window-spot').map((el) => el.textContent);
+
+  it('★ My places filters the strip to the served ids, touches no rating, and clears a region pick', () => {
+    const field_ = field();
+    renderDialog({ field: field_, wrap: (node) => withFavourites(node, FAVS) });
+    expect(strip()).toHaveLength(2);
+
+    fireEvent.click(screen.getByTestId('wf-region-favourite'));
+
+    expect(strip()).toHaveLength(1);
+    expect(strip()[0]).toContain('Bamburgh Beach');
+    // The rating on the remaining card is the served one.
+    expect(screen.getByTestId('window-spot-rating')).toHaveTextContent('5★');
+    expect(field_.onSelectRegion).toHaveBeenCalledWith(null);
+    expect(screen.getByTestId('wf-region-favourite')).toHaveAttribute('aria-pressed', 'true');
+
+    // A second press takes the filter off; a region pick replaces it.
+    fireEvent.click(screen.getByTestId('wf-region-favourite'));
+    expect(strip()).toHaveLength(2);
+    fireEvent.click(screen.getByTestId('wf-region-favourite'));
+    fireEvent.click(screen.getAllByTestId('wf-region-cell')[2]);
+    expect(screen.getByTestId('wf-region-favourite')).toHaveAttribute('aria-pressed', 'false');
+    expect(field_.onSelectRegion).toHaveBeenLastCalledWith('Dales');
+  });
+
+  it('adds no cell without a provider: the rail is what it was', () => {
+    renderDialog();
+    expect(screen.queryByTestId('wf-region-favourite')).toBeNull();
   });
 });

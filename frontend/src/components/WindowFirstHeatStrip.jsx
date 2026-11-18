@@ -7,6 +7,7 @@ import {
 } from '../utils/heatField.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useFavourites } from '../context/FavouritesContext.jsx';
 import { POINT_SCORE_INDEX, heatSpotKey, splitByReach } from '../utils/heatSpots.js';
 import {
   badgeChannel,
@@ -368,6 +369,8 @@ export function bestReachLine(card) {
     return {
       rating: best.rating,
       label: null,
+      // The place's id, read only by the ★ mark for a starred place; never a ranking input.
+      locationId: best.locationId ?? null,
       value: best.locationName,
       muted: false,
       title: titleParts.join(' · ') || null,
@@ -805,6 +808,8 @@ export default function WindowFirstHeatStrip({
   comingUpEntries = null, renderedEntryIds = null, openableKeys = null, forecastDates = null,
   onOpenComingUp = undefined, onShowOnMap = undefined, onGoToPlanWindow = undefined,
 }) {
+  // Your places (F4): the Glance best-spot line marks a place the reader starred itself, and says so. A mark only.
+  const favourites = useFavourites();
   // A body the server SHAPED by the reader's sub-region picks (S5b-1): `picks` is handed in only then. Never the
   // role. `zeroPicks` is a shaped reader who holds no pick yet, whose every place is outside.
   const shaped = picks != null;
@@ -1598,6 +1603,8 @@ export default function WindowFirstHeatStrip({
     const stoodWords = notScored && stoodHere.length > 0 && poolTotal > 0;
     const spreadStood = stoodWords && !stoodUnrated && facts.spread.rated === 0 && !facts.state.bars;
     const bestStood = stoodWords && facts.best && facts.best.rating == null && !facts.best.beyond;
+    const bestStarred = favourites.status === 'ready' && facts.best?.locationId != null
+      && favourites.isPlaceStarred(facts.best.locationId);
     const warningsHere = card.away ? [] : (cardWarnings.get(card.key) ?? []);
     const cardWarningNames = warningsHere.map(warningName).filter(Boolean);
     const accessibleName = [card.label, card.time, card.verdictLabel]
@@ -1633,7 +1640,7 @@ export default function WindowFirstHeatStrip({
         card.away || !facts.best || (shaped && notScored)
           || ((notScored || facts.spread.rated === 0) && poolTotal > 0 && !facts.best.beyond)
           ? []
-          : [facts.best.spoken],
+          : [bestStarred ? `${facts.best.spoken}, your place` : facts.best.spoken],
       )
       // The tide chip's clause (tide-plan-card-plan.md §3 C2 task 2) — DOM order: the best-reach
       // row's own tide clause lands just above, and this one sits where the chip itself sits, first
@@ -1944,6 +1951,7 @@ export default function WindowFirstHeatStrip({
                       state={facts.best.tideState}
                     />
                   )}
+                  {bestStarred && !bestStood && <span aria-hidden="true" className="wf-fav-mark" data-testid="wf-heat-best-fav">★</span>}
                   {bestStood
                     ? (stoodUnrated ? 'some places stood down' : 'stood down by the weather')
                     : facts.best.value}

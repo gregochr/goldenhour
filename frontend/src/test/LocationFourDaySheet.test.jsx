@@ -10,6 +10,7 @@ import {
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { withTideFacts } from './tideFactsFixture.js';
+import { withFavourites } from './favouritesKit.jsx';
 
 /**
  * The four-day location sheet, rendered (plan D10, P8).
@@ -91,10 +92,10 @@ const SLOTS = buildSlotIndex([
   },
 ]);
 
-const setup = (props = {}) => {
+const setup = (props = {}, wrap = (node) => node) => {
   const handlers = { onClose: vi.fn(), onShowOnMap: vi.fn() };
   render(
-    <LocationFourDaySheet
+    wrap(<LocationFourDaySheet
       spot={SPOT}
       windows={WINDOWS}
       scoreIndex={SCORES}
@@ -107,7 +108,7 @@ const setup = (props = {}) => {
       {...handlers}
       {...props}
     />,
-  );
+  ));
   return handlers;
 };
 
@@ -1601,5 +1602,26 @@ describe('LocationFourDaySheet — a wildlife hide shows its hourly comfort fore
     setup({ location: { ...HIDE, id: 7, locationType: ['WILDLIFE', 'LANDSCAPE'] } });
     expect(screen.getAllByTestId('location-sheet-row')).toHaveLength(4);
     expect(screen.queryByTestId('location-sheet-hourly')).toBeNull();
+  });
+});
+
+describe('LocationFourDaySheet — Your places (find-and-favourites-plan.md F4)', () => {
+  it('puts the toggle in the header, pressed for a starred place, with one constant label', () => {
+    setup({}, (node) => withFavourites(node, { places: [7] }));
+    const toggle = within(screen.getByTestId('location-sheet')).getByTestId('location-sheet-favourite');
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle).toHaveAccessibleName('Your place');
+  });
+
+  it('draws no toggle outside a provider, so the sheet is exactly what it was', () => {
+    setup();
+    expect(screen.queryByTestId('location-sheet-favourite')).toBeNull();
+    expect(screen.queryByTestId('location-sheet-favourite-locked')).toBeNull();
+  });
+
+  it('a Lite reader gets the Pro door and the worded upsell under the header', () => {
+    setup({}, (node) => withFavourites(node, { status: 'locked' }));
+    fireEvent.click(screen.getByTestId('location-sheet-favourite-locked'));
+    expect(screen.getByTestId('favourite-upsell-panel')).toBeInTheDocument();
   });
 });

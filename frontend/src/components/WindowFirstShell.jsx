@@ -48,6 +48,8 @@ import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
 import useAreaFind from '../hooks/useAreaFind.js';
+import { useFavourites } from '../context/FavouritesContext.jsx';
+import ComingUpWatchlist from './ComingUpWatchlist.jsx';
 import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
@@ -2136,6 +2138,10 @@ export default function WindowFirstShell({
    * it and an adversarial review caught the consequence: a renamed location timed correctly and
    * rated as unscored, under a heat field that still painted its star.
    */
+  // Your places (F4): whether the Coming up watchlist is on screen (a Pro reader's list has landed, or a Lite reader's
+  // teaser, which needs no scores).
+  const favouritesState = useFavourites();
+  const watchlistShown = effectiveTab === 'coming-up' && favouritesState.status === 'ready';
   const detailScoreIndex = useMemo(
     // ⚠️ TWO readers since M3, and the gate widened with them: search's location rows print the
     // place's own best window from the same id-first index, so the box and the sheet it opens can
@@ -2143,8 +2149,9 @@ export default function WindowFirstShell({
     // nothing, which is the whole point of building it here rather than in the provider.
     // ⚠️ A THIRD reader since F2: the area sheet prints each of its spots' own best window from this index. It stays
     // open after Find has closed (`searchSeed` is null by then), so without it every row read "Not rated".
-    () => ((sheetSpot || searchSeed != null || areaSheet != null) ? buildScoreIndex(scoreRows) : null),
-    [sheetSpot, searchSeed, areaSheet, scoreRows],
+    // ⚠️ A FOURTH reader since F4: the Coming up watchlist prints each starred place's own best window from it.
+    () => ((sheetSpot || searchSeed != null || areaSheet != null || watchlistShown) ? buildScoreIndex(scoreRows) : null),
+    [sheetSpot, searchSeed, areaSheet, watchlistShown, scoreRows],
   );
   /**
    * The region names the page is planning over — the planning area at home, the origin's own region
@@ -3126,6 +3133,29 @@ export default function WindowFirstShell({
         forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
         onMarkSeen={markSeen}
         locations={locations}
+        watchlist={(
+          <ComingUpWatchlist
+            active={effectiveTab === 'coming-up'}
+            spots={heatSpots}
+            windows={heatStripCards}
+            scoreIndex={detailScoreIndex}
+            reachById={effectiveReachById}
+            allowedLocationIds={allowedLocationIds}
+            // Coming up has no sheet of its own (D6): a pick goes to the Plan tab and opens there, as Find's does.
+            onOpenPlace={(spot) => {
+              warmStackedChunks();
+              selectTab('plan');
+              openOverPopup({ spot });
+              focusPlanTab();
+            }}
+            onOpenArea={(area) => {
+              warmStackedChunks();
+              selectTab('plan');
+              setAreaSheet(area);
+              focusPlanTab();
+            }}
+          />
+        )}
       />
 
       {/* Hidden rather than unmounted: unmounting the pane on every tab change would discard the

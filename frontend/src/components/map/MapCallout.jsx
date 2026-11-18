@@ -32,6 +32,7 @@ import TideFitBlock from './TideFitBlock.jsx';
 import EclipseSpotLine from './EclipseSpotLine.jsx';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
+import FavouriteToggle, { FavouriteUpsell, useFavouriteUpsell } from '../shared/FavouriteToggle.jsx';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { PEEK_HEIGHT } from '../../utils/askPeek.js';
 import { GLANCE_SHORT_LABEL } from '../../utils/tabLabels.js';
@@ -359,6 +360,7 @@ export default function MapCallout({
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
+  const favouriteUpsell = useFavouriteUpsell();
   // The shared Met Office warnings (a hook, so above the early return below); read where the callout builds its window.
   const served = useWarnings();
   const calloutWidth = isMobile ? CALLOUT_WIDTH_MOBILE : CALLOUT_WIDTH;
@@ -937,6 +939,13 @@ export default function MapCallout({
               {[location.regionName, ...subjectLabels].filter(Boolean).join(' · ')}
             </span>
           </div>
+          <FavouriteToggle
+            kind="place"
+            id={location.id ?? null}
+            name={location.name}
+            upsell={favouriteUpsell}
+            testId="map-callout-favourite"
+          />
           <button
             ref={closeRef}
             type="button"
@@ -948,6 +957,7 @@ export default function MapCallout({
             ✕
           </button>
         </div>
+        <FavouriteUpsell upsell={favouriteUpsell} />
 
         {/* No verdict row in day mode: there is no window whose verdict it could state. */}
         {!isDay && (

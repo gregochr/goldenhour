@@ -12,6 +12,7 @@ import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { withFavourites } from './favouritesKit.jsx';
 
 /**
  * The Plan pane's heat strip — six solar-window thumbnails, replacing the day rail (plan D1, §1.1).
@@ -171,7 +172,7 @@ function scoredWindows(cards) {
  * scope. Flushing it here also means every assertion below runs against the state the strip
  * settles into rather than its first frame.
  */
-async function renderStrip(props = {}) {
+async function renderStrip({ wrap = (node) => node, ...props } = {}) {
   const onOpenWindow = vi.fn();
   const cards = props.cards ?? [stripCard()];
   // ⚠️ Computed ONCE, outside both JSX trees below, and reused by `rerender()` — not called fresh
@@ -186,7 +187,7 @@ async function renderStrip(props = {}) {
   const pointSets = props.pointSets ?? scoredWindows(cards);
   let rerenderRoot;
   await act(async () => {
-    const result = render(
+    const result = render(wrap(
       <WindowFirstHeatStrip
         spots={spots}
         todayStr={TODAY}
@@ -195,7 +196,7 @@ async function renderStrip(props = {}) {
         cards={cards}
         pointSets={pointSets}
       />,
-    );
+    ));
     rerenderRoot = result.rerender;
   });
   // Re-renders the SAME props this call used — a flip test calls this once, mutates the hook mock,
@@ -203,7 +204,7 @@ async function renderStrip(props = {}) {
   // needing to reconstruct the element itself. Wrapped in its own `act` for the same reason the
   // initial render is: the branch flip mounts/unmounts the `--wf-dh-h` effect.
   const rerender = async () => act(async () => {
-    rerenderRoot(
+    rerenderRoot(wrap(
       <WindowFirstHeatStrip
         spots={spots}
         todayStr={TODAY}
@@ -212,7 +213,7 @@ async function renderStrip(props = {}) {
         cards={cards}
         pointSets={pointSets}
       />,
-    );
+    ));
   });
   return { onOpenWindow, rerender };
 }
@@ -5313,5 +5314,23 @@ describe('WindowFirstHeatStrip — the reach split (reach-field plan)', () => {
       stoodSets: new Map([[away.key, [S_FAR]]]),
     });
     drawGeo.mock.calls.forEach((c) => expect(c[5]).not.toHaveProperty('beyond'));
+  });
+});
+
+describe('WindowFirstHeatStrip — Your places on the best-spot line (find-and-favourites-plan.md F4)', () => {
+  it('marks the best spot with ★ and says "your place" when the reader starred that place; rating and name are untouched', async () => {
+    await renderStrip({ cards: [ratedCard()], wrap: (node) => withFavourites(node, { places: [1] }) });
+    expect(screen.getByTestId('wf-heat-best-fav')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('Bamburgh Beach');
+    expect(screen.getByTestId('wf-heat-best-rating')).toHaveTextContent('4★');
+    expect(screen.getByTestId('wf-heat-card-button')).toHaveAccessibleName(/best Bamburgh Beach.*your place/);
+  });
+
+  it('⚠️ marks nothing for a place inside a starred area, an unstarred best, or no provider', async () => {
+    await renderStrip({ cards: [ratedCard()], wrap: (node) => withFavourites(node, { places: [], locationIds: [1], areas: [4] }) });
+    expect(screen.queryByTestId('wf-heat-best-fav')).toBeNull();
+    cleanup();
+    await renderStrip({ cards: [ratedCard()] });
+    expect(screen.queryByTestId('wf-heat-best-fav')).toBeNull();
   });
 });

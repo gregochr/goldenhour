@@ -8,6 +8,9 @@ import BottomSheet from '../BottomSheet.jsx';
 import useDialogFocus from '../../hooks/useDialogFocus.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { useFitToFrame } from '../../hooks/useFitToFrame.js';
+import { useFavourites } from '../../context/FavouritesContext.jsx';
+import { FavouriteUpsell, useFavouriteUpsell } from '../shared/FavouriteToggle.jsx';
+import { pickerEntries } from '../../utils/favourites.js';
 
 /**
  * The Map tab's Regions jump list (map-tab-v2-plan.md §3 P11,
@@ -61,13 +64,20 @@ import { useFitToFrame } from '../../hooks/useFitToFrame.js';
  * @param {?string} [props.resetLabel] the scope the reset row returns to, already resolved by the
  *        caller — "My area", "Everywhere", or an away origin's own "Around …"
  * @param {?Function} [props.onReset] clears the standing jump ({@code MapView.clearRegionJump})
+ * @param {?Function} [props.onSelectFavourite] Your places (F4): frames a starred set ({@code ★ My places}, or one
+ *        starred area) the way a region is framed, given the entry from {@code pickerEntries}. Absent, the section is
+ *        not drawn. The entries are a separate labelled section, never a rank position among the regions
+ * @param {?string} [props.activeFavourite] the entry key whose frame is in force
  */
 export default function RegionsJump({
   open, onOpenChange, rows, onSelectRegion,
   activeRegion = null, resetLabel = null, onReset = null,
-  chipHidden = false, restoreFallback = null,
+  chipHidden = false, restoreFallback = null, onSelectFavourite = null, activeFavourite = null,
 }) {
   const rootRef = useRef(null);
+  const favourites = useFavourites();
+  const favouriteUpsell = useFavouriteUpsell();
+  const { setTrigger: bindFavouriteTrigger } = favouriteUpsell;
   const isMobile = useIsMobile();
   /**
    * Focus-in-and-restore for the DESKTOP popover — never containment (`useDialogFocus`'s own class
@@ -127,6 +137,52 @@ export default function RegionsJump({
       </span>
     </button>
   ) : null;
+
+  // Your places (F4): `★ My places` (the served merged set) and one entry per starred area, above the regions. A Lite
+  // reader gets the same first entry with the Pro pill, opening the worded upsell. Nothing for anyone else.
+  let favouriteSection = null;
+  if (onSelectFavourite && favourites.status === 'locked') {
+    favouriteSection = (
+      <div className="wf-fav-section" data-testid="wf-jump-favourites-locked">
+        <button
+          type="button"
+          ref={bindFavouriteTrigger}
+          data-testid="wf-jump-favourite-locked"
+          className="wf-jump-row"
+          aria-expanded={favouriteUpsell.open}
+          aria-controls={favouriteUpsell.open ? favouriteUpsell.id : undefined}
+          onClick={favouriteUpsell.toggle}
+        >
+          <span className="wf-jump-name">★ My places</span>
+          <span className="wf-jump-drive" />
+          <span className="wf-jump-score"><span className="wf-lens-pro">Pro</span></span>
+        </button>
+        <FavouriteUpsell upsell={favouriteUpsell} testIdPrefix="wf-jump-favourite-upsell" />
+      </div>
+    );
+  } else if (onSelectFavourite && favourites.status === 'ready') {
+    const entries = pickerEntries(favourites, favourites.starredAreas);
+    if (entries.length > 0) {
+      favouriteSection = (
+        <div className="wf-fav-section" data-testid="wf-jump-favourites">
+          {entries.map((entry) => (
+            <button
+              key={entry.key}
+              type="button"
+              data-testid="wf-jump-favourite"
+              className="wf-jump-row"
+              aria-current={entry.key === activeFavourite ? 'true' : undefined}
+              onClick={() => onSelectFavourite(entry)}
+            >
+              <span className="wf-jump-name">{entry.label}</span>
+              <span className="wf-jump-drive">{`${entry.count} ${entry.count === 1 ? 'place' : 'places'}`}</span>
+              <span className="wf-jump-score" />
+            </button>
+          ))}
+        </div>
+      );
+    }
+  }
 
   // The rows themselves — identical on every viewport. Only the wrapper differs (popover on
   // desktop/tablet, `BottomSheet` on the phone), `FiltersPopover`'s own pattern.
@@ -197,6 +253,7 @@ export default function RegionsJump({
         >
           <div id="wf-jump-menu" data-testid="wf-jump-menu" className="wf-jump-sheet">
             {resetRow}
+            {favouriteSection}
             {panelBody}
           </div>
         </BottomSheet>
@@ -212,6 +269,7 @@ export default function RegionsJump({
             aria-label="Jump to a region"
           >
             {resetRow}
+            {favouriteSection}
             {panelBody}
           </div>
         )
@@ -233,6 +291,8 @@ RegionsJump.propTypes = {
   activeRegion: PropTypes.string,
   resetLabel: PropTypes.string,
   onReset: PropTypes.func,
+  onSelectFavourite: PropTypes.func,
+  activeFavourite: PropTypes.string,
   /**
    * Withholds the standalone trigger chip while still mounting the sheet/popover — the phone
    * Layers section provides its own trigger row instead (map-mobile-sheet-plan.md §3 M2 task 6).

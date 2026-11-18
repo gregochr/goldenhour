@@ -1,6 +1,8 @@
 import React, { useId } from 'react';
 import PropTypes from 'prop-types';
 import { countWord } from '../utils/pickGeography.js';
+import { useFavourites } from '../context/FavouritesContext.jsx';
+import { FavouriteUpsell, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
 
 /**
  * The open row's region rail — this window by region, ranked, and the filter that follows from it.
@@ -58,12 +60,23 @@ import { countWord } from '../utils/pickGeography.js';
  * @param {number}   [props.outsideCount] the window's places outside the picks, for the All cell (shaped only)
  * @param {?string}  props.selected    the selected region, or null for All
  * @param {Function} [props.onSelect]  called with a region name, or null for All
+ * @param {?{cells: Array<{key: string, label: string, count: number}>, selected: ?string, onSelect: Function}}
+ *        [props.favourites] Your places (F4): extra cells directly under All, as a separate labelled section (never a
+ *        rank position among the regions) that filters the strip to the SERVED member ids. A Lite reader gets one
+ *        {@code ★ My places} cell with the Pro pill, opening the worded upsell under the rail. Absent, none
  * @param {object}   [props.allCellRef] attached to the All cell, so a control that clears the
  *        selection and unmounts itself has somewhere to put focus — see {@code WindowSheetDialog}
  */
 export default function WindowRegionRail({
   rows, windowBest, drawnCount, countNoun, selected, onSelect, allCellRef, shaped = false, outsideCount = 0,
+  favourites = null,
 }) {
+  const favouriteState = useFavourites();
+  const favouriteUpsell = useFavouriteUpsell();
+  const { setTrigger: bindFavouriteTrigger } = favouriteUpsell;
+  const favouriteSelected = favourites?.selected ?? null;
+  const favouriteCells = favouriteState.status === 'ready' ? (favourites?.cells ?? []) : [];
+  const favouriteLocked = favourites != null && favouriteState.status === 'locked';
   // Unique per rail, so the several open rows a reader can have at once cannot collide on an id —
   // `aria-labelledby` resolves document-wide and a duplicate would name one cell for two buttons.
   const nameId = useId();
@@ -87,12 +100,12 @@ export default function WindowRegionRail({
           ref={allCellRef}
           data-testid="wf-region-cell"
           data-region="all"
-          data-selected={selected ? undefined : 'true'}
+          data-selected={selected || favouriteSelected ? undefined : 'true'}
           // `aria-pressed` rather than `aria-current`: this is a filter toggle, and exactly one of
           // the cells is on at a time. A reader arriving on the rail hears which one without having
           // to resolve the gold tint that is the only visual signal.
-          aria-pressed={!selected}
-          className={`wf-rr wf-rr-all${selected ? '' : ' on'}`}
+          aria-pressed={!selected && !favouriteSelected}
+          className={`wf-rr wf-rr-all${selected || favouriteSelected ? '' : ' on'}`}
           aria-labelledby={`${nameId}-all`}
           onClick={() => onSelect?.(null)}
         >
@@ -110,6 +123,36 @@ export default function WindowRegionRail({
             {allMeta}
           </span>
         </button>
+        {favouriteCells.map((cell) => (
+          <button
+            key={cell.key}
+            type="button"
+            data-testid="wf-region-favourite"
+            data-selected={cell.key === favouriteSelected ? 'true' : undefined}
+            aria-pressed={cell.key === favouriteSelected}
+            className={`wf-rr${cell.key === favouriteSelected ? ' on' : ''}`}
+            onClick={() => favourites.onSelect(cell.key === favouriteSelected ? null : cell.key)}
+          >
+            <span className="wf-rr-n">{cell.label}</span>
+            {' '}
+            <span className="wf-rr-m">{countWord(cell.count, 'place', 'places')}</span>
+          </button>
+        ))}
+        {favouriteLocked && (
+          <button
+            type="button"
+            ref={bindFavouriteTrigger}
+            data-testid="wf-region-favourite-locked"
+            className="wf-rr"
+            aria-expanded={favouriteUpsell.open}
+            aria-controls={favouriteUpsell.open ? favouriteUpsell.id : undefined}
+            onClick={favouriteUpsell.toggle}
+          >
+            <span className="wf-rr-n">★ My places</span>
+            {' '}
+            <span className="wf-rr-m"><span className="wf-lens-pro">Pro</span></span>
+          </button>
+        )}
         {rows.map((row, index) => {
           const meta = row.shaped
             ? shapedRowMeta(row)
@@ -141,6 +184,7 @@ export default function WindowRegionRail({
           );
         })}
       </div>
+      {favouriteLocked && <FavouriteUpsell upsell={favouriteUpsell} testIdPrefix="wf-region-favourite-upsell" />}
     </>
   );
 }
@@ -221,6 +265,13 @@ WindowRegionRail.propTypes = {
   countNoun: PropTypes.string.isRequired,
   selected: PropTypes.string,
   onSelect: PropTypes.func,
+  favourites: PropTypes.shape({
+    cells: PropTypes.arrayOf(PropTypes.shape({
+      key: PropTypes.string.isRequired, label: PropTypes.string.isRequired, count: PropTypes.number.isRequired,
+    })).isRequired,
+    selected: PropTypes.string,
+    onSelect: PropTypes.func.isRequired,
+  }),
   /**
    * Attached to the All cell. A plain prop rather than a forwarded ref, because the caller needs it
    * only to MOVE FOCUS here and a named prop says that at the call site.

@@ -28,6 +28,8 @@ import {
   isMultiRank, rankBadge, rankOnPress, ranksOf,
 } from '../../utils/askPickChip.js';
 import TideWave from './TideWave.jsx';
+import { FavouriteMark } from '../shared/FavouriteToggle.jsx';
+import { useFavourites } from '../../context/FavouritesContext.jsx';
 import { pickedLineText } from '../../utils/pickGeography.js';
 
 /**
@@ -298,6 +300,7 @@ export default function MapLabels({
   omitUnrated = false, bigSeasChips = NO_BIG_SEAS_CHIPS, regionPicks = null, stoodPlaces = NO_STOOD_PLACES,
 }) {
   const map = useMap();
+  const favourites = useFavourites();
 
   // Aurora only (aurora-heat-plan.md §4 #8): an unrated spot is not drawn. The aurora 1-star fill
   // (#384262) is 1.10:1 against the no-data grey, so a poor night and no data would be the same
@@ -1004,11 +1007,13 @@ export default function MapLabels({
         // Extends the rating announcement rather than replacing it — an aria-label REPLACES the
         // rendered text entirely, so the glyph's own meaning has to be spelled out here or a
         // screen-reader user never hears it at all.
+        const starredPlace = favourites.status === 'ready' && spot.id != null && favourites.isPlaceStarred(spot.id);
         const ariaLabel = outside
           ? `${spot.name}, ${OUTSIDE_PICKS_WORDS}`
           : [
             hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
             tideAccessibleClause(tideTier, spot.tideShortfall, spot.tideState),
+            starredPlace ? 'your place' : null,
           ].filter(Boolean).join(', ') + (hasRatedBadge(spot) ? badgeAccessibleClause(spot.myRating) : '');
         return (
           <button
@@ -1048,6 +1053,9 @@ export default function MapLabels({
                 style={{ background: hasRating ? rampHex(spot.rating) : 'var(--color-plex-border-light)' }}
               />
             )}
+            {/* Your places (F4): a mark and nothing more, for a place the reader starred itself. No z-order, no
+                ranking: chip selection above never reads it. */}
+            <FavouriteMark id={spot.id} />
             <b className="wf-maplab-chip-n">{spot.name}</b>
             {/* A text separator between the flex items: axe's label-in-name check glues sibling text
                 ("Ridge4"), and a space between flex items renders nothing. Do not remove. */}

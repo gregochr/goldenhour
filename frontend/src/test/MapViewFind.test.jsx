@@ -99,6 +99,8 @@ vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn().mockResolvedVal
 import MapView from '../components/MapView.jsx';
 import PlanSearch from '../components/PlanSearch.jsx';
 import { reachLensStub } from './reachLensStub.js';
+import { favouritesValue } from './favouritesKit.jsx';
+import { FavouritesContext } from '../context/FavouritesContext.jsx';
 
 const TODAY = '2026-01-15';
 
@@ -152,6 +154,8 @@ const HEAT = heatFor(false);
 const HEAT_WITH_HOME = heatFor(true);
 
 let view;
+/** A favourites value for the Regions list's Your places entries; null leaves the map with no provider. */
+let favourites = null;
 /** MapView with the fixture's props, mounted the first time and updated after: `over` is what a test changes. */
 const show = async (over = {}, sibling = null) => {
   // A fragment from the start, so a sibling arriving later (Find, in the shell's tree) never remounts the map.
@@ -168,7 +172,8 @@ const show = async (over = {}, sibling = null) => {
       {sibling}
     </>
   );
-  await act(async () => { if (view) view.rerender(ui); else view = render(ui); });
+  const tree = favourites ? <FavouritesContext.Provider value={favourites}>{ui}</FavouritesContext.Provider> : ui;
+  await act(async () => { if (view) view.rerender(tree); else view = render(tree); });
 };
 const renderTab = show;
 const rerenderTab = show;
@@ -182,6 +187,7 @@ beforeEach(() => {
   h.corner = document.body.appendChild(document.createElement('div'));
   h.corner.className = 'leaflet-bottom leaflet-right';
   view = null;
+  favourites = null;
 });
 
 afterEach(() => {
@@ -536,5 +542,48 @@ describe('an area picked in Find (F2)', () => {
     await rerenderTab({ heat: heatWithoutFar, locations: noCoords, findPick: areaPick({ nonce: 2 }) });
     expect(h.flyTo).not.toHaveBeenCalled();
     expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+  });
+});
+
+describe('Your places in the Regions list (find-and-favourites-plan.md F4)', () => {
+  const openRegions = async () => { await act(async () => { fireEvent.click(screen.getByTestId('wf-jump-chip')); }); };
+
+  it('★ My places frames the served merged ids as the named-spot lens, with the chip and a clear', async () => {
+    favourites = favouritesValue({ places: [FAR.id], locationIds: [FAR.id] });
+    await renderTab();
+    expect(lastLabelNames()).toEqual(['Near']);
+
+    await openRegions();
+    await act(async () => { fireEvent.click(screen.getByText('★ My places')); });
+
+    expect(screen.getByTestId('map-find-area')).toHaveTextContent('Showing My places');
+    expect(lastLabelNames()).toEqual(['Far']);
+    // The menu closes on a pick, and the list marks the frame in force when reopened.
+    expect(screen.queryByTestId('wf-jump-menu')).toBeNull();
+    await openRegions();
+    expect(screen.getAllByTestId('wf-jump-favourite')[0]).toHaveAttribute('aria-current', 'true');
+    await act(async () => { fireEvent.click(screen.getByTestId('map-find-area-clear')); });
+    expect(screen.queryByTestId('map-find-area')).toBeNull();
+  });
+
+  it('a starred area is its own entry, framing only that area\'s members', async () => {
+    favourites = favouritesValue({
+      places: [], areas: [9], locationIds: [NEAR.id, FAR.id],
+      starredAreas: [{ id: 9, name: 'Lake District', locationIds: [FAR.id] }],
+    });
+    await renderTab();
+    await openRegions();
+    await act(async () => { fireEvent.click(screen.getByText('★ Lake District')); });
+    expect(screen.getByTestId('map-find-area')).toHaveTextContent('Showing Lake District');
+    expect(lastLabelNames()).toEqual(['Far']);
+  });
+
+  it('a Lite reader\'s ★ My places is the Pro door and frames nothing', async () => {
+    favourites = favouritesValue({ status: 'locked' });
+    await renderTab();
+    await openRegions();
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-jump-favourite-locked')); });
+    expect(screen.getByTestId('wf-jump-favourite-upsell-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-find-area')).toBeNull();
   });
 });

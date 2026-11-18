@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import MovementMark from './MovementMark.jsx';
 import WindowRowFieldMap, { CHIP_CANDIDATES } from './WindowRowFieldMap.jsx';
 import WindowRegionRail from './WindowRegionRail.jsx';
+import { useFavourites } from '../context/FavouritesContext.jsx';
+import { pickerEntries } from '../utils/favourites.js';
 import WindowProseSlot from './WindowProseSlot.jsx';
 import WindowTopicRows from './WindowTopicRows.jsx';
 import WindowWarningRow from './WindowWarningRow.jsx';
@@ -221,6 +223,32 @@ export default function WindowSheetDialog({
       : regionNames),
     [regionNames, field.singleRegionScope, field.origin],
   );
+  // Your places (F4): `★ My places` and each starred area as an extra rail cell, a filter on the strip by the SERVED
+  // member ids (set membership, no rating or order touched). Exclusive with a region pick: choosing either clears the
+  // other. A separate labelled section of the rail, never a rank position.
+  const favourites = useFavourites();
+  const [favouriteKey, setFavouriteKey] = useState(null);
+  const favouriteEntries = useMemo(
+    () => (favourites.status === 'ready' ? pickerEntries(favourites, favourites.starredAreas) : []),
+    [favourites],
+  );
+  const favouriteFocus = useMemo(() => {
+    const entry = favouriteEntries.find((e) => e.key === favouriteKey);
+    return entry ? { key: entry.key, label: entry.label, ids: new Set(entry.ids) } : null;
+  }, [favouriteEntries, favouriteKey]);
+  const favouriteCells = useMemo(() => favouriteEntries.map((entry) => ({
+    key: entry.key,
+    label: entry.label,
+    count: card.spots.filter((spot) => entry.ids.includes(spot.locationId)).length,
+  })), [favouriteEntries, card.spots]);
+  const selectRegion = (name) => {
+    setFavouriteKey(null);
+    field.onSelectRegion?.(name);
+  };
+  const selectFavourite = (key) => {
+    setFavouriteKey(key);
+    if (key != null) field.onSelectRegion?.(null);
+  };
   const selectedRow = field.selectedRegion
     ? regionRows.find((row) => row.name === field.selectedRegion) || null
     : null;
@@ -231,12 +259,10 @@ export default function WindowSheetDialog({
    * the region focus is per-window and dies with the dialog. Running last means the rail's counts
    * and this array are the same set.
    */
-  const shownSpots = useMemo(
-    () => (field.selectedRegion
-      ? gateSpotsByRegion(card.spots, field.selectedRegion)
-      : card.spots),
-    [card.spots, field.selectedRegion],
-  );
+  const shownSpots = useMemo(() => {
+    if (favouriteFocus) return card.spots.filter((spot) => favouriteFocus.ids.has(spot.locationId));
+    return field.selectedRegion ? gateSpotsByRegion(card.spots, field.selectedRegion) : card.spots;
+  }, [card.spots, field.selectedRegion, favouriteFocus]);
   /**
    * Whether the reach axis COULD act on this window — is there a drive time anywhere to gate on.
    *
@@ -745,7 +771,7 @@ export default function WindowSheetDialog({
               reachLimitMinutes={card.reachLimitMinutes ?? null}
               origin={field.origin || null}
               todayStr={todayStr}
-              onSelectRegion={field.onSelectRegion}
+              onSelectRegion={selectRegion}
               // ⚠️ M4's entry point, and passing it is what takes the chips OUT of `aria-hidden` —
               // the map treats the handler's presence as the test for whether a chip is an
               // annotation or a control. Undefined when the shell offers no sheet, which keeps the
@@ -773,7 +799,8 @@ export default function WindowSheetDialog({
                   outsideCount={card.outsideCount ?? 0}
                   countNoun={card.withinReachCount != null ? 'in reach' : 'spots'}
                   selected={field.selectedRegion || null}
-                  onSelect={field.onSelectRegion}
+                  onSelect={selectRegion}
+                  favourites={{ cells: favouriteCells, selected: favouriteFocus?.key ?? null, onSelect: selectFavourite }}
                 />
               )}
               {/* ALWAYS rendered, in every state, at the same height — the point of the element.

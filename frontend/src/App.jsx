@@ -35,6 +35,7 @@ import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider, useWindowFirstBriefing } from './context/WindowFirstBriefingContext.jsx';
 import { AskProvider } from './context/AskContext.jsx';
 import { GuideProvider } from './context/GuideContext.jsx';
+import { FavouritesProvider } from './context/FavouritesContext.jsx';
 import { takeLinkToken } from './utils/oneTimeLinkToken.js';
 import { takeInviteToken } from './utils/inviteLinkToken.js';
 import ChunkErrorBoundary from './components/shared/ChunkErrorBoundary.jsx';
@@ -917,6 +918,8 @@ function AppInner() {
     // it also does the right thing to `h-[100dvh]`: Tailwind's preflight makes every box
     // `border-box`, so the padding comes OUT of the screen height and the `flex-1` map pane
     // shrinks to fit, rather than the page growing past one screen.
+    // Your places: a boolean, never the role, so a Lite reader's provider never calls the endpoint.
+    <FavouritesProvider pro={role === 'PRO_USER' || role === 'ADMIN'}>
     <GuideProvider closeShellDialogs={closeAllShellDialogs} activeTab={activePlanTab}>
     <div className={`app-safe ${isMapTabActive ? 'h-[100dvh] flex flex-col overflow-hidden bg-plex-bg' : 'min-h-screen bg-plex-bg'}`}>
       {/* The boundary and the provider wrap BOTH the banner block and <main>, in that order
@@ -1216,6 +1219,7 @@ function AppInner() {
 
     </div>
     </GuideProvider>
+    </FavouritesProvider>
   );
 }
 
