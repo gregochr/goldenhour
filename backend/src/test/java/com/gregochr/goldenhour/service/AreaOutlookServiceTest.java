@@ -45,7 +45,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AreaOutlookServiceTest {
 
-    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-18T12:00:00Z"), ZoneOffset.UTC);
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2019-03-12T12:00:00Z"), ZoneOffset.UTC);
     private static final LocalDate TODAY = ForecastHorizon.today(CLOCK);
     private static final Set<TargetType> EVENTS = Set.of(TargetType.SUNRISE, TargetType.SUNSET);
 
@@ -175,7 +175,7 @@ class AreaOutlookServiceTest {
     }
 
     private static BriefingSlot slot(long id, String name, Integer rating, Boolean outlier) {
-        return new BriefingSlot(id, name, LocalDateTime.of(2026, 11, 18, 16, 0), Verdict.GO, null, null, List.of(),
+        return new BriefingSlot(id, name, LocalDateTime.of(2019, 3, 12, 16, 0), Verdict.GO, null, null, List.of(),
                 rating, rating, null, null, null, DisplayVerdict.WORTH_IT, null, false, null, outlier);
     }
 
@@ -184,8 +184,8 @@ class AreaOutlookServiceTest {
                 null, null, null, null, null, null, DisplayVerdict.WORTH_IT, 2, "Worth it", Confidence.HIGH, 3.5,
                 5, 0.4, true, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of(),
-                LocalDateTime.of(2026, 11, 18, 16, 0), null);
-        return new DailyBriefingResponse(LocalDateTime.of(2026, 11, 18, 9, 0), "headline",
+                LocalDateTime.of(2019, 3, 12, 16, 0), null);
+        return new DailyBriefingResponse(LocalDateTime.of(2019, 3, 12, 9, 0), "headline",
                 List.of(new BriefingDay(TODAY, List.of(summary))), List.of(), null, null, false, "Opus", List.of(),
                 List.of());
     }
