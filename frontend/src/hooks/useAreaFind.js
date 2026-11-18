@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchAreaDirectory, fetchAreaOutlook } from '../api/areasApi.js';
 
 /**
@@ -14,20 +14,29 @@ import { fetchAreaDirectory, fetchAreaOutlook } from '../api/areasApi.js';
 export default function useAreaFind(active) {
   const [directory, setDirectory] = useState(null);
   const [outlookRows, setOutlookRows] = useState(null);
-  const [requested, setRequested] = useState(false);
-
-  // Adjusted during render on the first open (React's "derive state from a changed prop" shape), so the fetch
-  // effect below has a stable thing to key on and the directory is never requested twice.
-  if (active && !requested) setRequested(true);
+  // How many times Find (or an area sheet) has been opened. The directory is requested on an opening that finds it
+  // absent, so a failed read is retried on the NEXT opening and never in a loop within one.
+  const [opens, setOpens] = useState(0);
+  const [wasActive, setWasActive] = useState(false);
+  const haveDirectory = useRef(false);
+  // Adjusted during render on the rising edge (React's "derive state from a changed prop" shape).
+  if (active !== wasActive) {
+    setWasActive(active);
+    if (active) setOpens((n) => n + 1);
+  }
 
   useEffect(() => {
-    if (!requested) return undefined;
+    if (opens === 0 || haveDirectory.current) return undefined;
     let live = true;
     fetchAreaDirectory()
-      .then((rows) => { if (live && Array.isArray(rows)) setDirectory(rows); })
-      .catch(() => { /* Find works without areas */ });
+      .then((rows) => {
+        if (!live || !Array.isArray(rows)) return;
+        haveDirectory.current = true;
+        setDirectory(rows);
+      })
+      .catch(() => { /* Find works without areas; the next opening asks again */ });
     return () => { live = false; };
-  }, [requested]);
+  }, [opens]);
 
   useEffect(() => {
     if (!active) return undefined;

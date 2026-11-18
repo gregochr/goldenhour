@@ -5,6 +5,11 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AreaDirectoryEntry;
 import com.gregochr.goldenhour.model.AreaOutlookEntry;
 import com.gregochr.goldenhour.model.AreaWindowOutlook;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.springframework.security.core.Authentication;
@@ -15,6 +20,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,6 +44,7 @@ public class AreaOutlookService {
     private final EvaluationViewService evaluationViewService;
     private final LitePickShaper litePickShaper;
     private final Clock clock;
+    private final BriefingService briefingService;
 
     /**
      * Constructs the service.
@@ -46,13 +53,15 @@ public class AreaOutlookService {
      * @param evaluationViewService the served scores
      * @param litePickShaper        shapes the scores for the reader
      * @param clock                 the application clock (UK civil "today")
+     * @param briefingService       the served briefing, read only for the neighbour guard's outlier marks
      */
     public AreaOutlookService(AreaDirectoryService directory, EvaluationViewService evaluationViewService,
-            LitePickShaper litePickShaper, Clock clock) {
+            LitePickShaper litePickShaper, Clock clock, BriefingService briefingService) {
         this.directory = directory;
         this.evaluationViewService = evaluationViewService;
         this.litePickShaper = litePickShaper;
         this.clock = clock;
+        this.briefingService = briefingService;
     }
 
     /**
@@ -68,6 +77,7 @@ public class AreaOutlookService {
                 evaluationViewService.forDateRange(today, today.plusDays(RunType.FORECAST_HORIZON_DAYS),
                         Set.of(TargetType.SUNRISE, TargetType.SUNSET)),
                 litePickShaper.scopeFor(reader));
+        Set<NeighbourOutlierGuard.Key> outliers = outlierKeys();
         Map<WindowKey, Map<Long, LocationEvaluationView>> byWindow = new HashMap<>();
         for (LocationEvaluationView view : shaped) {
             byWindow.computeIfAbsent(new WindowKey(view.date(), view.targetType()), k -> new HashMap<>())
@@ -79,7 +89,7 @@ public class AreaOutlookService {
         for (AreaDirectoryEntry area : areas) {
             List<AreaWindowOutlook> figures = new ArrayList<>();
             for (WindowKey window : windows) {
-                AreaWindowOutlook figure = figure(area, window, byWindow.get(window));
+                AreaWindowOutlook figure = figure(area, window, byWindow.get(window), outliers);
                 if (figure != null) {
                     figures.add(figure);
                 }
@@ -91,8 +101,34 @@ public class AreaOutlookService {
         return entries;
     }
 
+    /**
+     * The slots the neighbour guard marked in the served briefing. A marked slot is rated far above its supported
+     * neighbours, so it still counts as rated but never supplies an area's top figure (the guard's rule for every other
+     * best-rating surface). Fails open: a missing briefing marks nothing.
+     */
+    private Set<NeighbourOutlierGuard.Key> outlierKeys() {
+        Set<NeighbourOutlierGuard.Key> keys = new HashSet<>();
+        DailyBriefingResponse briefing = briefingService.getCachedBriefingForApi();
+        if (briefing == null) {
+            return keys;
+        }
+        for (BriefingDay day : briefing.days()) {
+            for (BriefingEventSummary summary : day.eventSummaries()) {
+                for (BriefingRegion region : summary.regions()) {
+                    for (BriefingSlot slot : region.slots()) {
+                        if (slot.locationId() != null && Boolean.TRUE.equals(slot.neighbourOutlier())) {
+                            keys.add(new NeighbourOutlierGuard.Key(slot.locationId(), day.date(),
+                                    summary.targetType()));
+                        }
+                    }
+                }
+            }
+        }
+        return keys;
+    }
+
     private static AreaWindowOutlook figure(AreaDirectoryEntry area, WindowKey window,
-            Map<Long, LocationEvaluationView> views) {
+            Map<Long, LocationEvaluationView> views, Set<NeighbourOutlierGuard.Key> outliers) {
         int rated = 0;
         int gated = 0;
         LocationEvaluationView top = null;
@@ -105,7 +141,9 @@ public class AreaOutlookService {
                 gated++;
             } else if (view.rating() != null) {
                 rated++;
-                if (top == null || RANK.compare(view, top) < 0) {
+                boolean outlier = outliers.contains(
+                        new NeighbourOutlierGuard.Key(id, window.date(), window.targetType()));
+                if (!outlier && (top == null || RANK.compare(view, top) < 0)) {
                     top = view;
                 }
             }

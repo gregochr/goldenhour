@@ -1146,7 +1146,8 @@ export default function WindowFirstShell({
    * actions included - they used to open the overlay first and close second.
    */
   const openMapTab = useCallback((door) => openMapDoor({
-    openOverPopup,
+    // Every map door takes the layers under it down too, the area sheet included (it can sit under a place sheet).
+    openOverPopup: (next) => { setAreaSheet(null); openOverPopup(next); },
     openWindow,
     onOpenMapTab,
     ratingLens,
@@ -3683,6 +3684,8 @@ export default function WindowFirstShell({
             onPlanFrom={sheetPlanFrom?.region
               ? () => {
                 openWindow(null);
+                // An area sheet under this place sheet goes with it: the origin must not move under an open surface.
+                setAreaSheet(null);
                 setOrigin?.(sheetPlanFrom.region);
                 // ⚠️ The focus move, and the reason is the one `applyConflictAction` already
                 // records: this commit unmounts BOTH dialogs, so `useDialogFocus`'s restore finds

@@ -740,6 +740,35 @@ describe('areas in Find (F2)', () => {
       expect(__inspectForTests().layers).toBe(0);
     });
 
+    it('⚠️ the place sheet\'s "Plan from <region>" takes the area sheet under it down too', async () => {
+      const ctx = areaCtx();
+      await openWall({}, ctx);
+      fireEvent.click(screen.getAllByTestId('area-sheet-spot')[0]);
+      await screen.findByTestId('location-sheet');
+      await settle();
+
+      fireEvent.click(screen.getByTestId('location-sheet-plan'));
+
+      await waitFor(() => expect(areaSheet()).toBeNull());
+      expect(sheet()).toBeNull();
+      expect(ctx.setOrigin).toHaveBeenCalledWith(REGION);
+      expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+    });
+
+    it('⚠️ the place sheet\'s "Show on map" door takes the area sheet under it down too', async () => {
+      const onOpenMapTab = vi.fn();
+      await openWall({ mapPane: MAP_PANE, onOpenMapTab });
+      fireEvent.click(screen.getAllByTestId('area-sheet-spot')[0]);
+      await screen.findByTestId('location-sheet');
+      await settle();
+
+      fireEvent.click(screen.getByTestId('location-sheet-map'));
+
+      expect(onOpenMapTab).toHaveBeenCalled();
+      await waitFor(() => expect(areaSheet()).toBeNull());
+      expect(sheet()).toBeNull();
+    });
+
     it('refuses Find (and ⌘K) while it is up: no third layer', async () => {
       await openWall();
 

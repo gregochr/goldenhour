@@ -7,7 +7,14 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AreaDirectoryEntry;
 import com.gregochr.goldenhour.model.AreaOutlookEntry;
 import com.gregochr.goldenhour.model.AreaWindowOutlook;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.Confidence;
+import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.SubRegionLocationRow;
 import com.gregochr.goldenhour.util.ForecastHorizon;
@@ -23,6 +30,7 @@ import org.springframework.security.core.Authentication;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
@@ -48,6 +56,9 @@ class AreaOutlookServiceTest {
     private EvaluationViewService evaluationViewService;
 
     @Mock
+    private BriefingService briefingService;
+
+    @Mock
     private UserSubRegionService picks;
 
     @Mock
@@ -60,7 +71,7 @@ class AreaOutlookServiceTest {
     @BeforeEach
     void setUp() {
         service = new AreaOutlookService(directory, evaluationViewService,
-                new LitePickShaper(picks, properties), CLOCK);
+                new LitePickShaper(picks, properties), CLOCK, briefingService);
     }
 
     /** A Lite reader "anna", enforcement on, whose picks cover the given location rows. */
@@ -161,5 +172,52 @@ class AreaOutlookServiceTest {
         stub(List.of(view(3L, "Steel Rigg", TODAY, TargetType.SUNSET, null)));
 
         assertThat(service.outlookFor(reader)).isEmpty();
+    }
+
+    private static BriefingSlot slot(long id, String name, Integer rating, Boolean outlier) {
+        return new BriefingSlot(id, name, LocalDateTime.of(2026, 11, 18, 16, 0), Verdict.GO, null, null, List.of(),
+                rating, rating, null, null, null, DisplayVerdict.WORTH_IT, null, false, null, outlier);
+    }
+
+    private static DailyBriefingResponse briefingWith(BriefingSlot... slots) {
+        BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "prose", List.of(), List.of(slots),
+                null, null, null, null, null, null, DisplayVerdict.WORTH_IT, 2, "Worth it", Confidence.HIGH, 3.5,
+                5, 0.4, true, null);
+        BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of(),
+                LocalDateTime.of(2026, 11, 18, 16, 0), null);
+        return new DailyBriefingResponse(LocalDateTime.of(2026, 11, 18, 9, 0), "headline",
+                List.of(new BriefingDay(TODAY, List.of(summary))), List.of(), null, null, false, "Opus", List.of(),
+                List.of());
+    }
+
+    @Test
+    @DisplayName("a neighbour outlier still counts as rated but never supplies the top figure")
+    void outlier_neverTheTop() {
+        pro();
+        stub(List.of(
+                view(1L, "Lone Spike", TODAY, TargetType.SUNSET, 5),
+                view(2L, "Supported", TODAY, TargetType.SUNSET, 4)));
+        when(briefingService.getCachedBriefingForApi()).thenReturn(briefingWith(
+                slot(1L, "Lone Spike", 5, Boolean.TRUE), slot(2L, "Supported", 4, null)));
+
+        AreaWindowOutlook window = service.outlookFor(reader).get(0).windows().get(0);
+
+        assertThat(window.ratedMembers()).isEqualTo(2);
+        assertThat(window.topRating()).isEqualTo(4);
+        assertThat(window.topLocationId()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("when every rated member is an outlier there is a count and no top figure")
+    void allOutliers_noTop() {
+        pro();
+        stub(List.of(view(1L, "Lone Spike", TODAY, TargetType.SUNSET, 5)));
+        when(briefingService.getCachedBriefingForApi())
+                .thenReturn(briefingWith(slot(1L, "Lone Spike", 5, Boolean.TRUE)));
+
+        AreaWindowOutlook window = service.outlookFor(reader).get(0).windows().get(0);
+
+        assertThat(window.ratedMembers()).isEqualTo(1);
+        assertThat(window.topRating()).isNull();
     }
 }

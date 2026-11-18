@@ -72,4 +72,19 @@ describe('useAreaFind', () => {
     await waitFor(() => expect(result.current.directory).not.toBeNull());
     expect(result.current.outlook).toBeNull();
   });
+
+  it('⚠️ a failed directory read is retried on the next opening, not in a loop within one', async () => {
+    fetchAreaDirectory.mockRejectedValueOnce(new Error('network'));
+    const { result, rerender } = renderHook(({ active }) => useAreaFind(active), { initialProps: { active: true } });
+    await waitFor(() => expect(fetchAreaDirectory).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect(result.current.directory).toBeNull();
+    expect(fetchAreaDirectory).toHaveBeenCalledTimes(1);
+
+    rerender({ active: false });
+    rerender({ active: true });
+
+    await waitFor(() => expect(result.current.directory).toEqual([{ id: 1, name: 'Wall' }]));
+    expect(fetchAreaDirectory).toHaveBeenCalledTimes(2);
+  });
 });

@@ -494,4 +494,47 @@ describe('an area picked in Find (F2)', () => {
     expect(calloutName()).toBe('Near');
     expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
   });
+
+  describe('over a standing plan-door lens', () => {
+    const door = {
+      source: 'plan', eventType: 'SUNSET', date: TODAY, region: null, minRating: null, limitMinutes: null,
+      locationName: null, focusNames: ['Near'], title: 'Coast door', nonce: 1,
+    };
+    const breadcrumb = () => screen.queryByTestId('wf-map-breadcrumb')?.textContent ?? '';
+
+    it('⚠️ the area replaces the door\'s named set, the breadcrumb never describes it, and clear leaves no door state', async () => {
+      await renderTab({ planHandoff: door });
+      expect(lastLabelNames()).toEqual(['Near']);
+      expect(breadcrumb()).toContain('showing 1 spot');
+
+      await rerenderTab({ planHandoff: door, findPick: areaPick() });
+
+      expect(lastLabelNames()).toEqual(['Far']);
+      expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+      expect(breadcrumb()).not.toContain('showing');
+
+      await act(async () => { fireEvent.click(screen.getByTestId('map-find-area-clear')); });
+
+      // Neither the area's set nor the door's own set is left standing.
+      expect(lastLabelNames()).toEqual(expect.arrayContaining(['Near', 'Far']));
+      expect(breadcrumb()).not.toContain('showing');
+    });
+  });
+
+  it('flies to a member the heat catalogue does not hold, and skips one with no coordinates', async () => {
+    const heatWithoutFar = { ...HEAT, spots: HEAT.spots.filter((sp) => sp.name !== 'Far') };
+    await renderTab({ heat: heatWithoutFar });
+    h.flyTo.mockClear();
+
+    await rerenderTab({ heat: heatWithoutFar, findPick: areaPick() });
+    expect(h.flyTo).toHaveBeenCalledTimes(1);
+    expect(h.flyTo.mock.calls[0][0]).toEqual([FAR.lat, FAR.lon]);
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+
+    h.flyTo.mockClear();
+    const noCoords = [NEAR, WEAK, { ...FAR, lat: undefined, lon: undefined }];
+    await rerenderTab({ heat: heatWithoutFar, locations: noCoords, findPick: areaPick({ nonce: 2 }) });
+    expect(h.flyTo).not.toHaveBeenCalled();
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+  });
 });

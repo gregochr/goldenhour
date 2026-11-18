@@ -4216,8 +4216,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           const areaKeys = new Set((heat?.areaSpots || EMPTY_POINTS).map(heatSpotKey));
           fitToSpots(spots, null, spots.every((sp) => areaKeys.has(heatSpotKey(sp))));
         } else {
-          setFlyTarget({ lat: members[0].lat, lon: members[0].lon });
+          const anchor = members.find((l) => Number.isFinite(l.lat) && Number.isFinite(l.lon));
+          if (anchor) setFlyTarget({ lat: anchor.lat, lon: anchor.lon });
         }
+        // A standing plan-door lens (its named set, subject filter and dark sky) ends here: one named-spot lens is in
+        // force at a time, and the area's `clear` must leave no door state behind. The door's own filters are restored
+        // to what the reader had, exactly as the breadcrumb's clear does.
+        clearDoorLens();
         setFocusLensNames(names);
         setFindAreaLens({ name: findPick.name, names });
         // A selection outside the lens is cleared, as a door's lens does: the callout would otherwise describe a place
@@ -5932,7 +5937,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const doorLensClauses = [];
   if (planDoor) {
-    if (focusLensNames) {
+    // An area picked in Find owns the named-spot lens while its chip stands: the door's breadcrumb must not describe it.
+    if (focusLensNames && !findAreaShown) {
       const shown = visibleLocations.length;
       const named = focusLensNames.size;
       if (shown > 0) {
