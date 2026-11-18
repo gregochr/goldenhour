@@ -23,8 +23,8 @@ import java.util.regex.Pattern;
  * <p><b>The default is a claim.</b> Any sentence using warn* or alert(s) is a warning claim, whatever the phrasing
  * ("has issued a warning", "is under a Met Office warning"); it is kept only when a warning was shown in this
  * conversation, every level word it names was shown, and it is not an absence claim (which is always removed). A
- * small explicit allowlist of non-weather uses ({@link #BENIGN}, plus the eclipse safety note's own sentences) is
- * left untouched.
+ * small explicit allowlist of non-weather uses ({@link #BENIGN}) is cut out first, and a sentence is a claim if any
+ * warn* or alert is left. There is no sentence-level exemption: a weather claim beside a benign phrase stays a claim.
  *
  * <p>The guard runs only while the warnings feature is on ({@link AskSnapshot.Warnings#enabled()}); with it off every
  * method returns its input, so Ask is exactly what it was before W6. The server, not the model, attaches the
@@ -54,17 +54,19 @@ final class AskWarningGuard {
 
     /**
      * Non-weather uses of the words, deliberately allowed and tested: "a word of warning", a sign, label, notice,
-     * light, zone or filter; the eclipse "safety warning"; "without warning"; "stay alert"; the shepherd's proverb;
-     * the aurora alert level the night tool reports. "Early warning" is NOT here: it can introduce a weather claim.
+     * light, zone or filter; the eclipse safety note's own "safety warning" and "the note warns ... solar filter";
+     * "without warning"; "stay alert"; the shepherd's proverb; the aurora alert level the night
+     * tool reports. "Early warning" is NOT here: it can introduce a weather claim.
      */
     private static final Pattern BENIGN = Pattern.compile(
-            "\\bwords?\\s+of\\s+warning\\b"
+            "\\b(?:safety\\s+)?(?:note|it)\\s+warns?\\b[^.!?]{0,40}\\b(?:solar|lens)\\s+filter\\b"
+                    + "|\\bwords?\\s+of\\s+warning\\b"
                     + "|\\b(?:warning|alert)s?\\s+(?:sign|signs|label|labels|notice|notices|light|lights|filter|filters"
                     + "|zone|zones|triangle|sticker|stickers)\\b"
-                    + "|\\bsafety\\s+(?:warning|alert)s?\\b"
+                    + "|\\bsafety\\s+(?:note|warning|alert)s?\\b"
                     + "|\\bwithout\\s+(?:any\\s+)?warning\\b"
                     + "|\\b(?:stay|staying|stays|be|remain|keep)\\s+alert\\b"
-                    + "|\\bshepherd['\u2019]?s?\\s+warning\\b"
+                    + "|\\bred\\s+sky\\s+at\\s+(?:night|morning),?\\s+shepherd['\u2019]?s?\\s+(?:warning|delight)\\b"
                     + "|\\b(?:aurora|geomagnetic)\\s+alerts?\\b|\\balert\\s+(?:level|state|status)\\b",
             FLAGS);
 
@@ -90,13 +92,6 @@ final class AskWarningGuard {
     /** An all-clear without the word warning: "nothing in force". Never made. */
     private static final Pattern NOTHING_IN_FORCE = Pattern.compile(
             "\\bnothing\\s+(?:is\\s+)?in\\s+(?:force|place|effect)\\b", FLAGS);
-
-    /** The eclipse safety note's own vocabulary: a sentence about it with no level or Met Office is not weather. */
-    private static final Pattern ECLIPSE_CONTEXT = Pattern.compile(
-            "\\b(?:eclipse|glasses|filters?|eyes?|eyesight)\\b", FLAGS);
-
-    /** A sentence that attributes the claim to the Met Office. */
-    private static final Pattern MET_OFFICE = Pattern.compile("\\bmet\\s+office\\b", FLAGS);
 
     private static final Pattern SENTENCE_BREAK = Pattern.compile("(?<=[.!?])\\s+");
 
@@ -145,10 +140,6 @@ final class AskWarningGuard {
         // Benign uses are cut out first; if no warn* or alert is left, the sentence is not about a warning.
         String rest = BENIGN.matcher(sentence).replaceAll(" ");
         if (!WARN_TOKEN.matcher(rest).find()) {
-            return Claim.NONE;
-        }
-        if (ECLIPSE_CONTEXT.matcher(rest).find() && !LEVEL_WORD.matcher(rest).find()
-                && !MET_OFFICE.matcher(rest).find()) {
             return Claim.NONE;
         }
         if (NEGATED.matcher(rest).find()) {

@@ -10,12 +10,15 @@ import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Result;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
 import static com.gregochr.goldenhour.service.ask.AskWarningFixtures.served;
@@ -219,6 +222,75 @@ class AskWarningGuardTest {
         assertThat(shownWarning.answer().warnings()).isNull();
     }
 
+    /** One realistic sentence and whether it survives with no warning shown and with the Amber one shown. */
+    private static Arguments row(String sentence, boolean keptNone,
+            boolean keptShown) {
+        return Arguments.of(sentence, keptNone, keptShown);
+    }
+
+    static Stream<Arguments> adversarialTable() {
+        return Stream.of(
+                // benign photography and eclipse safety: always kept
+                row("Bring a tripod, the light at Bamburgh is soft.", true, true),
+                row("Expect a red sky and amber light over the harbour.", true, true),
+                row("Stay alert on the wet rocks.", true, true),
+                row("A word of warning: the rocks are slippery.", true, true),
+                row("Park away from the warning sign at the slipway.", true, true),
+                row("The tide can turn without warning.", true, true),
+                row("Red sky at night, shepherd\u2019s warning.", true, true),
+                row("The Met Office models agree on clear skies.", true, true),
+                row("The aurora alert level is low tonight.", true, true),
+                row("Use a certified solar filter on the lens, not only over your eye.", true, true),
+                row("The safety note warns you to use a certified solar filter on the lens.", true, true),
+                row("That is the safety warning for the eclipse.", true, true),
+                row("Don't look at the sun without a safety warning filter.", true, true),
+                row("Keep an eye on the tide.", true, true),
+                row("Eclipse glasses are essential; keep an eye on the sky.", true, true),
+                row("Heavy snow is likely on the tops.", true, true),
+                row("There is no warning sign, just a gate.", true, true),
+                // true mentions: kept only with a shown warning
+                row("The Met Office has issued an Amber warning of snow.", false, true),
+                row("There is a warning in force.", false, true),
+                row("An amber snow warning covers the tops.", false, true),
+                row("Keep an eye on the warning for snow.", false, true),
+                row("A weather warning is in force, so keep an eye on conditions.", false, true),
+                row("The Met Office has a warning, bring a filter.", false, true),
+                row("Whitby is under a Met Office warning.", false, true),
+                row("The Met Office warned of snow.", false, true),
+                row("Be aware of the warning.", false, true),
+                // invented level: never kept
+                row("A red warning of snow is in force.", false, false),
+                row("The Met Office has a yellow alert for wind.", false, false),
+                row("The Met Office has a yellow warning, bring a filter.", false, false),
+                row("An amber warning of snow, and a red sky later.", false, false),
+                // absence and lifted: never kept
+                row("There are no weather warnings to affect the eclipse.", false, false),
+                row("There aren't any warnings for Whitby.", false, false),
+                row("No warnings are in place.", false, false),
+                row("The Met Office hasn't issued a warning.", false, false),
+                row("Nothing in force for the coast.", false, false),
+                row("Whitby is free of warnings.", false, false),
+                row("The warning was lifted this morning.", false, false),
+                row("Skies are all clear, no weather warning.", false, false),
+                // documented limits: a warn/alert verb or a hazard note is a claim
+                row("Alert drivers to the ice.", false, true),
+                row("Warning: wet rocks and strong wind.", false, true),
+                row("I would warn you the car park fills early.", false, true));
+    }
+
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("adversarialTable")
+    void adversarialTable_noWarningShown_andAmberShown(String sentence, boolean keptNone, boolean keptShown) {
+        Result none = validate("Whitby looks good. " + sentence, snapshot(served(AMBER_SNOW)), nothingShown());
+        Result shownWarning = validate("Whitby looks good. " + sentence, snapshot(served(AMBER_SNOW)),
+                shown("W1"));
+
+        assertThat(none.answer().summary()).isEqualTo(keptNone ? "Whitby looks good. " + sentence
+                : "Whitby looks good.");
+        assertThat(shownWarning.answer().summary()).isEqualTo(keptShown ? "Whitby looks good. " + sentence
+                : "Whitby looks good.");
+    }
+
     @ParameterizedTest(name = "any warning claim needs a shown warning: {0}")
     @ValueSource(strings = {
         "The Met Office has issued a warning for Whitby.",
@@ -251,7 +323,7 @@ class AskWarningGuardTest {
         "Stay alert near the water.",
         "Red sky at night, shepherd’s warning.",
         "The aurora alert level is low tonight.",
-        "Never look at the sun without eclipse glasses, as the warning on the note says.",
+        "The note warns you to use a certified solar filter on the lens.",
     })
     void benignUses_areLeftAloneShownOrNot(String text) {
         Result none = validate(text, snapshot(served(AMBER_SNOW)), nothingShown());
