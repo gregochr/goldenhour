@@ -108,6 +108,29 @@ test.describe('Accessibility scan (advisory)', () => {
       await scan(page, testInfo, 'operations');
     });
 
+    // Find with an Areas group typed in, and the area sheet it opens (find-and-favourites-plan.md F2). The seeded
+    // fixture holds three sub-regions, so "northumb" lists one under the Areas heading.
+    test('Find, with areas', async ({ page }, testInfo) => {
+      await openTab(page, 'plan');
+      await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
+      await page.getByTestId('window-first-search').click();
+      await page.getByTestId('plan-search-input').fill('northumb');
+      await expect(page.getByTestId('plan-search-row').filter({ hasText: 'Northumberland Shore' })).toBeVisible();
+      await scan(page, testInfo, 'find-areas');
+    });
+
+    test('area sheet', async ({ page }, testInfo) => {
+      await openTab(page, 'plan');
+      await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
+      await page.getByTestId('window-first-search').click();
+      await page.getByTestId('plan-search-input').fill('northumb');
+      await page.getByTestId('plan-search-row').filter({ hasText: 'Northumberland Shore' }).click();
+      const areaSheet = page.getByTestId('area-sheet');
+      await expect(areaSheet).toBeVisible();
+      await expect.poll(() => areaSheet.getByTestId('area-sheet-spot').count()).toBeGreaterThanOrEqual(6);
+      await scan(page, testInfo, 'area-sheet');
+    });
+
     test('window sheet (Plan card)', async ({ page }, testInfo) => {
       await openTab(page, 'plan');
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);

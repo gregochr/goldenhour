@@ -129,6 +129,9 @@ class HttpCachingConfigTest {
         // filtered if the whitelist ever matched by prefix; the body is the reader's own picks.
         "/api/user/settings/sub-regions",
         "/api/user/settings/reach-verdicts",
+        // Each area's figure for THIS reader (find-and-favourites-plan D3): gated members counted, a Lite
+        // reader's picks implied by the counts. Shaped per reader, so it must never be ETag-shared.
+        "/api/areas/outlook",
     })
     @DisplayName("Personal-data reads are never ETag-filtered")
     void personalDataPathsAreNeverFiltered(String path) {
@@ -155,6 +158,17 @@ class HttpCachingConfigTest {
         assertThat(filter.shouldNotFilter(get("/api/regions/7"))).isTrue();
         assertThat(filter.shouldNotFilter(get("/api/regions/7/base"))).isTrue();
         assertThat(filter.shouldNotFilter(get("/api/regions/drive-times/7"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("Only the role-free area directory is revalidatable under /api/areas")
+    void areaWhitelistIsTheDirectoryAlone() {
+        assertThat(filter.shouldNotFilter(get("/api/areas/directory"))).isFalse();
+        assertThat(filter.shouldNotFilter(get("/api/areas/outlook"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/areas"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/areas/uncovered-locations"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/areas/directory/7"))).isTrue();
+        assertThat(filter.shouldNotFilter(new MockHttpServletRequest("POST", "/api/areas/directory"))).isTrue();
     }
 
     @Test

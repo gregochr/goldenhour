@@ -112,7 +112,7 @@ Highlight.propTypes = {
 };
 
 /**
- * One box over three kinds of thing — windows, regions to plan from, and locations (plan §4.8).
+ * One box over four kinds of thing — windows, regions to plan from, areas, and locations (plan §4.8, F2).
  *
  * <h2>A dialog, and the same one on both viewports</h2>
  *
@@ -150,6 +150,9 @@ Highlight.propTypes = {
  * @param {Function} props.onClose      dismisses the dialog
  * @param {Function} props.onPickWindow opens a window's card, by key
  * @param {Function} props.onPickRegion moves the origin to a region record
+ * @param {?Array}   [props.areas]     the area directory, fetched lazily when Find opens (absent until it lands)
+ * @param {?Map}     [props.areaOutlook] the reader's outlook by area id, for each area row's figure
+ * @param {Function} [props.onPickArea] an area was chosen: the shell opens its sheet, or the Map flies to it
  * @param {Function} [props.onPickLocation] opens that location's four-day sheet (P8); it was a
  *        jump straight to the map until §9.9 was resolved. The component itself is agnostic — it
  *        hands back the spot and lets the shell decide what a location result means.
@@ -164,7 +167,8 @@ Highlight.propTypes = {
  */
 export default function PlanSearch({
   windows, regions, locations, originId = null, initialQuery = '',
-  onClose, onPickWindow, onPickRegion, onPickLocation,
+  onClose, onPickWindow, onPickRegion, onPickLocation, onPickArea,
+  areas = null, areaOutlook = null,
   reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, stacked = false,
   tab = 'plan',
 }) {
@@ -176,9 +180,10 @@ export default function PlanSearch({
   const groups = useMemo(
     () => buildSearchGroups(query, {
       windows, regions, locations, originId, reachById, scoreIndex, scopeRegionNames, origin, tab,
+      areas, areaOutlook,
     }),
     [query, windows, regions, locations, originId, reachById, scoreIndex,
-      scopeRegionNames, origin, tab],
+      scopeRegionNames, origin, tab, areas, areaOutlook],
   );
   const rows = useMemo(() => flattenRows(groups), [groups]);
 
@@ -219,6 +224,7 @@ export default function PlanSearch({
     if (!row || row.disabled) return;
     if (row.kind === 'window') onPickWindow?.(row.windowKey);
     else if (row.kind === 'region') onPickRegion?.(row.region);
+    else if (row.kind === 'area') onPickArea?.(row.area);
     else if (row.kind === 'location') onPickLocation?.(row.spot);
     onClose();
   };
@@ -240,7 +246,7 @@ export default function PlanSearch({
   const anchor = useTickLineBox();
 
   return (
-    <Modal label="Search days, regions and places" onClose={onClose} bare closeOnEscape={!stacked} stacked={stacked}
+    <Modal label="Search days, regions, areas and places" onClose={onClose} bare closeOnEscape={!stacked} stacked={stacked}
       data-testid="plan-search">
       <div
         className={`wf-search-panel${anchor ? ' wf-search-anchored' : ''}`}
@@ -282,10 +288,10 @@ export default function PlanSearch({
             aria-controls="plan-search-list"
             aria-activedescendant={activeId}
             aria-autocomplete="list"
-            aria-label="Search days, regions and places"
+            aria-label="Search days, regions, areas and places"
             data-testid="plan-search-input"
             className="wf-search-input"
-            placeholder="Search a day, a region or a place…"
+            placeholder="Search a day, a region, an area or a place…"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
@@ -422,6 +428,9 @@ PlanSearch.propTypes = {
   onPickWindow: PropTypes.func,
   onPickRegion: PropTypes.func,
   onPickLocation: PropTypes.func,
+  onPickArea: PropTypes.func,
+  areas: PropTypes.arrayOf(PropTypes.object),
+  areaOutlook: PropTypes.instanceOf(Map),
   reachById: PropTypes.instanceOf(Map),
   scoreIndex: PropTypes.shape({ byId: PropTypes.instanceOf(Map), byName: PropTypes.instanceOf(Map) }),
   scopeRegionNames: PropTypes.arrayOf(PropTypes.string),

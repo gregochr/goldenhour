@@ -127,6 +127,14 @@ browser-verified test. Map picks always stay on Map (fly + callout).
 - Tests: `hadrain` → Hadrian's Wall and Hadrian's Wall & Tynedale above places; `roman wall` by alias; `caw` still
   lists Cawfields; typo never displaces an exact match inside the cap; combobox/listbox a11y (no interactive
   children inside option rows).
+- **Built (2026-11-18).** `AreaDirectoryController` (`/api/areas/directory`, ETag-shared; `/api/areas/outlook`, personal),
+  `AreaDirectoryService.directoryFor(reader)` (the one seam for a later Lite tightening; the reader is ignored in v1),
+  `AreaOutlookService`; the client side is `useAreaFind`, `areaFind.js`, `AreaSheet.jsx` and the Map's `findPick`
+  `kind: 'area'`. Two readings of the plan worth recording: "no figure beyond the settled horizon" is built as "a window
+  is reported only when at least one member is rated or gated" over today to `FORECAST_HORIZON_DAYS`, so a day that has
+  not been scored carries no figure without the backend having to name a separate settled date; and an area with no
+  ENABLED member is left out of the directory (it has nothing to open). The area sheet's `Show on map →` is the existing
+  map door with `focusNames`, not a new channel; only the Map-tab pick uses the Find channel.
 
 ### F3 — Favourites backend
 - `V226__user_favourite.sql`: `(id, user_id, location_id NULL, area_id NULL, created_at)`, CHECK exactly one target,

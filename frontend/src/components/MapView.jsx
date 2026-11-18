@@ -4161,6 +4161,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * place is still the selection ({@code findNoteShown}), so it can never describe a map the reader has left.
    */
   const [findNote, setFindNote] = useState(null);
+  /**
+   * The area a Find pick put the map on, as `{name, names}`, or null. The lens itself is `focusLensNames`; this only
+   * remembers whose it is. The chip shows while that very set is still the lens in force, so a door that replaced it
+   * (or a clear) can never leave the chip naming an area the map is no longer showing.
+   */
+  const [findAreaLens, setFindAreaLens] = useState(null);
   /** The last Find pick this map applied. Seeded with whatever is in flight at mount, which is spent: see below. */
   const appliedFindNonce = useRef(findPick?.nonce ?? null);
   // Find is a modal over the pane, and the menus (Filters, Regions, the phone's peek sections) are not dialogs, so
@@ -4196,6 +4202,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     (async () => {
       if (findPick.kind === 'region') {
         jumpToRegion(findPick.name);
+        return;
+      }
+      if (findPick.kind === 'area') {
+        // The area's own spots, resolved to names against this roster: the named-spot lens (`focusLensNames`) is by
+        // name, and it is the existing mechanism, not a new filter. Never a cluster or an area marker.
+        const ids = new Set(findPick.ids ?? []);
+        const members = locations.filter((l) => ids.has(l.id) && l.enabled !== false);
+        const names = new Set(members.map((l) => l.name));
+        if (names.size === 0) return;
+        const spots = (heat?.spots || EMPTY_POINTS).filter((sp) => names.has(sp?.name));
+        if (spots.length > 0) {
+          const areaKeys = new Set((heat?.areaSpots || EMPTY_POINTS).map(heatSpotKey));
+          fitToSpots(spots, null, spots.every((sp) => areaKeys.has(heatSpotKey(sp))));
+        } else {
+          setFlyTarget({ lat: members[0].lat, lon: members[0].lon });
+        }
+        setFocusLensNames(names);
+        setFindAreaLens({ name: findPick.name, names });
+        // A selection outside the lens is cleared, as a door's lens does: the callout would otherwise describe a place
+        // the chip says is not shown.
+        setSelectedLocationName((prev) => (prev != null && names.has(prev) ? prev : null));
+        setFindNote(null);
+        setTopicAnnounce(`Showing ${findPick.name}: ${names.size} ${names.size === 1 ? 'spot' : 'spots'}.`);
         return;
       }
       const loc = (findPick.id != null ? locations.find((l) => l.id === findPick.id) : null)
@@ -4248,6 +4277,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findPick?.nonce, paneVisible]);
   const findNoteShown = findNote != null && selectedLocationName === findNote.name ? findNote : null;
+  const findAreaShown = findAreaLens != null && focusLensNames === findAreaLens.names ? findAreaLens : null;
 
   /**
    * Follows one EV row as an explicit choice that touches NOTHING but the window: the event, the
@@ -4984,7 +5014,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const word = { SUNRISE: 'Sunrise', SUNSET: 'Sunset', ASTRO: 'Astro', AURORA: 'Aurora' }[target.eventType]
       ?? target.label;
     pendingTopicAnnounce.current = `High water has passed: now ${word}${target.time ? ` ${target.time}` : ''}`;
-    (async () => {
+    // `void`: the wrapper is only a callback shape for the set-state-in-effect rule, and nothing here is awaited, so
+    // the promise it returns is deliberately dropped (Sonar javascript:S9383, un-awaited promise).
+    void (async () => {
       setEventType(target.eventType);
       if (isForwardableRow(target, { todayStr: mapTodayStr, currentNightDate: auroraNight })) {
         setLocalNightDate(null);
@@ -5947,18 +5979,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const spots = heat?.spots || EMPTY_POINTS;
     const regionSpots = spots.filter((s) => s?.regionName === regionName);
     if (regionSpots.length === 0) return;
+    const inArea = (heat?.areaSpots || EMPTY_POINTS).some((s) => s?.regionName === regionName);
+    fitToSpots(regionSpots, regionName, inArea);
+  }
+
+  /**
+   * The frame half of a jump, shared by a region ({@link jumpToRegion}) and by an area picked in Find
+   * ({@code findPick.kind === 'area'}, which passes {@code regionName: null}): fits the camera to the spots, widens the
+   * scope to Everywhere when they lie outside the area in force, and records what it changed so the reset can undo it.
+   *
+   * @param {Array}   regionSpots the heat spots to frame (non-empty)
+   * @param {?string} regionName  the region framed, or null for an area (the breadcrumb's region clause reads it)
+   * @param {boolean} inArea      whether they already lie inside the scope in force
+   */
+  function fitToSpots(regionSpots, regionName, inArea) {
     // The scope this jump CHANGED, so `clearRegionJump` below can undo the whole of it. Carried
     // FORWARD across a second jump rather than re-derived there: the flip happens once, on the
     // first region outside the area, and `heatArea` is already false by the time the next row is
     // picked — so a fresh derivation would read "changed nothing" and strand the reader at
     // Everywhere after pressing a control whose only stated job is to undo a jump.
     let restoreArea = jumpFitOverride?.restoreArea ?? null;
-    if (heatArea) {
-      const inArea = (heat?.areaSpots || EMPTY_POINTS).some((s) => s?.regionName === regionName);
-      if (!inArea) {
-        setHeatArea(false);
-        restoreArea = true;
-      }
+    if (heatArea && !inArea) {
+      setHeatArea(false);
+      restoreArea = true;
     }
     jumpFitSeq.current += 1;
     setJumpFitOverride({
@@ -7288,6 +7331,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           {/* What a Find pick relaxed so its place could be seen (find-and-favourites-plan.md F1): a row of its own
               under the chips, shown while that place is the selection, with a way to dismiss it. The words are also
               spoken through the tab's one status region (`topicAnnounce`), so this is the sighted half. */}
+          {findAreaShown && (
+            <div data-testid="map-find-area" className="wf-map-key flex-wrap !rounded-xl leading-snug max-w-full">
+              <span>{`Showing ${findAreaShown.name}`}</span>
+              <button
+                type="button"
+                data-testid="map-find-area-clear"
+                className="font-mono px-1 text-plex-text-muted hover:text-plex-text"
+                onClick={() => { setFocusLensNames(null); setFindAreaLens(null); }}
+              >
+                · clear
+              </button>
+            </div>
+          )}
           {findNoteShown && (
             <div
               data-testid="map-find-note"
@@ -8263,8 +8319,10 @@ MapView.propTypes = {
    * while the pane is on screen — see the effect beside the `askWindow` one. Its own channel, not `planHandoff`.
    */
   findPick: PropTypes.shape({
-    kind: PropTypes.oneOf(['location', 'region']).isRequired,
+    kind: PropTypes.oneOf(['location', 'region', 'area']).isRequired,
     id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    /** An area pick's member location ids, resolved to the lens's names against the map's own roster. */
+    ids: PropTypes.arrayOf(PropTypes.number),
     name: PropTypes.string.isRequired,
     nonce: PropTypes.number.isRequired,
   }),

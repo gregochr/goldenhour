@@ -424,3 +424,74 @@ describe('⚠️ one Escape closes only Find over a selected callout', () => {
     expect(calloutName()).toBe('Near');
   });
 });
+
+describe('an area picked in Find (F2)', () => {
+  const areaPick = (over = {}) => ({
+    kind: 'area', id: 9, name: 'Lake District', ids: [FAR.id], nonce: 1, ...over,
+  });
+
+  it('applies the named-spot lens and says so with a chip, drawing no cluster or area marker', async () => {
+    await renderTab();
+    expect(lastLabelNames()).toEqual(['Near']);
+
+    await rerenderTab({ findPick: areaPick() });
+
+    expect(screen.getByTestId('map-find-area')).toHaveTextContent('Showing Lake District');
+    // The lens is by member name: only the area's spot is on the map now, and the scope widened to reach it.
+    expect(lastLabelNames()).toEqual(['Far']);
+    // A pick is never a selection: no callout, and never a marker standing for the area.
+    expect(calloutName()).toBeNull();
+    expect(screen.queryByTestId('map-find-note')).toBeNull();
+  });
+
+  it('clear lifts the lens whole and takes the chip down', async () => {
+    await renderTab();
+    await rerenderTab({ findPick: areaPick() });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('map-find-area-clear')); });
+
+    expect(screen.queryByTestId('map-find-area')).toBeNull();
+    expect(lastLabelNames()).toEqual(expect.arrayContaining(['Near', 'Far']));
+  });
+
+  it('is applied once per nonce: a clear is not undone by a re-render, and a new nonce applies again', async () => {
+    await renderTab();
+    await rerenderTab({ findPick: areaPick() });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-find-area-clear')); });
+
+    await rerenderTab({ findPick: areaPick() });
+    expect(screen.queryByTestId('map-find-area')).toBeNull();
+
+    await rerenderTab({ findPick: areaPick({ nonce: 2 }) });
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+  });
+
+  it('does nothing for an area whose members this map does not hold', async () => {
+    await renderTab();
+
+    await rerenderTab({ findPick: areaPick({ ids: [999] }) });
+
+    expect(screen.queryByTestId('map-find-area')).toBeNull();
+    expect(lastLabelNames()).toEqual(['Near']);
+  });
+
+  it('frames the members, widening the scope to Everywhere when they lie outside the area in force', async () => {
+    await renderTab({ heat: HEAT_WITH_HOME });
+    expect(h.filters.at(-1).heatArea).toBe(true);
+
+    await rerenderTab({ heat: HEAT_WITH_HOME, findPick: areaPick() });
+
+    expect(h.filters.at(-1).heatArea).toBe(false);
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+  });
+
+  it('a place picked afterwards leaves the chip honest: it names a lens that is still in force', async () => {
+    await renderTab();
+    await rerenderTab({ findPick: areaPick() });
+
+    await rerenderTab({ findPick: pickOf({ id: NEAR.id, name: 'Near', nonce: 2 }) });
+
+    expect(calloutName()).toBe('Near');
+    expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
+  });
+});

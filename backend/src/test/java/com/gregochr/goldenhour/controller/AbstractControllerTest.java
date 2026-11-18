@@ -174,6 +174,14 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.AreaService areaService;
 
+    /** Backs {@code AreaDirectoryController}'s directory read. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.AreaDirectoryService areaDirectoryService;
+
+    /** Backs {@code AreaDirectoryController}'s outlook read. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.AreaOutlookService areaOutlookService;
+
     /** Backs {@code LocationAliasController}. */
     @MockitoBean
     protected com.gregochr.goldenhour.service.LocationAliasService locationAliasService;

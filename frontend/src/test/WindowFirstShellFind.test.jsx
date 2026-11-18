@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, cleanup, fireEvent, render, screen, waitFor,
+  act, cleanup, fireEvent, render, screen, waitFor, within,
 } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import { AskProvider } from '../context/AskContext.jsx';
@@ -14,7 +14,7 @@ import {
   MAP_PANE, OPERATIONS_PANE, matrixCtx, shellCtx, TODAY,
 } from './askShellHarness.jsx';
 import {
-  NOW, readyResponse, settings, WHITBY,
+  NOW, readyResponse, SALTBURN, settings, WHITBY,
 } from './askFixtures.js';
 import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
 import { __inspectForTests } from '../utils/dialogHistory.js';
@@ -41,6 +41,8 @@ vi.mock('../api/askApi.js', async (original) => {
   };
 });
 import { getAskSettings, getReady } from '../api/askApi.js';
+vi.mock('../api/areasApi.js', () => ({ fetchAreaDirectory: vi.fn(), fetchAreaOutlook: vi.fn() }));
+import { fetchAreaDirectory, fetchAreaOutlook } from '../api/areasApi.js';
 
 // The first test to open a lazy chunk pays for fetching it.
 vi.setConfig({ testTimeout: 30000 });
@@ -145,6 +147,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   getReady.mockResolvedValue(readyResponse());
   getAskSettings.mockResolvedValue(settings());
+  fetchAreaDirectory.mockResolvedValue([]);
+  fetchAreaOutlook.mockResolvedValue([]);
   b = installBackBrowser();
 });
 
@@ -566,5 +570,251 @@ describe('Back and focus', () => {
 
     await waitFor(() => expect(sheet()).toBeNull());
     expect(document.activeElement).toBe(findButton());
+  });
+});
+
+describe('areas in Find (F2)', () => {
+  const SALTBURN_SPOT = {
+    id: SALTBURN, name: 'Saltburn', lat: 54.58, lng: -0.97, regionName: 'North York Moors & Coast',
+    rid: 'North York Moors & Coast', skySubject: true, bortleClass: 3, scores: [5],
+  };
+  const WALL = {
+    id: 1, name: "Hadrian's Wall", kind: 'NAMED', aliases: ['Roman Wall'], regionId: null, regionName: null,
+    locationIds: [WHITBY, SALTBURN],
+  };
+  const TYNEDALE = {
+    id: 2, name: "Hadrian's Wall & Tynedale", kind: 'SUB_REGION', aliases: [], regionId: 3, regionName: 'North East',
+    locationIds: [WHITBY],
+  };
+  const areaSheet = () => screen.queryByTestId('area-sheet');
+  const areaCtx = (extra = {}) => {
+    const base = findCtx();
+    return {
+      ...base,
+      heatSpots: [...base.heatSpots, SALTBURN_SPOT],
+      effectiveReachById: shellCtx().reachById,
+      // Whitby is rated 4 for tonight; Saltburn has no row at all.
+      scoreRows: [{
+        locationId: WHITBY, locationName: 'Whitby', date: TODAY, targetType: 'SUNSET', rating: 4,
+      }],
+      ...extra,
+    };
+  };
+
+  beforeEach(() => {
+    fetchAreaDirectory.mockResolvedValue([WALL, TYNEDALE]);
+    fetchAreaOutlook.mockResolvedValue([{
+      areaId: 1,
+      windows: [{
+        date: TODAY, targetType: 'SUNSET', ratedMembers: 1, totalMembers: 2, gatedMembers: 1, topRating: 4, topLocationId: WHITBY,
+      }],
+    }]);
+  });
+
+  /** Opens Find on the tab already showing, waits for the directory, and types. */
+  const findArea = async (query) => {
+    fireEvent.click(findButton());
+    await screen.findByTestId('plan-search-panel');
+    await settle();
+    fireEvent.change(input(), { target: { value: query } });
+  };
+  const pickWall = () => fireEvent.click(screen.getByRole('option', { name: /^Hadrian's Wall(?! &)/ }));
+  const openWall = async (props = {}, ctx = areaCtx()) => {
+    mount({ ctx, props });
+    await ready();
+    await findArea('hadrian');
+    pickWall();
+    await screen.findByTestId('area-sheet');
+    await settle();
+  };
+
+  it('fetches nothing until Find first opens, then the directory and the outlook', async () => {
+    mount({ ctx: areaCtx() });
+    await ready();
+    expect(fetchAreaDirectory).not.toHaveBeenCalled();
+
+    fireEvent.click(findButton());
+    await screen.findByTestId('plan-search-panel');
+
+    expect(fetchAreaDirectory).toHaveBeenCalledTimes(1);
+    expect(fetchAreaOutlook).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists both areas under an Areas heading, never merged, and the row carries its figure and window', async () => {
+    mount({ ctx: areaCtx() });
+    await ready();
+    await findArea('hadrian');
+
+    const options = screen.getAllByRole('option');
+    expect(options.map((o) => o.getAttribute('data-kind'))).toEqual(['area', 'area']);
+    expect(options[0]).toHaveTextContent("Hadrian's Wall");
+    expect(within(options[0]).getByTestId('plan-search-sub').textContent)
+      .toBe('Named area·2 spots·1 rated·1 outside your picks');
+    expect(options[0]).toHaveTextContent('4★');
+    expect(options[0]).toHaveTextContent('Tonight Sunset');
+    expect(within(options[1]).getByTestId('plan-search-sub').textContent).toBe('Sub-region·1 spot');
+    expect(screen.getByRole('group', { name: 'Areas' })).toBeInTheDocument();
+  });
+
+  it('⚠️ finds an area by its alias, and by a one-letter slip', async () => {
+    mount({ ctx: areaCtx() });
+    await ready();
+    await findArea('roman wall');
+    expect(screen.getByRole('option', { name: /Hadrian's Wall/ })).toHaveTextContent('also Roman Wall');
+
+    fireEvent.change(input(), { target: { value: 'hadrain' } });
+    expect(screen.getAllByRole('option')).toHaveLength(2);
+  });
+
+  it('⚠️ a failed directory leaves Find working for places, windows and regions', async () => {
+    fetchAreaDirectory.mockRejectedValue(new Error('network'));
+    mount({ ctx: areaCtx() });
+    await ready();
+    await findArea('whitby');
+
+    expect(screen.getByRole('option', { name: /Whitby/ })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Areas' })).toBeNull();
+  });
+
+  describe('on At a Glance', () => {
+    it('a pick opens the area sheet with its spots, closes Find, and a Escape returns focus to the Find button', async () => {
+      await openWall();
+
+      expect(find()).toBeNull();
+      expect(screen.getByTestId('area-sheet-title')).toHaveTextContent("Hadrian's Wall");
+      expect(screen.getByTestId('area-sheet-meta')).toHaveTextContent('Named area · 2 spots · 50 min to 1h 35min drive');
+      // The rated spot first, with its own best window (the sheet stays open after Find has closed, so its ratings
+      // must not depend on Find being open); then the unrated one.
+      const spotRows = screen.getAllByTestId('area-sheet-spot');
+      expect(spotRows.map((row) => row.textContent)).toEqual([
+        expect.stringContaining('Whitby'), expect.stringContaining('Saltburn'),
+      ]);
+      expect(spotRows[0]).toHaveTextContent('4★ · Tonight Sunset');
+      expect(spotRows[1]).toHaveTextContent('Not rated');
+      expect(selectedTab()).toHaveTextContent(/At a Glance/);
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+
+      await waitFor(() => expect(areaSheet()).toBeNull());
+      expect(document.activeElement).toBe(findButton());
+    });
+
+    it('⚠️ Back closes it, one layer per press', async () => {
+      await openWall();
+      expect(__inspectForTests().layers).toBe(1);
+
+      await back();
+
+      expect(areaSheet()).toBeNull();
+      expect(__inspectForTests().layers).toBe(0);
+    });
+
+    it('⚠️ a spot opens that place\'s sheet over it, two deep: one Escape takes the top layer only', async () => {
+      await openWall();
+
+      fireEvent.click(screen.getAllByTestId('area-sheet-spot')[1]);
+      await screen.findByTestId('location-sheet');
+      await settle();
+
+      expect(areaSheet()).toBeInTheDocument();
+      expect(__inspectForTests().layers).toBe(2);
+      // The lower layer is inert and no longer claims to be the modal.
+      expect(areaSheet()).not.toHaveAttribute('aria-modal');
+      expect(areaSheet()).toHaveAttribute('inert');
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      await waitFor(() => expect(sheet()).toBeNull());
+      expect(areaSheet()).toBeInTheDocument();
+      expect(areaSheet()).toHaveAttribute('aria-modal', 'true');
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      await waitFor(() => expect(areaSheet()).toBeNull());
+    });
+
+    it('⚠️ every route out of the Plan tab closes it', async () => {
+      await openWall({ mapPane: MAP_PANE });
+
+      fireEvent.click(tab('Coming up'));
+
+      await waitFor(() => expect(areaSheet()).toBeNull());
+      expect(__inspectForTests().layers).toBe(0);
+    });
+
+    it('refuses Find (and ⌘K) while it is up: no third layer', async () => {
+      await openWall();
+
+      expectRefused(chord());
+      fireEvent.click(findButton());
+      await settle();
+
+      expect(find()).toBeNull();
+    });
+
+    it('the foot hands the area to the Map as a named-spot lens, on its best window', async () => {
+      const onOpenMapTab = vi.fn();
+      await openWall({ mapPane: MAP_PANE, onOpenMapTab });
+
+      fireEvent.click(screen.getByTestId('area-sheet-map'));
+
+      expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({
+        date: TODAY, targetType: 'SUNSET', region: null, locationName: null, title: "Hadrian's Wall", caption: '2 spots',
+        focusNames: ['Whitby', 'Saltburn'],
+      }));
+      expect(areaSheet()).toBeNull();
+    });
+
+    it('with no map door the foot says so rather than offering a dead control', async () => {
+      await openWall();
+
+      expect(screen.queryByTestId('area-sheet-map')).toBeNull();
+      expect(screen.getByTestId('area-sheet-nomap')).toBeInTheDocument();
+    });
+
+    it('⚠️ a Lite reader\'s places outside their picks are listed as outside them, never as unrated', async () => {
+      await openWall({}, areaCtx({ allowedLocationIds: [WHITBY], isPro: false, isLiteUser: true }));
+
+      const rows = screen.getAllByTestId('area-sheet-spot');
+      const saltburn = rows.find((row) => row.textContent.includes('Saltburn'));
+      expect(saltburn).toHaveTextContent('Outside your picks');
+      expect(saltburn).not.toHaveTextContent('Not rated');
+      expect(screen.getByTestId('area-sheet-note')).toHaveTextContent('1 is outside your picks');
+      // Gated places sort after the places the reader may see.
+      expect(rows[rows.length - 1]).toBe(saltburn);
+    });
+  });
+
+  describe('on Coming up', () => {
+    it('⚠️ takes the reader to the Plan tab and opens the sheet there, never over the feed', async () => {
+      mount({ ctx: areaCtx() });
+      await ready();
+      fireEvent.click(tab('Coming up'));
+      await act(async () => { await Promise.resolve(); });
+      await findArea('hadrian');
+
+      pickWall();
+
+      expect(await screen.findByTestId('area-sheet')).toBeInTheDocument();
+      expect(selectedTab()).toHaveTextContent(/At a Glance/);
+      expect(find()).toBeNull();
+    });
+  });
+
+  describe('on the Map', () => {
+    it('hands the area to the Map\'s own channel with its member ids, and opens no sheet', async () => {
+      const onFindOnMap = vi.fn();
+      mount({ ctx: areaCtx(), props: { mapPane: MAP_PANE, onFindOnMap } });
+      await ready();
+      fireEvent.click(tab('Map'));
+      await findArea('hadrian');
+      expect(screen.getAllByRole('option')[0]).toHaveTextContent('Show');
+
+      pickWall();
+
+      expect(onFindOnMap).toHaveBeenCalledWith({
+        kind: 'area', id: 1, name: "Hadrian's Wall", ids: [WHITBY, SALTBURN],
+      });
+      expect(areaSheet()).toBeNull();
+      expect(selectedTab()).toHaveTextContent('Map');
+    });
   });
 });
