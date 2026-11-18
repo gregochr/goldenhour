@@ -316,6 +316,10 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected UserSettingsService settingsService;
 
+    /** The caller's favourites (find-and-favourites-plan F3). */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.UserFavouritesService userFavouritesService;
+
     /** The caller's sub-region picks and the admin tools over them. */
     @MockitoBean
     protected com.gregochr.goldenhour.service.UserSubRegionService userSubRegionService;
