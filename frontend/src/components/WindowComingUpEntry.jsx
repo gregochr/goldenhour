@@ -537,19 +537,18 @@ export default function WindowComingUpEntry({
           )}
         </span>
       </div>
+      {/* A Met Office warning card (W3b): the chip, "Updated" and the attribution are drawn open or closed (the
+          licence and the style guide), the full text only open. It has no prose, facts or day chips, and its plan
+          door sits inside WindowComingUpWarning, so the action line below is skipped. */}
+      {entry.warning && (
+        <>
+          {' '}
+          <WindowComingUpWarning entry={entry} open={open} onGoToPlan={onGoToPlan} />
+        </>
+      )}
       {open && (
         <>
       {' '}
-
-      {/* A Met Office warning card (W3b): chip, headline, validity and attribution from the polled warning. It has no
-          prose, facts or day chips, and its plan door sits inside WindowComingUpWarning, so the action line below is
-          skipped. */}
-      {entry.warning && (
-        <>
-          <WindowComingUpWarning entry={entry} onGoToPlan={onGoToPlan} />
-          {' '}
-        </>
-      )}
 
       {/* Additive with `prose`, NOT exclusive-or (a corrected first attempt — see the class doc's
           coincidence section for why). Every served line is rendered, host first — one per merged

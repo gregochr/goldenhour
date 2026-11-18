@@ -136,6 +136,8 @@ class ComingUpWarningMergerTest {
         assertThat(entry.detail()).isEqualTo("Headline W1");
         assertThat(entry.startDate()).isEqualTo(LocalDate.of(2026, 11, 19));
         assertThat(entry.endDate()).isEqualTo(LocalDate.of(2026, 11, 24));
+        // The assembler's convention (start minus 89 days), never today: a warning is not an arrival.
+        assertThat(entry.enteredWindow()).isEqualTo(LocalDate.of(2026, 11, 19).minusDays(89));
         assertThat(entry.interim()).isTrue();
         assertThat(entry.bits()).isNull();
         assertThat(entry.facts()).isEmpty();
@@ -187,6 +189,45 @@ class ComingUpWarningMergerTest {
         assertThat(entries).extracting(ComingUpEntry::id)
                 .containsExactly("weather-warning:NOFROM", "weather-warning:REVERSED");
         assertThat(entries).extracting(ComingUpEntry::startDate).containsExactly(TODAY, TODAY);
+    }
+
+    @Test
+    @DisplayName("GMT: a warning ending exactly at UK midnight has no extra day, one a nanosecond later does")
+    void midnightEndGmt() {
+        ComingUpResponse feed = feed();
+        when(warningService.served()).thenReturn(enabled(
+                warning("W1", "AMBER", List.of("WIND"), "2026-11-19T00:00:00Z", "2026-11-22T00:00:00Z", null)));
+        assertThat(merger.merge(feed, 90)).isSameAs(feed);
+
+        when(warningService.served()).thenReturn(enabled(
+                warning("W1", "AMBER", List.of("WIND"), "2026-11-19T00:00:00Z", "2026-11-22T00:00:00.000000001Z",
+                        null)));
+        assertThat(merger.merge(feed, 90).entries().getFirst().endDate()).isEqualTo(LocalDate.of(2026, 11, 22));
+    }
+
+    @Test
+    @DisplayName("a warning ending at UK midnight reports the day before as its last day")
+    void midnightEndLastDay() {
+        when(warningService.served()).thenReturn(enabled(
+                warning("W1", "AMBER", List.of("WIND"), "2026-11-19T00:00:00Z", "2026-11-24T00:00:00Z", null)));
+
+        assertThat(merger.merge(feed(), 90).entries().getFirst().endDate()).isEqualTo(LocalDate.of(2026, 11, 23));
+    }
+
+    @Test
+    @DisplayName("BST: UK midnight is 23:00Z, so a warning ending exactly then has no extra day")
+    void midnightEndBst() {
+        ComingUpWarningMerger summer = new ComingUpWarningMerger(warningService,
+                Clock.fixed(Instant.parse("2026-07-14T12:00:00Z"), ZoneOffset.UTC));
+        ComingUpResponse feed = new ComingUpResponse(LocalDate.of(2026, 7, 14), null, null, List.of());
+        // Today 14 July, last scored day 17 July; 23:00Z on the 17th is 00:00 BST on the 18th.
+        when(warningService.served()).thenReturn(enabled(
+                warning("W1", "AMBER", List.of("WIND"), "2026-07-15T08:00:00Z", "2026-07-17T23:00:00Z", null)));
+        assertThat(summer.merge(feed, 90)).isSameAs(feed);
+
+        when(warningService.served()).thenReturn(enabled(
+                warning("W1", "AMBER", List.of("WIND"), "2026-07-15T08:00:00Z", "2026-07-17T23:00:01Z", null)));
+        assertThat(summer.merge(feed, 90).entries().getFirst().endDate()).isEqualTo(LocalDate.of(2026, 7, 18));
     }
 
     @Test

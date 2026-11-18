@@ -516,6 +516,8 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
     // inside the card), so those are cleared whatever the served `plan` action would otherwise have built.
     ...(isWarningEntry(entry) ? {
       warning: entry.warning ?? null,
+      // A warning is never an arrival: it carries no rarity, so it never earns the NEW flag or the fresh shadow.
+      isNew: false,
       interactive: false, dayChips: null, rangeScale: null, doorNoun: null, actionWithheld: false, actionNote: null,
     } : {}),
   };
@@ -578,4 +580,5 @@ export function buildChronology(entries, todayStr, filterId, lastSeenDate, forec
  * hard-coded calendar window and the equinox/solstice dates are fixed `MonthDay` anchors.
  */
 export const FOOTER = 'This list shows dates fixed in advance, from today on. Weather-driven topics '
-  + `can't be known that far out, so they appear only under the next four days on ${GLANCE_LABEL}.`;
+  + `can't be known that far out, so they appear only under the next four days on ${GLANCE_LABEL}, `
+  + 'except Met Office weather warnings, which are listed here when they run past those four days.';

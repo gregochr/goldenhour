@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAlmanac } from '../api/almanacApi.js';
 
+/** How long after a failed silent refetch the next one is tried (ms). */
+export const SILENT_RETRY_MS = 30 * 1000;
+
 /**
  * The "Coming up" feed's fetch: eager (plan D13, P5), once per day, and held across tab switches.
  *
@@ -88,6 +91,13 @@ export default function useComingUpFeed(enabled, todayStr, warningsKey = '') {
   /** Monotonic id of the in-flight request, so a late response cannot overwrite a newer one. */
   const runIdRef = useRef(0);
   const [attempt, setAttempt] = useState(0);
+  /** Set when a silent refetch failed: the next effect run refetches even though the warning key did not change. */
+  const silentRetryDueRef = useRef(false);
+  /** Consecutive silent failures before any fetch has succeeded (one is tolerated: a superseded first fetch). */
+  const silentFailuresRef = useRef(0);
+  const silentRetryTimerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(silentRetryTimerRef.current), []);
 
   /** Clears the latch and re-runs the effect. The error state's only affordance. */
   const retry = useCallback(() => {
@@ -103,7 +113,10 @@ export default function useComingUpFeed(enabled, todayStr, warningsKey = '') {
     // and the licence bounds how long that may take. An unchanged feed answers 304.
     const warningsChanged = warningsKeyRef.current !== warningsKey;
     warningsKeyRef.current = warningsKey;
-    if (!dayChanged && !warningsChanged) return;
+    const silentRetry = silentRetryDueRef.current;
+    silentRetryDueRef.current = false;
+    if (!dayChanged && !warningsChanged && !silentRetry) return;
+    clearTimeout(silentRetryTimerRef.current);
     fetchedForRef.current = todayStr;
     // Which request this is. Two can only ever overlap one way — the date rolls past midnight while
     // the tab is open and the latch reopens on a request that has not come back — and responses
@@ -125,6 +138,7 @@ export default function useComingUpFeed(enabled, todayStr, warningsKey = '') {
         const data = await getAlmanac();
         if (isStale()) return;
         everReadyRef.current = true;
+        silentFailuresRef.current = 0;
         // The wrapped ComingUpResponse, always — the endpoint has no 204; its body is role-shaped (a Lite copy
         // has no event-water facts and marks `lightRowsWithheld`) but always the same wrapper. A
         // non-object would mean something upstream changed shape, and rendering an empty feed is
@@ -139,7 +153,18 @@ export default function useComingUpFeed(enabled, todayStr, warningsKey = '') {
         // The latch stays SET on failure so a re-render does not retry in a loop; `retry` is the
         // only way back, and it is a button the reader presses. A silent refetch that fails keeps the feed on
         // screen (the polled warnings still reconcile it); only a feed that never loaded shows the error.
-        if (dayChanged || !everReadyRef.current) setStatus('error');
+        if (dayChanged) {
+          setStatus('error');
+          return;
+        }
+        // A failed silent refetch must not strand the warning set: the key it was made for will not change again,
+        // and a new warning can only reach the feed through a refetch, so retry after a short backoff. Before any
+        // success a single failure is tolerated (the first fetch may only have been superseded by this one); the
+        // second shows the error.
+        silentFailuresRef.current += 1;
+        if (!everReadyRef.current && silentFailuresRef.current >= 2) setStatus('error');
+        silentRetryDueRef.current = true;
+        silentRetryTimerRef.current = setTimeout(() => setAttempt((n) => n + 1), SILENT_RETRY_MS);
       }
     })();
   }, [enabled, todayStr, attempt, warningsKey]);

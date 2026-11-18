@@ -851,7 +851,8 @@ describe('FOOTER', () => {
   it('is the one fixed note, naming what the list shows and where weather topics live', () => {
     expect(FOOTER).toBe(
       'This list shows dates fixed in advance, from today on. '
-      + "Weather-driven topics can't be known that far out, so they appear only under the next four days on At a Glance.",
+      + "Weather-driven topics can't be known that far out, so they appear only under the next four days on At a Glance, "
+      + 'except Met Office weather warnings, which are listed here when they run past those four days.',
     );
   });
 

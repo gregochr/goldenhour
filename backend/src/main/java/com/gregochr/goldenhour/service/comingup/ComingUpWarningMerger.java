@@ -131,7 +131,10 @@ public class ComingUpWarningMerger {
 
     private static ComingUpEntry entryFor(WarningDto warning, LocalDate today, LocalDate lastPlan,
             LocalDate horizonEnd) {
-        LocalDate end = ForecastHorizon.civilDate(warning.validTo());
+        // validTo is exclusive in effect: a warning ending exactly at UK midnight covers no minute of the new day, so
+        // its last day is the day before (one nanosecond earlier), as in the BST and GMT cases alike.
+        LocalDate end = warning.validTo() == null ? null
+                : ForecastHorizon.civilDate(warning.validTo().minusNanos(1));
         if (warning.warningId() == null || end == null || !end.isAfter(lastPlan)) {
             return null;
         }
@@ -141,8 +144,10 @@ public class ComingUpWarningMerger {
             return null;
         }
         String title = title(warning);
+        // The assembler's convention (start minus 89 days), never today: a warning is not an arrival.
+        LocalDate entered = start.minusDays(AlmanacService.DEFAULT_DAYS - 1L);
         return new ComingUpEntry(start, end, AlmanacKind.FORECAST, TYPE, title, warning.headline(),
-                meta(warning), List.of(), today, TYPE + ":" + warning.warningId(), FAMILY, KIND_TAG,
+                meta(warning), List.of(), entered, TYPE + ":" + warning.warningId(), FAMILY, KIND_TAG,
                 null, null, null, List.of(), null, null, null, action(start, lastPlan, today),
                 null, true, null, List.of(), null, List.of(), List.of(), null);
     }

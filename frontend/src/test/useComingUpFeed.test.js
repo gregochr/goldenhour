@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import useComingUpFeed from '../hooks/useComingUpFeed.js';
+import useComingUpFeed, { SILENT_RETRY_MS } from '../hooks/useComingUpFeed.js';
 
 vi.mock('../api/almanacApi.js', () => ({ getAlmanac: vi.fn() }));
 
@@ -111,6 +111,81 @@ describe('useComingUpFeed', () => {
     await flush();
 
     expect(result.current.status).toBe('error');
+  });
+
+  it('a failed silent refetch is retried after the backoff even though the key never changes again', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const first = { entries: [{ id: 'a' }] };
+      const second = { entries: [{ id: 'a' }, { id: 'weather-warning:w1' }] };
+      getAlmanac.mockResolvedValueOnce(first).mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValueOnce(second);
+
+      const { result, rerender } = renderHook(({ key }) => useComingUpFeed(true, TODAY, key), {
+        initialProps: { key: '' },
+      });
+      await flush();
+      rerender({ key: 'w1@1.0@AMBER@' });
+      await flush();
+      expect(result.current.events).toEqual(first);
+      expect(getAlmanac).toHaveBeenCalledTimes(2);
+
+      await act(async () => { vi.advanceTimersByTime(SILENT_RETRY_MS); });
+      await flush();
+
+      expect(getAlmanac).toHaveBeenCalledTimes(3);
+      expect(result.current.events).toEqual(second);
+      expect(result.current.status).toBe('ready');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps retrying while failing and stops once it succeeds', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      getAlmanac.mockResolvedValueOnce({ entries: [] }).mockRejectedValue(new Error('offline'));
+      const { rerender } = renderHook(({ key }) => useComingUpFeed(true, TODAY, key), { initialProps: { key: '' } });
+      await flush();
+      rerender({ key: 'k' });
+      await flush();
+      await act(async () => { vi.advanceTimersByTime(SILENT_RETRY_MS); });
+      await flush();
+      await act(async () => { vi.advanceTimersByTime(SILENT_RETRY_MS); });
+      await flush();
+
+      expect(getAlmanac).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a first fetch superseded by a failing silent one does not show a hard error, and recovers on the retry', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let releaseFirst;
+      getAlmanac.mockImplementationOnce(() => new Promise((resolve) => { releaseFirst = resolve; }))
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValueOnce({ entries: [{ id: 'z' }] });
+      const { result, rerender } = renderHook(({ key }) => useComingUpFeed(true, TODAY, key), {
+        initialProps: { key: '' },
+      });
+      await flush();
+      rerender({ key: 'k' });
+      await flush();
+      releaseFirst({ entries: [] });
+      await flush();
+      // The first answer was discarded as superseded; the silent one failed: still loading, not errored.
+      expect(result.current.status).toBe('loading');
+
+      await act(async () => { vi.advanceTimersByTime(SILENT_RETRY_MS); });
+      await flush();
+
+      expect(result.current.status).toBe('ready');
+      expect(result.current.events).toEqual({ entries: [{ id: 'z' }] });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a new day still shows the loading state, with or without a warning change', async () => {

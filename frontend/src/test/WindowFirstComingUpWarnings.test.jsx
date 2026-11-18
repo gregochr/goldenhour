@@ -61,6 +61,9 @@ const POLLED = warning({
   headline: 'Strong winds across the north',
   validFrom: '2026-08-15T06:00:00Z',
   validTo: '2026-08-20T18:00:00Z',
+  whatToExpect: ['Large waves are likely', 'Some roads may close'],
+  whatShouldIDo: 'Avoid exposed coasts.',
+  furtherDetails: 'Winds ease on Thursday.',
 });
 
 const mount = async (served, events = FEED, props = {}) => {
@@ -104,14 +107,52 @@ describe('Coming up warning entries', () => {
     const chip = within(entry).getByTestId('warning-chip');
     expect(chip).toHaveTextContent('Yellow warning of wind');
     expect(chip).toHaveAttribute('href', METOFFICE_URL);
-    expect(within(entry).getByTestId('coming-up-warning-headline')).toHaveTextContent('Strong winds across the north');
-    expect(within(entry).getByTestId('coming-up-warning-validity')).toHaveTextContent(/Valid .* \(UK time\)/);
+    expect(within(entry).getByTestId('window-warning-headline')).toHaveTextContent('Strong winds across the north');
+    expect(within(entry).getByTestId('window-warning-validity')).toHaveTextContent(/Valid .* \(UK time\)/);
     expect(within(entry).getByTestId('warning-attribution')).toHaveTextContent(ATTRIBUTION);
     expect(within(entry).getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
     // The card is neither a rating nor a map door: no stars, no day chips, not a button.
     expect(within(entry).queryByTestId('coming-up-day-chips')).toBeNull();
     expect(within(entry).getByTestId('coming-up-card').tagName).toBe('DIV');
     expect(within(entry).queryByTestId('coming-up-action')).toBeNull();
+  });
+
+  it('shows the warning in full when open: every expect line, advice, further details and the advice link', async () => {
+    await mount(response([POLLED]));
+    const entry = card();
+
+    const lines = within(within(entry).getByTestId('window-warning-expect')).getAllByRole('listitem');
+    expect(lines.map((li) => li.textContent)).toEqual(['Large waves are likely', 'Some roads may close']);
+    expect(within(entry).getByTestId('window-warning-advice')).toHaveTextContent('Avoid exposed coasts.');
+    expect(within(entry).getByTestId('window-warning-further')).toHaveTextContent('Winds ease on Thursday.');
+    expect(within(entry).getByTestId('window-warning-advice-link')).toHaveAttribute(
+      'href', 'https://www.metoffice.gov.uk/weather/warnings-and-advice/seasonal-advice',
+    );
+    // The chip is drawn once: the full body does not repeat it.
+    expect(within(entry).getAllByTestId('warning-chip')).toHaveLength(1);
+  });
+
+  it('a closed card still carries the coloured chip, Updated, the raise note and the attribution', async () => {
+    const polled = { ...POLLED, level: 'AMBER', updated: true, upgradedFrom: 'YELLOW' };
+    await mount(response([polled]));
+    fireEvent.click(within(card()).getByTestId('coming-up-toggle'));
+    const entry = card();
+
+    expect(entry).toHaveAttribute('data-open', 'false');
+    expect(within(entry).getByTestId('warning-chip')).toHaveAttribute('data-level', 'AMBER');
+    expect(within(entry).getByTestId('warning-chip-updated')).toBeInTheDocument();
+    expect(within(entry).getByTestId('coming-up-warning-raised')).toHaveTextContent('Raised from Yellow');
+    expect(within(entry).getByTestId('warning-attribution')).toHaveTextContent(ATTRIBUTION);
+    expect(within(entry).getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
+    // The full text and the plan door wait for the card to be opened.
+    expect(within(entry).queryByTestId('window-warning-expect')).toBeNull();
+    expect(within(entry).queryByTestId('coming-up-warning-plan-door')).toBeNull();
+  });
+
+  it('is never flagged New, even when it entered the window after the reader last looked', async () => {
+    await mount(response([POLLED]), FEED, { comingUpLastSeenDate: '2026-08-01' });
+
+    expect(within(card()).queryByTestId('coming-up-new-flag')).toBeNull();
   });
 
   it('opens the plan from the card when the warning reaches the scored days', async () => {
@@ -142,7 +183,7 @@ describe('Coming up warning entries', () => {
     expect(within(entry).getByTestId('warning-chip')).toHaveAttribute('data-level', 'RED');
     expect(within(entry).getByTestId('warning-chip-updated')).toBeInTheDocument();
     expect(within(entry).getByTestId('coming-up-warning-raised')).toHaveTextContent('Raised from Amber');
-    expect(within(entry).getByTestId('coming-up-warning-update')).toHaveTextContent('Raised after the model run.');
+    expect(within(entry).getByTestId('window-warning-update')).toHaveTextContent('Raised after the model run.');
   });
 
   it('a warning the poll no longer lists (cancelled) leaves the pane and the All count', async () => {
@@ -194,7 +235,7 @@ describe('Coming up warning entries', () => {
     await mount(response([]), { entries: [meteor()], counts: null });
 
     expect(screen.queryByTestId('warning-footer')).toBeNull();
-    expect(screen.queryByText(/warning/i)).toBeNull();
+    expect(screen.queryByText(/warning/i, { ignore: '[data-testid="coming-up-footer"]' })).toBeNull();
   });
 
   it('an expired polled warning does not linger even if the poll still lists it', async () => {

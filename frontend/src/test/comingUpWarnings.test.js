@@ -62,9 +62,16 @@ describe('warningsKey', () => {
     expect(warningsKey({ enabled: true, warnings: [] })).toBe('');
   });
 
+  it('changes when the 24 h raise flag appears or lapses, because the server floats a raised warning first', () => {
+    const a = warning({ warningId: 'a' });
+    const plain = warningsKey({ enabled: true, warnings: [a] });
+    const raised = warningsKey({ enabled: true, warnings: [{ ...a, upgradedFrom: 'YELLOW' }] });
+    expect(raised).not.toBe(plain);
+  });
+
   it('tolerates a numeric id and a missing entry', () => {
     expect(warningsKey({ enabled: true, warnings: [{ warningId: 7, warningVersion: 1, level: 'RED' }, null] }))
-      .toBe('7@1@RED|undefined@undefined@undefined');
+      .toBe('7@1@RED@|undefined@undefined@undefined@');
   });
 });
 
@@ -168,8 +175,14 @@ describe('buildEntryView for a warning entry', () => {
     expect(view.actionWithheld).toBe(false);
     expect(view.actionNote).toBeNull();
     expect(view.isForecast).toBe(true);
-    expect(view.isNew).toBe(false);
     expect(view.family).toBe('warning');
+  });
+
+  it('is never NEW, however the served enteredWindow compares with the last-seen date', () => {
+    const [entry] = reconcileFeed(
+      { entries: [wireWarning({ enteredWindow: '2026-08-14' })], counts: null }, served([warning()]), NOW,
+    ).entries;
+    expect(buildEntryView(entry, '2026-08-14', '2026-08-01', null).isNew).toBe(false);
   });
 
   it('adds nothing to a non-warning entry', () => {

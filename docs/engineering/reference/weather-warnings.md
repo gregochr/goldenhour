@@ -311,12 +311,13 @@ body and its body-hashed ETag are byte-identical to a build without it (tested).
 
 **Which warnings get an entry.** Plan and At a Glance own today and the next three UK days (`PlanHorizon.lastPlanDate`, the W3
 lanes and popup row). A served warning gets an entry when its `validTo` UK civil date is **after** that last plan date and its
+end date is taken a nanosecond before `validTo` (a warning ending exactly at UK midnight, GMT or BST, has no extra day), and its
 start (`validFrom` UK date, today when missing or later than the end) is within the requested horizon (`days`, clamped as
 `AlmanacService` clamps it). The entry carries the **true span**, never clipped (a warning under way starts in the past, as a
 straddling tide run does). A warning wholly inside the scored days has no Coming up entry.
 
 **Entry shape (no `ComingUpEntry` field was added).** `kind FORECAST` (never badges), `family "warning"`, `type "weather-warning"`,
-`kindTag "Met Office warning"`, `interim true`, `bits null`, no facts. `id` is `weather-warning:<warningId>` (no version, so an
+`kindTag "Met Office warning"`, `enteredWindow` = start minus 89 days (the assembler's convention, so it never reads as an arrival; the client also forces `isNew` false), `interim true`, `bits null`, no facts. `id` is `weather-warning:<warningId>` (no version, so an
 opened card stays open across an update). `title` is "Amber warning of snow and wind" (the same words as the chip). `detail` is
 the headline. `meta` carries `warningId`, `warningVersion`, `level`, `weatherTypes` (comma joined), `validFrom`, `validTo`,
 `updated` and, only while the 24 h raise flag holds, `upgradedFrom`. `action` is `plan` (date = the first scored day it touches,
@@ -334,15 +335,17 @@ Clock). (2) `/api/almanac` is `private, no-cache` with a body-hashed ETag and **
 fetch. (3) The feed is fetched once a day, so the client does not trust it for existence: `reconcileFeed` drops a warning entry
 whose id is not in the **polled** `GET /api/warnings` list (2-minute poll), or whose polled `validTo` has passed, and draws the
 surviving entry's title, chip and level from the **polled** warning, never the feed copy; and `useComingUpFeed(enabled, todayStr,
-warningsKey)` refetches the almanac **silently** (no loading state, a failure keeps the feed) whenever the polled set's
-`id@version@level` key changes, so a new or raised warning reaches the feed after the next poll. The served counts lose one per
+warningsKey)` refetches the almanac **silently** (no loading state, a failure keeps the feed and is retried every 30 s, `SILENT_RETRY_MS`, until it succeeds, because the key will not change again; before any success one failure is tolerated, the second shows the error) whenever the polled set's
+`id@version@level@raised` key changes (the raise flag is in the key because the server floats a raised warning first and the 24 h flag lapsing changes the order), so a new or raised warning reaches the feed after the next poll. The served counts lose one per
 dropped entry. With the feature off, before the first poll answers or after a refusal, every warning entry is dropped and nothing
 is printed (not even the attribution).
 
-**Rendering.** Shared `WarningChip` (official colours, the level word always printed, "Updated" for the served flag, no icon,
-triangle or logo), "Raised from Amber" while the 24 h flag holds, the headline, the update text on an updated warning, the validity
-in UK time, a plan door button when `action.kind` is `plan`, and the `WarningFooter` source line (attribution plus Met Office link)
-on every card. The stale line prints **once** at the top of the pane (`WarningFooter` with `stale`) while the context is stale,
+**Rendering.** Open or closed, every warning card draws the shared `WarningChip` (official colours, the level word always printed,
+"Updated" for the served flag, no icon, triangle or logo), "Raised from Amber" while the 24 h flag holds, and the `WarningFooter`
+source line (attribution plus Met Office link). Open, it adds the warning **in full** through the W3 popup's own `WarningDetail`
+(headline, update text, every what-to-expect line, what should I do, further details, validity in UK time, the matrix; exported from
+`WindowWarningRow.jsx`), the style guide's advice link (`WarningAdviceLink`) and a plan door button when `action.kind` is `plan`
+(a warning that starts after the scored days only shows here, so the full text is here). The stale line prints **once** at the top of the pane (`WarningFooter` with `stale`) while the context is stale,
 including with no warning entry: the pane has no "no warnings" state anywhere, so an empty list is never an all-clear. A warning
 card is a `<div>` (never a button, no day chips, no map door) and never touches a rating.
 

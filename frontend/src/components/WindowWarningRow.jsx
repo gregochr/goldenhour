@@ -31,7 +31,7 @@ TextBlock.propTypes = {
 };
 
 /** One warning in full: the style guide's required text, status, validity, places and the matrix. */
-function WarningDetail({ warning, counts = null }) {
+export function WarningDetail({ warning, counts = null, showChip = true }) {
   const lines = placeCountLines(counts, warning.warningId);
   const expect = Array.isArray(warning.whatToExpect) ? warning.whatToExpect.filter((t) => t && t.trim()) : [];
   const validity = validityText(warning);
@@ -43,7 +43,7 @@ function WarningDetail({ warning, counts = null }) {
       className="flex flex-wrap items-start gap-x-4 gap-y-2 rounded border border-plex-border-light p-2.5"
     >
       <div className="flex min-w-[14rem] flex-1 flex-col gap-2">
-        <div><WarningChip warning={warning} /></div>
+        {showChip && <div><WarningChip warning={warning} /></div>}
         {warning.headline && (
           <p data-testid="window-warning-headline" className="text-[13px] font-semibold leading-snug text-plex-text">
             {warning.headline}
@@ -82,7 +82,25 @@ function WarningDetail({ warning, counts = null }) {
 WarningDetail.propTypes = {
   warning: PropTypes.object.isRequired,
   counts: PropTypes.arrayOf(PropTypes.object),
+  showChip: PropTypes.bool,
 };
+
+/** The style guide's optional "What should I do" link, to the Met Office's own advice page. */
+export function WarningAdviceLink() {
+  return (
+    <p className="font-mono text-[10px] leading-snug text-plex-text-secondary">
+      <a
+        data-testid="window-warning-advice-link"
+        className="underline"
+        href={WHAT_SHOULD_I_DO_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        What should I do: if you would like further advice and guidance on what to do in severe weather, click here
+      </a>
+    </p>
+  );
+}
 
 /**
  * The window popup's WARNING row (weather-warnings-plan.md W3): every Met Office warning that applies to the window,
@@ -112,19 +130,7 @@ export default function WindowWarningRow({ card }) {
       {warnings.map((warning) => (
         <WarningDetail key={warning.warningId} warning={warning} counts={card.warningPlaceCounts} />
       ))}
-      {showAttribution && (
-        <p className="font-mono text-[10px] leading-snug text-plex-text-secondary">
-          <a
-            data-testid="window-warning-advice-link"
-            className="underline"
-            href={WHAT_SHOULD_I_DO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            What should I do: if you would like further advice and guidance on what to do in severe weather, click here
-          </a>
-        </p>
-      )}
+      {showAttribution && <WarningAdviceLink />}
       <WarningFooter
         showAttribution={showAttribution}
         stale={served.stale}

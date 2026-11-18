@@ -39,7 +39,8 @@ export function isWarningEntry(entry) {
 export function warningsKey(served) {
   if (!served || served.enabled !== true || !Array.isArray(served.warnings)) return '';
   return served.warnings
-    .map((w) => `${String(w?.warningId)}@${String(w?.warningVersion)}@${String(w?.level)}`)
+    .map((w) => `${String(w?.warningId)}@${String(w?.warningVersion)}@${String(w?.level)}`
+      + `@${w?.upgradedFrom ? 'raised' : ''}`)
     .join('|');
 }
 

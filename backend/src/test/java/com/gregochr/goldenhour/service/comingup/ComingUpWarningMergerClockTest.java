@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
@@ -52,23 +52,27 @@ class ComingUpWarningMergerClockTest {
     private LocationRepository locations;
 
     private final WarningsProperties properties = new WarningsProperties();
-    private List<WeatherWarningVersionEntity> stored = List.of();
 
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
+    }
+
+    /** A merger at the given instant that will read exactly these stored versions and one enabled place. */
+    private ComingUpWarningMerger mergerAt(Instant at, List<WeatherWarningVersionEntity> versions) {
+        when(repository.findAllVersionsOfWarningsValidAfter(at)).thenReturn(versions);
         LocationEntity place = new LocationEntity();
         place.setId(7L);
         place.setLat(54.5);
         place.setLon(-1.5);
-        lenient().when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(place));
+        when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(place));
+        return mergerWithoutStubs(at);
     }
 
-    private ComingUpWarningMerger mergerAt(Instant at) {
+    private ComingUpWarningMerger mergerWithoutStubs(Instant at) {
         Clock clock = Clock.fixed(at, ZoneOffset.UTC);
         WarningService service = new WarningService(repository, new WarningTimeline(clock), new WarningCoverage(),
                 locations, new WarningPollStatus(), properties, new ServedBriefingEpoch(), clock);
-        lenient().when(repository.findAllVersionsOfWarningsValidAfter(at)).thenReturn(stored);
         return new ComingUpWarningMerger(service, clock);
     }
 
@@ -103,10 +107,12 @@ class ComingUpWarningMergerClockTest {
     @Test
     @DisplayName("an active warning has an entry now, and none once the clock passes its end")
     void appearsAndExpires() {
-        stored = List.of(version("W1", "1.0", "ACTIVE", "AMBER", false, NOW.minus(Duration.ofHours(1))));
+        List<WeatherWarningVersionEntity> stored =
+                List.of(version("W1", "1.0", "ACTIVE", "AMBER", false, NOW.minus(Duration.ofHours(1))));
 
-        assertThat(mergerAt(NOW).merge(emptyFeed(), 90).entries()).hasSize(1);
-        assertThat(mergerAt(Instant.parse("2026-11-24T06:00:01Z")).merge(emptyFeed(), 90).entries()).isEmpty();
+        assertThat(mergerAt(NOW, stored).merge(emptyFeed(), 90).entries()).hasSize(1);
+        Instant after = Instant.parse("2026-11-24T06:00:01Z");
+        assertThat(mergerAt(after, stored).merge(emptyFeed(), 90).entries()).isEmpty();
     }
 
     @Test
@@ -114,13 +120,13 @@ class ComingUpWarningMergerClockTest {
     void cancellationDisappears() {
         WeatherWarningVersionEntity issued = version("W1", "1.0", "ACTIVE", "AMBER", false,
                 NOW.minus(Duration.ofHours(2)));
-        stored = List.of(issued);
         ComingUpResponse cached = oneAlmanac();
-        assertThat(mergerAt(NOW).merge(cached, 90).entries()).hasSize(2);
+        assertThat(mergerAt(NOW, List.of(issued)).merge(cached, 90).entries()).hasSize(2);
 
-        stored = List.of(issued, version("W1", "2.0", "CANCELLED", "AMBER", false, NOW.minus(Duration.ofMinutes(1))));
+        WeatherWarningVersionEntity cancelled =
+                version("W1", "2.0", "CANCELLED", "AMBER", false, NOW.minus(Duration.ofMinutes(1)));
+        ComingUpResponse after = mergerAt(NOW, List.of(issued, cancelled)).merge(cached, 90);
 
-        ComingUpResponse after = mergerAt(NOW).merge(cached, 90);
         assertThat(after).isSameAs(cached);
         assertThat(after.entries()).hasSize(1);
     }
@@ -128,30 +134,31 @@ class ComingUpWarningMergerClockTest {
     @Test
     @DisplayName("a simulated row never reaches a reader")
     void simulatedNeverServed() {
-        stored = List.of(version("SIM-1", "1.0", "ACTIVE", "RED", true, NOW.minus(Duration.ofHours(1))));
+        List<WeatherWarningVersionEntity> stored =
+                List.of(version("SIM-1", "1.0", "ACTIVE", "RED", true, NOW.minus(Duration.ofHours(1))));
 
         ComingUpResponse feed = emptyFeed();
-        assertThat(mergerAt(NOW).merge(feed, 90)).isSameAs(feed);
+        assertThat(mergerAt(NOW, stored).merge(feed, 90)).isSameAs(feed);
     }
 
     @Test
     @DisplayName("a rewound clock shows what had been received: nothing before receipt, the entry after")
     void rewindShowsWhatHadBeenReceived() {
-        stored = List.of(version("W1", "1.0", "ACTIVE", "AMBER", false, NOW));
+        List<WeatherWarningVersionEntity> stored = List.of(version("W1", "1.0", "ACTIVE", "AMBER", false, NOW));
 
-        assertThat(mergerAt(NOW.minus(Duration.ofHours(3))).merge(emptyFeed(), 90).entries()).isEmpty();
-        assertThat(mergerAt(NOW).merge(emptyFeed(), 90).entries()).hasSize(1);
+        assertThat(mergerAt(NOW.minus(Duration.ofHours(3)), stored).merge(emptyFeed(), 90).entries()).isEmpty();
+        assertThat(mergerAt(NOW, stored).merge(emptyFeed(), 90).entries()).hasSize(1);
     }
 
     @Test
     @DisplayName("a raised level is flagged so the entry floats, and the merged feed differs from the cached one")
     void raisedLevelFlagsAndBodyChanges() {
-        stored = List.of(
+        List<WeatherWarningVersionEntity> stored = List.of(
                 version("W1", "1.0", "ACTIVE", "YELLOW", false, NOW.minus(Duration.ofHours(5))),
                 version("W1", "2.0", "ACTIVE", "AMBER", false, NOW.minus(Duration.ofHours(2))));
         ComingUpResponse cached = oneAlmanac();
 
-        ComingUpResponse merged = mergerAt(NOW).merge(cached, 90);
+        ComingUpResponse merged = mergerAt(NOW, stored).merge(cached, 90);
 
         assertThat(merged).isNotEqualTo(cached);
         assertThat(merged.entries().getFirst().meta()).containsEntry("upgradedFrom", "YELLOW")
@@ -162,10 +169,9 @@ class ComingUpWarningMergerClockTest {
     @DisplayName("the feature off: the same instance and the store is never read")
     void featureOffReadsNothing() {
         properties.setEnabled(false);
-        stored = List.of(version("W1", "1.0", "ACTIVE", "AMBER", false, NOW.minus(Duration.ofHours(1))));
 
         ComingUpResponse feed = oneAlmanac();
-        assertThat(mergerAt(NOW).merge(feed, 90)).isSameAs(feed);
-        verifyNoInteractions(locations);
+        assertThat(mergerWithoutStubs(NOW).merge(feed, 90)).isSameAs(feed);
+        verifyNoInteractions(repository, locations);
     }
 }
