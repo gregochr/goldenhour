@@ -91,7 +91,7 @@ regions are served; a warning that covers none is stored but not surfaced.
 | **W2** | `LocationFourDaySheet` chip (incl. stood-down and unscored rows), `MapCallout` chip | Shared `WarningChip` and `utils/warnings.js` (words, ordering, accessible names) built here, reused after |
 | **W3** | `WindowGlanceLanes` lane first in the stack, card triangle, `WindowSheetDialog` WARNING row | |
 | **W3b** | Coming up entries (built: `ComingUpWarningMerger` at the controller edge, not in `ComingUpAssembler`; see `reference/weather-warnings.md` "Coming up, W3b") | Beyond the scored days; upgraded entry floats to top of its day |
-| **W4** | `MapTopicChips` chip, dashed no-fill outline layer, legend entry | Not in the hot-topics bar. Canvas rendering, no clustering |
+| **W4** | Map warning chip row (`MapWarningChips`, in `.wf-map-chrome-tl` under the topic chips) | Not in the hot-topics bar. **No outline, legend entry or geometry layer:** the dashed no-fill outline of the original plan is superseded by §12 and §13 (style guide v1.4: map geometry must be colour-filled and must not be overlaid with other information), so the chip is the whole map presence. Built; see `reference/weather-warnings.md` "The client, W4" |
 | **W5** | Guides (`weather-warnings.html` + sections in five existing pages + search/hub/`guide.js`/`guideSections.test.js`), landing index/FAQ/acknowledgements/terms, `GuideLink` `?` in the app | **Warnings must not reach users (flag on) before W5 ships** |
 
 Flag stays off in production until W5 has merged. Each phase: Sonnet builds in its own worktree, runs the gates in
@@ -143,7 +143,7 @@ Later (out of scope): drive-route warnings, Ask PhotoCast mentions, notification
 
 **Stale feed (user-visible).** An empty state must not read as an all-clear. `/api/warnings` serves `lastCheckedAt` and `stale` (last successful poll older than a named constant, 30 min). When stale, warning surfaces show "Warnings last checked HH:MM — check the Met Office" and the "none" state is suppressed. Stored warnings stay shown until `valid_to` (a withdrawn warning could therefore linger during an outage; the stale line says so). Flag-on in production is an owner decision after the licence answer and after W5.
 
-**Frontend notes for W2–W4.** The Met Office link is an anchor (`target=_blank`, `rel="noopener noreferrer"`), never a layer that competes with a dialog. The map chip toggles a layer with no history entry (`dialogHistory.js` untouched). Canvas outline, no clustering.
+**Frontend notes for W2–W4.** The Met Office link is an anchor (`target=_blank`, `rel="noopener noreferrer"`), never a layer that competes with a dialog. The map chip is a row of Met Office links with no layer and no history entry (`dialogHistory.js` untouched); the canvas outline in the original plan was dropped by §12/§13 and is not built.
 
 ## 10. Met Office reply and DataHub findings (2026-11-17)
 

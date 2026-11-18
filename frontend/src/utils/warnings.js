@@ -1,6 +1,7 @@
 import { formatDayClockUk, formatEventTimeUk } from './conversions.js';
 import { ukDateStr } from './mapDates.js';
 import { appNow } from './rewind.js';
+import { warningInputsFor } from './locationSheet.js';
 
 /**
  * Met Office weather warnings, display helpers (weather-warnings-plan.md §2, §12, §13).
@@ -211,6 +212,35 @@ export function warningsForPlaceAt(warnings, locationId, eventIso) {
 export function warningsForWindow(served, { row, locationId, eventIso }) {
   if (!served || !Array.isArray(served.warnings) || served.warnings.length === 0) return [];
   return warningsForPlaceAt(served.warnings, locationId, row?.solarEventTime ?? eventIso);
+}
+
+/**
+ * The warnings to draw for the Map tab's active window as a whole (W4): every polled warning that covers at least one
+ * place of the roster at the window's event instant, in the style guide's order. Same rule as the callout and the
+ * Plan card ({@link warningsForPlaceAt}: the polled list's {@code locationIds} and validity span decide, never a stored
+ * row's ids), applied across the places, so a reader's own filters (star floor, types, reach) never make the chip
+ * flicker: a warning is not a rating. Solar windows only (the server keys a warning to a sunrise or sunset), and not a
+ * window already gone. Each place is matched exactly as the callout matches it ({@link warningInputsFor}: its own
+ * stored row's {@code solarEventTime}, else its own briefing slot's instant, else the instant of its own score row), so
+ * the chip and the callout can never disagree about a place; a place with none of those is not matched.
+ *
+ * @param {{warnings: object[]}} served the shared warnings (the context value)
+ * @param {{event: ?object, locations: ?Array<object>, slotIndex: ?object, scoreIndex: ?object}} scope the map's
+ *        active EV row, the roster and the callout's two lookup indexes
+ * @returns {object[]} in the style guide's order
+ */
+export function warningsForMapWindow(served, {
+  event, locations, slotIndex = null, scoreIndex = null,
+}) {
+  if (!served || !Array.isArray(served.warnings) || served.warnings.length === 0) return [];
+  if (event?.kind !== 'solar' || event.past || !event.date || !event.eventType) return [];
+  if (!Array.isArray(locations) || locations.length === 0) return [];
+  const found = new Map();
+  for (const loc of locations) {
+    const inputs = warningInputsFor(loc, event, slotIndex, scoreIndex);
+    for (const w of warningsForWindow(served, { ...inputs, locationId: loc?.id })) found.set(w.warningId, w);
+  }
+  return orderWarnings(Array.from(found.values()));
 }
 
 /**

@@ -165,4 +165,8 @@ opening) behaves as before, so the fix needs no phone or desktop split. Proved b
 
 ## Met Office warning chips on the callout (weather-warnings W2, 2026-11-17)
 
-`MapCallout` renders a `WarningStrip` (chips plus the attribution line) directly **under** the verdict row and apart from the rating badge, for a live solar window only (not past, not a night, not High water). The chips are the polled served list matched by place and event time (`warningsForWindow`); travel days included. No geometry on the map in this series (plan section 12); the Map chip toggle and legend entry are W4. See `weather-warnings.md` ("The client, W2").
+`MapCallout` renders a `WarningStrip` (chips plus the attribution line) directly **under** the verdict row and apart from the rating badge, for a live solar window only (not past, not a night, not High water). The chips are the polled served list matched by place and event time (`warningsForWindow`); travel days included. No geometry on the map in this series (plan section 12). See `weather-warnings.md` ("The client, W2").
+
+## Met Office warning chips on the Map tab (weather-warnings W4, 2026-11-18)
+
+`MapWarningChips` is a row of its own in `.wf-map-chrome-tl`, under `MapTopicChips` (not inside the hot-topics bar). It shows the polled warnings in force for the active solar window across the whole roster (`warningsForMapWindow`), as W2 text chips linking to the Met Office, with the attribution and stale lines; nothing for a night, High water or past window, with the feature off, or on a fresh feed with none. **No outline, polygon, shading or legend entry** (style guide v1.4, plan section 12). The row adds no width to the chrome group (`w-0 min-w-full`) and its height reaches the label layers and the open callout (`chromeKey`) through `useChromeTlHeight`'s nonce. No dialog, no history entry, no Escape rule. See `weather-warnings.md` ("The client, W4").
