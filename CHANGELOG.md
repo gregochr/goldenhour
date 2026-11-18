@@ -5,6 +5,107 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.11] - 2026-11-18
+
+### Added — Ask PhotoCast can mention Met Office weather warnings (W6)
+
+When `photocast.warnings.enabled` and `photocast.ask.enabled` are both on, a typed Ask question can now be answered with the Met Office warnings in force over the places it is about: "is there a warning for Hadrian's Wall?" can answer with an Amber warning of snow in the Met Office's own words, with the dates, the "Updated" flag and the Met Office credit and link beneath the answer. The warnings reach Ask as read-only facts (never simulated rows, gone within the 30-second snapshot memo when withdrawn); Ask never says or implies a warning that was not shown to it, never softens or upgrades a level, never treats no warning as an all-clear, says when the feed may be out of date, and a warning changes no rating, pick or verdict. A conversation shown a warning is never cached, and Ready answers never mention one. With either flag off nothing changes. Adds about 270 tokens of rules and about 110 tokens per warning (at most three) to a typed question only when a warning covers its places.
+
+### Added — Weather warnings guide, landing pages and in-app help links (W5)
+
+A new "Weather warnings" guide page explains Met Office warnings in plain language (levels, the likelihood and impact matrix, "Updated" and "Raised from", where each warning appears, that a warning never changes a star rating, how fresh warnings are and that no warning is never an all-clear), with the required Met Office attribution. The At a Glance, Map, Coming up and Reading the forecast guides gain a Weather warnings section, and the guide hub, search, landing page, FAQ, acknowledgements and terms mention the warnings. Every warning source line in the app (the At a Glance lane, the window popup, the location sheet, the map card and chips, and Coming up) now ends with a `?` that opens the new guide. The stale threshold `photocast.warnings.poll-stale-minutes` now defaults to 10 minutes (was 30) to match the Met Office's timeliness bound. Dark until `photocast.warnings.enabled` is turned on; a "Flag-on checklist" is added to the warnings reference doc. **The landing site must be released together with turning the flag on, never earlier and not before the licence check:** its pages describe warnings as a live feature.
+
+### Added — Met Office warning chips on the Map tab (W4)
+
+The Map tab shows the Met Office warnings in force for the window on screen as text chips (level word and weather type in the official colours, "Updated" for a re-issued warning, the Met Office attribution and link, and the stale line when the feed is stale) in a row under the hot-topic chips. Chips only: no outline, shading or legend entry is drawn on the map, because the Met Office style guide forbids overlaying warning geometry with other information. A warning never changes a rating, the heat field, a verdict or a pick. Dark until `photocast.warnings.enabled` is turned on.
+
+### Added — Met Office warnings in the Coming up feed (W3b)
+
+Coming up gains an entry for each Met Office weather warning that reaches past the four scored days (Plan and At a Glance
+already show the nearer ones), with its true span, the official level colour and level word, an "Updated" flag, a
+"Raised from Amber" note while a level rise is fresh, the headline, the validity in UK time, a door to the plan where the
+warning touches the scored days, and the Met Office attribution and link. An upgraded warning sorts first on its day. The
+entries are merged on every request after the day-cached feed, for every role, from the stored warnings against the
+server clock (so Rewind shows what had been received, and a simulated warning is never shown to anyone). The page checks each
+entry against the warnings it polls every two minutes and refetches the feed when that set changes, so a cancelled or
+expired warning leaves inside the Met Office licence's ten minutes; while the warnings feed is stale the pane says so
+and never reads as an all-clear. A warning never changes a rating. Off by default (`photocast.warnings.enabled`): with
+the flag off, or no warning in force, the feed and its ETag are byte-identical to before.
+
+### Added — Met Office warnings on the At a Glance matrix and in the window popup (W3)
+
+The At a Glance matrix gains a warnings lane, first in the "days ahead" stack, one lane per run of days a Met Office
+warning applies to, most severe on the top row (level, then impact, then likelihood). A window card wears a text marker
+in the official level colour ("Amber warning +1", no icon or triangle, as the style guide asks) and its spoken sentence
+names every warning. The window popup gains a WARNING row showing each warning in full: headline, every what-to-expect
+line, what should I do, further details, the update text and "Updated" label for a re-issued warning, validity in UK
+time, the places count for the area, the Met Office likelihood and impact matrix (drawn from the served numbers, tick on
+the warning's cell, text alternative "Likelihood 3 of 4, impact 2 of 4"), the attribution and the Met Office links.
+Warnings are matched against the polled list so a withdrawn warning leaves within the poll; a stale feed says so and
+never reads as an all-clear. A warning never changes a rating, verdict or count, every role sees the same, and nothing
+shows while `photocast.warnings.enabled` is off.
+
+### Added — Met Office warning chips on the location sheet and the map callout (weather warnings W2)
+
+When a Met Office weather warning is in force for a place and a sunrise or sunset window, its row on the four-day
+location sheet and the Map tab's callout now carry a text chip: the level word (Yellow, Amber or Red) in the Met Office's
+official colour, then the weather types ("Yellow warning of wind"), with an "Updated" label on a re-issued warning.
+Stood-down and unscored windows keep their chip (a warning is what is happening, not a rating), and the chips sit on their
+own line, apart from the star rating, which is never changed. A chip links to the Met Office warnings page; a small line
+beneath carries "Met Office Weather Warnings © Crown Copyright 2026", and says so plainly when the warnings feed is stale
+rather than reading as an all-clear. Every role sees the same chips. No icons and no Met Office logo. The new
+`WarningsProvider` reads `GET /api/warnings` on a two-minute visible-page poll; the whole feature stays dark while
+`photocast.warnings.enabled` is false (the server then sends no warnings and the screens print nothing).
+
+### Changed — Weather warnings read the real Met Office feed shape (off by default)
+
+Third phase of the weather-warnings series (`docs/engineering/weather-warnings-plan.md`). The warnings poller was
+written before a key existed and guessed the feed wrong; it now reads the real NSWWS v1.1 shape recorded from the
+live feed. Each feed entry is a change event whose update document holds several warnings, versions are decimals such
+as "3.0" (stored as NUMERIC by migration V225 and compared numerically), likelihood and impact are raw integers, and
+EXPIRED is treated like CANCELLED (the warning has ended). On a cold start or after a gap the poller also loads the
+issued snapshot. Warnings are ordered as the Met Office style guide requires (level, impact, likelihood, start time),
+a re-issued warning (version 2.0 or later) is flagged "updated" alongside the existing upgrade flag, and
+`/api/warnings` now carries the public Met Office link and the "Met Office Weather Warnings © Crown Copyright 2026"
+attribution. The base URL and the key header name (default `apikey`) are configurable. Nothing is live: the flag
+`photocast.warnings.enabled` stays off, the feed is never called in tests, and no rating, verdict, prompt or heat field
+changes.
+
+### Added — Weather warnings: ids on briefing windows and location rows, Operations panel (off by default)
+
+Second phase of the weather-warnings series (`docs/engineering/weather-warnings-plan.md`). When the feature flag is on,
+the served briefing's windows and the forecast list's location rows now say which Met Office warnings apply to them
+(`warningIds`), and each briefing window says how many of a region's places a warning covers. The ids are worked out
+fresh on every serve from the stored warnings and the clock, are never saved with the briefing, and are the same for
+Lite, Pro and Admin readers. They never change a rating, verdict, Best bet, count or the heat field: a golden test
+serves the same briefing with and without warnings and checks that only the warning fields differ. Operations gains
+a read-only Warnings tab (Testing group) showing the poll's health, stored counts, unknown weather types and the
+warnings in force, with a form to simulate a warning for testing. No reader-facing screen shows warnings yet.
+
+### Added — Met Office weather warnings: ingest and storage (backend, off by default)
+
+First phase of the weather-warnings series (`docs/engineering/weather-warnings-plan.md`). A new poll job reads the
+Met Office National Severe Weather Warning Service feed, stores every warning version it has not seen in an
+insert-only table (V224), and a pure timeline decides which warnings are in force at any instant, including the
+rewound one, with a 24-hour flag when a warning's level has been raised. A ray-cast match against the enabled
+locations says which places each warning covers. `GET /api/warnings` serves the warnings in force to every signed-in
+reader (with a `stale` flag so an empty list is never read as an all-clear), and admin-only endpoints report the
+poll's health and insert a clearly simulated warning for testing. Everything sits behind
+`photocast.warnings.enabled`, which is off, and nothing changes a rating, verdict or pick. No screen shows warnings
+yet. The feed shape the parser expects is documented in `docs/engineering/reference/weather-warnings.md`.
+
+### Changed — npm audit gate gains a narrow, expiring allowlist
+
+`scripts/npm-audit.sh` now reads `scripts/npm-audit-allowlist.txt` (`GHSA-id | expires YYYY-MM-DD | reason`). A finding passes only when every vulnerability at or above the level is explained solely by live allowlisted advisories; any other advisory, an expired entry or a transport error still fails, and a pass prints a `::warning::`. The first entry tolerates GHSA-fc5q-39xc-vjpf (picomatch ReDoS, no patched release, build-time tooling only) until 2026-12-17. Shell tests added.
+
+### Added — Admins can opt a user out of marketing emails
+
+Operations → People → Users: the "Preferences and legal" section of a user's panel now carries an **Opt out**
+button beside "Yes" while the user is opted in to marketing emails. It confirms, then calls the new
+`PUT /api/users/{id}/marketing-opt-out`, which takes no body and can only ever turn consent off: marketing
+consent is the user's own act, so an admin can withdraw it (for example when the user asks by email to stop) but
+never give it, and only the user can opt back in, from their own Settings.
+
 ## [v2.39.10] - 2026-11-16
 
 ### Docs — Sun-side change gate replayed and rejected
