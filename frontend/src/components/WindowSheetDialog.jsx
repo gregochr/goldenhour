@@ -7,6 +7,7 @@ import WindowRowFieldMap, { CHIP_CANDIDATES } from './WindowRowFieldMap.jsx';
 import WindowRegionRail from './WindowRegionRail.jsx';
 import WindowProseSlot from './WindowProseSlot.jsx';
 import WindowTopicRows from './WindowTopicRows.jsx';
+import WindowWarningRow from './WindowWarningRow.jsx';
 import WindowAttributeRow from './WindowAttributeRow.jsx';
 import WindowSpotStrip from './WindowSpotStrip.jsx';
 import DawnRace from './DawnRace.jsx';
@@ -788,6 +789,10 @@ export default function WindowSheetDialog({
               )}
             </div>
           </div>
+
+          {/* Met Office weather warnings for this window (weather-warnings-plan.md W3): what is happening, set apart
+              from every rating. Prints nothing unless a warning applies or the feed is stale. */}
+          <WindowWarningRow card={card} />
 
           <WindowTopicRows rows={topicRows} emphasisTopic={emphasisTopic} />
 

@@ -1,5 +1,9 @@
 import PropTypes from 'prop-types';
 import { GLANCE_LABEL } from '../utils/tabLabels.js';
+import {
+  compareWarnings, levelClasses, warningLabel,
+} from '../utils/warnings.js';
+import { WarningFooter } from './WarningChip.jsx';
 
 /** `Friday` — long weekday for a spoken form, noon UTC so no zone moves the date. */
 function longWeekday(dateStr) {
@@ -144,13 +148,53 @@ function spokenTail(lane, date) {
  * @param {Array}    props.lanes   the lanes from `buildGlanceLanes`, in DOM order
  * @param {?string}  [props.date]  the phone's day, `YYYY-MM-DD`: render that day's cell instead of the whole grid
  * @param {function} props.onTap   called with the pressed lane; the strip owns the four routes
+ * @param {Array}    [props.warningLanes] Met Office warning lanes from {@code buildWarningLanes}, each with a
+ *                   {@code tappable} flag the strip decided; drawn FIRST in the stack (weather-warnings-plan.md W3)
+ * @param {function} [props.onWarningTap] called with the pressed warning lane (opens its first window's popup)
+ * @param {?object}  [props.warningFooter] the source line under the warning lanes ({@code showAttribution},
+ *                   {@code stale}, {@code lastCheckedAt}, {@code attribution}, {@code href}); null draws none
  */
-export default function WindowGlanceLanes({ lanes, date = null, onTap }) {
+export default function WindowGlanceLanes({
+  lanes, date = null, onTap, warningLanes = [], onWarningTap = null, warningFooter = null,
+}) {
   const phone = date !== null;
   const shown = phone ? lanes.filter((lane) => lane.dates.includes(date)) : lanes;
-  if (shown.length === 0) return null;
+  // A phone day's lanes read most severe first (the style guide's order), whatever grid row the desktop gave them.
+  const shownWarnings = phone
+    ? warningLanes.filter((lane) => lane.dates.includes(date))
+      .sort((a, b) => compareWarnings(a.warning, b.warning))
+    : warningLanes;
+  const footer = warningFooter && (warningFooter.showAttribution || warningFooter.stale) ? warningFooter : null;
+  if (shown.length === 0 && shownWarnings.length === 0 && footer === null) return null;
+  // The warning lanes take the top rows, then their source line, and the topic lanes follow (their model rows start at 1).
+  const warningRows = shownWarnings.reduce((max, lane) => Math.max(max, lane.row), 0);
+  const rowOffset = warningRows + (footer ? 1 : 0);
   const list = (
     <ul className="wf-lanes" data-testid={phone ? undefined : 'wf-glance-lanes'}>
+      {shownWarnings.map((lane) => (
+        <WarningLane
+          key={lane.key}
+          lane={lane}
+          phone={phone}
+          date={date}
+          onTap={onWarningTap}
+        />
+      ))}
+      {footer && (
+        <li
+          className="wf-lane-item wf-warnfoot"
+          data-testid="wf-warning-lane-footer"
+          style={phone ? undefined : { '--ls': 1, '--le': -1, '--lr': warningRows + 1 }}
+        >
+          <WarningFooter
+            showAttribution={footer.showAttribution}
+            stale={footer.stale}
+            lastCheckedAt={footer.lastCheckedAt}
+            attribution={footer.attribution}
+            href={footer.href}
+          />
+        </li>
+      )}
       {shown.map((lane) => {
         const first = lane.dates[0];
         const last = lane.dates[lane.dates.length - 1];
@@ -160,7 +204,7 @@ export default function WindowGlanceLanes({ lanes, date = null, onTap }) {
           <li
             key={lane.key}
             className="wf-lane-item"
-            style={phone ? undefined : { '--ls': lane.startCol, '--le': lane.endCol + 1, '--lr': lane.row }}
+            style={phone ? undefined : { '--ls': lane.startCol, '--le': lane.endCol + 1, '--lr': lane.row + rowOffset }}
           >
             <button
               type="button"
@@ -194,6 +238,72 @@ export default function WindowGlanceLanes({ lanes, date = null, onTap }) {
   return phone ? <div className="wf-lanecell" data-testid="wf-glance-lanes-day">{list}</div> : list;
 }
 
+/**
+ * One Met Office warning lane: text in the official level colour (never an icon or a triangle), the level word always
+ * printed, "Updated" for a re-issued warning. A button that opens the first window's popup when the strip can open
+ * it, else plain text. Its name is built from its content, so the visible words are in it (WCAG 2.5.3).
+ */
+function WarningLane({ lane, phone, date, onTap }) {
+  const { warning } = lane;
+  const label = warningLabel(warning);
+  if (label == null) return null;
+  const classes = `wf-wlane ${levelClasses(warning.level)}`;
+  const first = lane.dates[0];
+  const last = lane.dates[lane.dates.length - 1];
+  const span = phone
+    ? longWeekday(date)
+    : (lane.dates.length > 1 ? `${longWeekday(first)} to ${longWeekday(last)}` : longWeekday(first));
+  const tappable = lane.tappable === true && typeof onTap === 'function';
+  const inner = (
+    <>
+      <span>{label}</span>
+      {warning.updated === true && (
+        <>
+          {' '}
+          <span data-testid="wf-warning-lane-updated" className="wf-wlane-upd">Updated</span>
+        </>
+      )}
+      <span className="sr-only">{`, ${span}${tappable ? `, opens the ${GLANCE_LABEL} window` : ''}`}</span>
+    </>
+  );
+  return (
+    <li
+      className="wf-lane-item"
+      data-testid="wf-warning-lane-item"
+      style={phone ? undefined : { '--ls': lane.startCol, '--le': lane.endCol + 1, '--lr': lane.row }}
+    >
+      {tappable ? (
+        <button
+          type="button"
+          className={classes}
+          data-testid="wf-warning-lane"
+          data-level={warning.level}
+          onClick={() => onTap(lane)}
+        >
+          {inner}
+        </button>
+      ) : (
+        <div className={classes} data-testid="wf-warning-lane" data-level={warning.level}>{inner}</div>
+      )}
+    </li>
+  );
+}
+
+WarningLane.propTypes = {
+  lane: PropTypes.shape({
+    key: PropTypes.string.isRequired,
+    warning: PropTypes.object.isRequired,
+    startCol: PropTypes.number.isRequired,
+    endCol: PropTypes.number.isRequired,
+    row: PropTypes.number.isRequired,
+    dates: PropTypes.arrayOf(PropTypes.string).isRequired,
+    tappable: PropTypes.bool,
+  }).isRequired,
+  phone: PropTypes.bool.isRequired,
+  date: PropTypes.string,
+  onTap: PropTypes.func,
+};
+
 const laneShape = PropTypes.shape({
   key: PropTypes.string.isRequired,
   type: PropTypes.string.isRequired,
@@ -217,4 +327,13 @@ WindowGlanceLanes.propTypes = {
   lanes: PropTypes.arrayOf(laneShape).isRequired,
   date: PropTypes.string,
   onTap: PropTypes.func.isRequired,
+  warningLanes: PropTypes.arrayOf(PropTypes.object),
+  onWarningTap: PropTypes.func,
+  warningFooter: PropTypes.shape({
+    showAttribution: PropTypes.bool.isRequired,
+    stale: PropTypes.bool.isRequired,
+    lastCheckedAt: PropTypes.string,
+    attribution: PropTypes.string.isRequired,
+    href: PropTypes.string.isRequired,
+  }),
 };

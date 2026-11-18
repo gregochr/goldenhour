@@ -1,6 +1,8 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { staleLead, UNKNOWN_LEVEL_CLASSES, WARNING_LEVELS, warningLabel } from '../utils/warnings.js';
+import {
+  cardMarker, levelClasses, staleLead, warningLabel,
+} from '../utils/warnings.js';
 
 /**
  * One Met Office weather warning as a text chip (weather-warnings-plan.md §12, §13).
@@ -21,9 +23,8 @@ import { staleLead, UNKNOWN_LEVEL_CLASSES, WARNING_LEVELS, warningLabel } from '
 export default function WarningChip({ warning, href = null }) {
   const label = warningLabel(warning);
   if (label == null) return null;
-  const level = WARNING_LEVELS[String(warning.level).toUpperCase()];
   const classes = `inline-flex flex-wrap items-baseline gap-x-1.5 rounded px-1.5 py-0.5 font-mono text-[11px] `
-    + `font-semibold leading-tight no-underline ${level ? level.classes : UNKNOWN_LEVEL_CLASSES}`;
+    + `font-semibold leading-tight no-underline ${levelClasses(warning.level)}`;
   const body = (
     <>
       <span>{label}</span>
@@ -162,4 +163,34 @@ WarningFooter.propTypes = {
   attribution: PropTypes.string.isRequired,
   href: PropTypes.string.isRequired,
   className: PropTypes.string,
+};
+
+/**
+ * The text marker on a Plan window card (weather-warnings-plan.md W3; the plan's "card triangle" is text because the
+ * style guide forbids a Met Office icon or triangle without agreement): the most severe level word in its official
+ * colour, "+N" for more. It is purely visual: the card's one spoken sentence carries every warning's full phrase, so
+ * the marker is {@code aria-hidden}, a link to nothing and never inside a rating.
+ *
+ * @param {object} props
+ * @param {object[]} props.warnings the card's warnings in the style guide's order
+ */
+export function WarningCardMarker({ warnings }) {
+  const marker = cardMarker(warnings);
+  if (marker == null) return null;
+  return (
+    <span
+      data-testid="wf-heat-warning"
+      data-level={marker.level}
+      aria-hidden="true"
+      title={marker.name}
+      className={`wf-hc-wm ${levelClasses(marker.level)}`}
+    >
+      <span className="wf-hc-wm-t">{marker.text}</span>
+      {marker.count && <span className="wf-hc-wm-n">{marker.count}</span>}
+    </span>
+  );
+}
+
+WarningCardMarker.propTypes = {
+  warnings: PropTypes.arrayOf(PropTypes.object).isRequired,
 };
