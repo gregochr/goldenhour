@@ -13,7 +13,6 @@ import { fetchAreaDirectory, fetchAreaOutlook } from '../api/areasApi.js';
  */
 export default function useAreaFind(active) {
   const [directory, setDirectory] = useState(null);
-  const [outlookRows, setOutlookRows] = useState(null);
   // How many times Find (or an area sheet) has been opened. The directory is requested on an opening that finds it
   // absent, so a failed read is retried on the NEXT opening and never in a loop within one.
   const [opens, setOpens] = useState(0);
@@ -38,18 +37,30 @@ export default function useAreaFind(active) {
     return () => { live = false; };
   }, [opens]);
 
+  const outlook = useAreaOutlook(active);
+  return { directory, outlook };
+}
+
+/**
+ * The reader's own area outlook ({@code GET /api/areas/outlook}), fetched each time {@code active} turns true and kept
+ * while it is false. Personal and never cached; a failure leaves it null (rows draw with no figure). Shared by Find and
+ * the Coming up watchlist, so both read the one served figure and neither derives an area's best.
+ *
+ * @param {boolean} active whether a surface that shows the figures is open
+ * @returns {?Map<number, Array>} the windows by area id, or null before it lands
+ */
+export function useAreaOutlook(active) {
+  const [rows, setRows] = useState(null);
   useEffect(() => {
     if (!active) return undefined;
     let live = true;
     fetchAreaOutlook()
-      .then((rows) => { if (live && Array.isArray(rows)) setOutlookRows(rows); })
+      .then((body) => { if (live && Array.isArray(body)) setRows(body); })
       .catch(() => { /* rows draw with no figure */ });
     return () => { live = false; };
   }, [active]);
-
-  const outlook = useMemo(
-    () => (outlookRows ? new Map(outlookRows.map((row) => [row.areaId, row.windows || []])) : null),
-    [outlookRows],
+  return useMemo(
+    () => (rows ? new Map(rows.map((row) => [row.areaId, row.windows || []])) : null),
+    [rows],
   );
-  return { directory, outlook };
 }

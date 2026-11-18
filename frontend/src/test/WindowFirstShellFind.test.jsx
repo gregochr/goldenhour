@@ -18,6 +18,8 @@ import {
 } from './askFixtures.js';
 import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
 import { __inspectForTests } from '../utils/dialogHistory.js';
+import { favouritesValue } from './favouritesKit.jsx';
+import { FavouritesContext } from '../context/FavouritesContext.jsx';
 
 /**
  * Find everywhere (find-and-favourites-plan.md F1): the masthead door and ⌘K / Ctrl K on every tab, and what a
@@ -48,6 +50,8 @@ import { fetchAreaDirectory, fetchAreaOutlook } from '../api/areasApi.js';
 vi.setConfig({ testTimeout: 30000 });
 
 let b;
+/** A favourites value for the Rig to provide, or null for none. */
+let favouritesCtx = null;
 
 const settle = async () => {
   await act(async () => {
@@ -87,11 +91,14 @@ function Rig({ shellProps }) {
       {...shellProps}
     />
   );
-  return (
+  const tree = (
     <GuideProvider closeShellDialogs={closeDialogs} activeTab={current}>
       <AskProvider>{shell}</AskProvider>
     </GuideProvider>
   );
+  // Your places (F4): a favourites value is provided only when a test asks for one, as `App` provides it for a Pro or
+  // Lite reader; with none, the shell runs as it did before favourites.
+  return favouritesCtx ? <FavouritesContext.Provider value={favouritesCtx}>{tree}</FavouritesContext.Provider> : tree;
 }
 
 /** The matrix context, plus the region records and the `setOrigin` a region pick reaches for. */
@@ -150,6 +157,7 @@ beforeEach(() => {
   fetchAreaDirectory.mockResolvedValue([]);
   fetchAreaOutlook.mockResolvedValue([]);
   b = installBackBrowser();
+  favouritesCtx = null;
 });
 
 afterEach(() => {
@@ -845,5 +853,104 @@ describe('areas in Find (F2)', () => {
       expect(areaSheet()).toBeNull();
       expect(selectedTab()).toHaveTextContent('Map');
     });
+  });
+});
+
+describe('Your places through the shell (find-and-favourites-plan.md F4)', () => {
+  const SALTBURN_SPOT = {
+    id: SALTBURN, name: 'Saltburn', lat: 54.58, lng: -0.97, regionName: 'North York Moors & Coast',
+    rid: 'North York Moors & Coast', skySubject: true, bortleClass: 3, scores: [5],
+  };
+  const WALL = {
+    id: 1, name: "Hadrian's Wall", kind: 'NAMED', aliases: [], regionId: null, regionName: null, locationIds: [WHITBY],
+  };
+  const favCtx = () => {
+    const base = findCtx();
+    return {
+      ...base,
+      heatSpots: [...base.heatSpots, SALTBURN_SPOT],
+      scoreRows: [{
+        locationId: WHITBY, locationName: 'Whitby', date: TODAY, targetType: 'SUNSET', rating: 4,
+      }],
+    };
+  };
+  const toComingUp = async () => {
+    await ready();
+    fireEvent.click(tab('Coming up'));
+    await act(async () => { await Promise.resolve(); });
+  };
+
+  beforeEach(() => {
+    fetchAreaDirectory.mockResolvedValue([WALL]);
+    fetchAreaOutlook.mockResolvedValue([{
+      areaId: 1,
+      windows: [{
+        date: TODAY, targetType: 'SUNSET', ratedMembers: 1, totalMembers: 1, gatedMembers: 0, topRating: 4, topLocationId: WHITBY,
+      }],
+    }]);
+  });
+
+  it('Coming up shows the watchlist section for a Pro reader, with served figures', async () => {
+    favouritesCtx = favouritesValue({
+      places: [WHITBY], areas: [1], locationIds: [WHITBY], starredAreas: [WALL],
+    });
+    mount({ ctx: favCtx() });
+    await toComingUp();
+
+    const section = await screen.findByTestId('coming-up-watchlist');
+    expect(section).toHaveTextContent('★ Your places');
+    const rows = within(section).getAllByTestId('coming-up-watchlist-row');
+    expect(rows.map((r) => r.dataset.kind)).toEqual(['area', 'place']);
+    expect(within(rows[1]).getByTestId('coming-up-watchlist-detail').textContent).toMatch(/^4★/);
+  });
+
+  it('a watchlist place goes to the Plan tab and opens its sheet there, never over the feed', async () => {
+    favouritesCtx = favouritesValue({ places: [WHITBY], locationIds: [WHITBY] });
+    mount({ ctx: favCtx() });
+    await toComingUp();
+
+    fireEvent.click(await screen.findByTestId('coming-up-watchlist-row'));
+
+    expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
+    expect(selectedTab()).toHaveTextContent(/At a Glance/);
+  });
+
+  it('a watchlist area goes to the Plan tab and opens the area sheet', async () => {
+    favouritesCtx = favouritesValue({ areas: [1], locationIds: [WHITBY], starredAreas: [WALL] });
+    mount({ ctx: favCtx() });
+    await toComingUp();
+
+    fireEvent.click(await screen.findByTestId('coming-up-watchlist-row'));
+
+    expect(await screen.findByTestId('area-sheet')).toBeInTheDocument();
+    expect(selectedTab()).toHaveTextContent(/At a Glance/);
+  });
+
+  it('a Lite reader sees the Your places teaser and no Find group, and Find still opens', async () => {
+    favouritesCtx = favouritesValue({ status: 'locked', places: [WHITBY] });
+    mount({ ctx: favCtx() });
+    await toComingUp();
+    expect(screen.getByTestId('coming-up-watchlist-teaser')).toHaveTextContent('Your places');
+    fireEvent.click(findButton());
+    await screen.findByTestId('plan-search-panel');
+    expect(screen.queryByRole('group', { name: '★ Your places' })).toBeNull();
+  });
+
+  it('a Pro reader\'s Find rests on ★ Your places, and a pick opens the place as any row does', async () => {
+    favouritesCtx = favouritesValue({ places: [WHITBY], locationIds: [WHITBY] });
+    mount({ ctx: favCtx() });
+    await ready();
+    fireEvent.click(findButton());
+    const group = await screen.findByRole('group', { name: '★ Your places' });
+    fireEvent.click(within(group).getByRole('option', { name: /Whitby/ }));
+    expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
+    expect(screen.getByTestId('location-sheet-favourite')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('no provider: Coming up has no watchlist and no teaser', async () => {
+    mount({ ctx: favCtx() });
+    await toComingUp();
+    expect(screen.queryByTestId('coming-up-watchlist')).toBeNull();
+    expect(screen.queryByTestId('coming-up-watchlist-teaser')).toBeNull();
   });
 });

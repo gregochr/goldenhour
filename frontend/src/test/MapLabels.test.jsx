@@ -18,6 +18,7 @@ vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 import MapLabels from '../components/map/MapLabels.jsx';
 import { rampHex, setMode } from '../utils/scoreRamp.js';
 import { labelInNameResult } from './labelInNameCheck.js';
+import { withFavourites } from './favouritesKit.jsx';
 
 /**
  * The Map tab's HTML label layer (map-tab-v2-plan.md §3 P8) — the WIRING suite. The placement
@@ -135,10 +136,10 @@ const runFrames = () => {
   for (const cb of due) if (cb) cb();
 };
 
-async function mount(props = {}) {
+async function mount(props = {}, wrap = (node) => node) {
   let result;
   await act(async () => {
-    result = render(<MapLabels spots={SPOTS} {...props} />);
+    result = render(wrap(<MapLabels spots={SPOTS} {...props} />));
   });
   return result;
 }
@@ -1943,5 +1944,50 @@ describe('MapLabels — the place chip satisfies WCAG 2.5.3 (label in name)', ()
     for (const chip of chips) {
       expect(await labelInNameResult(chip)).toEqual({ violations: 0, passes: 1, incomplete: 0 });
     }
+  });
+});
+
+describe('MapLabels — Your places marks (find-and-favourites-plan.md F4)', () => {
+  const IDENTIFIED = SPOTS.map((spot, i) => ({ ...spot, id: i + 1 }));
+  const chipFor = (name) => [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+    .find((el) => el.textContent.includes(name));
+
+  it('⚠️ starring a place repaints the layer so the wider chip is re-measured and re-placed', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    const project = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const ui = (places) => withFavourites(<MapLabels spots={IDENTIFIED} />, { places });
+    let view;
+    await act(async () => { view = render(ui([])); });
+    await act(async () => { runFrames(); });
+    const before = project.mock.calls.length;
+    // The same spots and the same everything else: only the star set changes.
+    await act(async () => { view.rerender(ui([1])); });
+    await act(async () => { runFrames(); });
+    expect(project.mock.calls.length).toBeGreaterThan(before);
+    expect(chipFor('Bamburgh').querySelector('[data-testid="favourite-mark"]')).not.toBeNull();
+  });
+
+  it('marks a starred place\'s chip with ★ and says "your place"; an unstarred chip is untouched', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({ spots: IDENTIFIED }, (node) => withFavourites(node, { places: [1] }));
+    await act(async () => { runFrames(); });
+    const starred = chipFor('Bamburgh');
+    expect(starred.querySelector('[data-testid="favourite-mark"]')).not.toBeNull();
+    expect(starred.getAttribute('aria-label')).toContain('your place');
+    // The rating and its square are the served ones, unchanged by the mark.
+    expect(starred.querySelector('.wf-maplab-chip-r')).toHaveTextContent('5★');
+    const other = chipFor('Whitby');
+    expect(other.querySelector('[data-testid="favourite-mark"]')).toBeNull();
+    expect(other.getAttribute('aria-label')).not.toContain('your place');
+  });
+
+  it('draws no mark without a provider', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({ spots: IDENTIFIED });
+    await act(async () => { runFrames(); });
+    expect(document.querySelector('[data-testid="favourite-mark"]')).toBeNull();
   });
 });

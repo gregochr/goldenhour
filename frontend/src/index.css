@@ -16132,3 +16132,47 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
   font-size: 10px;
   color: var(--color-plex-text-secondary);
 }
+
+/* Your places (find-and-favourites-plan.md F4). The toggle sits in the place sheet, area sheet and map callout headers.
+   Constant label "Your place" with aria-pressed; the glyph toggles. On a phone the glyph stands alone: a 30px target in a
+   44px row, drawn only under 640px so desktop and tablet are untouched. */
+.wf-fav-wrap { display: inline-flex; align-items: center; }
+.wf-fav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+  background: none;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 7px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-fav:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
+.wf-fav:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+.wf-fav[aria-pressed='true'] { color: var(--color-plex-gold); border-color: var(--color-plex-gold); }
+.wf-fav-g { font-size: 13px; line-height: 1; }
+.wf-fav-mark { color: var(--color-plex-gold); margin-right: 3px; font-size: 0.9em; }
+.wf-callout-head .wf-fav { padding: 2px 6px; font-size: 10px; }
+.wf-fav-section { margin: 0 0 10px; }
+/* The popup rail's Your places group is a labelled section whose cells still lay out as grid items. */
+.wf-fav-group { display: contents; }
+/* The Coming up watchlist sits inside the pane's card, so it takes the card's own inset. */
+.wf-cu > .wf-fav-section { padding: 10px 14px 2px; margin: 0; }
+.wf-fav-section-h {
+  margin: 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-fav-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 13px; color: var(--color-plex-text); }
+.wf-fav-row-sub { font-size: 11.5px; color: var(--color-plex-text-secondary); }
+@media (max-width: 639px) {
+  .wf-fav-wrap { min-height: 44px; }
+  .wf-fav { min-width: 30px; min-height: 30px; justify-content: center; padding: 0 6px; }
+}

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
+import FavouriteToggle, { FavouriteUpsell, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
 import { buildAreaSheet } from '../utils/areaFind.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 
@@ -33,6 +34,7 @@ export default function AreaSheet({
   area, spots, windows, scoreIndex = null, reachById = null, allowedLocationIds = null,
   stacked = false, restoreFocusFallback = null, onClose, onOpenSpot, onShowOnMap = null,
 }) {
+  const favouriteUpsell = useFavouriteUpsell();
   const sheet = useMemo(
     () => buildAreaSheet(area, spots, windows, { scoreIndex, reachById, allowedLocationIds }),
     [area, spots, windows, scoreIndex, reachById, allowedLocationIds],
@@ -54,10 +56,12 @@ export default function AreaSheet({
         <div className="wf-sheet-head">
           <span data-testid="area-sheet-title" className="wf-sheet-t">{sheet.name}</span>
           <span data-testid="area-sheet-meta" className="wf-sheet-w font-mono">{meta.join(' · ')}</span>
+          <FavouriteToggle kind="area" id={area.id ?? null} name={area.name} upsell={favouriteUpsell} testId="area-sheet-favourite" />
           <button type="button" data-testid="area-sheet-close" className="wf-sheet-x font-mono" onClick={onClose}>
             Close · Esc
           </button>
         </div>
+        <FavouriteUpsell upsell={favouriteUpsell} />
 
         <div data-testid="area-sheet-rows" className="wf-loc-rows">
           <p data-testid="area-sheet-note" className="px-3 pt-2 text-xs text-plex-text-muted">

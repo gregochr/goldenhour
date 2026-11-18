@@ -2,6 +2,7 @@ import { originAction } from './planOrigin.js';
 import { lookupForWindow, outsideLabel } from './locationSheet.js';
 import { formatDriveDuration } from './briefingDisplay.js';
 import { verdictScopeText } from './reachLens.js';
+import { favouriteFirst, YOUR_PLACES } from './favourites.js';
 
 /**
  * The Plan tab's search — one box over three kinds of thing (plan §4.8).
@@ -288,18 +289,21 @@ export function fuzzyMatches(hay, q) {
  * @param {Array}    items   the group's candidates, in catalogue order
  * @param {string}   q       the folded query ('' matches everything and is never fuzzy)
  * @param {Function} textsOf the folded strings an item answers to (its name, its aliases, ...)
+ * @param {?Function} [isFavourite] whether an item is one the reader starred; a tie-break inside each tier only
  * @returns {Array<{item: *, fuzzy: boolean}>} at most {@link MAX_RESULTS_PER_GROUP} rows
  */
-function rankMatches(items, q, textsOf) {
+function rankMatches(items, q, textsOf, isFavourite = null) {
   const exact = [];
   const rest = [];
   for (const item of items) {
     (textsOf(item).some((text) => matches(text, q)) ? exact : rest).push(item);
   }
   const fuzzy = q === '' ? [] : rest.filter((item) => textsOf(item).some((text) => fuzzyMatches(text, q)));
+  // Your places (F4, D4): a starred row goes first WITHIN its own tier, and only rows that already matched are here.
+  // Exact rows stay ahead of fuzzy ones whatever is starred, and it all happens before the cap of eight.
   return [
-    ...exact.map((item) => ({ item, fuzzy: false })),
-    ...fuzzy.map((item) => ({ item, fuzzy: true })),
+    ...favouriteFirst(exact, isFavourite).map((item) => ({ item, fuzzy: false })),
+    ...favouriteFirst(fuzzy, isFavourite).map((item) => ({ item, fuzzy: true })),
   ].slice(0, MAX_RESULTS_PER_GROUP);
 }
 
@@ -388,6 +392,10 @@ function windowTerms(card) {
  *        every alias, and listed after the regions and before the places
  * @param {?Map}   [sources.areaOutlook] the reader's outlook by area id ({@code GET /api/areas/outlook}), for each
  *        area row's figure
+ * @param {?{areaIds: Set<number>, placeIds: Set<number>}} [sources.favourites] the Pro reader's starred areas and
+ *        places (null for Lite and for no provider). It adds the resting {@code ★ Your places} group, marks starred
+ *        rows, and breaks ties inside a tier of rows that already matched: it never lets a row match, and it never
+ *        touches the windows
  * @param {string} [sources.tab]       the tab Find is open on: {@code 'plan'} (the default) and
  *        {@code 'coming-up'} word a region as "plan from here"; {@code 'map'} words a region, a place and a
  *        window as something the map will show — a region pick on the Map frames it and never moves the
@@ -397,9 +405,11 @@ function windowTerms(card) {
 export function buildSearchGroups(query, {
   windows = [], regions = [], locations = [], originId = null,
   reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, tab = 'plan',
-  areas = null, areaOutlook = null,
+  areas = null, areaOutlook = null, favourites = null,
 } = {}) {
   const q = fold(query);
+  const starredArea = favourites ? (area) => favourites.areaIds.has(area.id) : null;
+  const starredPlace = favourites ? (spot) => spot?.id != null && favourites.placeIds.has(spot.id) : null;
   const onMap = tab === 'map';
   const groups = [];
   /**
@@ -531,9 +541,7 @@ export function buildSearchGroups(query, {
 
   // Areas — never at rest. Matched on the name and every alias; the sub-line says what the area is and how many of its
   // spots are rated, and the figure is the served per-reader outlook with its window, never a verdict.
-  const areaRows = q === '' ? [] : rankMatches((areas || []).filter(Boolean), q,
-    (area) => [fold(area.name), ...(area.aliases || []).map(fold)])
-    .map(({ item: area, fuzzy }) => {
+  const areaRow = ({ item: area, fuzzy }) => {
       const figure = areaFigure(areaOutlook?.get(area.id), windows);
       const hit = (text) => (fuzzy ? fuzzyMatches(fold(text), q) : matches(fold(text), q));
       // An alias is named only when it, and not the name, is what the query found.
@@ -561,8 +569,11 @@ export function buildSearchGroups(query, {
         action: onMap ? 'Show' : 'Its spots',
         subParts,
         sub: subParts.map((part) => part.text).join(' · '),
+        starred: starredArea ? starredArea(area) : false,
       };
-    });
+    };
+  const areaRows = q === '' ? [] : rankMatches((areas || []).filter(Boolean), q,
+    (area) => [fold(area.name), ...(area.aliases || []).map(fold)], starredArea).map(areaRow);
   if (areaRows.length > 0) {
     groups.push({ id: 'areas', title: 'Areas', rows: areaRows });
   }
@@ -573,8 +584,7 @@ export function buildSearchGroups(query, {
   // which is empty whenever the catalogue is, and an unloaded planning area is no evidence that a
   // place is out of the plan.
   const scopeKnown = Array.isArray(scopeRegionNames) && scopeRegionNames.length > 0;
-  const locationRows = q === '' ? [] : rankMatches((locations || []).filter(Boolean), q, (spot) => [fold(spot.name)])
-    .map(({ item: spot, fuzzy }) => {
+  const locationRow = ({ item: spot, fuzzy }) => {
       const top = topWindowFor(spot, windows, scoreIndex);
       const drive = (spot?.id == null ? null : reachById?.get(spot.id)?.driveMinutes) ?? null;
       const outside = scopeKnown && Boolean(spot.regionName)
@@ -607,10 +617,24 @@ export function buildSearchGroups(query, {
           drive == null ? null : formatDriveDuration(drive),
           outside ? outsideLabel(origin) : null,
         ].filter(Boolean).join(' · '),
+        starred: starredPlace ? starredPlace(spot) : false,
       };
-    });
+    };
+  const locationRows = q === '' ? [] : rankMatches((locations || []).filter(Boolean), q, (spot) => [fold(spot.name)],
+    starredPlace).map(locationRow);
   if (locationRows.length > 0) {
     groups.push({ id: 'locations', title: 'Locations', rows: locationRows });
+  }
+
+  // Your places, at rest only (F4): the reader's own starred areas then places, a separate labelled section and not a
+  // rank position, above the windows. Typing replaces it with the ordinary groups, so a favourite never appears for a
+  // query it does not match. Capped like every group; the areas come first.
+  if (q === '' && favourites) {
+    const mine = [
+      ...(areas || []).filter((area) => area && favourites.areaIds.has(area.id)).map((item) => areaRow({ item, fuzzy: false })),
+      ...(locations || []).filter((spot) => spot && favourites.placeIds.has(spot.id)).map((item) => locationRow({ item, fuzzy: false })),
+    ].slice(0, MAX_RESULTS_PER_GROUP).map((row) => ({ ...row, key: `fav:${row.key}`, marks: null }));
+    if (mine.length > 0) groups.unshift({ id: 'favourites', title: `★ ${YOUR_PLACES}`, rows: mine });
   }
 
   return groups;

@@ -4179,6 +4179,42 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (findOpen) setOpenMapMenu(null);
   }
   /**
+   * Puts the map on a named set of places: fits the camera to them and applies the named-spot lens
+   * ({@code focusLensNames}) with its visible {@code Showing X · clear} chip. Shared by an area picked in Find, a
+   * starred area picked in the Regions list and that list's {@code ★ My places} (find-and-favourites-plan.md F4); the
+   * ids are the SERVED ones (an area's {@code locationIds}, or the favourites' merged {@code locationIds}), resolved
+   * to names against this roster. Never a cluster or an area marker, and it changes no rating.
+   *
+   * @param {string} name what the chip and the announcement call the set
+   * @param {number[]} locationIds the member location ids
+   * @param {?string} key the picker entry's key, so the list can mark the frame in force; null from Find
+   */
+  function applyAreaLens(name, locationIds, key) {
+    const ids = new Set(locationIds ?? []);
+    const members = locations.filter((l) => ids.has(l.id) && l.enabled !== false);
+    const names = new Set(members.map((l) => l.name));
+    if (names.size === 0) return;
+    const spots = (heat?.spots || EMPTY_POINTS).filter((sp) => names.has(sp?.name));
+    if (spots.length > 0) {
+      const areaKeys = new Set((heat?.areaSpots || EMPTY_POINTS).map(heatSpotKey));
+      fitToSpots(spots, null, spots.every((sp) => areaKeys.has(heatSpotKey(sp))));
+    } else {
+      const anchor = members.find((l) => Number.isFinite(l.lat) && Number.isFinite(l.lon));
+      if (anchor) setFlyTarget({ lat: anchor.lat, lon: anchor.lon });
+    }
+    // A standing plan-door lens (its named set, subject filter and dark sky) ends here: one named-spot lens is in
+    // force at a time, and the lens's `clear` must leave no door state behind.
+    clearDoorLens();
+    setFocusLensNames(names);
+    setFindAreaLens({ name, names, key });
+    // A selection outside the lens is cleared, as a door's lens does: the callout would otherwise describe a place
+    // the chip says is not shown.
+    setSelectedLocationName((prev) => (prev != null && names.has(prev) ? prev : null));
+    setFindNote(null);
+    setTopicAnnounce(`Showing ${name}: ${names.size} ${names.size === 1 ? 'spot' : 'spots'}.`);
+  }
+
+  /**
    * A place or region picked in Find (find-and-favourites-plan.md F1). Its own channel and its own effect, like
    * {@code askWindow} above and for the same reason: {@code planHandoff} is a DOOR, which carries a window and
    * the Plan's lens, and a Find pick carries neither.
@@ -4205,31 +4241,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         return;
       }
       if (findPick.kind === 'area') {
-        // The area's own spots, resolved to names against this roster: the named-spot lens (`focusLensNames`) is by
-        // name, and it is the existing mechanism, not a new filter. Never a cluster or an area marker.
-        const ids = new Set(findPick.ids ?? []);
-        const members = locations.filter((l) => ids.has(l.id) && l.enabled !== false);
-        const names = new Set(members.map((l) => l.name));
-        if (names.size === 0) return;
-        const spots = (heat?.spots || EMPTY_POINTS).filter((sp) => names.has(sp?.name));
-        if (spots.length > 0) {
-          const areaKeys = new Set((heat?.areaSpots || EMPTY_POINTS).map(heatSpotKey));
-          fitToSpots(spots, null, spots.every((sp) => areaKeys.has(heatSpotKey(sp))));
-        } else {
-          const anchor = members.find((l) => Number.isFinite(l.lat) && Number.isFinite(l.lon));
-          if (anchor) setFlyTarget({ lat: anchor.lat, lon: anchor.lon });
-        }
-        // A standing plan-door lens (its named set, subject filter and dark sky) ends here: one named-spot lens is in
-        // force at a time, and the area's `clear` must leave no door state behind. The door's own filters are restored
-        // to what the reader had, exactly as the breadcrumb's clear does.
-        clearDoorLens();
-        setFocusLensNames(names);
-        setFindAreaLens({ name: findPick.name, names });
-        // A selection outside the lens is cleared, as a door's lens does: the callout would otherwise describe a place
-        // the chip says is not shown.
-        setSelectedLocationName((prev) => (prev != null && names.has(prev) ? prev : null));
-        setFindNote(null);
-        setTopicAnnounce(`Showing ${findPick.name}: ${names.size} ${names.size === 1 ? 'spot' : 'spots'}.`);
+        applyAreaLens(findPick.name, findPick.ids, null);
         return;
       }
       const loc = (findPick.id != null ? locations.find((l) => l.id === findPick.id) : null)
@@ -6574,6 +6586,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     onOpenChange: (next) => setOpenMapMenu(next ? 'jump' : null),
     rows: jumpRows,
     onSelectRegion: jumpToRegion,
+    // Your places (F4): `★ My places` and each starred area frame their served member ids as a named-spot lens.
+    onSelectFavourite: (entry) => {
+      applyAreaLens(entry.name, entry.ids, entry.key);
+      setOpenMapMenu(null);
+    },
+    activeFavourite: findAreaShown?.key ?? null,
     activeRegion: jumpFitOverride?.regionName ?? null,
     resetLabel: jumpResetLabel,
     onReset: clearRegionJump,

@@ -6,6 +6,7 @@ import Modal from './shared/Modal.jsx';
 import {
   buildSearchGroups, firstSelectable, flattenRows, nextSelectable,
 } from '../utils/planSearch.js';
+import { useFavourites } from '../context/FavouritesContext.jsx';
 
 /**
  * The tick line's box in viewport coordinates, kept fresh — or null when it cannot be measured.
@@ -176,14 +177,22 @@ export default function PlanSearch({
   // rather than overwriting what the reader has since typed into an open one.
   const [query, setQuery] = useState(initialQuery);
   const inputRef = useRef(null);
+  // Your places (F4): a Pro reader's starred sets, for the resting group, the marks and the within-tier tie-break.
+  // Null for Lite and for no provider, so the box is exactly what it was.
+  const favouriteState = useFavourites();
+  const favourites = useMemo(
+    () => (favouriteState.status === 'ready'
+      ? { areaIds: favouriteState.areaIds, placeIds: favouriteState.placeIds } : null),
+    [favouriteState.status, favouriteState.areaIds, favouriteState.placeIds],
+  );
 
   const groups = useMemo(
     () => buildSearchGroups(query, {
       windows, regions, locations, originId, reachById, scoreIndex, scopeRegionNames, origin, tab,
-      areas, areaOutlook,
+      areas, areaOutlook, favourites,
     }),
     [query, windows, regions, locations, originId, reachById, scoreIndex,
-      scopeRegionNames, origin, tab, areas, areaOutlook],
+      scopeRegionNames, origin, tab, areas, areaOutlook, favourites],
   );
   const rows = useMemo(() => flattenRows(groups), [groups]);
 
@@ -331,10 +340,11 @@ export default function PlanSearch({
                   >
                     {/* Decorative: the group heading above already names the kind, and a screen
                         reader hearing "white diamond" learns nothing. */}
-                    <span aria-hidden="true" className="wf-search-glyph-col">{row.glyph}</span>
+                    <span aria-hidden="true" className="wf-search-glyph-col">{row.starred ? '★' : row.glyph}</span>
                     <span className="wf-search-text">
                       <span className="wf-search-label">
                         <Highlight text={row.label} range={row.marks} />
+                        {row.starred && <span className="sr-only">, your place</span>}
                       </span>
                       {/* Clauses rather than one joined string, and the reason is truncation: the
                           sub-line's LAST clause is the one that changes what the row means

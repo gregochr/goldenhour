@@ -89,6 +89,8 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * @param {function} [props.onFocusHandled] `(found: boolean)` — called exactly once per request, once it has
  *                                     been honoured (`true`) or could not be (`false`: the entry is not in the
  *                                     feed, or the feed is not ready), so the shell can fall back
+ * @param {?React.ReactNode} [props.watchlist] Your places (F4): the labelled watchlist section the shell builds, drawn
+ *                                     between the header and the feed; a section of the reader's own, never a feed entry
  * @param {Array} [props.locations] the served enabled roster (`/api/locations`): a Lite reader on a shaped
  *                                     body gets the outside-your-sub-regions line from its coastal and
  *                                     dark-sky facts (S5b-2); unused on every other body
@@ -96,7 +98,7 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
 export default function WindowFirstComingUp({
   id, labelledBy, hidden, status, events: wireEvents, todayStr, onRetry, onGoToPlan, onShowOnMap,
   comingUpLastSeenDate, onMarkSeen, forecastDates = null, locations = undefined,
-  focusRequest = null, onFocusHandled = undefined,
+  focusRequest = null, onFocusHandled = undefined, watchlist = null,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
   // Met Office warning entries (W3b) are checked against the polled warnings before anything is built from the feed:
@@ -281,6 +283,8 @@ export default function WindowFirstComingUp({
             </button>
           )}
         </div>
+
+        {watchlist}
 
         {/* One always-mounted live region holding whichever of the three notes applies.
             ALWAYS mounted, and that is the load-bearing half:
@@ -481,4 +485,5 @@ WindowFirstComingUp.propTypes = {
     seq: PropTypes.number.isRequired,
   }),
   onFocusHandled: PropTypes.func,
+  watchlist: PropTypes.node,
 };

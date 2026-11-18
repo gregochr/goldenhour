@@ -6,6 +6,7 @@ import ProUpsellDoor, {
 import { SubRegionActionButton, SubRegionStatusLine } from './subregions/SubRegionActions.jsx';
 import { PlaceDoor } from './subregions/SubRegionDoors.jsx';
 import Modal from './shared/Modal.jsx';
+import FavouriteToggle, { FavouriteUpsell, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import ScoreBar from './ScoreBar.jsx';
 import TideFitBlock from './map/TideFitBlock.jsx';
@@ -178,6 +179,7 @@ export default function LocationFourDaySheet({
   restoreFocusFallback = null, isPro = false, scoresLocked = false, outsidePicks = false,
   onOpenSubRegions = null,
 }) {
+  const favouriteUpsell = useFavouriteUpsell();
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
       scoreIndex, slotIndex, scoresKnown, reachById, scopeRegionNames, origin, todayStr, location,
@@ -420,6 +422,14 @@ export default function LocationFourDaySheet({
               {sheet.outsideLabel}
             </span>
           )}
+          {/* Your places (F4): constant label with aria-pressed; a Lite reader gets the Pro door below the head. */}
+          <FavouriteToggle
+            kind="place"
+            id={spot?.id ?? location?.id ?? null}
+            name={sheet.name}
+            upsell={favouriteUpsell}
+            testId="location-sheet-favourite"
+          />
           <button
             type="button"
             data-testid="location-sheet-close"
@@ -429,6 +439,7 @@ export default function LocationFourDaySheet({
             Close · Esc
           </button>
         </div>
+        <FavouriteUpsell upsell={favouriteUpsell} />
 
         {/* One scroll container, not four pinned bands. The lead line is prose ABOUT the rows and
             rides with them, which is what keeps the card inside `.wf-sheet-card`'s

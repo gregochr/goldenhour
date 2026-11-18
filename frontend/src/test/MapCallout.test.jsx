@@ -17,6 +17,7 @@ import {
 } from '@testing-library/react';
 import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
+import { withFavourites } from './favouritesKit.jsx';
 
 let currentMap = null;
 vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
@@ -149,16 +150,16 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function mount(props = {}) {
+async function mount(props = {}, wrap = (node) => node) {
   let result;
   await act(async () => {
     result = render(
-      <MapCallout
+      wrap(<MapCallout
         location={LOCATION}
         event={SUNSET_EVENT}
         rating={4}
         {...props}
-      />,
+      />),
     );
   });
   return result;
@@ -1968,5 +1969,30 @@ describe('MapCallout — day mode: a wildlife hide with no map event at all', ()
     await mountDay(hide([[TODAY, entry(dayOf(TODAY))]]));
     expect(screen.getByTestId('map-callout').style.width).toBe('266px');
     expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort for the rest of today');
+  });
+});
+
+describe('MapCallout — Your places (find-and-favourites-plan.md F4)', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  it('puts the toggle in the header beside Close, pressed for a starred place', async () => {
+    await mount({}, (node) => withFavourites(node, { places: [LOCATION.id] }));
+    const toggle = within(screen.getByTestId('map-callout')).getByTestId('map-callout-favourite');
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle).toHaveAccessibleName('Your place');
+    expect(screen.getByTestId('map-callout-close')).toBeInTheDocument();
+  });
+
+  it('draws no toggle without a provider (the callout is what it was)', async () => {
+    await mount();
+    expect(screen.queryByTestId('map-callout-favourite')).toBeNull();
+  });
+
+  it('a Lite reader gets ☆ with the Pro pill and the upsell inside the card', async () => {
+    await mount({}, (node) => withFavourites(node, { status: 'locked' }));
+    fireEvent.click(screen.getByTestId('map-callout-favourite-locked'));
+    expect(within(screen.getByTestId('map-callout')).getByTestId('favourite-upsell-panel')).toBeInTheDocument();
   });
 });

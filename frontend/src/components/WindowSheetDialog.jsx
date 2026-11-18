@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import MovementMark from './MovementMark.jsx';
 import WindowRowFieldMap, { CHIP_CANDIDATES } from './WindowRowFieldMap.jsx';
 import WindowRegionRail from './WindowRegionRail.jsx';
+import { useFavourites } from '../context/FavouritesContext.jsx';
+import { pickerEntries } from '../utils/favourites.js';
 import WindowProseSlot from './WindowProseSlot.jsx';
 import WindowTopicRows from './WindowTopicRows.jsx';
 import WindowWarningRow from './WindowWarningRow.jsx';
@@ -221,6 +223,40 @@ export default function WindowSheetDialog({
       : regionNames),
     [regionNames, field.singleRegionScope, field.origin],
   );
+  // Your places (F4): `★ My places` and each starred area as an extra rail cell, a filter on the strip by the SERVED
+  // member ids (set membership, no rating or order touched). Exclusive with a region pick: choosing either clears the
+  // other. A separate labelled section of the rail, never a rank position.
+  const favourites = useFavourites();
+  const [favouriteKey, setFavouriteKey] = useState(null);
+  const favouriteEntries = useMemo(
+    () => (favourites.status === 'ready' ? pickerEntries(favourites, favourites.starredAreas) : []),
+    [favourites],
+  );
+  const favouriteFocus = useMemo(() => {
+    const entry = favouriteEntries.find((e) => e.key === favouriteKey);
+    return entry ? { key: entry.key, name: entry.name, ids: new Set(entry.ids) } : null;
+  }, [favouriteEntries, favouriteKey]);
+  const favouriteCells = useMemo(() => favouriteEntries.map((entry) => ({
+    key: entry.key,
+    name: entry.name,
+    count: card.spots.filter((spot) => entry.ids.includes(spot.locationId)).length,
+  })), [favouriteEntries, card.spots]);
+  // The focus is per window and dies with it, like a region pick: stepping ‹ › clears it (the dialog is not keyed).
+  const [favouriteWindow, setFavouriteWindow] = useState(card.key);
+  if (favouriteWindow !== card.key) {
+    setFavouriteWindow(card.key);
+    if (favouriteKey != null) setFavouriteKey(null);
+  }
+  /** What the strip is narrowed to, by name: the starred set or area, else the picked region. Every sentence reads it. */
+  const focusName = favouriteFocus?.name ?? field.selectedRegion ?? null;
+  const selectRegion = (name) => {
+    setFavouriteKey(null);
+    field.onSelectRegion?.(name);
+  };
+  const selectFavourite = (key) => {
+    setFavouriteKey(key);
+    if (key != null) field.onSelectRegion?.(null);
+  };
   const selectedRow = field.selectedRegion
     ? regionRows.find((row) => row.name === field.selectedRegion) || null
     : null;
@@ -231,12 +267,10 @@ export default function WindowSheetDialog({
    * the region focus is per-window and dies with the dialog. Running last means the rail's counts
    * and this array are the same set.
    */
-  const shownSpots = useMemo(
-    () => (field.selectedRegion
-      ? gateSpotsByRegion(card.spots, field.selectedRegion)
-      : card.spots),
-    [card.spots, field.selectedRegion],
-  );
+  const shownSpots = useMemo(() => {
+    if (favouriteFocus) return card.spots.filter((spot) => favouriteFocus.ids.has(spot.locationId));
+    return field.selectedRegion ? gateSpotsByRegion(card.spots, field.selectedRegion) : card.spots;
+  }, [card.spots, field.selectedRegion, favouriteFocus]);
   /**
    * Whether the reach axis COULD act on this window — is there a drive time anywhere to gate on.
    *
@@ -254,7 +288,7 @@ export default function WindowSheetDialog({
    */
   const reachMeasured = Boolean(card.reachMeasured);
   const filters = activeFilterClauses({
-    regionName: field.selectedRegion || null,
+    regionName: focusName,
     minRating: field.lens?.minRating ?? null,
     ratingLabel: field.lens?.ratingLabel ?? null,
     limitMinutes: field.lens?.limitMinutes ?? null,
@@ -404,10 +438,10 @@ export default function WindowSheetDialog({
       ? topicRows.find((row) => String(row.badge?.type || '').toUpperCase() === wanted)
       : null;
     const highlight = emphasised ? `, highlighting ${emphasised.badge.label}` : '';
-    if (!field.selectedRegion) return `${where}${verdict}${highlight}`;
+    if (!focusName) return `${where}${verdict}${highlight}`;
     const shown = placesOf(shownSpots).length;
-    return `${where}${verdict}, showing ${field.selectedRegion}, ${shown} location${shown === 1 ? '' : 's'}${highlight}`;
-  }, [windowLabel, index, total, card.verdictLabel, scopeSpoken, card.verdictBlanked, field.selectedRegion,
+    return `${where}${verdict}, showing ${focusName}, ${shown} location${shown === 1 ? '' : 's'}${highlight}`;
+  }, [windowLabel, index, total, card.verdictLabel, scopeSpoken, card.verdictBlanked, focusName,
     shownSpots, emphasisTopic, topicRows]);
 
   // The reader's own places in the strip (S5b-1). Where there are none, the strip is not drawn: a list of places
@@ -415,6 +449,8 @@ export default function WindowSheetDialog({
   const shownPlaces = shaped ? placesOf(shownSpots).length : shownSpots.length;
   const emptyLine = useMemo(() => {
     if (shownPlaces > 0) return null;
+    // Your places: the starred set emptied it, so say that, never the rating lens or a region.
+    if (favouriteFocus) return `Nothing in ${favouriteFocus.name} for this ${eventWord(card.targetType)}.`;
     if (shaped) {
       // The picks, not a lens, emptied it (S5b-1): a lens never gates a Lite reader's list. The sentence is the
       // region's when one is chosen and holds none of theirs.
@@ -452,7 +488,7 @@ export default function WindowSheetDialog({
     return clauses
       ? `Nothing ${clauses}${where} for this ${event}.`
       : `Nothing${where} for this ${event}.`;
-  }, [shownPlaces, shaped, zeroPicks, selectedRow, myPlaces.length, card.targetType, field.lens, field.selectedRegion,
+  }, [shownPlaces, favouriteFocus, shaped, zeroPicks, selectedRow, myPlaces.length, card.targetType, field.lens, field.selectedRegion,
     field.spots, reachMeasured]);
 
   const bestReach = card.bestReach ?? null;
@@ -745,7 +781,7 @@ export default function WindowSheetDialog({
               reachLimitMinutes={card.reachLimitMinutes ?? null}
               origin={field.origin || null}
               todayStr={todayStr}
-              onSelectRegion={field.onSelectRegion}
+              onSelectRegion={selectRegion}
               // ⚠️ M4's entry point, and passing it is what takes the chips OUT of `aria-hidden` —
               // the map treats the handler's presence as the test for whether a chip is an
               // annotation or a control. Undefined when the shell offers no sheet, which keeps the
@@ -773,7 +809,8 @@ export default function WindowSheetDialog({
                   outsideCount={card.outsideCount ?? 0}
                   countNoun={card.withinReachCount != null ? 'in reach' : 'spots'}
                   selected={field.selectedRegion || null}
-                  onSelect={field.onSelectRegion}
+                  onSelect={selectRegion}
+                  favourites={{ cells: favouriteCells, selected: favouriteFocus?.key ?? null, onSelect: selectFavourite }}
                 />
               )}
               {/* ALWAYS rendered, in every state, at the same height — the point of the element.

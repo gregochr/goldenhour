@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { leaveBy } from '../utils/leaveBy.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
+import { FavouriteMark, useIsStarredPlace } from './shared/FavouriteToggle.jsx';
 
 /**
  * One spot, as a card — the film strip's unit and the drill-down grid's.
@@ -60,6 +61,7 @@ export default function WindowSpotCard({
   spot, typeLabels, onOpen, openLabel = '◍ Open on map →',
   onMouseEnter, onMouseLeave, onFocus, onBlur,
 }) {
+  const starred = useIsStarredPlace(spot.locationId);
   // Outside the reader's sub-regions (S5b-1): no star, no badge, no unrated word — only where the place lies.
   const outside = spot.gated === true;
   const badge = outside ? null : spotBadgeStyle(spot.rating);
@@ -92,7 +94,9 @@ export default function WindowSpotCard({
           className="text-plex-text"
           style={{ fontSize: '12.5px', fontWeight: 600, lineHeight: 1.25 }}
         >
+          <FavouriteMark id={spot.locationId} />
           {spot.locationName}
+          {starred && <span className="sr-only">, your place</span>}
         </span>
         {/* Omitted, never shown as a dash: an unrated spot is one nothing has looked at,
             which is a different statement from a poor one. The window header omits its
