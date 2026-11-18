@@ -273,6 +273,48 @@ class HttpCachingConfigTest {
         assertThat(response.getContentAsString()).isEqualTo("{\"ok\":true}");
     }
 
+    @Test
+    @DisplayName("The almanac is revalidated on every request (private, no-cache, no max-age), so a warning entry "
+            + "can never be held longer than one revalidation (the licence's ten minutes)")
+    void almanacIsAlwaysRevalidatedNeverMaxAged() throws Exception {
+        org.springframework.mock.web.MockHttpServletResponse response =
+                new org.springframework.mock.web.MockHttpServletResponse();
+
+        filter.doFilter(get("/api/almanac"), response, (req, res) -> {
+            res.setContentType("application/json");
+            res.getWriter().write("{\"entries\":[]}");
+        });
+
+        assertThat(response.getHeader("Cache-Control")).isEqualTo("private, no-cache")
+                .doesNotContain("max-age").doesNotContain("stale-while-revalidate");
+    }
+
+    @Test
+    @DisplayName("The almanac ETag follows the body: a warning entry added, changed or cancelled changes the "
+            + "validator, and an identical body keeps it")
+    void almanacEtagMovesWithTheWarningSet() throws Exception {
+        String without = "{\"entries\":[{\"id\":\"spring-tide:1\"}]}";
+        String withWarning = "{\"entries\":[{\"id\":\"spring-tide:1\"},{\"id\":\"weather-warning:W1\","
+                + "\"meta\":{\"level\":\"AMBER\"}}]}";
+        String raised = withWarning.replace("AMBER", "RED");
+
+        String etagWithout = etagOf("/api/almanac", without);
+
+        assertThat(etagOf("/api/almanac", without)).isEqualTo(etagWithout);
+        assertThat(etagOf("/api/almanac", withWarning)).isNotEqualTo(etagWithout);
+        assertThat(etagOf("/api/almanac", raised)).isNotEqualTo(etagOf("/api/almanac", withWarning));
+    }
+
+    private String etagOf(String path, String body) throws Exception {
+        org.springframework.mock.web.MockHttpServletResponse response =
+                new org.springframework.mock.web.MockHttpServletResponse();
+        filter.doFilter(get(path), response, (req, res) -> {
+            res.setContentType("application/json");
+            res.getWriter().write(body);
+        });
+        return response.getHeader("ETag");
+    }
+
     private static MockHttpServletRequest get(String path) {
         return new MockHttpServletRequest("GET", path);
     }

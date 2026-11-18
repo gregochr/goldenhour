@@ -10,6 +10,10 @@ import com.gregochr.goldenhour.model.comingup.ComingUpFact;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.comingup.ComingUpRoleShaper;
+import com.gregochr.goldenhour.service.comingup.ComingUpWarningMerger;
+import com.gregochr.goldenhour.service.warnings.WarningService;
+import com.gregochr.goldenhour.model.WarningDto;
+import com.gregochr.goldenhour.model.WarningsResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +22,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
@@ -278,7 +285,7 @@ class AlmanacControllerTest extends AbstractControllerTest {
         AlmanacService service = mock(AlmanacService.class);
         ComingUpResponse feed = response(lightEntry());
         when(service.getFeed(90)).thenReturn(feed);
-        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper());
+        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper(), offMerger());
 
         assertThat(controller.getAlmanac(90, authWith("ROLE_PRO_USER"))).isSameAs(feed);
         assertThat(controller.getAlmanac(90, authWith("ROLE_ADMIN"))).isSameAs(feed);
@@ -290,7 +297,7 @@ class AlmanacControllerTest extends AbstractControllerTest {
         AlmanacService service = mock(AlmanacService.class);
         ComingUpResponse feed = response(lightEntry());
         when(service.getFeed(90)).thenReturn(feed);
-        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper());
+        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper(), offMerger());
         TestingAuthenticationToken unauthenticated = new TestingAuthenticationToken("u", "p", "ROLE_PRO_USER");
         unauthenticated.setAuthenticated(false);
 
@@ -310,12 +317,48 @@ class AlmanacControllerTest extends AbstractControllerTest {
     void daysReachesTheServiceForEveryRole() {
         AlmanacService service = mock(AlmanacService.class);
         when(service.getFeed(30)).thenReturn(response());
-        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper());
+        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper(), offMerger());
 
         controller.getAlmanac(30, authWith("ROLE_LITE_USER"));
         controller.getAlmanac(30, authWith("ROLE_PRO_USER"));
 
         verify(service, times(2)).getFeed(30);
+    }
+
+    @Test
+    @DisplayName("Lite and Pro are served the same warning entries; only the light rows differ")
+    void liteAndProSeeTheSameWarnings() {
+        AlmanacService service = mock(AlmanacService.class);
+        ComingUpResponse cached = response(lightEntry());
+        when(service.getFeed(90)).thenReturn(cached);
+        WarningService warnings = mock(WarningService.class);
+        WarningDto dto = new WarningDto("W1", "1.0", "AMBER", List.of("SNOW"), 3, 2,
+                Instant.parse("2026-11-19T12:00:00Z"), Instant.parse("2026-11-24T06:00:00Z"), null, null, "H",
+                List.of(), null, null, null, false, List.of(), null, null, null, java.util.Set.of(7L), false);
+        when(warnings.served()).thenReturn(new WarningsResponse(true, Instant.parse("2026-11-18T11:55:00Z"), false,
+                List.of(dto), "https://example.test/", "Met Office Weather Warnings"));
+        AlmanacController controller = new AlmanacController(service, new ComingUpRoleShaper(),
+                new ComingUpWarningMerger(warnings,
+                        Clock.fixed(Instant.parse("2026-11-18T12:00:00Z"), ZoneOffset.UTC)));
+
+        ComingUpResponse pro = controller.getAlmanac(90, authWith("ROLE_PRO_USER"));
+        ComingUpResponse lite = controller.getAlmanac(90, authWith("ROLE_LITE_USER"));
+
+        assertThat(pro.entries()).extracting(ComingUpEntry::type).contains("weather-warning");
+        assertThat(lite.entries()).extracting(ComingUpEntry::type).contains("weather-warning");
+        assertThat(lite.entries().stream().filter(e -> "weather-warning".equals(e.type())).toList())
+                .isEqualTo(pro.entries().stream().filter(e -> "weather-warning".equals(e.type())).toList());
+        assertThat(lite.entries().stream().filter(e -> !"weather-warning".equals(e.type())).findFirst().get()
+                .lightRowsWithheld()).isTrue();
+        // The day-cached feed itself is never given a warning entry.
+        assertThat(cached.entries()).extracting(ComingUpEntry::type).doesNotContain("weather-warning");
+    }
+
+    private static ComingUpWarningMerger offMerger() {
+        WarningService off = mock(WarningService.class);
+        when(off.served()).thenReturn(new WarningsResponse(false, null, true, List.of(), "https://example.test/",
+                "Met Office Weather Warnings"));
+        return new ComingUpWarningMerger(off, Clock.fixed(Instant.parse("2026-11-18T12:00:00Z"), ZoneOffset.UTC));
     }
 
     private static Authentication authWith(String authority) {

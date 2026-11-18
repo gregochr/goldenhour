@@ -11,6 +11,10 @@ import { comingUpOutsideFacts, entrySubject, outsideLineText } from '../utils/co
 import { scrollToEntry } from '../utils/scrollToEntry.js';
 import { isEntryOpen, readOpenOverrides, writeOpenOverrides } from '../utils/comingUpOpen.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+import { useWarnings } from '../context/WarningsContext.jsx';
+import { WarningFooter } from './WarningChip.jsx';
+import { reconcileFeed } from '../utils/comingUpWarnings.js';
+import { appNow } from '../utils/rewind.js';
 
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
  * legacy shape ({@code {entries: []}}, which carries no {@code counts} key at all). */
@@ -90,11 +94,19 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  *                                     dark-sky facts (S5b-2); unused on every other body
  */
 export default function WindowFirstComingUp({
-  id, labelledBy, hidden, status, events, todayStr, onRetry, onGoToPlan, onShowOnMap,
+  id, labelledBy, hidden, status, events: wireEvents, todayStr, onRetry, onGoToPlan, onShowOnMap,
   comingUpLastSeenDate, onMarkSeen, forecastDates = null, locations = undefined,
   focusRequest = null, onFocusHandled = undefined,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
+  // Met Office warning entries (W3b) are checked against the polled warnings before anything is built from the feed:
+  // the feed is fetched far less often than the two-minute poll, so the poll decides whether a warning still exists.
+  // Everything below reads this reconciled payload; with no warning entry it is the wire payload itself.
+  const served = useWarnings();
+  const events = useMemo(
+    () => reconcileFeed(wireEvents, served, appNow().getTime()),
+    [wireEvents, served],
+  );
   // The reader's own open and close presses, by entry id, kept for the session and overriding the default
   // (collapse-and-topic-pips-plan.md §5; utils/comingUpOpen.js).
   const [openOverrides, setOpenOverrides] = useState(readOpenOverrides);
@@ -333,6 +345,20 @@ export default function WindowFirstComingUp({
             "silence is the normal state" (design §6) — without a second gate here. */}
         {status === 'ready' && (
           <WindowComingUpSinceLine badge={badge} entry={sinceEntry} onMarkSeen={onMarkSeen} />
+        )}
+
+        {/* The stale admission for Met Office warnings (W3b): when the warnings feed has not been checked lately,
+            the list may be missing or still holding a warning, so say so. There is deliberately no "no warnings"
+            state anywhere in this pane, and nothing at all while the feature is off. */}
+        {status === 'ready' && served.enabled && served.stale && (
+          <WarningFooter
+            showAttribution={false}
+            stale
+            lastCheckedAt={served.lastCheckedAt}
+            attribution={served.attribution}
+            href={served.metOfficeUrl}
+            className="mb-2"
+          />
         )}
 
         {/* Chips and the chronology itself are gated on `ready`, unlike the head/handoff/footer
