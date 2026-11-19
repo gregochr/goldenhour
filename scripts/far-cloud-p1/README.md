@@ -485,12 +485,18 @@ Replace the ids in `locs` with your location ids (comma-separated, no spaces); t
 ssh gregochr@<host> "docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour -v ON_ERROR_STOP=1 -v locs='1,2,3' -f -" < bl_today.sql
 ```
 
-It lists, from the latest T+0 batch run for today's UK date, each BL or CL slot with its cone low, mid and high,
-antisolar mid and high, far low, observer low and sky_rating. Rate **every listed evening you observe, whatever
-happened, including "nothing"**, for BL and CL alike, in "How was it?" on the Map tab; a "didn't see it" is dropped
-from the counts. Pick the date you start doing this, pass it as `--protocol-start`, and re-export the ratings as
-you go. The gate needs at least 8 BL and 8 CL evenings and a matched-forecast-star BL minus CL difference whose
-lower bound is above 0. Tests: `python3 -m unittest tests.test_bl_size`.
+It lists, from the latest T+0 batch run for today's UK date, each slot in one of four classes, with its cone low,
+mid and high, antisolar mid and high, far low, overhead mid and high, observer low and sky_rating. BL and CL are as
+above. The far-shut canvas classes ([far-shut-canvas-plan.md](../../docs/engineering/far-shut-canvas-plan.md)
+section 5 A2) need a mid or high canvas of at least 50% (cone or overhead): **FS** has cone low under 20% and the
+far 226 km low at 80% or more (the corridor is shut); **FO** is the same with far low under 50% (the open-corridor
+control). Rate **every listed evening you observe, whatever happened, including "nothing"**, for BL, CL, FS and FO
+alike: dull FS and FO evenings matter as much as bright ones, because the comparison needs the controls. Rate in
+"How was it?" on the Map tab; a "didn't see it" is dropped from the counts. Pick the date you start doing this, pass
+it as `--protocol-start`, and re-export the ratings as you go. The BL gate needs at least 8 BL and 8 CL evenings and
+a matched-forecast-star BL minus CL difference whose lower bound is above 0. `bl_size.py` reads the forecast export,
+not this list, and files canvas slots under OTHER, so FS and FO do not affect it. Tests:
+`python3 -m unittest tests.test_bl_size`.
 
 ## 9. Send back to Claude
 
