@@ -485,16 +485,18 @@ Replace the ids in `locs` with your location ids (comma-separated, no spaces); t
 ssh gregochr@<host> "docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour -v ON_ERROR_STOP=1 -v locs='1,2,3' -f -" < bl_today.sql
 ```
 
-It lists, from the latest T+0 batch run for today's UK date, each slot in one of four classes, with its cone low,
-mid and high, antisolar mid and high, far low, overhead mid and high, observer low and sky_rating. BL and CL are as
-above. The far-shut canvas classes ([far-shut-canvas-plan.md](../../docs/engineering/far-shut-canvas-plan.md)
-section 5 A2) need a mid or high canvas of at least 50% (cone or overhead): **FS** has cone low under 20% and the
-far 226 km low at 80% or more (the corridor is shut); **FO** is the same with far low under 50% (the open-corridor
-control). Rate **every listed evening you observe, whatever happened, including "nothing"**, for BL, CL, FS and FO
-alike: dull FS and FO evenings matter as much as bright ones, because the comparison needs the controls. Rate in
-"How was it?" on the Map tab; a "didn't see it" is dropped from the counts. Pick the date you start doing this, pass
-it as `--protocol-start`, and re-export the ratings as you go. The BL gate needs at least 8 BL and 8 CL evenings and
-a matched-forecast-star BL minus CL difference whose lower bound is above 0. `bl_size.py` reads the forecast export,
+It lists, from the latest T+0 batch run for today's UK date, the slots that fall in one of four classes, but the
+list is **deliberately blind**: it prints only the location, the event, the UK local event time and the sky_rating
+stars, never the class or any cloud value. That is so you rate each evening without knowing which hypothesis it
+tests. The classes are BL and CL as above, plus the far-shut canvas classes
+([far-shut-canvas-plan.md](../../docs/engineering/far-shut-canvas-plan.md) section 5 A2): **FS** (a mid or high
+canvas of at least 50%, cone low under 20%, far 226 km low at 80% or more) and **FO** (the same with far low under
+50%, the control). They are assigned afterwards from the stored forecast values by `bl_size.py` (BL, CL) and a future
+`fs_size.py` (FS, FO), never by you. Rate **every listed evening you watch, whatever happened, including
+"nothing"**: dull evenings matter as much as bright ones, because the comparisons need the controls. Rate in "How was
+it?" on the Map tab; a "didn't see it" is dropped from the counts. Pick the date you start doing this, pass it as
+`--protocol-start`, and re-export the ratings as you go. The BL gate needs at least 8 BL and 8 CL evenings and a
+matched-forecast-star BL minus CL difference whose lower bound is above 0. `bl_size.py` reads the forecast export,
 not this list, and files canvas slots under OTHER, so FS and FO do not affect it. Tests:
 `python3 -m unittest tests.test_bl_size`.
 

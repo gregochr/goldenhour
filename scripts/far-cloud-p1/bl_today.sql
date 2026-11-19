@@ -1,11 +1,17 @@
--- Phase A protocol list: today's slots in four classes, from the latest T+0 SCORED batch run per (location, event),
+-- Phase A protocol list (blind): today's slots in four classes, from the latest T+0 SCORED batch run per (location, event),
 -- at the locations you name. Broken-low plan section 2 A4 (BL, CL); far-shut-canvas-plan.md section 5 A2 (FS, FO).
 -- READ-ONLY: a single SELECT inside COPY, writes nothing. Stored forecast columns only.
 -- Pass the location ids with psql -v, e.g. -v locs='1,2,3'. The variable is required: psql substitutes it into
 -- the IN list below, and an unset one is a syntax error, not "all locations".
 -- Run: ssh <host> "docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour -v ON_ERROR_STOP=1 -v locs='1,2,3' -f -" < bl_today.sql
+-- DELIBERATELY BLIND: the output is only location name, event, UK local event time (HH24:MI) and the sky_rating
+-- stars (which the app shows anyway). It never shows the class or any cloud value, so the owner rates each evening
+-- without knowing which hypothesis it tests. Classes are assigned afterwards from the stored forecast values, by
+-- bl_size.py (BL, CL) and a future fs_size.py (FS, FO), never by the owner. Rate every listed evening you watch,
+-- whatever happened.
 -- Today is the UK civil date. Timestamps are naive UTC. Every class needs triage clear, a sky rating and no
--- [BUILDING] trend. The class is assigned in the CASE below; a row is in at most one class (first match wins).
+-- [BUILDING] trend. The class is assigned in the CASE below and used only to select rows; a row is in at most one
+-- class (first match wins).
 --   BL (broken low): cone low 20-39, no canvas (cone mid/high < 10, antisolar mid/high < 10), far 226 km low < 30,
 --      observer low < 60.
 --   CL (clear control for BL): the same with cone low < 10.
@@ -53,17 +59,7 @@ COPY (
     SELECT
         l.name                                                      AS location_name,
         f.target_type                                               AS event,
-        to_char(f.solar_event_time, 'YYYY-MM-DD"T"HH24:MI:SS')      AS event_time,
-        f.slot_class                                                AS class,
-        f.solar_low_cloud                                           AS cone_low,
-        f.solar_mid_cloud                                           AS cone_mid,
-        f.solar_high_cloud                                          AS cone_high,
-        f.antisolar_mid_cloud                                       AS antisolar_mid,
-        f.antisolar_high_cloud                                      AS antisolar_high,
-        f.far_solar_low_cloud                                       AS far_low,
-        f.mid_cloud                                                 AS overhead_mid,
-        f.high_cloud                                                AS overhead_high,
-        f.low_cloud                                                 AS observer_low,
+        to_char((f.solar_event_time AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/London', 'HH24:MI') AS event_time_uk,
         f.sky_rating                                                AS sky_rating
     FROM classed f
     JOIN locations l ON l.id = f.location_id
