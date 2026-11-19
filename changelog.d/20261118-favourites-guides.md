@@ -1,5 +1,0 @@
-### Added — Guides and landing pages for Find and Your places
-
-Two new guide pages, `finding-places.html` (Find on every tab, ⌘K / Ctrl K, areas, typo tolerance, what a pick does on each tab) and `your-places.html` (Pro: starring places and areas, the cap of 25, Undo, where stars show, Ask using them only as a tie-break with a favourite and the equally rated alternative side by side, and the rule that a star never changes a rating or a Best pick). New sections in the At a Glance, Map, Coming up and Ask PhotoCast guides; both pages are on the guide hub, in the guide search (Your places flagged Pro) and in the app's guide addressing. The landing pricing list, the FAQ (two new entries and the Lite-versus-Pro answer), Terms §4 and the Privacy data list now include them. The pages carry labelled screenshot placeholders, no invented images.
-
-Release gate (find-and-favourites F5): the owner tags the app only after this PR is merged and `release-landing.sh` has deployed the landing and guide. There is no runtime flag.
