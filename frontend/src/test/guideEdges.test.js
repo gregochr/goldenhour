@@ -22,6 +22,8 @@ describe('guide tables', () => {
       'weather-warnings': 'Weather warnings',
       'night-sky': 'Aurora and night sky',
       'ask-photocast': 'Ask PhotoCast',
+      'finding-places': 'Finding places',
+      'your-places': 'Your places',
       settings: 'Settings',
     });
   });

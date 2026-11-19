@@ -2,7 +2,7 @@
  * The in-app guide's addressing: where the pages live, what they are called, and which sections the
  * app opens (docs/engineering/user-guide-plan.md, G2).
  *
- * <p>The guide is ten static pages on the landing site (`landing/guide/`), shown in an iframe with
+ * <p>The guide is twelve static pages on the landing site (`landing/guide/`), shown in an iframe with
  * `?embed=1`. A copy change is a landing deploy, not an app release; an id rename is a frontend test
  * failure (`guideSections.test.js` reads `landing/guide/*.html`).
  */
@@ -46,6 +46,8 @@ export const GUIDE_PAGES = Object.freeze({
   'weather-warnings': 'Weather warnings',
   'night-sky': 'Aurora and night sky',
   'ask-photocast': 'Ask PhotoCast',
+  'finding-places': 'Finding places',
+  'your-places': 'Your places',
   settings: 'Settings',
 });
 

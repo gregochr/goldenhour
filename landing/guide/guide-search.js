@@ -1,7 +1,7 @@
 /* Search across the guides. No build step: on first focus it fetches each guide page,
    indexes every section (h2) and every defined term (dt), then filters as you type. */
 (function(){
-  var PAGES=['getting-started.html','reading-the-forecast.html','at-a-glance.html','coming-up.html','map.html','weather-warnings.html','night-sky.html','ask-photocast.html','settings.html'];
+  var PAGES=['getting-started.html','reading-the-forecast.html','at-a-glance.html','coming-up.html','map.html','weather-warnings.html','night-sky.html','ask-photocast.html','finding-places.html','your-places.html','settings.html'];
   var input=document.getElementById('g-q'),out=document.getElementById('g-results'),status=document.getElementById('g-status');
   if(!input)return;
   var idx=null,loading=null;

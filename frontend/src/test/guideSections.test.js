@@ -100,6 +100,54 @@ describe('resolveGuideOrigin', () => {
   });
 });
 
+describe('the Find and Your places guides (docs/engineering/find-and-favourites-plan.md, F5)', () => {
+  const findIds = ['open', 'search', 'areas', 'typos', 'pick', 'starred'];
+  const placesIds = ['star', 'where', 'honest', 'ask', 'lite', 'private'];
+
+  it.each(findIds)('finding-places carries the %s section, and the on-page contents links to it', (id) => {
+    expect(hasId('finding-places', id)).toBe(true);
+    expect(pageSource('finding-places')).toContain(`href="#${id}"`);
+  });
+
+  it.each(placesIds)('your-places carries the %s section, and the on-page contents links to it', (id) => {
+    expect(hasId('your-places', id)).toBe(true);
+    expect(pageSource('your-places')).toContain(`href="#${id}"`);
+  });
+
+  it('states the honesty rule, the cap, the tie-break only rule and that Ready answers do not use favourites', () => {
+    const page = pageSource('your-places');
+    expect(page).toContain('You can keep up to 25 places.');
+    expect(page).toMatch(/never changes a star rating, a verdict or a Best bet/);
+    expect(page).toContain('Mary\'s Lighthouse is yours, and Bamburgh Castle also scores 4★');
+    expect(page).toMatch(/Ready questions[^<]*do not use your places/);
+  });
+
+  it('the Pro pages and sections are flagged for the guide search, and Find itself is not', () => {
+    expect(pageSource('your-places')).toMatch(/<h1>Your places<span class="pro">Pro<\/span><\/h1>/);
+    expect(pageSource('your-places')).toMatch(/id="star"><h2>[^<]*<span class="pro">Pro<\/span>/);
+    expect(pageSource('finding-places')).not.toMatch(/<h1>[^<]*<span class="pro">/);
+  });
+
+  it.each([
+    ['at-a-glance', 'find'], ['map', 'find'], ['coming-up', 'watchlist'], ['ask-photocast', 'favourites'],
+  ])('%s has a #%s section that links to the new guides', (name, id) => {
+    expect(hasId(name, id)).toBe(true);
+    expect(pageSource(name)).toMatch(/href="(finding|your)-places\.html/);
+  });
+
+  it('is on the hub and in the search, and the pages around it link to it', () => {
+    expect(pageSource('index')).toContain('href="finding-places.html"');
+    expect(pageSource('index')).toContain('href="your-places.html"');
+    const search = readFileSync(resolve(GUIDE_DIR, 'guide-search.js'), 'utf8');
+    expect(search).toContain("'finding-places.html'");
+    expect(search).toContain("'your-places.html'");
+    expect(pageSource('ask-photocast')).toContain('href="finding-places.html"><small>Next');
+    expect(pageSource('finding-places')).toContain('href="your-places.html"><small>Next');
+    expect(pageSource('your-places')).toContain('href="settings.html"><small>Next');
+    expect(pageSource('settings')).toContain('href="your-places.html"><small>← Previous');
+  });
+});
+
 describe('the weather warnings guide (docs/engineering/weather-warnings-plan.md, W5)', () => {
   const page = pageSource('weather-warnings');
   const ids = ['what', 'levels', 'matrix', 'updated', 'where', 'ratings', 'fresh', 'act', 'credit'];
