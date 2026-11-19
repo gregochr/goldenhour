@@ -5,6 +5,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.40.1] - 2026-11-19
+
+### Changed — Lite areas directory decision recorded
+
+The find-and-favourites plan records that Lite readers keep the full areas directory: sub-region membership is already public through `/api/locations`, and ratings stay gated. No code change.
+
+### Added — Find on every tab, and ⌘K
+
+Search is now **Find**, a labelled `⌕ Find` button in the masthead on At a Glance, Coming up and the Map (the origin chip still opens it, with its away/home role and the go-home button unchanged), and **⌘K / Ctrl K** opens it from the keyboard at every width and for every role; a second press closes it. The key follows the masthead button's guard (never while the next-days sheet, the pick dialog or the guide's modal is up, over a dialog the shell does not own, or in a field you are typing in) and leaves the browser its default whenever it does nothing. `/` is still Ask's.
+
+Each tab gives a pick its own meaning instead of opening a Plan dialog over the wrong tab. On **At a Glance** nothing changes. On **Coming up** a place or a window takes you to the Plan tab and opens its sheet or popup there, and a region plans from it. On the **Map** a place flies the map to it and opens its callout, keeping the window you were on: only the filters that would hide it are relaxed, in memory (your saved star floor is never overwritten), and a line says which; a region only pans and frames the map and never moves the origin; a window selects that window. Find closes the map's open menus when it opens. On the phone Map at Home the row now draws the Find button alone.
+
+### Added — Areas in Find, and a typo-tolerant search
+
+Find now lists **areas** (named areas such as Hadrian's Wall, and sub-regions) between the regions and the places, matched on their name and their other names (`roman wall` finds Hadrian's Wall). An area row says what it is and how many of its spots are rated (`Sub-region · 16 spots · 5 rated`) and shows the top rating among them with the window it belongs to; it is never a verdict on the area, and for a Lite reader it says how many spots are outside their picks. On At a Glance and Coming up an area opens a sheet of its spots, each with its own best window, best first, each opening that place's next-days sheet, with `Show on map →` at the foot. On the Map an area flies there and shows only its spots, with a `Showing <area> · clear` chip to lift it.
+
+Search also forgives one typo in a word of five or more letters (`hadrain` finds Hadrian's Wall); an exact match always comes first and is never pushed out by a near miss, and short words such as `st` and `bay` still have to match exactly.
+
+New for readers of any role: `GET /api/areas/directory` (the areas and their enabled spots, shared and cached) and `GET /api/areas/outlook` (your own per-window counts and top rating, never cached).
+
+### Added — Your places: star a place or an area (Pro and Admin)
+
+Pro and Admin readers can star a place or an area with a `☆ Your place` toggle in the place sheet, the area sheet and the map callout, with an Undo toast (a new, accessible primitive: it stays at least ten seconds and pauses while you hover or focus it). Starred places get a ★ on map labels, popup spot cards and the Glance best-spot line. Find opens on a `★ Your places` group and puts a starred row first among rows that already match; the Map's Regions list and the popup's region rail gain `★ My places` and one entry per starred area; Coming up gets a `★ Your places` watchlist built from the served figures. A favourite never changes a rating, a verdict or a Best pick. Lite readers see the ☆ with a Pro pill and a worded upsell, and never call the favourites endpoint.
+
+Release note: the guide and landing pages for this feature (F5) must be deployed with `release-landing.sh` before the app is tagged.
+
+### Added — Guides and landing pages for Find and Your places
+
+Two new guide pages, `finding-places.html` (Find on every tab, ⌘K / Ctrl K, areas, typo tolerance, what a pick does on each tab) and `your-places.html` (Pro: starring places and areas, the cap of 25, Undo, where stars show, Ask using them only as a tie-break with a favourite and the equally rated alternative side by side, and the rule that a star never changes a rating or a Best pick). New sections in the At a Glance, Map, Coming up and Ask PhotoCast guides; both pages are on the guide hub, in the guide search (Your places flagged Pro) and in the app's guide addressing. The landing pricing list, the FAQ (two new entries and the Lite-versus-Pro answer), Terms §4 and the Privacy data list now include them. The pages carry labelled screenshot placeholders, no invented images.
+
+Release gate (find-and-favourites F5): the owner tags the app only after this PR is merged and `release-landing.sh` has deployed the landing and guide. There is no runtime flag.
+
+### Added — favourites backend (places and areas a Pro reader stars)
+
+`/api/user/settings/favourites` (Pro and Admin only) now lets a reader keep up to 25 favourites, places and areas
+together: `GET` returns them already merged (`locationIds` is the starred places plus the enabled members of the
+starred areas, so the client never walks area membership), `PUT` replaces the whole list, and per-item `POST` /
+`DELETE` under `places/{id}` and `areas/{id}` are idempotent. Unknown ids are 404, a new star over the cap is 409
+`You can keep up to 25 places.`, and the cap holds under the reader's row lock when two requests race. Migration
+V226 adds `user_favourite` with an exactly-one-target check, partial unique indexes and cascades on the account,
+location and area. Favourites are independent of Lite sub-region picks, never ride an ETag-shared payload, and
+nothing in the UI uses them yet (find-and-favourites F4).
+
+### Added — Ask answers a favourite and the favourite-blind best as a labelled pair
+
+Ask now knows a Pro or Admin reader's favourites. In `rank_spots` a favourite only breaks an exact tie (never beating
+a higher rating, the forecast's own pick or a better tide fit), and when it does, the answer names both places: the
+favourite as the lead and the equally rated favourite-blind winner as "also scores the same", so a favourite never
+hides an equally good place. A lower-rated favourite is named at its own rating ("your Mary's is 4★"), never as the
+best. `favourites: true` asks about the reader's own places only. An order the stars do not change is answered and
+cached exactly as before; a personal answer is cached per favourites set, so starring or un-starring can never serve a
+stale answer. A plain "Where is best?" names a favourite that ranks lower ("your Mary's is 4★"), and `favourites: true`
+asks about the reader's own places only. Ready-matched answers stay favourite-blind, and Lite readers are unchanged.
+
 ## [v2.40.0] - 2026-11-18
 
 ### Changed — Met Office weather warnings are on by default, dormant until an API key is set
