@@ -133,10 +133,17 @@ can decide comes from a **prospective protocol** (A4).
 
 ### A4. The prospective protocol (owner)
 
-`scripts/far-cloud-p1/bl_today.sql` lists, from the latest T+0 run each day, today's BL **and** CL slots
-near the owner's chosen locations. The owner rates **every listed evening they observe, whatever happened,
-including "nothing"**, for BL and CL alike, in "How was it?". `bl_size.py --protocol-start <date>` reads
-only ratings on or after that date as protocol evidence.
+The owner rates **every sunrise and sunset they watch at a protocol location, whatever happened, including
+"nothing"**, in "How was it?". The protocol locations are the owner's home places, Copt Hill (176853),
+Penshaw Monument (176875) and Angel of the North (176835), passed as `bl_size.py --locations`. The class of
+each rated slot is assigned afterwards from the stored forecast (`bl_size.py` reads the forecast export, never
+a list), so most rated evenings fall in no class and are simply not counted. `bl_size.py --protocol-start
+<date>` reads only ratings on or after that date as protocol evidence.
+
+**Amendment (2026-11-20): the daily list is optional.** The owner does not run `scripts/far-cloud-p1/bl_today.sql`,
+and the analysis never needed it: it was a reminder of which evenings mattered. Blindness holds without it (the
+owner never sees the class). The guard against selection is the habit above: rating every watched event, not
+only the memorable ones.
 
 ### A5. Gate to Phase B
 

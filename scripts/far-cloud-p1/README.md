@@ -478,8 +478,13 @@ locations, a looser test). Every path (the inputs and `--out`) must be inside th
 phrase matcher is reading the summaries the way you would.
 
 **The protocol (A4).** Historic ratings are descriptive only: broken low cloud is mostly noticed when it lights up.
-Each day, list today's broken-low (BL) and clear control (CL) slots at the locations you will actually be near.
-Replace the ids in `locs` with your location ids (comma-separated, no spaces); the variable is required:
+The one habit: **whenever you watch a sunrise or sunset at a protocol location (Copt Hill, Penshaw Monument, Angel
+of the North), rate it in "How was it?", whatever happened, including dull evenings and "nothing".** The class of
+each rated slot is assigned afterwards from the stored forecast, so you never see it and do not need the list
+below. Most evenings fall in no class and are simply not counted.
+
+**Optional reminder list.** If you want to know which of today's events are in a class, list them blind. Replace
+the ids in `locs` with your location ids (comma-separated, no spaces); the variable is required:
 
 ```
 ssh gregochr@<host> "docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour -v ON_ERROR_STOP=1 -v locs='1,2,3' -f -" < bl_today.sql
@@ -494,7 +499,7 @@ canvas of at least 50%, cone low under 20%, far 226 km low at 80% or more) and *
 50%, the control), plus **OL** (an overhead low deck: cone low under 20%, far low under 50%, overhead low 60% or
 more, canvas or not; [overhead-low-deck-plan.md](../../docs/engineering/overhead-low-deck-plan.md) section 3 A2),
 checked after BL and CL and before FS and FO. They are assigned afterwards from the stored forecast values by
-`bl_size.py` (BL, CL) and a future `fs_size.py` (FS, FO, OL), never by you. Rate **every listed evening you watch, whatever happened, including
+`bl_size.py` (BL, CL) and a future `fs_size.py` (FS, FO, OL), never by you. Rate **every evening you watch, listed or not, whatever happened, including
 "nothing"**: dull evenings matter as much as bright ones, because the comparisons need the controls. Rate in "How was
 it?" on the Map tab; a "didn't see it" is dropped from the counts. Pick the date you start doing this, pass it as
 `--protocol-start`, and re-export the ratings as you go. The BL gate needs at least 8 BL and 8 CL evenings and a
