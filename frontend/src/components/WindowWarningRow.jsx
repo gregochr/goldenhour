@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { useWarnings } from '../context/WarningsContext.jsx';
 import { placeCountLines, validityText, warningsForCard } from '../utils/warnings.js';
-import WarningChip, { WarningFooter } from './WarningChip.jsx';
+import WarningChip, { ServedWarningFooter } from './WarningChip.jsx';
 import WarningMatrix from './WarningMatrix.jsx';
 
 /** The Met Office's own advice page, the only target the style guide allows for the optional link. */
@@ -103,11 +103,44 @@ export function WarningAdviceLink() {
 }
 
 /**
+ * The body every warning surface that shows a warning in full draws under its own heading: each warning in the style
+ * guide's order ({@link WarningDetail}), the style guide's advice link when there is any warning, and the
+ * attribution with its Met Office link (and the stale admission) that the licence requires wherever a warning shows.
+ * It takes the warnings themselves, never a window card, so the window popup's row ({@link WindowWarningRow}, the
+ * card adapter) and the Map's expanded warning (glance-to-map-plan.md G1, which has the polled list and no card)
+ * draw one body and can never word a warning differently.
+ *
+ * @param {object} props
+ * @param {object[]} props.warnings the served warnings to show in full, in the style guide's order
+ * @param {object[]} [props.counts] the card's {@code warningPlaceCounts}, when the surface has a card
+ * @param {boolean} [props.showFooter] false where the surface already draws the footer beside the warning (the Map's
+ *        chips do), so the attribution is printed once
+ */
+export function WindowWarningsBody({ warnings, counts = null, showFooter = true }) {
+  const showAttribution = warnings.length > 0;
+  return (
+    <>
+      {warnings.map((warning) => (
+        <WarningDetail key={warning.warningId} warning={warning} counts={counts} />
+      ))}
+      {showAttribution && <WarningAdviceLink />}
+      {showFooter && <ServedWarningFooter showAttribution={showAttribution} />}
+    </>
+  );
+}
+
+WindowWarningsBody.propTypes = {
+  warnings: PropTypes.arrayOf(PropTypes.object).isRequired,
+  counts: PropTypes.arrayOf(PropTypes.object),
+  showFooter: PropTypes.bool,
+};
+
+/**
  * The window popup's WARNING row (weather-warnings-plan.md W3): every Met Office warning that applies to the window,
  * in full, in the style guide's order, with the attribution and the Met Office link. Visually and structurally apart
  * from every rating: no stars, no verdict colour, and a warning never changes either. Prints nothing while the
  * feature is off, and nothing for a window with no warning on a fresh feed. A stale feed prints its admission, never
- * an "all clear".
+ * an "all clear". The card adapter over {@link WindowWarningsBody}.
  *
  * @param {object} props
  * @param {object} props.card the window card the popup is about
@@ -117,7 +150,6 @@ export default function WindowWarningRow({ card }) {
   const warnings = useMemo(() => warningsForCard(served, card), [served, card]);
   if (!served.enabled) return null;
   if (warnings.length === 0 && !served.stale) return null;
-  const showAttribution = warnings.length > 0;
   return (
     <section
       data-testid="window-sheet-warnings"
@@ -127,17 +159,7 @@ export default function WindowWarningRow({ card }) {
       <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-plex-text-secondary">
         Warning
       </h3>
-      {warnings.map((warning) => (
-        <WarningDetail key={warning.warningId} warning={warning} counts={card.warningPlaceCounts} />
-      ))}
-      {showAttribution && <WarningAdviceLink />}
-      <WarningFooter
-        showAttribution={showAttribution}
-        stale={served.stale}
-        lastCheckedAt={served.lastCheckedAt}
-        attribution={served.attribution}
-        href={served.metOfficeUrl}
-      />
+      <WindowWarningsBody warnings={warnings} counts={card.warningPlaceCounts} />
     </section>
   );
 }

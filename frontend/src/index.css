@@ -6974,6 +6974,41 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-plex-text);
   font-family: var(--font-sans);
 }
+/* One Met Office warning in full on the Map (glance-to-map-plan.md G1): hung UNDER the top-left chrome group at the frame
+   level, exactly where `.wf-win-panel` hangs, never inside the group (its height would re-place the map's labels and
+   break the 504px label-obstacle bound). Capped, and it scrolls: a warning's full text is long. */
+.wf-warn-panel,
+.wf-bestbet-panel {
+  position: absolute;
+  top: calc(var(--wf-chrome-tl-h, 36px) + 14px);
+  left: 60px;
+  z-index: 1150;
+  width: 504px;
+  max-width: calc(100% - 308px);
+  max-height: min(55%, 420px);
+  overflow: hidden auto;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 10px;
+  background: var(--color-plex-panel);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  color: var(--color-plex-text);
+  font-family: var(--font-sans);
+}
+.wf-warn-panel-x {
+  float: right;
+  margin: 0 0 4px 8px;
+  min-width: 44px;
+  min-height: 32px;
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  background: transparent;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 4px;
+}
+.wf-warn-panel-x:hover { color: var(--color-plex-text); }
+.wf-warn-panel-x:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
 .wf-win-panel-head {
   display: grid;
   grid-template-columns: 1fr auto auto;
@@ -9003,6 +9038,57 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 @media (max-width: 639px) {
   .wf-jump-chip { min-height: 40px; }
 }
+/* The Map's "Best bet · why" pill and its body (glance-to-map-plan.md G1): a row of its own under the window control,
+   inside the top-left group so it shares the control's width bound. Its reason is a frame-level panel hung under the group (`.wf-bestbet-panel`, sharing `.wf-warn-panel`'s placement), never inside
+   the group, so opening it cannot change `--wf-chrome-tl-h`. */
+.wf-bestbet-pill,
+.wf-list-chip {
+  display: flex;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.wf-bestbet-pill {
+  display: inline-flex;
+  gap: 5px;
+  min-height: 32px;
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.wf-bestbet-pill:hover { color: var(--color-plex-text); }
+.wf-bestbet-pill:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 1px; }
+@media (max-width: 639px) {
+  .wf-bestbet-pill { min-height: 44px; }
+  /* The reason panel on a phone spans the frame under the group, as the window panel does. */
+  .wf-bestbet-panel {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+  }
+}
+/* The Map's "List" button (glance-to-map-plan.md G1): the Regions chip's own pill, so the two sit as one cluster. */
+.wf-list-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  background: var(--color-plex-panel);
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wf-list-chip[aria-disabled="true"] { opacity: 0.6; cursor: default; }
+.wf-list-chip:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 1px; }
 .wf-jump-menu {
   position: absolute;
   top: calc(100% + 6px);
@@ -9083,6 +9169,21 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 /* Its own colour, for the reason `.wf-win-row-unscored` records. */
 .wf-jump-unscored { color: rgba(242, 231, 211, 0.52); }
+/* The row's second line when the menu is ordered best-first (glance-to-map-plan.md G1): the served verdict word and
+   the drilldown's "k of m at 4★+", one line across the whole row. Wraps rather than clips at 390px. */
+.wf-jump-sub {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+}
+.wf-jump-word { font-weight: 600; letter-spacing: 0.04em; }
+.wf-jump-word[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
+.wf-jump-word[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
+.wf-jump-word[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
 
 /* The way back, at the head of the list it undoes (`RegionsJump`'s `resetRow`). One column, not
    the row grid's three: it names a scope rather than a destination, so it has no drive time to
@@ -10898,6 +10999,14 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border: 1px solid var(--color-plex-border-light);
   border-radius: 13px;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+}
+/* The same card inside a bottom sheet (the Map's phone list, glance-to-map-plan.md G1): the sheet is the frame, so the
+   card drops its own border, shadow, radius and viewport cap (the sheet's scroller bounds it). */
+.wf-sheet-card--in-sheet {
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 .wf-sheet-head {
   display: flex;

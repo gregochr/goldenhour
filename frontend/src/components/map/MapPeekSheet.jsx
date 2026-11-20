@@ -401,7 +401,7 @@ OtherWindowValue.propTypes = {
  *        the {@code Past} tag it wore before the counts existed, never a false {@code Not rated}
  */
 export function MapPeekWindowsSection({
-  heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null,
+  heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null, listDoor = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null,
   ratedCounts = null, topics = null, auroraDoor = null, shaped = false,
@@ -562,6 +562,21 @@ export function MapPeekWindowsSection({
           This window, region by region
         </button>
       )}
+      {/* "See all N" (glance-to-map-plan.md G1): the ranked spot list for the window on screen, the phone's door to the
+          button the desktop Map carries beside Regions. A row in this section, never a fifth peek button. Hosted by the
+          shell in a bottom sheet. Withheld where no card exists (the caller passes null). */}
+      {listDoor && (
+        <button
+          type="button"
+          data-testid="wf-map-peek-list"
+          className="wf-map-peek-wr wf-map-peek-drilldown"
+          aria-haspopup="dialog"
+          onClick={listDoor.onOpen}
+        >
+          <span aria-hidden="true">&#9776; </span>
+          {`See all ${listDoor.count} ${listDoor.count === 1 ? 'spot' : 'spots'}`}
+        </button>
+      )}
       {/* The Lite aurora door (aurora-pro-door-plan.md §2.2): after the list and its drilldown row, before the
           topics strip so it sits next to the aurora hot topic. Not inside the listbox: it is no option. */}
       {auroraDoor && (
@@ -607,6 +622,8 @@ MapPeekWindowsSection.propTypes = {
   activeId: PropTypes.string,
   onSelect: PropTypes.func.isRequired,
   onOpenDrilldown: PropTypes.func,
+  /** The ranked spot list's door: how many spots, and the press. Null draws no row. */
+  listDoor: PropTypes.shape({ count: PropTypes.number.isRequired, onOpen: PropTypes.func.isRequired }),
   canLoadOlder: PropTypes.bool,
   olderDayLabel: PropTypes.string,
   olderDayLoadingLabel: PropTypes.string,

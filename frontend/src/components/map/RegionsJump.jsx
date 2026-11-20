@@ -208,7 +208,9 @@ export default function RegionsJump({
           : ''}
       </span>
       <span className="wf-jump-score">
-        {row.bestRating != null ? (
+        {row.outside ? (
+          <span className="wf-lens-pro" data-testid="wf-jump-pro">Pro</span>
+        ) : row.bestRating != null ? (
           <>
             <i aria-hidden="true" style={{ background: rampHex(row.bestRating) }} />
             {row.bestRating}&#9733;
@@ -217,6 +219,23 @@ export default function RegionsJump({
           <span className="wf-jump-unscored">&mdash;</span>
         )}
       </span>
+      {/* The second line, only for a region the window's served verdict answers for (best-first order,
+          glance-to-map-plan.md G1). The Map's own wording "k of m at 4★+", never "in reach": this count is of the
+          places the window could rate in the scope, the drilldown's figure, and the reach words carry a different
+          claim (`reachWordHolds`). A shaped region with none of the reader's picks says what the drilldown says. */}
+      {row.verdictLabel && (
+        <span data-testid="wf-jump-sub" className="wf-jump-sub">
+          <span data-testid="wf-jump-word" className="wf-jump-word" data-tier={row.tier}>{row.verdictLabel}</span>
+          {row.showCounts && (
+            <span data-testid="wf-jump-count">{`${row.atFourPlus} of ${row.placeCount} at 4\u2605+`}</span>
+          )}
+          {row.outside && (
+            <span data-testid="wf-jump-outside">
+              {`Outside your sub-regions \u00b7 ${row.outsideCount} ${row.outsideCount === 1 ? 'place' : 'places'}`}
+            </span>
+          )}
+        </span>
+      )}
     </button>
   ));
 
@@ -287,6 +306,15 @@ RegionsJump.propTypes = {
     driveMinutes: PropTypes.number,
     beyondArea: PropTypes.bool.isRequired,
     bestRating: PropTypes.number,
+    /** Best-first rows only: the served verdict word, its tier, and the drilldown's "k of m at 4★+" counts. */
+    verdictLabel: PropTypes.string,
+    tier: PropTypes.string,
+    atFourPlus: PropTypes.number,
+    placeCount: PropTypes.number,
+    showCounts: PropTypes.bool,
+    /** A shaped region with none of the reader's picks: a Pro pill for the ceiling, and the outside-count words. */
+    outside: PropTypes.bool,
+    outsideCount: PropTypes.number,
   })).isRequired,
   onSelectRegion: PropTypes.func.isRequired,
   activeRegion: PropTypes.string,

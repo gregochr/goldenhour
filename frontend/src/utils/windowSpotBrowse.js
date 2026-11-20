@@ -44,6 +44,23 @@ import { compareSpots } from './windowFirstSpots.js';
 /** Re-exported so the sheet and its tests keep one import for the axis they filter on. */
 export { ANY_RATING_ID, RATING_FLOORS, ratingFloorById };
 
+/**
+ * The floor for an id as this sheet browses it: the vocabulary's own, plus the Map's two loosest stars.
+ *
+ * <p>The Map keeps a minimum of 1 to 5 stars (glance-to-map-plan.md G1) and opens this sheet on it, but the sheet's
+ * vocabulary has no 1★ or 2★ step, so an id of {@code '1'} or {@code '2'} would read as "no floor" and list spots the
+ * Map hides. Those two resolve here to exactly that floor; the sheet offers no chip for them, so none shows pressed,
+ * and choosing any chip replaces it. Anything else is {@link ratingFloorById}'s.
+ *
+ * @param {?string} id
+ * @returns {?{id: string, min: ?number, label: string}}
+ */
+export function browseFloorById(id) {
+  const own = ratingFloorById(id);
+  if (own) return own;
+  return id === '1' || id === '2' ? { id, min: Number(id), label: `${id}★+` } : null;
+}
+
 /** The type option that filters nothing. */
 export const ANY_TYPE_ID = 'any';
 
@@ -145,7 +162,7 @@ export function browseSpots({
 
   // Paired with the control's own render condition on purpose — a floor that runs while its chip is
   // absent is a filter the reader cannot see, cannot explain and cannot take back.
-  const floor = hasRatings(spots) ? ratingFloorById(ratingFloorId)?.min ?? null : null;
+  const floor = hasRatings(spots) ? browseFloorById(ratingFloorId)?.min ?? null : null;
   kept = gateSpotsByRating(kept, floor);
 
   // Same pairing: `typeOptionsFor` returns nothing when there is no choice, and then nothing gates.

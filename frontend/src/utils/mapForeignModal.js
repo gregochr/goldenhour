@@ -23,6 +23,14 @@
  * its own wrapper, since it already holds a ref to its own root and has no need of
  * {@link foreignModalOverPaneOf}'s `closest` lookup.
  *
+ * <p>⚠️ **The Map's ranked spot list is a foreign modal by construction** (glance-to-map-plan.md G1). "List" opens
+ * `WindowSpotSheet`, which the SHELL owns (`sheetKey`/`sheetCard`) and renders as a `Modal` outside `.wf-map-tab`, so
+ * every rule above stands down for it with no code of its own, and `MapView`'s List press checks this predicate before
+ * it fires. It must stay outside the pane: mounting it inside `MapView` would make it "inline" by the containment rule
+ * below and every Escape rule would answer a press the dialog also answers. On a phone the same list is a
+ * `BottomSheet`, portalled to `document.body` (outside the pane too, and `aria-modal`). `mapForeignModal.test.js` pins
+ * that the predicate is true while it is open.
+ *
  * <p>It lives here rather than in `MapView`'s module scope, where it began: the components that
  * need it cannot import from `MapView` without a cycle.
  *

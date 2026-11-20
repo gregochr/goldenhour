@@ -1,5 +1,6 @@
 import { GLANCE_MINUTES, regionDriveMinutes } from './planningArea.js';
 import { bestOfNight } from './mapEvents.js';
+import { byMeanThenName } from './windowFirstRegions.js';
 
 /**
  * The Regions jump list — pure logic only (map-tab-v2-plan.md §3 P11,
@@ -185,4 +186,63 @@ export function buildJumpRows({ spots, driveMap, bestRatingFor }) {
     const db = b.driveMinutes ?? Infinity;
     return da === db ? a.name.localeCompare(b.name) : da - db;
   });
+}
+
+/**
+ * The Regions menu's best-first order for a SOLAR window (glance-to-map-plan.md G1): the regions the window's served
+ * verdict index answers for, best first, then every other region in the order it came in (the drive order).
+ *
+ * <p>Nothing is derived here. {@code panelRows} is {@code mapDrilldown.buildPanelRegionRows}' own output, which
+ * already reads one served record per region, so the tier, the served mean, the ceiling and the "k of m at 4★+"
+ * counts all come off that ONE record and never from {@link buildRegionBestIndex} (that index is not canopy-filtered,
+ * so a canopy-only region would carry a ceiling and no verdict). The order is the drilldown's own comparator
+ * ({@code byMeanThenName}: verdict-eligible first, then the better served mean, then the name), so the menu and the
+ * drilldown can never rank two regions differently. A body the server shaped by the reader's picks has no means to
+ * rank by; its rows arrive pick-first already and keep that order. A region whose sample failed the verdict gate
+ * ({@code UNRATED}, "Too few rated") is not verdict-eligible, so it sorts after every rated one and is never called
+ * Poor. A region with no panel row (out of the reader's scope, or canopy-filtered) keeps its drive position after the
+ * ranked ones, with the score it already carried and no verdict word. A shaped region with none of the reader's picks is
+ * marked {@code outside} and carries no ceiling, as in the drilldown.
+ *
+ * <p>With no panel rows (a night, an unserved window, the menu closed) the input comes back untouched, so a night's
+ * order is today's.
+ *
+ * @param {Array<object>} jumpRows {@link buildJumpRows}' rows, nearest drive first
+ * @param {Array<object>} panelRows {@code buildPanelRegionRows}' rows for the window on screen
+ * @returns {Array<object>} the rows, ranked ones first, each ranked one carrying {@code tier},
+ *          {@code verdictLabel}, {@code atFourPlus}, {@code placeCount} and {@code showCounts}
+ */
+export function sortBestFirst(jumpRows, panelRows) {
+  const rows = Array.isArray(jumpRows) ? jumpRows : [];
+  const panel = Array.isArray(panelRows) ? panelRows : [];
+  if (panel.length === 0) return rows;
+  const byName = new Map(panel.map((row, index) => [row.name, { row, index }]));
+  const ranked = [];
+  const rest = [];
+  for (const row of rows) {
+    const hit = byName.get(row.name);
+    if (hit) ranked.push({ row, panel: hit.row, index: hit.index });
+    else rest.push(row);
+  }
+  const shaped = ranked.some((entry) => entry.panel.shaped === true);
+  ranked.sort((a, b) => (shaped ? a.index - b.index : byMeanThenName(a.panel, b.panel)));
+  return [
+    ...ranked.map(({ row, panel: p }) => {
+      const own = p.shaped !== true || p.hasPicks === true;
+      return {
+        ...row,
+        tier: p.tier,
+        verdictLabel: p.verdictLabel,
+        // The drilldown's own treatment of a shaped region the reader holds no pick in: the verdict word, "Outside your
+        // sub-regions" for the count, and a Pro pill for the ceiling (its served `bestRating` is withheld).
+        bestRating: own ? p.bestRating : null,
+        atFourPlus: p.atFourPlus,
+        placeCount: p.placeCount,
+        showCounts: own && p.placeCount > 0,
+        outside: !own,
+        outsideCount: p.outsideCount ?? 0,
+      };
+    }),
+    ...rest,
+  ];
 }
