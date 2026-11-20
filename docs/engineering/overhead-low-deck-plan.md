@@ -13,14 +13,15 @@ Both observed by the owner from beside Copt Hill.
 
 | | 16 Nov sunset | 20 Nov sunset |
 |---|---|---|
-| Overhead low / mid / high (forecast) | **88** / 0 / 0 | **81** / 5 / 0 |
+| Overhead low / mid / high (forecast) | **88** / not queried | **81** / 5 / 0 |
 | Horizon 113 km low / mid / high | 0 / 0 / 100 | 0 / 0 / 0 |
 | Far 226 km low | 0 | 9 |
 | Forecast | **4★** (a full high canvas over a clear gap) | **2★**, fiery 15 ("no mid or high cloud to catch colour") |
 | Owner | **1★**, flat grey lid | **3★**, broken low cloud lit orange and pink from below |
 
-(16 Nov's numbers are the Angel of the North's T+0 run, the closest stored record to the owner's view; 20 Nov's
-are Copt Hill's 13:32 run.)
+(16 Nov's numbers are the Angel of the North's 12:08 T+0 run, from the owner's daily-list check that day;
+its overhead mid/high were not queried and Copt Hill's own run was not looked at. 20 Nov's are Copt Hill's
+13:32 run. Re-read 16 Nov from Copt Hill's row before relying on it.)
 
 In both, the decisive layer was the **low cloud overhead with a clear path to the sun**, and in both the
 forecast's stars followed the mid/high canvas instead: too high when the deck was solid (16 Nov), too low when
