@@ -88,9 +88,12 @@ ERA5 at the event hour (≥ 80, ≤ 30 "open", mean) and at the dark-side hour; 
 confounders inside FS (far mid deck ≥ 50, deep deck at 700/500 hPa); FS's share of 4★+; FS frequency per
 location; outcome ratings classed from the run the reader saw, with FS split by ERA5 shut/open (dose-response).
 
-**A2 amendment (2026-11-20, before any protocol rating existed):** a fifth class, OL (overhead low deck ≥ 60
-with a clear horizon and an open far corridor, `overhead-low-deck-plan.md`), is checked before FS and FO, so a
-low-deck evening is never an FO control. FS is unaffected (OL needs far low < 50).
+**A2 amendment (2026-11-20, in force from the day `overhead-low-deck-plan.md`'s PR merges; no admin rating on an
+FO-qualifying slot existed before then):** a fifth class, OL (overhead low deck ≥ 60 with a clear horizon and an
+open far corridor), is checked before FS and FO, so a low-deck evening is never an FO control. FS's listing is
+unaffected (OL needs far low < 50), but **FS rows with overhead low ≥ 60 are a confounder**: `fs_size.py` reports
+them separately, and A3.3 is evaluated on FS rows with overhead low < 60, the same filter FO now has. A1's
+confounder list gains "overhead low ≥ 60". Moving OL out of FO slows FO's accrual toward 12.
 
 **A2. Blind protocol list.** `scripts/far-cloud-p1/bl_today.sql` selects today's BL, CL, FS and FO slots (one
 CASE, first match wins: BL, CL, FS, FO) at the owner's locations, but **prints only place, event, local time

@@ -6,20 +6,23 @@
 --     < docs/engineering/cost-queries/overhead-low-deck-sizing.sql
 --
 -- Unit: ONE SLOT = the latest Sonnet 5.5 SCORED run per (location, date, event) at T+0/1 made before the event,
--- chosen BEFORE any class filter. Classes (all: cone low < 20, far low < 50, not [BUILDING], stars present):
+-- chosen BEFORE any class filter (a triaged latest run gets no class; an older run never stands in).
+-- Classes (all: triage clear, cone low < 20, far low < 50, not [BUILDING], sky_rating present):
 --   OL-canvas  overhead low >= 60, and max(cone/overhead mid/high) >= 50   (16 Nov's shape)
 --   OL-bare    overhead low >= 60, and no mid/high canvas (< 50)            (20 Nov's shape)
 --   CTL-canvas overhead low < 30 with a canvas (the control for OL-canvas)
 --   CTL-bare   overhead low < 30 without a canvas (the control for OL-bare)
--- (30-59% overhead low is left out of both, so classes and controls are well separated.)
+-- (30-59% overhead low is left out of both, so classes and controls are well separated.) The CTL classes here
+-- are descriptive; the plan's decision compares OL-canvas with FO and OL-bare with CL (plan section 4).
 -- Nothing persists: TEMP views are session-local.
 
 CREATE TEMP VIEW ol_runs AS
 SELECT fe.id, fe.location_id, fe.target_date, fe.target_type, fe.forecast_run_at,
-       COALESCE(fe.sky_rating, fe.rating) AS stars, fe.fiery_sky_potential AS fiery,
-       CASE WHEN fe.solar_low_cloud < 20 AND fe.far_solar_low_cloud < 50
+       fe.days_ahead, fe.sky_rating AS stars, fe.fiery_sky_potential AS fiery,
+       CASE WHEN fe.triage_reason IS NULL
+             AND fe.solar_low_cloud < 20 AND fe.far_solar_low_cloud < 50
              AND COALESCE(fe.solar_trend_building, FALSE) = FALSE
-             AND COALESCE(fe.sky_rating, fe.rating) IS NOT NULL
+             AND fe.sky_rating IS NOT NULL
             THEN CASE
                 WHEN fe.low_cloud >= 60 AND greatest(fe.solar_mid_cloud, fe.solar_high_cloud, fe.mid_cloud, fe.high_cloud) >= 50 THEN 'OL-canvas'
                 WHEN fe.low_cloud >= 60 THEN 'OL-bare'
@@ -45,7 +48,7 @@ WHERE class IS NOT NULL;
 -- 1. Size, ratings and ERA5 agreement by class and event.
 SELECT class, target_type AS event,
        count(*)                                                       AS slots,
-       count(DISTINCT (target_date, target_type))                     AS evenings,
+       count(DISTINCT (target_date, target_type))                     AS events,
        round(avg(stars), 2)                                           AS stars_mean,
        round(100.0 * avg((stars >= 4)::int), 1)                       AS pct_4plus,
        round(100.0 * avg((stars <= 2)::int), 1)                       AS pct_2minus,
@@ -65,14 +68,15 @@ SELECT l.id AS location_id, l.name,
        round(100.0 * avg((r.class LIKE 'OL-%')::int), 1)     AS ol_pct
 FROM (SELECT DISTINCT ON (location_id, target_date, target_type) *
       FROM ol_runs
-      WHERE forecast_run_at::date = target_date
+      WHERE days_ahead = 0
       ORDER BY location_id, target_date, target_type, forecast_run_at DESC, id DESC) r
 JOIN locations l ON l.id = r.location_id
 GROUP BY l.id, l.name
 HAVING count(*) FILTER (WHERE r.class LIKE 'OL-%') > 0
 ORDER BY ol_pct DESC, l.name;
 
--- 3. Outcome ratings (descriptive; selected by whoever chose to rate), classed from the run the reader saw.
+-- 3. ALL admin/reader outcome ratings, classed from the run the reader saw: descriptive, NOT protocol evidence
+--    (protocol identity comes only from the blind list's locations and the protocol start date).
 --    Signed error = forecast stars shown minus the reader's stars. "Didn't see it" rows excluded.
 SELECT r.class, (u.role = 'ADMIN') AS by_admin,
        count(*)                                          AS ratings,
