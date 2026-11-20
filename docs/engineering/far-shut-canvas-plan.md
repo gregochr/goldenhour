@@ -88,6 +88,10 @@ ERA5 at the event hour (≥ 80, ≤ 30 "open", mean) and at the dark-side hour; 
 confounders inside FS (far mid deck ≥ 50, deep deck at 700/500 hPa); FS's share of 4★+; FS frequency per
 location; outcome ratings classed from the run the reader saw, with FS split by ERA5 shut/open (dose-response).
 
+**A2 amendment (2026-11-20, before any protocol rating existed):** a fifth class, OL (overhead low deck ≥ 60
+with a clear horizon and an open far corridor, `overhead-low-deck-plan.md`), is checked before FS and FO, so a
+low-deck evening is never an FO control. FS is unaffected (OL needs far low < 50).
+
 **A2. Blind protocol list.** `scripts/far-cloud-p1/bl_today.sql` selects today's BL, CL, FS and FO slots (one
 CASE, first match wins: BL, CL, FS, FO) at the owner's locations, but **prints only place, event, local time
 and stars**, never the class or cloud numbers. Classes are assigned afterwards from stored values. The owner
