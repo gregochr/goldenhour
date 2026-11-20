@@ -12,6 +12,8 @@ import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstComingUp from './WindowFirstComingUp.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
+import { MapListContext } from '../context/MapListContext.jsx';
+import { heatSpotKey } from '../utils/heatSpots.js';
 import AskBar from './ask/AskBar.jsx';
 import { ASK_DOCK_ID, ASK_SHEET_LABEL } from './ask/askIds.js';
 import ChunkErrorBoundary from './shared/ChunkErrorBoundary.jsx';
@@ -928,6 +930,7 @@ export default function WindowFirstShell({
     setOpenedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     setOpenPick(null);
     setSheetKey(null);
+    setSheetScope(null);
     // The window popup and the four-day sheet go with them. Every dialog this shell owns is about
     // the Plan tab, so arriving anywhere else ends the browsing — the same rule the strip already
     // applies to its peek before a map handoff. Without this a reader who opened a window and then
@@ -1071,6 +1074,24 @@ export default function WindowFirstShell({
    */
   const [sheetKey, setSheetKey] = useState(null);
   const sheetCard = sheetKey == null ? null : windowCards.find((c) => c.key === sheetKey) || null;
+  /**
+   * Set only when the list was opened from the MAP (glance-to-map-plan.md G1): the Map's snapshot at the press, so the
+   * list says what the Map says. {@code {spotKeys, floorId, tierId, onPick}}: the {@code heatSpotKey}s the Map held in
+   * scope (the list's spots are intersected with them, so its counts match the Map's), the Map's own rating floor and
+   * drive tier ids (what the sheet opens on), and the callback that selects a place on the Map in place. Null for
+   * every Plan-tab opening, which is therefore exactly what it was. Cleared by every route that clears
+   * {@code sheetKey}, so a stale snapshot can never ride onto another opening.
+   */
+  const [sheetScope, setSheetScope] = useState(null);
+  /** The card the list shows: the live card, its spots narrowed to the Map's in-scope set when opened from the Map. */
+  const sheetCardShown = sheetCard != null && sheetScope != null
+    ? {
+      ...sheetCard,
+      allSpots: (sheetCard.allSpots || []).filter((spot) => sheetScope.spotKeys.has(
+        heatSpotKey({ id: spot.locationId, name: spot.locationName }),
+      )),
+    }
+    : sheetCard;
 
   /**
    * Opens exactly ONE layer over the window popup, taking down whatever else was there.
@@ -1098,6 +1119,7 @@ export default function WindowFirstShell({
     // leaving it is what stops one route's focused window riding onto another's sheet.
     setSheetWindowKey(null);
     setSheetKey(next?.sheetKey ?? null);
+    setSheetScope(next?.sheetScope ?? null);
     setOpenPick(next?.pick ?? null);
   }, []);
   /**
@@ -1739,6 +1761,37 @@ export default function WindowFirstShell({
   // Back closes the sheet like the ✕ (the conversation is kept). Registered here, from the open INTENT and outside
   // the lazy `Suspense`, so a cold chunk neither delays the entry nor turns a swap into a pop and a push.
   useBackLayer({ open: askSheetShown, onBack: closeAskSheet });
+  /**
+   * The Map's List door (glance-to-map-plan.md G1): opens the ranked spot list over the Map for the window the Map has
+   * selected, as the shell's own dialog ({@code sheetKey}), so it is a layer OUTSIDE {@code .wf-map-tab} and every Map
+   * Escape and outside-press rule stands down for it through {@code foreignModalOver}.
+   *
+   * <p>Refused (returns false, nothing taken down) while any other layer stands: Ask's sheet, search, the guide, the
+   * popup or a sheet over it, settings, or any dialog this shell does not own. That is the depth cap
+   * ({@code MAX_LAYER_DEPTH}) held in the one place that can see every layer, and it is the same refusal the other
+   * way: with the list open, {@code askDialogOpen} counts it, so Ask's entry is disabled. A plain function behind a
+   * ref so the door handed to the Map is stable (the pane is {@code React.memo}'d) yet always reads this render.
+   */
+  const openMapListRef = useRef(null);
+  const tryOpenMapList = (request) => {
+    if (askSheetShown || stackedOverPopup || searchSeed != null || guideModal || settingsOpen
+      || openWindowKey != null || foreignDialogOpen(shellRef.current)) return false;
+    if (!request?.key || !(request.spotKeys instanceof Set)) return false;
+    if (!windowCards.some((card) => card.key === request.key)) return false;
+    openOverPopup({
+      sheetKey: request.key,
+      sheetScope: {
+        spotKeys: request.spotKeys,
+        floorId: request.floorId,
+        tierId: request.tierId,
+        onPick: request.onPick ?? null,
+      },
+    });
+    return true;
+  };
+  useEffect(() => { openMapListRef.current = tryOpenMapList; });
+  const openMapList = useCallback((request) => openMapListRef.current(request), []);
+  const mapListDoor = useMemo(() => ({ openList: openMapList }), [openMapList]);
   /**
    * "Show on map ›" on a pick: select that pick, leave the sheet, land on the Map tab, keep the
    * answer. {@code selectTab} is the route (it closes the sheet with the rest of the layers); the
@@ -3332,7 +3385,9 @@ export default function WindowFirstShell({
               which already seeds `openedTabs` itself) must mount on the very render it becomes
               effective, not one render late — a blank panel is the failure this guards. */}
           {(openedTabs.has(tab.id) || tab.id === effectiveTab)
-            ? { mapPane, operationsPane }[tab.slot] : null}
+            ? (tab.id === 'map'
+              ? <MapListContext.Provider value={mapListDoor}>{mapPane}</MapListContext.Provider>
+              : { mapPane, operationsPane }[tab.slot]) : null}
         </div>
       ))}
       </div>
@@ -3507,11 +3562,15 @@ export default function WindowFirstShell({
       {sheetCard && (
         <WindowSpotSheet
           key={sheetCard.key}
-          card={sheetCard}
-          barTierId={reachLens.tierId}
+          card={sheetCardShown}
+          // Opened from the Map (glance-to-map-plan.md G1), the sheet inherits the MAP's tier and rating floor, not
+          // the Plan bar's, and on a phone it is a bottom sheet (the Map's phone dialog shape, not the centred modal).
+          // A Plan-tab opening carries no `sheetScope`, so every line below is what it was.
+          presentation={sheetScope != null && isMobile ? 'sheet' : 'modal'}
+          barTierId={sheetScope?.tierId ?? reachLens.tierId}
           // The bar's floor is the one the sheet opens on, exactly as its tier is. The sheet's own
           // change to either is local and dies with the dialog — see its class comment.
-          barFloorId={ratingLens.floorId}
+          barFloorId={sheetScope?.floorId ?? ratingLens.floorId}
           // Widen REACH only for a window REACH emptied, which is what `reachedTotal === 0` says.
           //
           // This keyed on `spots.length === 0` until the rating floor arrived, when `spots` became
@@ -3524,7 +3583,7 @@ export default function WindowFirstShell({
           //
           // `reachedTotal` is the survivors of reach alone, added alongside the floor for exactly
           // this denominator. Widening reach can only help when reach is what removed them.
-          openTierId={sheetCard.reachedTotal === 0 && sheetCard.reachTotal > 0
+          openTierId={sheetScope == null && sheetCard.reachedTotal === 0 && sheetCard.reachTotal > 0
             ? ANY_TIER_ID
             : undefined}
           // A boolean, never the role — plan §5c's rule that `role` enters this arm at the provider
@@ -3547,7 +3606,12 @@ export default function WindowFirstShell({
           // own the moment nothing is stacked on it. The sheet is a browsing surface and the Map tab
           // is a destination - arriving at it ends the browsing. The explicit closes also cover the
           // no-map-door case (`showOnMap` undefined), where the press still ends the browsing.
-          onOpenSpot={(spot) => { openOverPopup(null); openWindow(null); handleSpot(sheetCard, spot); }}
+          // From the Map a row selects the place IN PLACE on the Map it came from and closes the list: not
+          // `handleSpot`/`openMapTab`, which would re-door the Map (and rewrite its lens). The callout is no Back
+          // layer, so it stacks freely over what is left.
+          onOpenSpot={sheetScope != null
+            ? (spot) => { const pick = sheetScope.onPick; openOverPopup(null); pick?.(spot); }
+            : (spot) => { openOverPopup(null); openWindow(null); handleSpot(sheetCard, spot); }}
         />
       )}
 

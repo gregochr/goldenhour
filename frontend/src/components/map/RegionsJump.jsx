@@ -217,6 +217,18 @@ export default function RegionsJump({
           <span className="wf-jump-unscored">&mdash;</span>
         )}
       </span>
+      {/* The second line, only for a region the window's served verdict answers for (best-first order,
+          glance-to-map-plan.md G1). The Map's own wording "k of m at 4★+", never "in reach": this count is of the
+          places the window could rate in the scope, the drilldown's figure, and the reach words carry a different
+          claim (`reachWordHolds`). */}
+      {row.verdictLabel && (
+        <span data-testid="wf-jump-sub" className="wf-jump-sub">
+          <span data-testid="wf-jump-word" className="wf-jump-word" data-tier={row.tier}>{row.verdictLabel}</span>
+          {row.showCounts && (
+            <span data-testid="wf-jump-count">{`${row.atFourPlus} of ${row.placeCount} at 4\u2605+`}</span>
+          )}
+        </span>
+      )}
     </button>
   ));
 
@@ -287,6 +299,12 @@ RegionsJump.propTypes = {
     driveMinutes: PropTypes.number,
     beyondArea: PropTypes.bool.isRequired,
     bestRating: PropTypes.number,
+    /** Best-first rows only: the served verdict word, its tier, and the drilldown's "k of m at 4★+" counts. */
+    verdictLabel: PropTypes.string,
+    tier: PropTypes.string,
+    atFourPlus: PropTypes.number,
+    placeCount: PropTypes.number,
+    showCounts: PropTypes.bool,
   })).isRequired,
   onSelectRegion: PropTypes.func.isRequired,
   activeRegion: PropTypes.string,

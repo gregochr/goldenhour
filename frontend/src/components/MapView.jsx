@@ -38,7 +38,7 @@ import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import BigSeasLine from './map/BigSeasLine.jsx';
 import MapTopicChips from './map/MapTopicChips.jsx';
-import MapWarningChips from './map/MapWarningChips.jsx';
+import MapWarningChips, { MapWarningPanel } from './map/MapWarningChips.jsx';
 import MapTopicStrip from './map/MapTopicStrip.jsx';
 import MapTopicRings from './map/MapTopicRings.jsx';
 import { useChromeTlHeight } from '../hooks/useChromeTlHeight.js';
@@ -74,6 +74,9 @@ import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { scopePoolWithinReach } from '../utils/mapReach.js';
 import { ANY_TIER_ID, reachIsMeasured, tierById } from '../utils/reachLens.js';
 import { heatSpotKey } from '../utils/heatSpots.js';
+import { windowKey } from '../utils/windowKeys.js';
+import { RATING_FLOORS, ANY_RATING_ID } from '../utils/ratingLens.js';
+import MapBestBetWhy from './map/MapBestBetWhy.jsx';
 import {
   GATED_STATE, hasRatedState, isGatedIn, isOutsidePicks, splitGround,
 } from '../utils/pickScope.js';
@@ -85,7 +88,9 @@ import { withScopedSolarTimes } from '../utils/mapScopedTime.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
-import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
+import {
+  buildJumpRows, regionBestRatingFor, buildNightRegionBest, sortBestFirst,
+} from '../utils/regionsJump.js';
 import { landingRows, landingHeader, betterNextWindow } from '../utils/mapLanding.js';
 import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
 import { isEventTimePast, AFTERGLOW_MS } from '../utils/briefingDisplay.js';
@@ -1281,7 +1286,7 @@ CentreOnHomeControl.propTypes = {
  *       draws as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, reachLens = null, reachMeasured = null, reachScope = null, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS, findPick = null, findOpen = false }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, reachLens = null, reachMeasured = null, reachScope = null, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS, findPick = null, findOpen = false, windowCardsByKey = null, onOpenList = null }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1678,6 +1683,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * separate state variable each.
    */
   const [openMapMenu, setOpenMapMenu] = useState(null);
+  /**
+   * The Met Office warning whose full text is open (glance-to-map-plan.md G1), by its served id. Exclusive with every
+   * menu in {@code openMapMenu}: opening a menu lets it go (the render-time adjustment below) and opening it closes the menu, so one
+   * Escape takes exactly one layer. A warning the next poll withdraws simply stops matching and the panel prints nothing.
+   */
+  const [openWarningId, setOpenWarningId] = useState(null);
+  if (openMapMenu != null && openWarningId != null) setOpenWarningId(null);
+  const toggleWarning = useCallback((id) => {
+    setOpenMapMenu(null);
+    setOpenWarningId((cur) => (cur === id ? null : id));
+  }, []);
   /**
    * The end of the Ask camera's own latest move (a `Date.now()` stamp), shared between the camera
    * (writes it) and the peek sheet's map-touch listener (reads it) — see `SheetDismissOnMapTouch`.
@@ -5564,18 +5580,96 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   drilldownOpenRef.current = windowPanelOpen;
   const panelPoints = (windowPanelOpen && activeMapEvent
     && heat?.pointsByKey?.get(`${activeMapEvent.date}:${activeMapEvent.eventType}`)) || EMPTY_POINTS;
-  const panelRows = windowPanelOpen ? buildPanelRegionRows({
+  /**
+   * The Plan's own card for the window on screen (glance-to-map-plan.md G1), found by {@code windowKey} in the shell's
+   * live {@code windowCards}. Null where no card exists: a past window, a travel day, a D-13 filler, a night and High
+   * water. The "Best bet · why" pill and the List both read it; nothing here picks, scopes or scores anything.
+   */
+  const selectedCard = activeMapEvent?.kind === EVENT_KIND.SOLAR && !activeMapEvent.past
+    && activeMapEvent.served !== false
+    ? (windowCardsByKey?.get(windowKey(activeMapEvent.date, activeMapEvent.eventType)) ?? null)
+    : null;
+  /** Why there is no list for this window, said where the button is. Null when there is one. */
+  function listUnavailableReason() {
+    if (selectedCard) return null;
+    if (!activeMapEvent) return 'No window is selected';
+    if (activeMapEvent.past) return 'A past window has no spot list';
+    if (activeMapEvent.kind !== EVENT_KIND.SOLAR) return 'A night has no spot list';
+    return 'There is no spot list for this window';
+  }
+  /**
+   * The places the Map holds in scope, as {@code heatSpotKey}s: the scope segment, the door's or Find's named-spot lens,
+   * the subject and dark-sky filters, and (under a finite drive tier) a measured drive. The rating floor and the tier
+   * are NOT in it: the list opens on them and its own controls may loosen them. A plain function read at press time.
+   */
+  function mapListScopeKeys() {
+    const areaKeys = heatOffered && heatArea ? new Set((heat?.areaSpots || []).map(heatSpotKey)) : null;
+    const keys = new Set();
+    for (const loc of typeFiltered) {
+      const key = heatSpotKey(loc);
+      if (areaKeys && !areaKeys.has(key)) continue;
+      if (focusLensNames && !focusLensNames.has(loc.name)) continue;
+      if (darkSkyFilter && !isDarkSkyLocation(loc)) continue;
+      if (effectiveDriveTimeFilter !== 0 && driveMinutesFor(loc.id) == null) continue;
+      keys.add(key);
+    }
+    return keys;
+  }
+  /** How many of the card's spots the list would hold before any floor or tier: the phone row's "See all N". */
+  function mapListSpotCount() {
+    if (!selectedCard) return 0;
+    const keys = mapListScopeKeys();
+    return (selectedCard.allSpots || []).filter((spot) => keys.has(
+      heatSpotKey({ id: spot.locationId, name: spot.locationName }),
+    )).length;
+  }
+  /**
+   * Opens the shell's ranked list for the window on screen. Stands down while a dialog from outside this pane is over
+   * it (the one predicate every Map dismissal rule reads), and the shell refuses it over any other layer, which is the
+   * depth cap. On desktop and tablet it closes this pane's menus and warning panel; on a phone the Windows section
+   * stays open under the sheet so focus has a row to return to.
+   */
+  function pressMapList() {
+    if (!onOpenList || !selectedCard) return;
+    if (foreignModalOver(mapPaneRef.current)) return;
+    const floor = RATING_FLOORS.find((f) => f.min === minStars) ?? RATING_FLOORS.find((f) => f.id === ANY_RATING_ID);
+    const opened = onOpenList({
+      key: selectedCard.key,
+      spotKeys: mapListScopeKeys(),
+      floorId: floor.id,
+      tierId: effectiveDriveTimeFilter > 0 ? String(effectiveDriveTimeFilter) : ANY_TIER_ID,
+      onPick: (spot) => selectMapLocation(askPlaceName(spot.locationId, spot.locationName)),
+    });
+    if (opened && !isMobile) {
+      setOpenMapMenu(null);
+      setOpenWarningId(null);
+    }
+  }
+
+  /** The panel's rows over the given scores — the SAME build for the drilldown and for the Regions menu's order. */
+  const regionRowsOver = (points) => buildPanelRegionRows({
     index: regionVerdictIndex,
     date: activeMapEvent?.date ?? null,
     targetType: activeMapEvent?.eventType ?? null,
     regionsInScope,
-    points: panelPoints,
+    points,
     driveMap: activeDriveMap,
     regionPicks,
     // The panel's "k of m at 4★+" counts the reader's OWN places: one outside their sub-regions (the
     // server's `gated`) is in neither half. The regions in scope above still name every region.
     spots: verdictScopePool.filter((spot) => !isGatedIn(activeStates, spot)),
-  }) : EMPTY_ROWS;
+  });
+  const panelRows = windowPanelOpen ? regionRowsOver(panelPoints) : EMPTY_ROWS;
+  /**
+   * The Regions menu's own rows over the same build (glance-to-map-plan.md G1), only while that menu is open and only
+   * for a solar window the briefing served: a night has no region verdict, so its order stays the drive order. A
+   * separate value from {@code panelRows}, never a second reader of it, so the drilldown's level state and its Escape
+   * rules cannot see a region row the menu built.
+   */
+  const jumpMenuRows = openMapMenu === 'jump' && activeMapEvent?.kind === EVENT_KIND.SOLAR
+    && activeMapEvent.served !== false
+    ? regionRowsOver(heat?.pointsByKey?.get(`${activeMapEvent.date}:${activeMapEvent.eventType}`) || EMPTY_POINTS)
+    : EMPTY_ROWS;
 
   /**
    * The drilldown's second level — one region's own top locations (map-landing-plan.md §3 L6).
@@ -5835,11 +5929,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
     return isNightKind(activeMapEvent.kind) ? (nightRegionBest?.get(regionName) ?? null) : null;
   }
-  const jumpRows = buildJumpRows({
+  const jumpRows = sortBestFirst(buildJumpRows({
     spots: heat?.spots || EMPTY_POINTS,
     driveMap: activeDriveMap,
     bestRatingFor: jumpBestRatingFor,
-  });
+  }), jumpMenuRows);
   /**
    * Resets scope to My area and refits — `FiltersPopover`'s own "My area" segment button AND
    * `CentreOnHomeControl`'s `⌂` (map-tab-v2-plan.md §3 P11's reconciliation, see that component's
@@ -6818,6 +6912,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       setPanelRegion(null);
       return;
     }
+    if (openWarningId != null) {
+      setOpenWarningId(null);
+      return;
+    }
     if (openMapMenu != null) {
       // The tide upsell is closed by this rung too: focus returns to its opener when it would be stranded.
       if (openMapMenu === 'tideUpsell') returnTideUpsellFocus();
@@ -7319,6 +7417,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
         <div ref={chromeTlRef} className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
           {windowControl}
+          {/* "Best bet · why" (glance-to-map-plan.md G1): a row of its own, outside the control's flex row. The window
+              card's served pick, nothing when it has none; keyed on the window so it closes when the window moves. */}
+          <MapBestBetWhy key={selectedCard?.key ?? 'none'} pick={selectedCard?.pick ?? null} />
           {/* The big-seas line (big-seas plan F1): its own row under the control, inside the
               group so it shares the control's 504px bound and the label obstacle. All roles. */}
           <BigSeasLine
@@ -7351,6 +7452,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             locations={locations}
             slotIndex={slotIndex}
             scoreIndex={scoreIndex}
+            openId={openWarningId}
+            onToggle={toggleWarning}
           />
           {/* What a Find pick relaxed so its place could be seen (find-and-favourites-plan.md F1): a row of its own
               under the chips, shown while that place is the selection, with a way to dismiss it. The words are also
@@ -7410,6 +7513,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           moves the date — and it goes null. `isSolar` then read false, so the window panel
           printed the NIGHT note over a solar map and an empty line saying no region had a
           "night" answer. */}
+        {/* One warning in full (glance-to-map-plan.md G1): a frame-level sibling of the chrome, never inside the
+            group (its height would re-place the labels), and on a phone a non-modal bottom sheet. */}
+        <MapWarningPanel
+          event={activeMapEvent}
+          locations={locations}
+          slotIndex={slotIndex}
+          scoreIndex={scoreIndex}
+          openId={openWarningId}
+          onClose={() => setOpenWarningId(null)}
+          isMobile={isMobile}
+        />
+
         {windowPanelOpen && activeMapEvent && panelRegionRow && (
           <MapRegionPanel
             key={panelRegionRow.name}
@@ -7486,6 +7601,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         {!isMobile && (
         <div className="wf-map-chrome-tr" data-testid="wf-map-chrome-tr">
           <RegionsJump {...regionsJumpProps} />
+          {/* The ranked spot list for this window (glance-to-map-plan.md G1), the shell's own dialog. Drawn only with a
+              shell to open it; greyed (aria-disabled, never a dead hover) with the reason said where no card exists. */}
+          {onOpenList && (() => {
+            const reason = listUnavailableReason();
+            return (
+              <>
+                <button
+                  type="button"
+                  data-testid="map-list-button"
+                  className="wf-list-chip"
+                  aria-haspopup="dialog"
+                  aria-disabled={reason ? 'true' : undefined}
+                  aria-describedby={reason ? 'wf-map-list-why' : undefined}
+                  title={reason ?? undefined}
+                  onClick={reason ? undefined : pressMapList}
+                >
+                  <span aria-hidden="true">&#9776; </span>
+                  List
+                </button>
+                {reason && <span id="wf-map-list-why" data-testid="map-list-why" className="sr-only">{reason}</span>}
+              </>
+            );
+          })()}
           {/* The toolbar cluster holds the unscored line and the colour key. A High-water row is
               unscored with no line to show, so neither child renders: gate the box itself, never
               leave an empty bordered cluster. */}
@@ -7611,6 +7749,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   activeId={activeMapEvent?.id ?? null}
                   onSelect={selectEvRow}
                   onOpenDrilldown={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
+                  listDoor={onOpenList && selectedCard && sheetSection === 'win'
+                    ? { count: mapListSpotCount(), onOpen: pressMapList }
+                    : null}
                   canLoadOlder={canLoadOlder}
                   olderDayLabel={olderDayLabel}
                   emptyOlderDayLabel={emptyOlderDayLabel}
@@ -8352,6 +8493,10 @@ MapView.propTypes = {
   }),
   /** Whether Find is open: the map closes its menus while it is (they are not dialogs). */
   findOpen: PropTypes.bool,
+  /** The Plan's window cards by {@code windowKey}: the source of the Best bet reason and the List (G1). */
+  windowCardsByKey: PropTypes.instanceOf(Map),
+  /** The shell's List door; withheld, the Map draws no List control. */
+  onOpenList: PropTypes.func,
   /**
    * Ask PhotoCast's picks (F3) — see the six-prop note above `MapView`. {@code rating}/{@code verdict}
    * are the PICK'S window's, joined by `utils/askModel.buildPickCards`.

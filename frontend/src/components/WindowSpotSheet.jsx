@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
+import BottomSheet from './BottomSheet.jsx';
 import WindowSpotCard, { SPOT_SHAPE } from './WindowSpotCard.jsx';
 import { locationTypeLabel } from '../utils/locationTypes.js';
 import { REACH_TIERS, tierById } from '../utils/reachLens.js';
@@ -156,9 +157,11 @@ function persistenceNote({ rating, type, reach }) {
  * @param {?Map<string, string[]>} [props.typesByName] location name → {@code locationType} array
  * @param {Function} props.onClose      dismisses the sheet
  * @param {Function} [props.onOpenSpot] opens the map centred on a spot
+ * @param {'modal'|'sheet'} [props.presentation] {@code 'sheet'} hosts the card in a bottom sheet (the Map's phone list)
  */
 export default function WindowSpotSheet({
   card, barTierId, barFloorId, openTierId, reachLocked = false, typesByName, onClose, onOpenSpot, escapeEnabled = true,
+  presentation = 'modal',
 }) {
   const spots = card.allSpots || [];
   // Inherited from the bar, exactly as the tier below is, and local from there on. Type is the one
@@ -208,31 +211,12 @@ export default function WindowSpotSheet({
     reach: !reachLocked,
   });
 
-  return (
-    <Modal
-      label={`All spots — ${[card.kicker, card.when].filter(Boolean).join(' ')}`}
-      onClose={onClose}
-      bare
-      // Nothing here is lost by dismissing: three filters over data already in memory, none of
-      // which this dialog persists. (It said the floor was "written the moment it is chosen" — that
-      // write moved to the bar with P15c and is no longer made anywhere in this file, which is what
-      // the footer's "Reach, rating and type reset each visit" has told the reader all along.)
-      // ⚠️ Conditional since M2, and that IS the Escape order. `Modal` installs a document-level
-      // Escape listener per instance, so two open dialogs both close on one press. Each layer
-      // declines the key while something sits over it, which makes a press take exactly one layer
-      // (plan-matrix §6 M2.5). Defaults to true, so a caller that does not stack is unchanged.
-      closeOnEscape={escapeEnabled}
-      /* ⚠️ ONE predicate, two consequences, and they must never come apart: the layer that
-         answers Escape is the layer that is not `inert`. M5 measured the alternative in a browser —
-         three `aria-modal` dialogs at once and a Tab out of the top one landing inside the popup
-         underneath — so a stacked layer holds no tab stops and leaves the accessibility tree, while
-         the top one keeps both. Derived from `escapeEnabled` rather than taking a second prop
-         precisely so a future caller cannot set one and forget the other. See `Modal`'s own note
-         for what this is NOT: it is not a focus trap, and Tab still leaves the topmost dialog. */
-      stacked={!escapeEnabled}
-      data-testid="window-spot-sheet"
-    >
-      <div className="wf-sheet-card">
+  const label = `All spots — ${[card.kicker, card.when].filter(Boolean).join(' ')}`;
+  // Opened from the Map's phone peek sheet (glance-to-map-plan.md G1): the same card in a bottom sheet, which is the
+  // phone's dialog shape on that tab (the centred Modal is the Plan tab's and the desktop Map's). The shell registers
+  // the Back layer for both presentations, so the sheet takes none of its own.
+  const sheetBody = (
+      <div className={`wf-sheet-card${presentation === 'sheet' ? ' wf-sheet-card--in-sheet' : ''}`} data-testid={presentation === 'sheet' ? 'window-spot-sheet' : undefined}>
         <div className="wf-sheet-head">
           {/* The KICKER as well as the title, and it is not decoration. On a lead card `when` is
               the bare event — "Sunset" — because the day has moved into the kicker; without it the
@@ -365,6 +349,39 @@ export default function WindowSpotSheet({
           {note && <span data-testid="window-spot-sheet-note">{note}</span>}
         </div>
       </div>
+  );
+  if (presentation === 'sheet') {
+    return (
+      <BottomSheet open onClose={onClose} label={label} closeOnEscape={escapeEnabled} reserveCloseStrip>
+        {sheetBody}
+      </BottomSheet>
+    );
+  }
+  return (
+    <Modal
+      label={label}
+      onClose={onClose}
+      bare
+      // Nothing here is lost by dismissing: three filters over data already in memory, none of
+      // which this dialog persists. (It said the floor was "written the moment it is chosen" — that
+      // write moved to the bar with P15c and is no longer made anywhere in this file, which is what
+      // the footer's "Reach, rating and type reset each visit" has told the reader all along.)
+      // ⚠️ Conditional since M2, and that IS the Escape order. `Modal` installs a document-level
+      // Escape listener per instance, so two open dialogs both close on one press. Each layer
+      // declines the key while something sits over it, which makes a press take exactly one layer
+      // (plan-matrix §6 M2.5). Defaults to true, so a caller that does not stack is unchanged.
+      closeOnEscape={escapeEnabled}
+      /* ⚠️ ONE predicate, two consequences, and they must never come apart: the layer that
+         answers Escape is the layer that is not `inert`. M5 measured the alternative in a browser —
+         three `aria-modal` dialogs at once and a Tab out of the top one landing inside the popup
+         underneath — so a stacked layer holds no tab stops and leaves the accessibility tree, while
+         the top one keeps both. Derived from `escapeEnabled` rather than taking a second prop
+         precisely so a future caller cannot set one and forget the other. See `Modal`'s own note
+         for what this is NOT: it is not a focus trap, and Tab still leaves the topmost dialog. */
+      stacked={!escapeEnabled}
+      data-testid="window-spot-sheet"
+    >
+      {sheetBody}
     </Modal>
   );
 }
@@ -390,4 +407,6 @@ WindowSpotSheet.propTypes = {
   typesByName: PropTypes.instanceOf(Map),
   onClose: PropTypes.func.isRequired,
   onOpenSpot: PropTypes.func,
+  /** {@code 'sheet'}: hosted in a bottom sheet (the Map's phone list); the default is the centred dialog. */
+  presentation: PropTypes.oneOf(['modal', 'sheet']),
 };

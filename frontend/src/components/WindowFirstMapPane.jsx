@@ -4,6 +4,7 @@ import React, {
 import PropTypes from 'prop-types';
 import MapView from './MapView.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+import { useMapList } from '../context/MapListContext.jsx';
 import { useAsk } from '../context/AskContext.jsx';
 import { buildMapAskContext } from '../utils/askMapContext.js';
 // From `heatGeometry`, NOT `heatField` — this is the whole reason that module exists. `heatField`
@@ -324,8 +325,19 @@ export default function WindowFirstMapPane({
   const {
     heatSpots, heatPointSets, heatStripCards, upcomingEvents, reachById, homePlace, todayStr,
     origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions, tideLocked, driveLocked,
-    allowedLocationIds, reachLens = null, reachVerdicts = null, reachMeasured,
+    allowedLocationIds, reachLens = null, reachVerdicts = null, reachMeasured, windowCards = null,
   } = useWindowFirstBriefing();
+  /**
+   * The Plan's window cards by {@code windowKey}, for the Map's "Best bet · why" and List (glance-to-map-plan.md G1):
+   * the SAME live cards the Plan tab draws, so the Map can never describe a window differently. Null with no cards.
+   */
+  const windowCardsByKey = useMemo(
+    () => (Array.isArray(windowCards) && windowCards.length > 0
+      ? new Map(windowCards.map((card) => [card.key, card])) : null),
+    [windowCards],
+  );
+  /** The shell's List door ({@code MapListContext}); null with no shell, which draws no List control. */
+  const mapList = useMapList();
 
   // ── Ask PhotoCast (F3, docs/engineering/ask-photocast-plan.md §2.7) ─────────────────────────────
   // This pane is a descendant of `AskProvider` (the shell's tree) and `MapView` is the pane's own
@@ -966,6 +978,8 @@ export default function WindowFirstMapPane({
         panelShown={panelShown}
         outcomeRatings={rewound ? null : outcomeRatings}
         ratedCounts={ratedCounts}
+        windowCardsByKey={windowCardsByKey}
+        onOpenList={mapList?.openList ?? null}
       />
     </div>
   );
