@@ -13,6 +13,7 @@ import {
   browseEmptyLine,
   browseSpots,
   hasRatings,
+  browseFloorById,
   ratingFloorById,
   spotTypes,
   typeOptionsFor,
@@ -201,8 +202,8 @@ export default function WindowSpotSheet({
   // page behind the dialog is hiding. That is the same statement about the same dialog, and marking
   // only one of the two ways to reach it would leave the other silent.
   const barLimit = tierById(barTierId)?.limitMinutes ?? null;
-  const barFloor = ratingFloorById(barFloorId)?.min ?? null;
-  const floorMin = ratingFloorById(ratingFloorId)?.min ?? null;
+  const barFloor = browseFloorById(barFloorId)?.min ?? null;
+  const floorMin = browseFloorById(ratingFloorId)?.min ?? null;
   const widened = (limitMinutes ?? Infinity) > (barLimit ?? Infinity)
     || (floorMin ?? 0) < (barFloor ?? 0);
   const note = persistenceNote({

@@ -102,18 +102,21 @@ describe('sortBestFirst', () => {
       expect(ranked.map((r) => r.name)).toEqual(['C', 'A', 'B']);
     });
 
-    it('keeps the score and withholds the counts for a region the reader holds no pick in', () => {
+    it('marks a region the reader holds no pick in as outside, with no ceiling and no counts, as the drilldown does', () => {
       const [row] = sortBestFirst([jump('B', { bestRating: 3 })], [
-        shaped('B', { hasPicks: false, bestRating: null }),
+        shaped('B', { hasPicks: false, bestRating: null, outsideCount: 4 }),
       ]);
-      expect(row.bestRating).toBe(3);
-      expect(row.showCounts).toBe(false);
+      expect(row).toMatchObject({
+        bestRating: null, showCounts: false, outside: true, outsideCount: 4, verdictLabel: 'Worth it',
+      });
     });
 
     it('takes the picked region\'s served ceiling and counts', () => {
       const [row] = sortBestFirst([jump('A', { bestRating: 1 })], [shaped('A', { bestRating: 4 })]);
       expect(row.bestRating).toBe(4);
       expect(row.showCounts).toBe(true);
+      expect(row.outside).toBe(false);
+      expect(row.outsideCount).toBe(0);
     });
   });
 });

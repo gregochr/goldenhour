@@ -13,7 +13,7 @@
 import { vi } from 'vitest';
 
 const kit = vi.hoisted(() => {
-  const state = { role: 'PRO_USER', isMobile: false };
+  const state = { role: 'PRO_USER', isMobile: false, realSheets: false };
   const settled = (value) => vi.fn().mockResolvedValue(value);
   const nothing = () => ({ default: () => null });
   const viewport = { pad: () => ({ contains: () => true }) };
@@ -88,7 +88,9 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 vi.mock('react-leaflet', kit.reactLeaflet);
 vi.mock('../components/MapHeatLayer.jsx', kit.blankComponent);
 vi.mock('../components/map/MapLabels.jsx', kit.blankComponent);
-vi.mock('../components/BottomSheet.jsx', kit.passThrough);
+// `realSheets` is read when `BottomSheet` is first imported: a test that wants the real sheet sets it before it
+// dynamically imports `MapView` (see `MapViewRealSheets.test.jsx`). Every other test gets the passthrough.
+vi.mock('../components/BottomSheet.jsx', async (importOriginal) => (kit.state.realSheets ? importOriginal() : kit.passThrough()));
 vi.mock('../components/InfoTip.jsx', kit.nothing);
 vi.mock('../components/AuroraViewlineOverlay.jsx', kit.nothing);
 vi.mock('../context/AuthContext.jsx', kit.auth);

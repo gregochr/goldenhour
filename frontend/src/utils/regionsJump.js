@@ -201,7 +201,8 @@ export function buildJumpRows({ spots, driveMap, bestRatingFor }) {
  * rank by; its rows arrive pick-first already and keep that order. A region whose sample failed the verdict gate
  * ({@code UNRATED}, "Too few rated") is not verdict-eligible, so it sorts after every rated one and is never called
  * Poor. A region with no panel row (out of the reader's scope, or canopy-filtered) keeps its drive position after the
- * ranked ones, with the score it already carried and no verdict word.
+ * ranked ones, with the score it already carried and no verdict word. A shaped region with none of the reader's picks is
+ * marked {@code outside} and carries no ceiling, as in the drilldown.
  *
  * <p>With no panel rows (a night, an unserved window, the menu closed) the input comes back untouched, so a night's
  * order is today's.
@@ -232,11 +233,14 @@ export function sortBestFirst(jumpRows, panelRows) {
         ...row,
         tier: p.tier,
         verdictLabel: p.verdictLabel,
-        // A shaped region the reader holds no pick in keeps the score it had: its panel ceiling is withheld.
-        bestRating: own ? p.bestRating : row.bestRating,
+        // The drilldown's own treatment of a shaped region the reader holds no pick in: the verdict word, "Outside your
+        // sub-regions" for the count, and a Pro pill for the ceiling (its served `bestRating` is withheld).
+        bestRating: own ? p.bestRating : null,
         atFourPlus: p.atFourPlus,
         placeCount: p.placeCount,
         showCounts: own && p.placeCount > 0,
+        outside: !own,
+        outsideCount: p.outsideCount ?? 0,
       };
     }),
     ...rest,

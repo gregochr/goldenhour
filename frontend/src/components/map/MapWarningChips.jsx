@@ -65,7 +65,8 @@ function useMapWarnings({
  * @param {?object} [props.slotIndex] the callout's briefing-slot index (a place's own instant when it has no row)
  * @param {?object} [props.scoreIndex] the callout's score-row index (the last instant source)
  * @param {?string} [props.openId] the warning whose full text is open ({@link MapWarningPanel})
- * @param {?Function} [props.onToggle] opens or closes one warning's full text; withheld, no button is drawn
+ * @param {?Function} [props.onToggle] opens or closes one warning's full text, given the warning id and the pressed button
+ *        (so focus can return to it); withheld, no button is drawn
  */
 export default function MapWarningChips({
   event = null, locations = [], slotIndex = null, scoreIndex = null, openId = null, onToggle = null,
@@ -96,11 +97,11 @@ export default function MapWarningChips({
                 <button
                   type="button"
                   data-testid="map-warning-toggle"
-                  className="rounded border border-plex-border-light px-1.5 py-0.5 font-mono text-[10px] text-plex-text-secondary hover:text-plex-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plex-gold"
+                  className="min-h-[32px] min-w-[44px] rounded border border-plex-border-light px-2 py-1 font-mono text-[10px] text-plex-text-secondary max-sm:min-h-[44px] hover:text-plex-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plex-gold"
                   aria-expanded={open}
                   aria-controls={open ? MAP_WARNING_PANEL_ID : undefined}
                   aria-label={`${open ? 'Hide' : 'Show'} details of ${name}`}
-                  onClick={() => onToggle(warning.warningId)}
+                  onClick={(event) => onToggle(warning.warningId, event.currentTarget)}
                 >
                   {open ? 'Hide' : 'Details'}
                 </button>
@@ -146,7 +147,7 @@ MapWarningChips.propTypes = {
 
 /**
  * One warning in full, for the Map (glance-to-map-plan.md G1): a capped panel hung under the chrome group at the
- * frame level (the window panel's own placement and z-index), or on a phone a non-modal bottom sheet. It reads the
+ * frame level (the window panel's own placement and z-index), or on a phone a bottom sheet (not `aria-modal`, but with the sheet's scrim). It reads the
  * same polled list as the chips and finds the open warning in it, so a warning the next poll withdraws simply closes
  * it. Prints nothing off a solar window, while the feature is off, or for an id that is no longer in force.
  *
@@ -175,17 +176,19 @@ export function MapWarningPanel({
       aria-label="Met Office weather warning in full"
       className="flex flex-col gap-2"
     >
-      <WindowWarningsBody warnings={[warning]} />
+      <WindowWarningsBody warnings={[warning]} showFooter={false} />
     </div>
   );
   if (isMobile) {
+    // `modal={false}`: no `aria-modal`, so the sheet is not a foreign modal to the Map's Escape rules. It still draws
+    // the sheet's scrim, and a tap on the map closes it (BottomSheet's own backdrop). No `closeOnEscape`: the pane's one
+    // Escape rung closes this panel (a portal's key events bubble to the pane through React), so one press is one layer.
     return (
       <BottomSheet
         open
         onClose={onClose}
         label="Met Office weather warning"
         modal={false}
-        closeOnEscape
         reserveCloseStrip
       >
         {body}

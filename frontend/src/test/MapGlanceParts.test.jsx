@@ -10,7 +10,7 @@ vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
 
 import { getWarnings } from '../api/warningsApi.js';
 import { WarningsProvider } from '../context/WarningsContext.jsx';
-import MapBestBetWhy from '../components/map/MapBestBetWhy.jsx';
+import MapBestBetWhy, { MapBestBetPanel } from '../components/map/MapBestBetWhy.jsx';
 import MapWarningChips, { MapWarningPanel } from '../components/map/MapWarningChips.jsx';
 import RegionsJump from '../components/map/RegionsJump.jsx';
 import WindowSpotSheet from '../components/WindowSpotSheet.jsx';
@@ -39,34 +39,55 @@ const RED = warning({
 
 describe('MapBestBetWhy', () => {
   it.each([null, undefined, { kind: 'best', headline: '' }])('prints nothing for %j', (pick) => {
-    const { container } = render(<MapBestBetWhy pick={pick} />);
+    const { container } = render(<MapBestBetWhy pick={pick} onToggle={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();
+    const panel = render(<MapBestBetPanel pick={pick} onClose={vi.fn()} />);
+    expect(panel.container).toBeEmptyDOMElement();
   });
 
-  it('says "Also good" for an also pick and draws only the parts it was served', () => {
-    render(<MapBestBetWhy pick={{ kind: 'also', headline: 'Fine too.' }} />);
+  it('is the trigger only: it reports its own button and says "Also good" for an also pick', () => {
+    const onToggle = vi.fn();
+    render(<MapBestBetWhy pick={{ kind: 'also', headline: 'Fine too.' }} onToggle={onToggle} />);
     const pill = screen.getByTestId('map-best-bet-why');
     expect(pill).toHaveTextContent('Also good · why');
+    expect(pill).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(pill);
+    expect(onToggle).toHaveBeenCalledWith(pill);
+    expect(screen.queryByTestId('map-best-bet-body')).toBeNull();
+  });
+
+  it('names its panel only while open', () => {
+    render(<MapBestBetWhy pick={{ kind: 'best', headline: 'H' }} open onToggle={vi.fn()} />);
+    expect(screen.getByTestId('map-best-bet-why')).toHaveAttribute('aria-controls', 'wf-map-best-bet-panel');
+    expect(screen.getByTestId('map-best-bet-why')).toHaveTextContent('Best bet · why');
+  });
+
+  it('the panel draws only the parts it was served', () => {
+    render(<MapBestBetPanel pick={{ kind: 'also', headline: 'Fine too.' }} onClose={vi.fn()} />);
     expect(screen.getByTestId('map-best-bet-headline')).toHaveTextContent('Fine too.');
     expect(screen.queryByTestId('map-best-bet-detail')).toBeNull();
     expect(screen.queryByTestId('map-best-bet-region')).toBeNull();
     expect(screen.queryByTestId('map-best-bet-location')).toBeNull();
   });
 
-  it('draws the region, headline, detail and place of a best pick, and no star', () => {
+  it('the panel draws the region, headline, detail and place of a best pick, and no star, and closes', () => {
+    const onClose = vi.fn();
     render(
-      <MapBestBetWhy
+      <MapBestBetPanel
         pick={{
           kind: 'best', regionName: 'The Lakes', headline: 'H', detail: 'D', locationName: 'Wastwater',
         }}
+        onClose={onClose}
       />,
     );
-    fireEvent.click(screen.getByTestId('map-best-bet-why'));
     expect(screen.getByTestId('map-best-bet-region')).toHaveTextContent('The Lakes');
     expect(screen.getByTestId('map-best-bet-detail')).toHaveTextContent('D');
     expect(screen.getByTestId('map-best-bet-location')).toHaveTextContent('Wastwater');
-    expect(screen.getByTestId('map-best-bet-body').textContent).not.toMatch(/★/);
+    const text = screen.getByTestId('map-best-bet-body').textContent;
+    expect(text).toMatch(/The Lakes.*H.*D.*Wastwater/);
+    expect(text).not.toMatch(/★/);
+    fireEvent.click(screen.getByTestId('map-best-bet-close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -104,7 +125,7 @@ describe('the warning expand', () => {
     expect(toggles[1]).toHaveAttribute('aria-expanded', 'false');
     expect(toggles[1]).not.toHaveAttribute('aria-controls');
     fireEvent.click(toggles[1]);
-    expect(onToggle).toHaveBeenCalledWith('y');
+    expect(onToggle).toHaveBeenCalledWith('y', toggles[1]);
     screen.getAllByTestId('warning-chip').forEach((chip) => expect(chip.tagName).toBe('A'));
   });
 
@@ -131,7 +152,8 @@ describe('the warning expand', () => {
       <MapWarningPanel event={EVENT} locations={LOCATIONS} openId="y" onClose={vi.fn()} />,
     );
     expect(screen.getByTestId('map-warning-panel')).toHaveTextContent('Wind headline');
-    expect(screen.getByTestId('warning-attribution')).toBeInTheDocument();
+    // The chips beside it print the attribution; the panel does not print it a second time.
+    expect(screen.queryByTestId('warning-attribution')).toBeNull();
   });
 
   it.each([
@@ -171,6 +193,12 @@ describe('the warning expand', () => {
     expect(screen.getAllByTestId('window-warning')).toHaveLength(2);
     expect(screen.getByTestId('window-warning-advice-link')).toBeInTheDocument();
     expect(screen.getByTestId('warning-attribution')).toBeInTheDocument();
+  });
+
+  it('WindowWarningsBody can leave its footer to a surface that draws one', async () => {
+    await mount(response([YELLOW]), <WindowWarningsBody warnings={[YELLOW]} showFooter={false} />);
+    expect(screen.getByTestId('window-warning')).toBeInTheDocument();
+    expect(screen.queryByTestId('warning-attribution')).toBeNull();
   });
 
   it('WindowWarningsBody with no warning draws no advice link and no attribution, only the stale admission', async () => {
@@ -220,16 +248,34 @@ describe('RegionsJump rows', () => {
           {
             name: 'Far', driveMinutes: 300, beyondArea: true, bestRating: 2,
           },
+          {
+            name: 'Elsewhere',
+            driveMinutes: 90,
+            beyondArea: false,
+            bestRating: null,
+            tier: 'MAYBE',
+            verdictLabel: 'Maybe',
+            atFourPlus: 0,
+            placeCount: 0,
+            showCounts: false,
+            outside: true,
+            outsideCount: 3,
+          },
         ]}
       />,
     );
-    const [lakes, thin, far] = screen.getAllByTestId('wf-jump-row');
+    const [lakes, thin, far, elsewhere] = screen.getAllByTestId('wf-jump-row');
     expect(lakes).toHaveTextContent('Worth it');
     expect(lakes).toHaveTextContent('2 of 5 at 4★+');
     expect(lakes.textContent).not.toMatch(/in reach/i);
     expect(thin).toHaveTextContent('Too few rated');
     expect(thin.querySelector('[data-testid="wf-jump-count"]')).toBeNull();
     expect(far.querySelector('[data-testid="wf-jump-sub"]')).toBeNull();
+    // A shaped region with none of the reader's picks says what the drilldown says: the word, the outside count, Pro.
+    expect(elsewhere).toHaveTextContent('Maybe');
+    expect(elsewhere).toHaveTextContent('Outside your sub-regions · 3 places');
+    expect(elsewhere.querySelector('[data-testid="wf-jump-pro"]')).not.toBeNull();
+    expect(elsewhere.querySelector('[data-testid="wf-jump-count"]')).toBeNull();
   });
 });
 

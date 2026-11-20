@@ -6977,7 +6977,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 /* One Met Office warning in full on the Map (glance-to-map-plan.md G1): hung UNDER the top-left chrome group at the frame
    level, exactly where `.wf-win-panel` hangs, never inside the group (its height would re-place the map's labels and
    break the 504px label-obstacle bound). Capped, and it scrolls: a warning's full text is long. */
-.wf-warn-panel {
+.wf-warn-panel,
+.wf-bestbet-panel {
   position: absolute;
   top: calc(var(--wf-chrome-tl-h, 36px) + 14px);
   left: 60px;
@@ -6997,7 +6998,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-warn-panel-x {
   float: right;
   margin: 0 0 4px 8px;
-  padding: 2px 6px;
+  min-width: 44px;
+  min-height: 32px;
+  padding: 2px 8px;
   font-size: 10px;
   color: var(--color-plex-text-secondary);
   background: transparent;
@@ -9036,8 +9039,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-jump-chip { min-height: 40px; }
 }
 /* The Map's "Best bet · why" pill and its body (glance-to-map-plan.md G1): a row of its own under the window control,
-   inside the top-left group so it shares the control's width bound. The body is capped and scrolls, so a long gloss
-   can never push the group taller than the frame allows. */
+   inside the top-left group so it shares the control's width bound. Its reason is a frame-level panel hung under the group (`.wf-bestbet-panel`, sharing `.wf-warn-panel`'s placement), never inside
+   the group, so opening it cannot change `--wf-chrome-tl-h`. */
 .wf-bestbet-pill {
   display: inline-flex;
   align-items: center;
@@ -9054,17 +9057,15 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 .wf-bestbet-pill:hover { color: var(--color-plex-text); }
 .wf-bestbet-pill:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 1px; }
-.wf-bestbet-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 100%;
-  max-height: 168px;
-  overflow-y: auto;
-  padding: 8px 10px;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 10px;
-  background: var(--color-plex-panel);
+@media (max-width: 639px) {
+  .wf-bestbet-pill { min-height: 44px; }
+  /* The reason panel on a phone spans the frame under the group, as the window panel does. */
+  .wf-bestbet-panel {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+  }
 }
 /* The Map's "List" button (glance-to-map-plan.md G1): the Regions chip's own pill, so the two sit as one cluster. */
 .wf-list-chip {

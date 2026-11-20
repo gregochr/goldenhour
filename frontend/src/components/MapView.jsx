@@ -75,8 +75,10 @@ import { scopePoolWithinReach } from '../utils/mapReach.js';
 import { ANY_TIER_ID, reachIsMeasured, tierById } from '../utils/reachLens.js';
 import { heatSpotKey } from '../utils/heatSpots.js';
 import { windowKey } from '../utils/windowKeys.js';
-import { RATING_FLOORS, ANY_RATING_ID } from '../utils/ratingLens.js';
-import MapBestBetWhy from './map/MapBestBetWhy.jsx';
+import { ANY_TYPE_ID, browseSpots } from '../utils/windowSpotBrowse.js';
+import { placesOf } from '../utils/windowFirstSpots.js';
+import { listUnavailableReason } from '../utils/mapListReason.js';
+import MapBestBetWhy, { MapBestBetPanel } from './map/MapBestBetWhy.jsx';
 import {
   GATED_STATE, hasRatedState, isGatedIn, isOutsidePicks, splitGround,
 } from '../utils/pickScope.js';
@@ -1684,14 +1686,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [openMapMenu, setOpenMapMenu] = useState(null);
   /**
-   * The Met Office warning whose full text is open (glance-to-map-plan.md G1), by its served id. Exclusive with every
-   * menu in {@code openMapMenu}: opening a menu lets it go (the render-time adjustment below) and opening it closes the menu, so one
-   * Escape takes exactly one layer. A warning the next poll withdraws simply stops matching and the panel prints nothing.
+   * The two "why" panels hung under the top-left group (glance-to-map-plan.md G1): the Met Office warning whose full
+   * text is open (by its served id) and the Best bet reason (by the window card's key, so it closes when the window
+   * moves). Exclusive with each other and with every menu in {@code openMapMenu}: opening one closes the rest, and a
+   * menu opening lets them go (the render-time adjustment below), so one Escape takes exactly one layer. A warning the
+   * next poll withdraws simply stops matching and its panel prints nothing. The openers are kept so a close can hand
+   * focus back to the button that opened the panel.
    */
   const [openWarningId, setOpenWarningId] = useState(null);
-  if (openMapMenu != null && openWarningId != null) setOpenWarningId(null);
-  const toggleWarning = useCallback((id) => {
+  const [bestBetKey, setBestBetKey] = useState(null);
+  const warningOpenerRef = useRef(null);
+  const bestBetOpenerRef = useRef(null);
+  if (openMapMenu != null && (openWarningId != null || bestBetKey != null)) {
+    setOpenWarningId(null);
+    setBestBetKey(null);
+  }
+  const toggleWarning = useCallback((id, opener) => {
     setOpenMapMenu(null);
+    setBestBetKey(null);
+    warningOpenerRef.current = opener ?? null;
     setOpenWarningId((cur) => (cur === id ? null : id));
   }, []);
   /**
@@ -5589,13 +5602,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     && activeMapEvent.served !== false
     ? (windowCardsByKey?.get(windowKey(activeMapEvent.date, activeMapEvent.eventType)) ?? null)
     : null;
-  /** Why there is no list for this window, said where the button is. Null when there is one. */
-  function listUnavailableReason() {
-    if (selectedCard) return null;
-    if (!activeMapEvent) return 'No window is selected';
-    if (activeMapEvent.past) return 'A past window has no spot list';
-    if (activeMapEvent.kind !== EVENT_KIND.SOLAR) return 'A night has no spot list';
-    return 'There is no spot list for this window';
+  /** Whether the Best bet reason is open: for the window on screen only, and only while it has a pick to give. */
+  const bestBetShown = selectedCard != null && bestBetKey === selectedCard.key && Boolean(selectedCard.pick?.headline);
+  /**
+   * Hands focus back to the button that opened a panel when the panel closes with focus inside it or lost to the page
+   * (the Close button unmounts with the panel, which would drop focus to {@code <body>}); leaves it where it is when
+   * the reader has moved on to something else (a menu chip pressed, the map itself). A button that is gone gets none.
+   */
+  function restoreFocusTo(opener) {
+    const active = document.activeElement;
+    const lost = !active || active === document.body || Boolean(active.closest?.('.wf-warn-panel, .wf-bestbet-panel'));
+    if (lost && opener?.isConnected) opener.focus({ preventScroll: true });
+  }
+  function closeWarning() {
+    const opener = warningOpenerRef.current;
+    setOpenWarningId(null);
+    restoreFocusTo(opener);
+  }
+  function closeBestBet() {
+    const opener = bestBetOpenerRef.current;
+    setBestBetKey(null);
+    restoreFocusTo(opener);
+  }
+  function toggleBestBet(opener) {
+    if (!selectedCard) return;
+    setOpenMapMenu(null);
+    setOpenWarningId(null);
+    bestBetOpenerRef.current = opener ?? null;
+    setBestBetKey((cur) => (cur === selectedCard.key ? null : selectedCard.key));
   }
   /**
    * The places the Map holds in scope, as {@code heatSpotKey}s: the scope segment, the door's or Find's named-spot lens,
@@ -5615,34 +5649,48 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
     return keys;
   }
-  /** How many of the card's spots the list would hold before any floor or tier: the phone row's "See all N". */
+  /** The Map's drive tier as the sheet's tier id: the effective tier, Any where it is not applied. */
+  const mapListTierId = () => (effectiveDriveTimeFilter > 0 ? String(effectiveDriveTimeFilter) : ANY_TIER_ID);
+  /**
+   * How many places the list shows first: the card's spots in the Map's scope, at the Map's own rating floor and drive
+   * tier (the very call the sheet opens with), so the phone row's "See all N" is the number the list then prints.
+   */
   function mapListSpotCount() {
     if (!selectedCard) return 0;
     const keys = mapListScopeKeys();
-    return (selectedCard.allSpots || []).filter((spot) => keys.has(
+    const inScope = (selectedCard.allSpots || []).filter((spot) => keys.has(
       heatSpotKey({ id: spot.locationId, name: spot.locationName }),
-    )).length;
+    ));
+    return placesOf(browseSpots({
+      spots: inScope,
+      limitMinutes: tierById(mapListTierId())?.limitMinutes ?? null,
+      ratingFloorId: String(minStars),
+      typeId: ANY_TYPE_ID,
+      typesByName: null,
+      measured: Boolean(selectedCard.reachMeasured),
+    })).length;
   }
   /**
    * Opens the shell's ranked list for the window on screen. Stands down while a dialog from outside this pane is over
    * it (the one predicate every Map dismissal rule reads), and the shell refuses it over any other layer, which is the
-   * depth cap. On desktop and tablet it closes this pane's menus and warning panel; on a phone the Windows section
-   * stays open under the sheet so focus has a row to return to.
+   * depth cap. Desktop and tablet close this pane's menus and warning panel; the phone leaves its Windows section open
+   * under the sheet so focus has a row to return to.
    */
   function pressMapList() {
     if (!onOpenList || !selectedCard) return;
     if (foreignModalOver(mapPaneRef.current)) return;
-    const floor = RATING_FLOORS.find((f) => f.min === minStars) ?? RATING_FLOORS.find((f) => f.id === ANY_RATING_ID);
     const opened = onOpenList({
       key: selectedCard.key,
       spotKeys: mapListScopeKeys(),
-      floorId: floor.id,
-      tierId: effectiveDriveTimeFilter > 0 ? String(effectiveDriveTimeFilter) : ANY_TIER_ID,
+      // The Map's minimum is 1 to 5 stars, passed exactly: the sheet resolves '1' and '2' as well as its own steps.
+      floorId: String(minStars),
+      tierId: mapListTierId(),
       onPick: (spot) => selectMapLocation(askPlaceName(spot.locationId, spot.locationName)),
     });
     if (opened && !isMobile) {
       setOpenMapMenu(null);
       setOpenWarningId(null);
+      setBestBetKey(null);
     }
   }
 
@@ -6913,7 +6961,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       return;
     }
     if (openWarningId != null) {
-      setOpenWarningId(null);
+      closeWarning();
+      return;
+    }
+    if (bestBetShown) {
+      closeBestBet();
       return;
     }
     if (openMapMenu != null) {
@@ -7418,8 +7470,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         <div ref={chromeTlRef} className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
           {windowControl}
           {/* "Best bet · why" (glance-to-map-plan.md G1): a row of its own, outside the control's flex row. The window
-              card's served pick, nothing when it has none; keyed on the window so it closes when the window moves. */}
-          <MapBestBetWhy key={selectedCard?.key ?? 'none'} pick={selectedCard?.pick ?? null} />
+              card's served pick, nothing when it has none. Only the pill lives in the group; its reason is the panel below. */}
+          <MapBestBetWhy pick={selectedCard?.pick ?? null} open={bestBetShown} onToggle={toggleBestBet} />
           {/* The big-seas line (big-seas plan F1): its own row under the control, inside the
               group so it shares the control's 504px bound and the label obstacle. All roles. */}
           <BigSeasLine
@@ -7515,13 +7567,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           "night" answer. */}
         {/* One warning in full (glance-to-map-plan.md G1): a frame-level sibling of the chrome, never inside the
             group (its height would re-place the labels), and on a phone a non-modal bottom sheet. */}
+        {bestBetShown && <MapBestBetPanel pick={selectedCard.pick} onClose={closeBestBet} />}
         <MapWarningPanel
           event={activeMapEvent}
           locations={locations}
           slotIndex={slotIndex}
           scoreIndex={scoreIndex}
           openId={openWarningId}
-          onClose={() => setOpenWarningId(null)}
+          onClose={closeWarning}
           isMobile={isMobile}
         />
 
@@ -7604,7 +7657,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           {/* The ranked spot list for this window (glance-to-map-plan.md G1), the shell's own dialog. Drawn only with a
               shell to open it; greyed (aria-disabled, never a dead hover) with the reason said where no card exists. */}
           {onOpenList && (() => {
-            const reason = listUnavailableReason();
+            const reason = listUnavailableReason(activeMapEvent, selectedCard);
             return (
               <>
                 <button

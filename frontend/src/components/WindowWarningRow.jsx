@@ -113,8 +113,10 @@ export function WarningAdviceLink() {
  * @param {object} props
  * @param {object[]} props.warnings the served warnings to show in full, in the style guide's order
  * @param {object[]} [props.counts] the card's {@code warningPlaceCounts}, when the surface has a card
+ * @param {boolean} [props.showFooter] false where the surface already draws the footer beside the warning (the Map's
+ *        chips do), so the attribution is printed once
  */
-export function WindowWarningsBody({ warnings, counts = null }) {
+export function WindowWarningsBody({ warnings, counts = null, showFooter = true }) {
   const served = useWarnings();
   const showAttribution = warnings.length > 0;
   return (
@@ -123,13 +125,15 @@ export function WindowWarningsBody({ warnings, counts = null }) {
         <WarningDetail key={warning.warningId} warning={warning} counts={counts} />
       ))}
       {showAttribution && <WarningAdviceLink />}
-      <WarningFooter
-        showAttribution={showAttribution}
-        stale={served.stale}
-        lastCheckedAt={served.lastCheckedAt}
-        attribution={served.attribution}
-        href={served.metOfficeUrl}
-      />
+      {showFooter && (
+        <WarningFooter
+          showAttribution={showAttribution}
+          stale={served.stale}
+          lastCheckedAt={served.lastCheckedAt}
+          attribution={served.attribution}
+          href={served.metOfficeUrl}
+        />
+      )}
     </>
   );
 }
@@ -137,6 +141,7 @@ export function WindowWarningsBody({ warnings, counts = null }) {
 WindowWarningsBody.propTypes = {
   warnings: PropTypes.arrayOf(PropTypes.object).isRequired,
   counts: PropTypes.arrayOf(PropTypes.object),
+  showFooter: PropTypes.bool,
 };
 
 /**
