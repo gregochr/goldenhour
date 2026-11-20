@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import MapInfoPanel from './MapInfoPanel.jsx';
 
 /** The id the pill's {@code aria-controls} names, on {@link MapBestBetPanel}'s root. */
 export const MAP_BEST_BET_PANEL_ID = 'wf-map-best-bet-panel';
@@ -73,10 +74,12 @@ MapBestBetWhy.propTypes = {
 export function MapBestBetPanel({ pick = null, onClose }) {
   if (!pick || !pick.headline) return null;
   return (
-    <div className="wf-bestbet-panel" data-testid="map-best-bet-body-host">
-      <button type="button" data-testid="map-best-bet-close" className="wf-warn-panel-x font-mono" onClick={onClose}>
-        Close
-      </button>
+    <MapInfoPanel
+      className="wf-bestbet-panel"
+      hostTestId="map-best-bet-body-host"
+      closeTestId="map-best-bet-close"
+      onClose={onClose}
+    >
       <div id={MAP_BEST_BET_PANEL_ID} data-testid="map-best-bet-body" className="flex flex-col gap-1">
         {pick.regionName && (
           <p data-testid="map-best-bet-region" className="font-mono text-[10px] uppercase tracking-wider text-plex-text-secondary">
@@ -97,7 +100,7 @@ export function MapBestBetPanel({ pick = null, onClose }) {
           </p>
         )}
       </div>
-    </div>
+    </MapInfoPanel>
   );
 }
 

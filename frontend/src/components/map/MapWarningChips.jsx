@@ -3,7 +3,8 @@ import PropTypes from 'prop-types';
 import { useWarnings } from '../../context/WarningsContext.jsx';
 import { warningLabel, warningsForMapWindow } from '../../utils/warnings.js';
 import WarningStrip from '../WarningStrip.jsx';
-import WarningChip, { WarningFooter } from '../WarningChip.jsx';
+import WarningChip, { ServedWarningFooter } from '../WarningChip.jsx';
+import MapInfoPanel from './MapInfoPanel.jsx';
 import { WindowWarningsBody } from '../WindowWarningRow.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 
@@ -118,13 +119,7 @@ export default function MapWarningChips({
           );
         })}
       </div>
-      <WarningFooter
-        showAttribution
-        stale={served.stale}
-        lastCheckedAt={served.lastCheckedAt}
-        attribution={served.attribution}
-        href={served.metOfficeUrl}
-      />
+      <ServedWarningFooter showAttribution />
     </div>
   );
   return (
@@ -199,17 +194,14 @@ export function MapWarningPanel({
     );
   }
   return (
-    <div className="wf-warn-panel" data-testid="map-warning-panel-host">
-      <button
-        type="button"
-        data-testid="map-warning-panel-close"
-        className="wf-warn-panel-x font-mono"
-        onClick={onClose}
-      >
-        Close
-      </button>
+    <MapInfoPanel
+      className="wf-warn-panel"
+      hostTestId="map-warning-panel-host"
+      closeTestId="map-warning-panel-close"
+      onClose={onClose}
+    >
       {body}
-    </div>
+    </MapInfoPanel>
   );
 }
 

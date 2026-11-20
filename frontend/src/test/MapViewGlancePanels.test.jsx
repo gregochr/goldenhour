@@ -8,36 +8,20 @@
  * and drops focus to the page; one Escape closes two layers; the attribution prints twice; the Regions menu ranks a
  * region the drilldown ranks differently, or says "in reach" of a count that is not about reach.
  */
-import React from 'react';
 import {
-  describe, it, expect, vi, beforeEach, afterEach,
+  describe, it, expect, beforeEach,
 } from 'vitest';
 import {
   act, screen, fireEvent, within,
 } from '@testing-library/react';
-import {
-  mapViewState, renderGlanceMap, resetGlanceMap, restoreGlanceClock,
-} from './mapViewGlanceHarness.jsx';
-
-vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
-vi.mock('../components/map/MapCallout.jsx', () => ({
-  default: ({ location }) => <b data-testid="probe-callout-name">{location?.name}</b>,
-}));
-
-import MapView from '../components/MapView.jsx';
+import { mapViewState } from './mapViewMocks.jsx';
+import { installGlanceHooks } from './mapViewGlanceHarness.jsx';
 import { windowKey } from '../utils/windowKeys.js';
 import { TODAY, PICK, CARD, cardsByKey } from './mapViewGlanceFixtures.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { METOFFICE_URL } from './warningsFixture.js';
 
-let onOpenList;
-const renderMap = (props) => renderGlanceMap(MapView, onOpenList, props);
-
-beforeEach(() => {
-  resetGlanceMap();
-  onOpenList = vi.fn(() => true);
-});
-afterEach(restoreGlanceClock);
+const { door, renderMap } = installGlanceHooks();
 
 describe('the Map\'s Best bet · why', () => {
   it('draws nothing without a pick, for a Lite reader or an away origin the server scoped out', async () => {
@@ -176,7 +160,7 @@ describe('the Map warning expand', () => {
   it('closes before the callout on Escape: one press takes exactly one layer', async () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('map-list-button'));
-    await act(async () => { onOpenList.mock.calls[0][0].onPick({ locationId: 3, locationName: 'Wastwater' }); });
+    await act(async () => { door.onOpenList.mock.calls[0][0].onPick({ locationId: 3, locationName: 'Wastwater' }); });
     expect(await screen.findByTestId('probe-callout-name')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('map-warning-toggle'));
     fireEvent.keyDown(screen.getByTestId('wf-map-pane'), { key: 'Escape' });
@@ -243,7 +227,7 @@ describe('a Lite reader', () => {
   it('gets the List, the warning expand and the ranked Regions menu as a Pro reader does', async () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('map-list-button'));
-    expect(onOpenList).toHaveBeenCalledTimes(1);
+    expect(door.onOpenList).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId('map-warning-toggle'));
     expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('wf-jump-chip'));

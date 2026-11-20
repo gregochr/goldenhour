@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { useWarnings } from '../context/WarningsContext.jsx';
 import { placeCountLines, validityText, warningsForCard } from '../utils/warnings.js';
-import WarningChip, { WarningFooter } from './WarningChip.jsx';
+import WarningChip, { ServedWarningFooter } from './WarningChip.jsx';
 import WarningMatrix from './WarningMatrix.jsx';
 
 /** The Met Office's own advice page, the only target the style guide allows for the optional link. */
@@ -117,7 +117,6 @@ export function WarningAdviceLink() {
  *        chips do), so the attribution is printed once
  */
 export function WindowWarningsBody({ warnings, counts = null, showFooter = true }) {
-  const served = useWarnings();
   const showAttribution = warnings.length > 0;
   return (
     <>
@@ -125,15 +124,7 @@ export function WindowWarningsBody({ warnings, counts = null, showFooter = true 
         <WarningDetail key={warning.warningId} warning={warning} counts={counts} />
       ))}
       {showAttribution && <WarningAdviceLink />}
-      {showFooter && (
-        <WarningFooter
-          showAttribution={showAttribution}
-          stale={served.stale}
-          lastCheckedAt={served.lastCheckedAt}
-          attribution={served.attribution}
-          href={served.metOfficeUrl}
-        />
-      )}
+      {showFooter && <ServedWarningFooter showAttribution={showAttribution} />}
     </>
   );
 }

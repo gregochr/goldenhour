@@ -8,39 +8,23 @@
  * a window the server gave no pick, or a warning's chip stops being a Met Office link; the Regions menu ranks a region
  * the drilldown ranks differently, or says "in reach" of a count that is not about reach.
  */
-import React from 'react';
 import {
-  describe, it, expect, vi, beforeEach, afterEach,
+  describe, it, expect, afterEach,
 } from 'vitest';
 import {
   act, screen, fireEvent, within,
 } from '@testing-library/react';
-import {
-  mapViewState, renderGlanceMap, resetGlanceMap, restoreGlanceClock,
-} from './mapViewGlanceHarness.jsx';
-
-vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
-vi.mock('../components/map/MapCallout.jsx', () => ({
-  default: ({ location }) => <b data-testid="probe-callout-name">{location?.name}</b>,
-}));
-
-import MapView from '../components/MapView.jsx';
+import { mapViewState } from './mapViewMocks.jsx';
+import { installGlanceHooks } from './mapViewGlanceHarness.jsx';
 import { buildPastSolarWindows } from '../utils/mapEvents.js';
 import { LIST_REASON } from '../utils/mapListReason.js';
 import {
   TODAY, TOMORROW, SPOTS, SUNSET, CARD, heatProp, locations, rowOf, spotOf, cardsByKey,
 } from './mapViewGlanceFixtures.js';
 
-let onOpenList;
-const renderMap = (props) => renderGlanceMap(MapView, onOpenList, props);
-
-beforeEach(() => {
-  resetGlanceMap();
-  onOpenList = vi.fn(() => true);
-});
+const { door, renderMap } = installGlanceHooks();
 afterEach(() => {
   document.querySelectorAll('[data-test-foreign]').forEach((n) => n.remove());
-  restoreGlanceClock();
 });
 
 describe('the Map List', () => {
@@ -56,8 +40,8 @@ describe('the Map List', () => {
     expect(button).toHaveAttribute('aria-haspopup', 'dialog');
     expect(button).not.toHaveAttribute('aria-disabled');
     fireEvent.click(button);
-    expect(onOpenList).toHaveBeenCalledTimes(1);
-    const request = onOpenList.mock.calls[0][0];
+    expect(door.onOpenList).toHaveBeenCalledTimes(1);
+    const request = door.onOpenList.mock.calls[0][0];
     expect(request.key).toBe(SUNSET);
     // The Map's own floor (3★+ by default) and tier (Any with nothing measured), as the sheet's ids.
     expect(request.floorId).toBe('3');
@@ -68,7 +52,7 @@ describe('the Map List', () => {
     localStorage.setItem('mapFilterMinStars', String(stars));
     await renderMap();
     fireEvent.click(screen.getByTestId('map-list-button'));
-    expect(onOpenList.mock.calls[0][0].floorId).toBe(String(stars));
+    expect(door.onOpenList.mock.calls[0][0].floorId).toBe(String(stars));
   });
 
   it('hands over exactly the places the Map holds in scope, so the two counts agree', async () => {
@@ -77,7 +61,7 @@ describe('the Map List', () => {
     const shown = Number(footer.querySelector('b').textContent);
     const total = Number(/of (\d+) shown/.exec(footer.textContent)[1]);
     fireEvent.click(screen.getByTestId('map-list-button'));
-    const { spotKeys } = onOpenList.mock.calls[0][0];
+    const { spotKeys } = door.onOpenList.mock.calls[0][0];
     expect([...spotKeys].sort()).toEqual(['#1', '#2', '#3']);
     // The Map's "x of y shown" is over the same set (My area, three places).
     expect(spotKeys.size).toBe(total);
@@ -89,14 +73,14 @@ describe('the Map List', () => {
     fireEvent.click(screen.getByTestId('wf-filters-chip'));
     fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
     fireEvent.click(screen.getByTestId('map-list-button'));
-    expect([...onOpenList.mock.calls[0][0].spotKeys].sort()).toEqual(['#1', '#2', '#3', '#4']);
+    expect([...door.onOpenList.mock.calls[0][0].spotKeys].sort()).toEqual(['#1', '#2', '#3', '#4']);
   });
 
   it('closes the Map\'s open menu when it opens, and leaves it open when the shell refuses', async () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('wf-jump-chip'));
     expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
-    onOpenList.mockReturnValueOnce(false);
+    door.onOpenList.mockReturnValueOnce(false);
     fireEvent.click(screen.getByTestId('map-list-button'));
     expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('map-list-button'));
@@ -111,7 +95,7 @@ describe('the Map List', () => {
     foreign.setAttribute('data-test-foreign', '');
     document.body.appendChild(foreign);
     fireEvent.click(screen.getByTestId('map-list-button'));
-    expect(onOpenList).not.toHaveBeenCalled();
+    expect(door.onOpenList).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -124,7 +108,7 @@ describe('the Map List', () => {
     expect(button).toHaveAttribute('aria-describedby', 'wf-map-list-why');
     expect(screen.getByTestId('map-list-why')).toHaveTextContent(reason);
     fireEvent.click(button);
-    expect(onOpenList).not.toHaveBeenCalled();
+    expect(door.onOpenList).not.toHaveBeenCalled();
   });
 
   it('says why for a served window the shell holds no card for', async () => {
@@ -180,8 +164,8 @@ describe('the Map List', () => {
     const row = screen.getByTestId('wf-map-peek-list');
     expect(row).toHaveTextContent('See all 3 spots');
     fireEvent.click(row);
-    expect(onOpenList).toHaveBeenCalledTimes(1);
-    expect(onOpenList.mock.calls[0][0].key).toBe(SUNSET);
+    expect(door.onOpenList).toHaveBeenCalledTimes(1);
+    expect(door.onOpenList.mock.calls[0][0].key).toBe(SUNSET);
     expect(screen.getByTestId('wf-map-peek-windows')).toBeInTheDocument();
   });
 
@@ -214,7 +198,7 @@ describe('the Map List', () => {
   it('selects a place in place through the callback it hands over', async () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('map-list-button'));
-    const { onPick } = onOpenList.mock.calls[0][0];
+    const { onPick } = door.onOpenList.mock.calls[0][0];
     await act(async () => { onPick({ locationId: 3, locationName: 'Wastwater' }); });
     expect(await screen.findByTestId('probe-callout-name')).toHaveTextContent('Wastwater');
   });

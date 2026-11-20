@@ -9041,19 +9041,23 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 /* The Map's "Best bet · why" pill and its body (glance-to-map-plan.md G1): a row of its own under the window control,
    inside the top-left group so it shares the control's width bound. Its reason is a frame-level panel hung under the group (`.wf-bestbet-panel`, sharing `.wf-warn-panel`'s placement), never inside
    the group, so opening it cannot change `--wf-chrome-tl-h`. */
+.wf-bestbet-pill,
+.wf-list-chip {
+  display: flex;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+}
 .wf-bestbet-pill {
   display: inline-flex;
-  align-items: center;
   gap: 5px;
   min-height: 32px;
   padding: 3px 12px;
-  border: 1px solid var(--color-plex-border);
-  border-radius: 999px;
-  background: var(--color-plex-panel);
-  color: var(--color-plex-text-secondary);
   font-size: 11px;
   font-weight: 600;
-  cursor: pointer;
 }
 .wf-bestbet-pill:hover { color: var(--color-plex-text); }
 .wf-bestbet-pill:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 1px; }

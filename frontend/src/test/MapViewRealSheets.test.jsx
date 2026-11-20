@@ -3,33 +3,16 @@
  * as a passthrough, which cannot see what the real one does: it is not `aria-modal` here, it draws its scrim, and it
  * must not answer Escape a second time beside the pane's own rung.
  */
-import React from 'react';
 import {
-  describe, it, expect, vi, beforeAll, beforeEach, afterEach,
+  describe, it, expect, beforeAll,
 } from 'vitest';
 import { act, screen, fireEvent } from '@testing-library/react';
-import {
-  mapViewState, renderGlanceMap, resetGlanceMap, restoreGlanceClock,
-} from './mapViewGlanceHarness.jsx';
+import { mapViewState } from './mapViewMocks.jsx';
+import { installGlanceHooks } from './mapViewGlanceHarness.jsx';
 
-vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
-vi.mock('../components/map/MapCallout.jsx', () => ({
-  default: ({ location }) => <b data-testid="probe-callout-name">{location?.name}</b>,
-}));
-
-let MapView;
-let onOpenList;
-beforeAll(async () => {
-  mapViewState.realSheets = true;
-  ({ default: MapView } = await import('../components/MapView.jsx'));
-});
-const renderMap = () => renderGlanceMap(MapView, onOpenList);
-
-beforeEach(() => {
-  resetGlanceMap({ isMobile: true });
-  onOpenList = vi.fn(() => true);
-});
-afterEach(restoreGlanceClock);
+// Before the harness first imports `MapView`, so it gets the real `BottomSheet`.
+beforeAll(() => { mapViewState.realSheets = true; });
+const { door, renderMap } = installGlanceHooks({ isMobile: true });
 
 describe('the phone warning sheet, real BottomSheet', () => {
   it('is a labelled sheet that is not aria-modal, so it is not a foreign modal to the Map\'s rules', async () => {
@@ -47,7 +30,7 @@ describe('the phone warning sheet, real BottomSheet', () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-win'));
     fireEvent.click(screen.getByTestId('wf-map-peek-list'));
-    await act(async () => { onOpenList.mock.calls[0][0].onPick({ locationId: 3, locationName: 'Wastwater' }); });
+    await act(async () => { door.onOpenList.mock.calls[0][0].onPick({ locationId: 3, locationName: 'Wastwater' }); });
     expect(await screen.findByTestId('probe-callout-name')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('map-warning-toggle'));
     expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();

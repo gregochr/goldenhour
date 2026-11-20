@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import GuideLink from './guide/GuideLink.jsx';
+import { useWarnings } from '../context/WarningsContext.jsx';
 import {
   cardMarker, levelClasses, staleLead, warningLabel,
 } from '../utils/warnings.js';
@@ -164,6 +165,28 @@ export function WarningFooter({
     </p>
   );
 }
+
+/**
+ * {@link WarningFooter} over the served feed's own source line: the attribution, the Met Office link and the stale
+ * admission, read from {@code useWarnings()} so a surface that draws a warning needs only to say whether it shows one.
+ *
+ * @param {object} props
+ * @param {boolean} props.showAttribution whether warnings are shown here (attribution is owed with them)
+ */
+export function ServedWarningFooter({ showAttribution }) {
+  const served = useWarnings();
+  return (
+    <WarningFooter
+      showAttribution={showAttribution}
+      stale={served.stale}
+      lastCheckedAt={served.lastCheckedAt}
+      attribution={served.attribution}
+      href={served.metOfficeUrl}
+    />
+  );
+}
+
+ServedWarningFooter.propTypes = { showAttribution: PropTypes.bool.isRequired };
 
 WarningFooter.propTypes = {
   showAttribution: PropTypes.bool.isRequired,
