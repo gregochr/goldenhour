@@ -18,7 +18,6 @@ page links to it. `frontend/src/test/guideShotPlaceholders.test.js` pins the ids
 | Id | Page | Capture | Surface and viewport |
 |---|---|---|---|
 | `shot-warn-lanes` | at-a-glance.html (#warnings) | A warning lane above the event lanes, and a card below with its marker (for example "Amber snow +1") | Desktop; 375px phone if the lane wraps differently |
-| `shot-warn-popup` | weather-warnings.html (#matrix) | Window popup Warning row: headline, what to expect, dates, the likelihood x impact matrix with its tick | Desktop popup; 375px phone sheet optional |
 | `shot-warn-stale` | weather-warnings.html (#fresh) | The line "Warnings last checked HH:MM — check the Met Office" under the warning area | Desktop; needs the feed unreachable for about ten minutes (stop the poller or block the feed host) |
 | `shot-warn-ask` | weather-warnings.html (#where) | An Ask answer that carries a warning card with dates and the Met Office credit | Desktop with Ask open beside the Map; 375px phone if it reads better |
 | `shot-warn-map-chips` | map.html (#warnings) | The chip row under the topic chips for a sunrise or sunset window | Desktop Map; 375px phone as an alternate |
