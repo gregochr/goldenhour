@@ -149,7 +149,7 @@ async function renderShell(overrides = {}) {
   await import('../components/WindowSheetDialog.jsx');
   await act(async () => {
     render(
-      <WindowFirstShell
+      <WindowFirstShell legacyWindowPopup
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}

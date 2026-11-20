@@ -107,11 +107,11 @@ const renderShell = (overrides = {}, extraProps = {}) => {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onOpenMapTab: vi.fn(), locations: [],
     ...extraProps,
   };
-  const view = render(<WindowFirstShell {...props} />);
+  const view = render(<WindowFirstShell legacyWindowPopup {...props} />);
   /** Hands the shell a different briefing context, the way the provider would on a poll. */
   const withContext = (next) => {
     useBriefing.mockReturnValue(ctx({ ...overrides, ...next }));
-    view.rerender(<WindowFirstShell {...props} />);
+    view.rerender(<WindowFirstShell legacyWindowPopup {...props} />);
   };
   return { ...props, ...view, withContext };
 };
@@ -277,7 +277,7 @@ describe('WindowFirstShell — the tab bar', () => {
       fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
       expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
 
-      rerender(<WindowFirstShell
+      rerender(<WindowFirstShell legacyWindowPopup
         onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
         locations={[]} operationsPane={null}
       />);
@@ -915,8 +915,8 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
         locations: [], mapPane: MAP, ...extra,
       };
-      const view = render(<WindowFirstShell {...base} />);
-      return { ...view, setRequest: (tabRequest) => view.rerender(<WindowFirstShell {...base} tabRequest={tabRequest} />) };
+      const view = render(<WindowFirstShell legacyWindowPopup {...base} />);
+      return { ...view, setRequest: (tabRequest) => view.rerender(<WindowFirstShell legacyWindowPopup {...base} tabRequest={tabRequest} />) };
     };
 
     it('selects the requested tab and mounts its pane', () => {
@@ -1033,14 +1033,14 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
         locations: [], mapPane: null,
       };
-      const view = render(<WindowFirstShell {...base} />);
-      act(() => view.rerender(<WindowFirstShell {...base} tabRequest={{ id: 'map', nonce: 1 }} />));
+      const view = render(<WindowFirstShell legacyWindowPopup {...base} />);
+      act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} tabRequest={{ id: 'map', nonce: 1 }} />));
       expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
 
       // The forecast arrives; the pane appears. Plan must still be the selected tab.
       const MAP2 = <p data-testid="map-pane">map pane</p>;
-      act(() => view.rerender(<WindowFirstShell {...base} mapPane={MAP2} tabRequest={{ id: 'map', nonce: 1 }} />));
+      act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={MAP2} tabRequest={{ id: 'map', nonce: 1 }} />));
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
     });
@@ -1064,9 +1064,9 @@ describe('WindowFirstShell — when the feed is fetched', () => {
 
       const openMapWithFocus = () => {
         vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
+        const view = render(<WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} />);
         act(() => view.rerender(
-          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
+          <WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
         ));
         act(() => screen.getByTestId('map-control').focus());
         expect(document.activeElement).toBe(screen.getByTestId('map-control'));
@@ -1076,7 +1076,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       it('selects Plan explicitly and moves focus to the Plan tab button, which then drives the bar', () => {
         const view = openMapWithFocus();
         act(() => view.rerender(
-          <WindowFirstShell {...base} mapPane={null} tabRequest={{ id: 'map', nonce: 1 }} />,
+          <WindowFirstShell legacyWindowPopup {...base} mapPane={null} tabRequest={{ id: 'map', nonce: 1 }} />,
         ));
         expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
         expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
@@ -1089,9 +1089,9 @@ describe('WindowFirstShell — when the feed is fetched', () => {
 
       it('does not snap the reader back when the next alert offers the Map tab again', () => {
         const view = openMapWithFocus();
-        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
+        act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={null} />));
         expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-        act(() => view.rerender(<WindowFirstShell {...base} mapPane={mapWithControl} />));
+        act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} />));
         expect(tab('Map')).toHaveAttribute('aria-selected', 'false');
         expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
       });
@@ -1100,21 +1100,21 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
         const outside = document.createElement('button');
         document.body.appendChild(outside);
-        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
+        const view = render(<WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} />);
         act(() => view.rerender(
-          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
+          <WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
         ));
         act(() => outside.focus());
-        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
+        act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={null} />));
         expect(document.activeElement).toBe(outside);
         outside.remove();
       });
 
       it('does nothing for a Plan reader when a Map pane that was never in force goes away', () => {
         vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
+        const view = render(<WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} />);
         const before = document.activeElement;
-        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
+        act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={null} />));
         expect(document.activeElement).toBe(before);
         expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
       });
@@ -1130,7 +1130,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
         locations: [], mapPane: MAP, tabRequest: { id: 'map', nonce: 4 },
       };
-      render(<WindowFirstShell {...props} />);
+      render(<WindowFirstShell legacyWindowPopup {...props} />);
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
     });
@@ -1164,7 +1164,7 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
     const onTabChange = vi.fn();
     const view = render(
-      <WindowFirstShell
+      <WindowFirstShell legacyWindowPopup
         onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
         locations={[]} mapPane={MAP} onTabChange={onTabChange} {...extra}
       />,

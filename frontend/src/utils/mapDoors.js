@@ -7,8 +7,8 @@
  * only caller" plan §3 D2 task 1 promises D2 delivers — a plain function taking its collaborators
  * as arguments, callable directly from a test with no component render at all.
  *
- * <p><b>Ordering.</b> Closes the popup and the window sheet FIRST, mirroring every other existing
- * map route in `WindowFirstShell.jsx` (the location sheet's own `onShowOnMap` wrapper) — a door
+ * <p><b>Ordering.</b> Closes the sheet layers FIRST (since G2a no door opens the window popup, so it is not
+ * closed here), mirroring every other existing map route in `WindowFirstShell.jsx` (the location sheet's own `onShowOnMap` wrapper) — a door
  * onto the map must never leave a Plan dialog mounted underneath the Map tab.
  *
  * <p><b>The lens merge is read-through, not copied.</b> `door` itself may carry stale or absent
@@ -20,7 +20,6 @@
  *
  * @param {object} params
  * @param {Function} params.openOverPopup closes the popup/pick/sheet-by-key layer (`(null) => void`)
- * @param {Function} params.openWindow closes the window sheet (`(null) => void`)
  * @param {?Function} params.onOpenMapTab `App.jsx`'s `openMapTabFromPlan`, or undefined when there
  *        is nothing to map (`allDates.length === 0`) — optional-chained, so this function still
  *        performs the close even with nothing to hand the payload to
@@ -31,10 +30,9 @@
  *        supplies
  */
 export function openMapDoor({
-  openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens, door,
+  openOverPopup, onOpenMapTab, ratingLens, reachLens, door,
 }) {
   openOverPopup(null);
-  openWindow(null);
   onOpenMapTab?.({
     ...door,
     minRating: ratingLens?.minRating ?? null,

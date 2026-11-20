@@ -94,10 +94,10 @@ async function openSheet(overrides) {
   const wrap = (shell) => (
     <SubRegionStatusProvider enabled={false} onOpen={openSettings}>{shell}</SubRegionStatusProvider>
   );
-  const view = render(wrap(<WindowFirstShell {...base} />));
+  const view = render(wrap(<WindowFirstShell legacyWindowPopup {...base} />));
   fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
   await act(async () => {
-    view.rerender(wrap(<WindowFirstShell {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />));
+    view.rerender(wrap(<WindowFirstShell legacyWindowPopup {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />));
   });
   await screen.findByTestId('location-sheet-stub');
   return view;
@@ -162,10 +162,10 @@ describe('WindowFirstShell — the Four-days sheet for a place outside the reade
       onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
       locations: [], mapPane: <p data-testid="map-pane">map pane</p>,
     };
-    const view = render(<WindowFirstShell {...base} />);
+    const view = render(<WindowFirstShell legacyWindowPopup {...base} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
     await act(async () => {
-      view.rerender(<WindowFirstShell {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
+      view.rerender(<WindowFirstShell legacyWindowPopup {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
     });
     await screen.findByTestId('location-sheet-stub');
 

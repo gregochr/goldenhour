@@ -161,7 +161,7 @@ async function renderShell(overrides = {}, props = {}) {
   const onOpenMapTab = vi.fn();
   await act(async () => {
     render(
-      <WindowFirstShell
+      <WindowFirstShell legacyWindowPopup
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}

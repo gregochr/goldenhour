@@ -50,8 +50,8 @@ export const SETTLED_ATTRIBUTE = 'data-back-depth';
 /** The value of {@link SETTLED_ATTRIBUTE} while a traversal or reconcile is outstanding. */
 export const BUSY_VALUE = 'busy';
 
-/** More stacked layers than this is a bug in the caller (the two-dialog invariant, plus one slack). */
-export const MAX_LAYER_DEPTH = 2;
+/** More stacked layers than this is a bug in the caller: two dialogs plus the Map arrival layer the shell registers after a Glance card or Find door (glance-to-map-plan.md G2a). */
+export const MAX_LAYER_DEPTH = 3;
 
 /** How long an issued `go` may stay unanswered before the store re-reads the history. */
 export const TRAVERSAL_TIMEOUT_MS = 1000;

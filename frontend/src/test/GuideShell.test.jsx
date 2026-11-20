@@ -53,7 +53,7 @@ function Rig({ shellProps }) {
   return (
     <AskProvider>
       <GuideProvider closeShellDialogs={closeShellDialogs} activeTab={tab}>
-        <WindowFirstShell
+        <WindowFirstShell legacyWindowPopup
           onOpenSettings={vi.fn()}
           onSignOut={vi.fn()}
           onShowOnMap={vi.fn()}

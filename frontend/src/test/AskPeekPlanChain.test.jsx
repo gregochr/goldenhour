@@ -235,7 +235,7 @@ function Host({ onOpenSettings }) {
   return (
     <AskProvider>
       <Capture />
-      <WindowFirstShell
+      <WindowFirstShell legacyWindowPopup
         onOpenSettings={onOpenSettings}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}

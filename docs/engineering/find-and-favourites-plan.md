@@ -106,7 +106,7 @@ browser-verified test. Map picks always stay on Map (fly + callout).
 | Pick | At a Glance | Coming up | Map |
 |---|---|---|---|
 | Place | next-days sheet | per D6 | fly + callout; **relax only the filters hiding it** and say so (min-stars, drive tier, tide, type, scope; a thin-sample place needs min-stars relaxed; never silently overwrite the saved min-stars); keep the selected window |
-| Window | collapse to and flash it | `selectTab('plan')` then flash | select that window on the map (a window outside the control's range is not offered) |
+| Window | the Map with that window selected (G2a; Back returns to Glance) | the Map with that window selected (G2a; Back returns to Coming up) | select that window on the map (a window outside the control's range is not offered) |
 | Region | plan from it (`setOrigin`, as today) | as Glance | **a pan/frame only; no `setOrigin`** (origin moves reach rings and drive times) |
 | Area (F2) | area sheet | per D6 | fly + `focusLensNames` lens |
 

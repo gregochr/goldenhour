@@ -143,7 +143,7 @@ async function renderShell(overrides = {}, { opener = openSettings, enabled = tr
   await act(async () => {
     render(
       <SubRegionStatusProvider enabled={enabled} onOpen={opener}>
-        <WindowFirstShell
+        <WindowFirstShell legacyWindowPopup
           onOpenSettings={vi.fn()}
           onSignOut={vi.fn()}
           onShowOnMap={vi.fn()}

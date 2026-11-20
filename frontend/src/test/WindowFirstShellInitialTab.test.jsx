@@ -130,10 +130,10 @@ const renderShell = (extraProps = {}) => {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
     ...extraProps,
   };
-  const view = render(<WindowFirstShell {...props} />);
+  const view = render(<WindowFirstShell legacyWindowPopup {...props} />);
   const rerenderWith = (nextProps) => {
     Object.assign(props, nextProps);
-    view.rerender(<WindowFirstShell {...props} />);
+    view.rerender(<WindowFirstShell legacyWindowPopup {...props} />);
   };
   return { ...view, props, rerenderWith };
 };

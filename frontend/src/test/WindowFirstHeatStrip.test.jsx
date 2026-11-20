@@ -392,7 +392,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     // day heading and the sun word are aria-hidden because the hidden phrase says the same thing in
     // words. With an empty pool the best-reach clause is the design's own "nothing in reach".
     await renderStrip();
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Open Tonight Sunset on the map, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
   });
 
@@ -417,7 +417,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
       })],
     });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 5 locations within 45 min, 1 at 5 stars, 1 at 4 stars, 2 at 3 stars, 1 at 2 stars, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+      name: 'Open Tonight Sunset on the map, 21:11, Worth it, 5 locations within 45 min, 1 at 5 stars, 1 at 4 stars, 2 at 3 stars, 1 at 2 stars, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
     })).toBeInTheDocument();
   });
 
@@ -436,7 +436,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     ];
     await renderStrip({ cards: [ratedCard({ pool })] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 5 locations, 5 at 4 stars, best Bamburgh Beach, 4 stars, Northumberland & Tyneside',
+      name: 'Open Tonight Sunset on the map, 21:11, Worth it, 5 locations, 5 at 4 stars, best Bamburgh Beach, 4 stars, Northumberland & Tyneside',
     })).toBeInTheDocument();
   });
 
@@ -454,21 +454,21 @@ describe('WindowFirstHeatStrip — what a card says', () => {
       })],
     });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+      name: 'Open Tonight Sunset on the map, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
     })).toBeInTheDocument();
   });
 
   it('adds "best bet" to the name of the window the forecast picked', async () => {
     await renderStrip({ cards: [stripCard({ pickKind: 'best' })] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach, best bet',
+      name: 'Open Tonight Sunset on the map, 21:11, Worth it, no locations within 45 min, best, nothing in reach, best bet',
     })).toBeInTheDocument();
   });
 
   it('adds "also good" for the runner-up, which P2\'s strip had no room to say', async () => {
     await renderStrip({ cards: [stripCard({ pickKind: 'also' })] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach, also good',
+      name: 'Open Tonight Sunset on the map, 21:11, Worth it, no locations within 45 min, best, nothing in reach, also good',
     })).toBeInTheDocument();
   });
 
@@ -628,8 +628,8 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     await renderStrip({ openKeys: new Set([`${TODAY}:SUNSET`]) });
     const card = screen.getByTestId('wf-heat-card');
     expect(card).toHaveAttribute('data-open', 'true');
-    // `aria-expanded` is the button's (the card is a `div` now): the state a reader hears.
-    expect(within(card).getByTestId('wf-heat-card-button')).toHaveAttribute('aria-expanded', 'true');
+    // G2a: the card opens the Map, so its button carries no disclosure state.
+    expect(within(card).getByTestId('wf-heat-card-button')).not.toHaveAttribute('aria-expanded');
     expect(card).toHaveClass('on');
   });
 
@@ -637,7 +637,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     await renderStrip({ openKeys: new Set(['2026-08-05:SUNRISE']) });
     const card = screen.getByTestId('wf-heat-card');
     expect(card).not.toHaveAttribute('data-open');
-    expect(within(card).getByTestId('wf-heat-card-button')).toHaveAttribute('aria-expanded', 'false');
+    expect(within(card).getByTestId('wf-heat-card-button')).not.toHaveAttribute('aria-expanded');
   });
 });
 
@@ -689,7 +689,7 @@ describe('WindowFirstHeatStrip — the spread histogram (bars mode, above the mi
     // only accessible-name assertion in the file that would catch that specific deletion.
     await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5, null, null) })] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 7 locations within 45 min, 5 at 5 stars, 2 not yet rated, best Spot 1, 5 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+      name: 'Open Tonight Sunset on the map, 21:11, Worth it, 7 locations within 45 min, 5 at 5 stars, 2 not yet rated, best Spot 1, 5 stars, Northumberland & Tyneside, 40 min, leave 20:11',
     })).toBeInTheDocument();
   });
 
@@ -866,7 +866,7 @@ describe('WindowFirstHeatStrip — below the minimum-sample gate: text instead o
       // The spoken sentence stays silent about the pool here — `bestReachLine`'s own "best, nothing
       // in reach" clause already states the identical fact, and saying it twice would be the
       // one-fact-said-twice defect this file's header comment warns against.
-      expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
+      expect(screen.getByRole('button', { name: 'Open Tonight Sunset on the map, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
         .toBeInTheDocument();
     });
 
@@ -889,7 +889,7 @@ describe('WindowFirstHeatStrip — below the minimum-sample gate: text instead o
       // pool's own rated count is zero, not because of `notScored` (this window IS scored — its
       // `bestRating` is the fixture default 4 — the pool itself just holds no rated spot).
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 6 locations within 45 min, none rated yet',
+        name: 'Open Tonight Sunset on the map, 21:11, Worth it, 6 locations within 45 min, none rated yet',
       })).toBeInTheDocument();
     });
 
@@ -901,7 +901,7 @@ describe('WindowFirstHeatStrip — below the minimum-sample gate: text instead o
       expect(screen.getByTestId('wf-heat-spread'))
         .toHaveAttribute('title', '4 locations within reach — 1 rated · 3 not yet rated');
       const button = screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+        name: 'Open Tonight Sunset on the map, 21:11, Worth it, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
       });
       expect(button).toBeInTheDocument();
       // ⚠️ The defect this exact fixture was found with: the accessible name must never contain the
@@ -922,7 +922,7 @@ describe('WindowFirstHeatStrip — below the minimum-sample gate: text instead o
         '5 locations within reach — 5 at 5★, 0 at 4★, 0 at 3★, 0 at 2★, 0 at 1★',
       );
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 5 locations within 45 min, 5 at 5 stars, best Spot 1, 5 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+        name: 'Open Tonight Sunset on the map, 21:11, Worth it, 5 locations within 45 min, 5 at 5 stars, best Spot 1, 5 stars, Northumberland & Tyneside, 40 min, leave 20:11',
       })).toBeInTheDocument();
     });
   });
@@ -1204,14 +1204,14 @@ describe('WindowFirstHeatStrip — the Spread row names its pool and prints its 
     it('names the tier in the lens bar\'s own long form, not the compact "45m" a reader would hear as a letter', async () => {
       await renderStrip({ cards: [ratedCard({ reachLimitMinutes: 90, pool: pool(5, 5, 5, 5, 5) })] });
       expect(sentence()).toBe(
-        'Tonight Sunset, 21:11, Worth it, 5 locations within 1h 30min, 5 at 5 stars, best Spot 1, 5 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+        'Open Tonight Sunset on the map, 21:11, Worth it, 5 locations within 1h 30min, 5 at 5 stars, best Spot 1, 5 stars, Northumberland & Tyneside, 40 min, leave 20:11',
       );
     });
 
     it('says "any drive" under Any with measured drives — never "within reach"', async () => {
       await renderStrip({ cards: [ratedCard({ reachLimitMinutes: null, pool: pool(5, 5, 5, 5, 5) })] });
       expect(sentence()).toBe(
-        'Tonight Sunset, 21:11, Worth it, 5 locations, any drive, 5 at 5 stars, best Spot 1, 5 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+        'Open Tonight Sunset on the map, 21:11, Worth it, 5 locations, any drive, 5 at 5 stars, best Spot 1, 5 stars, Northumberland & Tyneside, 40 min, leave 20:11',
       );
       expect(sentence()).not.toContain('within reach');
     });
@@ -1230,7 +1230,7 @@ describe('WindowFirstHeatStrip — the Spread row names its pool and prints its 
     it('speaks no band counts below the gate — only the pool clause moves, and "1/4" is still never voiced', async () => {
       await renderStrip({ cards: [ratedCard({ pool: pool(4, null, null, null) })] });
       expect(sentence()).toBe(
-        'Tonight Sunset, 21:11, Worth it, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+        'Open Tonight Sunset on the map, 21:11, Worth it, 4 locations within 45 min, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
       );
       expect(sentence()).not.toMatch(/\bat \d stars?\b/);
     });
@@ -1242,18 +1242,18 @@ describe('WindowFirstHeatStrip — the Spread row names its pool and prints its 
       // within 45 min" is not those words.
       await renderStrip({ cards: [stripCard({ reachLimitMinutes: 45, reachMeasured: true, pool: [] })] });
       expect(sentence()).toBe(
-        'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach',
+        'Open Tonight Sunset on the map, 21:11, Worth it, no locations within 45 min, best, nothing in reach',
       );
     });
 
     it('voices "no locations, any drive" on an empty pool under Any, with the unmeasured Best words', async () => {
       await renderStrip({ cards: [stripCard({ reachLimitMinutes: null, reachMeasured: false, pool: [] })] });
-      expect(sentence()).toBe('Tonight Sunset, 21:11, Worth it, no locations, any drive, best, nothing to show');
+      expect(sentence()).toBe('Open Tonight Sunset on the map, 21:11, Worth it, no locations, any drive, best, nothing to show');
     });
 
     it('leaves an empty pool with no measured drive exactly as it was: no pool clause, "nothing to show"', async () => {
       await renderStrip({ cards: [stripCard({ reachLimitMinutes: 45, reachMeasured: false, pool: [] })] });
-      expect(sentence()).toBe('Tonight Sunset, 21:11, Worth it, best, nothing to show');
+      expect(sentence()).toBe('Open Tonight Sunset on the map, 21:11, Worth it, best, nothing to show');
     });
 
     it('keeps the tooltip\'s own words — "within reach" — beside the label that names the tier', async () => {
@@ -1334,7 +1334,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
         'Northumberland & Tyneside · 40 min · leave 20:11 · high water — the water it wants',
       );
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Open Tonight Sunset on the map, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, high water, right here',
       })).toBeInTheDocument();
     });
@@ -1351,7 +1351,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(glyph).toHaveAttribute('data-wide', 'true');
       expect(glyph.querySelector('path[data-letter]')).toHaveAttribute('data-letter', 'M');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Open Tonight Sunset on the map, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, mid tide, right here',
       })).toBeInTheDocument();
     });
@@ -1378,7 +1378,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(screen.getByTestId('wf-heat-best'))
         .toHaveAttribute('title', 'Northumberland & Tyneside · 40 min · leave 20:11');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Open Tonight Sunset on the map, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11',
       })).toBeInTheDocument();
     });
@@ -1558,7 +1558,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         hotTopics: [LUNAR_ECLIPSE_TOPIC],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
+        name: 'Open Tonight Sunset on the map, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
       })).toBeInTheDocument();
     });
   });
@@ -1726,7 +1726,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         })],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Open Tonight Sunset on the map, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, 9 on tide',
       })).toBeInTheDocument();
     });
@@ -2118,7 +2118,7 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
     const name = screen.getByTestId('wf-heat-card').textContent;
     expect(name).not.toContain('up 0.6');
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach',
+      name: 'Open Tonight Sunset on the map, 21:11, Worth it, no locations within 45 min, best, nothing in reach',
     })).toBeInTheDocument();
   });
 
@@ -2321,9 +2321,9 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     // when there are no bars) but OMITS `spreadRowState`'s own "none rated yet" text: the window is
     // ALSO `notScored`, so "not scored" (already in the sentence) and "none rated yet" would be one
     // fact said twice.
-    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored, 1 location within 45 min' }))
+    expect(screen.getByRole('button', { name: 'Open Saturday sunrise on the map, 05:49, Poor, not scored, 1 location within 45 min' }))
       .toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Poor, no locations within 45 min, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Open Tonight Sunset on the map, 21:11, Poor, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
   });
 
@@ -2349,7 +2349,7 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     // while its name said only "not scored". Two different claims; the reader who cannot see the
     // face was told the wrong one.
     await renderStrip({ cards: [BOTH[1]] });
-    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored, no locations within 45 min, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Open Saturday sunrise on the map, 05:49, Poor, not scored, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
   });
 
@@ -3436,7 +3436,7 @@ describe('WindowFirstHeatStrip — what it hands the kernel', () => {
 
     expect(drawGeo).not.toHaveBeenCalled();
     expect(screen.queryAllByTestId('wf-heat-canvas')).toHaveLength(0);
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Open Tonight Sunset on the map, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
   });
 
@@ -3535,7 +3535,7 @@ describe('WindowFirstHeatStrip — when the geometry cannot be fetched', () => {
     await renderStrip();
 
     expect(screen.queryAllByTestId('wf-heat-canvas')).toHaveLength(0);
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Open Tonight Sunset on the map, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-foot')).toHaveTextContent('poor → worth it');
     // The thumbnail geography overlay is a child of the well this gate removes wholesale — the
@@ -4310,13 +4310,13 @@ describe('WindowFirstHeatStrip — the region mean behind the verdict word (verd
     // date to a screen reader).
     await renderStrip({ cards: [stripCard({ verdictMean: 3.53 })] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 3.5 star average, no locations within 45 min, best, nothing in reach',
+      name: 'Open Tonight Sunset on the map, 21:11, Worth it, 3.5 star average, no locations within 45 min, best, nothing in reach',
     })).toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-value-grid')).toHaveAttribute('aria-hidden', 'true');
 
     cleanup();
     await renderStrip({ cards: [stripCard({ verdictMean: null })] });
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Open Tonight Sunset on the map, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby')).toBeTruthy();
     const nameId = screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby');
@@ -4432,7 +4432,7 @@ describe('WindowFirstHeatStrip — whose verdict it is when nothing in reach is 
     await renderStrip({ cards: [beyondCard()] });
 
     expect(screen.getByRole('button', {
-      name: `Tonight Sunset, 21:11, Worth it, 3.5 star average, 1 location within 45 min, none rated yet, region ${REGION}, beyond 45 min`,
+      name: `Open Tonight Sunset on the map, 21:11, Worth it, 3.5 star average, 1 location within 45 min, none rated yet, region ${REGION}, beyond 45 min`,
     })).toBeInTheDocument();
     const nameId = screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby');
     expect(document.getElementById(nameId).textContent).not.toMatch(/not scored yet/);
@@ -4540,7 +4540,7 @@ describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)'
   it('voices word and average in the sentence', async () => {
     await renderStrip({ cards: [unratedCard()] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Too few rated, 3.6 star average, no locations within 45 min, best, nothing in reach',
+      name: 'Open Tonight Sunset on the map, 21:11, Too few rated, 3.6 star average, no locations within 45 min, best, nothing in reach',
     })).toBeInTheDocument();
   });
 
@@ -4962,7 +4962,7 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
     const name = screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby');
     const sentence = document.getElementById(name).textContent;
     // Printed short, spoken long: "45m" is voiced as a letter (the Spread qualifier's own precedent).
-    expect(sentence).toMatch(/Tonight Sunset, 21:11, Poor, within 45 min, 2\.0 star average/);
+    expect(sentence).toMatch(/Tonight Sunset on the map, 21:11, Poor, within 45 min, 2\.0 star average/);
     expect(sentence).not.toContain('45m');
   });
 
@@ -5049,7 +5049,7 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
     // Not announced: the sentence says nothing of it.
     const names = screen.getAllByTestId('wf-heat-card-button')
       .map((el) => document.getElementById(el.getAttribute('aria-labelledby')).textContent);
-    expect(names.find((name) => name.startsWith('Tonight Sunrise'))).not.toMatch(/Poor, within/);
+    expect(names.find((name) => name.startsWith('Open Tonight Sunrise'))).not.toMatch(/Poor, within/);
     cleanup();
 
     const any = [

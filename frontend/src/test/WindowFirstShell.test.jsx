@@ -16,7 +16,7 @@ vi.mock('../utils/mapDoors.js', async (importOriginal) => {
 describe('WindowFirstShell', () => {
   const renderShell = (props = {}) => {
     const handlers = { onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
-    render(<WindowFirstShell {...handlers} />);
+    render(<WindowFirstShell legacyWindowPopup {...handlers} />);
     return handlers;
   };
 
@@ -298,7 +298,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     const handlers = {
       onOpenSettings: vi.fn(), onSignOut: vi.fn(), onOpenMapTab: vi.fn(), ...props,
     };
-    render(<WindowFirstShell {...handlers} />);
+    render(<WindowFirstShell legacyWindowPopup {...handlers} />);
     return handlers;
   };
 
@@ -937,20 +937,16 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // ⚠️ Index 0, not 1 (matrix-axis plan §6.4) — row-major DOM puts the sunrise row (this
       // fixture's tomorrow-sunrise card) before the sunset row (today's own card).
       expect(within(within(strip).getAllByTestId('wf-heat-card')[0]).getByTestId('wf-heat-card-button'))
-        .toHaveAttribute('aria-expanded', 'true');
+        .not.toHaveAttribute('aria-expanded');
     });
 
-    it('⚠️ announces itself as a dialog trigger rather than an in-place disclosure', async () => {
-      // M1 gave the cell `aria-expanded` + `aria-controls` pointing at the row it revealed. The row
-      // is gone, and an `aria-controls` naming an id no longer in the document is announced as
-      // nothing — so both had to change rather than be re-pointed.
+    it('⚠️ is a plain button since G2a: it opens the Map, so it is neither a dialog trigger nor a disclosure', async () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
       await screen.findByTestId('wf-heat-strip');
-      // The control is the card's inner button, so the dialog trigger semantics live there.
       const cell = screen.getByTestId('wf-heat-card-button');
-      expect(cell).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(cell).not.toHaveAttribute('aria-haspopup');
       expect(cell).not.toHaveAttribute('aria-controls');
-      expect(cell).toHaveAttribute('aria-expanded', 'false');
+      expect(cell).not.toHaveAttribute('aria-expanded');
     });
   });
 

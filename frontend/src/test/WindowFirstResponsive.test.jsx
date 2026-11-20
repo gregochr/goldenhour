@@ -41,7 +41,7 @@ const TODAY = '2026-08-09';
 
 function renderShell(props = {}) {
   const handlers = { onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
-  render(<WindowFirstShell {...handlers} />);
+  render(<WindowFirstShell legacyWindowPopup {...handlers} />);
   return handlers;
 }
 

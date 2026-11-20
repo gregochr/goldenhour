@@ -174,7 +174,7 @@ async function renderShell() {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
   await act(async () => {
     render(
-      <WindowFirstShell
+      <WindowFirstShell legacyWindowPopup
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}

@@ -131,24 +131,12 @@ test.describe('Accessibility scan (advisory)', () => {
       await scan(page, testInfo, 'area-sheet');
     });
 
-    test('window sheet (Plan card)', async ({ page }, testInfo) => {
+    test('location sheet (from Find)', async ({ page }, testInfo) => {
       await openTab(page, 'plan');
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
-      // Never the first card: it may be the window that is about to pass.
-      await page.getByTestId('wf-heat-card').nth(2).click();
-      const windowSheet = page.getByTestId('window-sheet');
-      await expect(windowSheet).toBeVisible();
-      await expect.poll(() => windowSheet.getByTestId('window-spot').count()).toBeGreaterThanOrEqual(6);
-      await scan(page, testInfo, 'window-sheet');
-    });
-
-    test('location sheet (from the window sheet)', async ({ page }, testInfo) => {
-      await openTab(page, 'plan');
-      await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
-      await page.getByTestId('wf-heat-card').nth(2).click();
-      const windowSheet = page.getByTestId('window-sheet');
-      await expect(windowSheet).toBeVisible();
-      await windowSheet.getByTestId('window-spot').filter({ hasText: 'Bamburgh Beach' }).click();
+      await page.getByTestId('window-first-search').click();
+      await page.getByTestId('plan-search-input').fill('Bamburgh');
+      await page.getByTestId('plan-search-row').filter({ hasText: 'Bamburgh Beach' }).first().click();
       await expect(page.getByTestId('location-sheet')).toBeVisible();
       // The open row's detail has loaded (its skeleton is gone), so the scan sees the facts, not a placeholder.
       await expect(page.getByTestId('location-sheet-facts')).toBeVisible();
@@ -162,10 +150,9 @@ test.describe('Accessibility scan (advisory)', () => {
     test('location sheet with the Your places toggle, and its undo toast', async ({ page }, testInfo) => {
       await openTab(page, 'plan');
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
-      await page.getByTestId('wf-heat-card').nth(2).click();
-      const windowSheet = page.getByTestId('window-sheet');
-      await expect(windowSheet).toBeVisible();
-      await windowSheet.getByTestId('window-spot').filter({ hasText: 'Bamburgh Beach' }).click();
+      await page.getByTestId('window-first-search').click();
+      await page.getByTestId('plan-search-input').fill('Bamburgh');
+      await page.getByTestId('plan-search-row').filter({ hasText: 'Bamburgh Beach' }).first().click();
       const toggle = page.getByTestId('location-sheet-favourite');
       await expect(toggle).toBeVisible();
       await expect(toggle).toHaveAttribute('aria-pressed', 'false');
