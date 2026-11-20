@@ -1,5 +1,6 @@
--- Phase A protocol list (blind): today's slots in four classes, from the latest T+0 SCORED batch run per (location, event),
--- at the locations you name. Broken-low plan section 2 A4 (BL, CL); far-shut-canvas-plan.md section 5 A2 (FS, FO).
+-- Phase A protocol list (blind): today's slots in five classes, from the latest T+0 SCORED batch run per (location, event),
+-- at the locations you name. Broken-low plan section 2 A4 (BL, CL); far-shut-canvas-plan.md section 5 A2 (FS, FO);
+-- overhead-low-deck-plan.md section 3 A2 (OL).
 -- READ-ONLY: a single SELECT inside COPY, writes nothing. Stored forecast columns only.
 -- Pass the location ids with psql -v, e.g. -v locs='1,2,3'. The variable is required: psql substitutes it into
 -- the IN list below, and an unset one is a syntax error, not "all locations".
@@ -7,7 +8,7 @@
 -- DELIBERATELY BLIND: the output is only location name, event, UK local event time (HH24:MI) and the sky_rating
 -- stars (which the app shows anyway). It never shows the class or any cloud value, so the owner rates each evening
 -- without knowing which hypothesis it tests. Classes are assigned afterwards from the stored forecast values, by
--- bl_size.py (BL, CL) and a future fs_size.py (FS, FO), never by the owner. Rate every listed evening you watch,
+-- bl_size.py (BL, CL) and a future fs_size.py (FS, FO, OL), never by the owner. Rate every listed evening you watch,
 -- whatever happened.
 -- Today is the UK civil date. Timestamps are naive UTC. Every class needs triage clear, a sky rating and no
 -- [BUILDING] trend. The class is assigned in the CASE below and used only to select rows; a row is in at most one
@@ -18,6 +19,9 @@
 --   FS (far-shut canvas): cone low < 20, a canvas (max of cone mid, cone high, overhead mid, overhead high >= 50),
 --      far 226 km low >= 80.
 --   FO (far-open canvas, the control for FS): as FS with far low < 50.
+--   OL (overhead low deck): cone low < 20, far 226 km low < 50, observer (overhead) low >= 60, with or without a canvas.
+--      Checked after BL/CL (which need overhead low < 60, so they never overlap) and before FS/FO, so a low-deck
+--      evening is never an FO control. FS is unaffected: OL needs far low < 50 and FS needs far low >= 80.
 -- BL and CL need no canvas and FS and FO need one, so they are disjoint, except that BL/CL do not test the overhead
 -- mid/high columns: a CL row with overhead canvas >= 50 and far low < 30 would also meet FO. BL and CL are checked
 -- first and keep such a row (they are unchanged from the broken-low protocol).
@@ -44,6 +48,8 @@ COPY (
                      AND f.solar_mid_cloud < 10 AND f.solar_high_cloud < 10
                      AND f.antisolar_mid_cloud < 10 AND f.antisolar_high_cloud < 10
                      AND f.far_solar_low_cloud < 30 AND f.low_cloud < 60 THEN 'CL'
+                WHEN f.solar_low_cloud < 20
+                     AND f.far_solar_low_cloud < 50 AND f.low_cloud >= 60 THEN 'OL'
                 WHEN f.solar_low_cloud < 20
                      AND greatest(f.solar_mid_cloud, f.solar_high_cloud, f.mid_cloud, f.high_cloud) >= 50
                      AND f.far_solar_low_cloud >= 80 THEN 'FS'
