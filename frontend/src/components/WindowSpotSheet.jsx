@@ -305,7 +305,7 @@ export default function WindowSpotSheet({
         </div>
 
         {/* Always mounted, and the empty message lives INSIDE it — which is what the mock does
-            and what `WindowPickDialog` does with its own prose. This is the card's only scroll
+            and what the retired pick dialog does with its own prose. This is the card's only scroll
             container: swapping it for a sibling paragraph when nothing matches leaves a short
             viewport (a landscape phone, a 400% zoom) with a header, three rows of controls and a
             footer inside `overflow: hidden` and nothing able to scroll. */}

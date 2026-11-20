@@ -65,13 +65,13 @@ const DIM_AT_OR_BELOW = 2;
  * arriving from search is a different gesture and the shell's "closes FIRST" rule governs it.
  *
  * <p>Escape then takes exactly one layer per press: the popup underneath declines the key while
- * this one is up ({@code stackedOverPopup} counts {@code sheetSpot}), so a press takes this sheet
+ * this one is up ({@code stackedOverLayer} counts {@code sheetSpot}), so a press takes this sheet
  * off and leaves the window behind it. It is wired exactly as {@code WindowSpotSheet}'s is, because
  * they are the same rung.
  *
  * <p>⚠️ <b>The bundle README's three-rung order (search → this sheet → the popup) is NOT what
  * ships, so {@code escapeEnabled}'s {@code searchSeed} arm is a belt that can no longer engage.</b>
- * M5 refuses the third layer outright — every route into search guards on {@code stackedOverPopup}
+ * M5 refuses the third layer outright — every route into search guards on {@code stackedOverLayer}
  * — so the supported stack is two deep: search over the popup, or a sheet over the popup, never
  * both (plan-matrix §4 A22). Nor can search survive the way in: {@code PlanSearch} calls
  * {@code onClose} on every pick, so a search result closes it in the same commit that opens this.
@@ -445,7 +445,7 @@ export default function LocationFourDaySheet({
             rides with them, which is what keeps the card inside `.wf-sheet-card`'s
             `max-height: calc(100dvh - 32px); overflow: hidden` at 400% zoom — with a fourth
             unshrinkable band the head, lead and footer together exceeded a 320×256 viewport and the
-            map action clipped with nothing able to scroll. `WindowPickDialog` records the same
+            map action clipped with nothing able to scroll. the retired pick dialog records the same
             defect and the same three-band shape. */}
         {/* ⚠️ For a hide the one scroller holds no focusable element (a table has none), so a keyboard
             reader — Safari in particular, whose Tab skips scrollable containers that hold nothing

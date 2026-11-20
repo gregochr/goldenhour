@@ -14,7 +14,7 @@ import { __resetForTests } from '../utils/dialogHistory.js';
  *
  * <p>`UserSettingsModal` is a SIBLING of the Plan shell in `App`, so it is outside every mechanism
  * the shell has for ordering its own layers: it is not a `Modal` the shell renders, the shell's
- * `stackedOverPopup` cannot see it, and it takes no `stacked` opt-in. It cannot be ordered against a
+ * `stackedOverLayer` cannot see it, and it takes no `stacked` opt-in. It cannot be ordered against a
  * shell dialog — it can only be arrived at with none of them open. "At most one dialog may claim to
  * be the modal" is held route by route (v1-retirement §4.3), and M5 closed the cog's. This file
  * holds the other two routes into the same dialog, through the real
@@ -23,8 +23,8 @@ import { __resetForTests } from '../utils/dialogHistory.js';
  *
  * <ul>
  *   <li>the masthead tick line's "set a postcode" nudge, which `App` wires straight to its own
- *       handler — reachable by Tab from an open window popup, because the popup is not a trap and
- *       the tick line keeps its tab stops while only the popup is up;</li>
+ *       handler — reachable by Tab from an open four-day sheet, because the sheet is not a trap and
+ *       the tick line keeps its tab stops while only the sheet is up;</li>
  *   <li>the Map tab's ⌂ in its no-postcode state, which reaches `App` through the map pane rather
  *       than through the shell at all — reachable by Tab from the four-day sheet the callout's
  *       `Four days here ›` opens OVER the map (map-tab-v2-plan.md O-18; the Tab-out itself is O-20
@@ -100,12 +100,6 @@ vi.mock('../api/authApi.js', () => ({
 // `resolveInitialTab()` reads as a desktop and opens on Map, and the banner's door is judged by the
 // tab in force when it is pressed.
 vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
-// G2a scaffold (deleted with the popup in G2b): the popup is no longer reachable from a card, so this file's popup
-// cases run the shell with `legacyWindowPopup`, the way the app did before the Map door.
-vi.mock('../components/WindowFirstShell.jsx', async (importOriginal) => {
-  const Real = (await importOriginal()).default;
-  return { default: (props) => <Real legacyWindowPopup {...props} /> };
-});
 /** What the callout's `Four days here ›` hands `App` — the peek, which does not move the tab. */
 const PEEK = {
   id: 1, name: 'Derwentwater', regionName: 'Lake District',
@@ -314,14 +308,16 @@ async function tookFocus(dialog) {
 }
 
 /**
- * Opens the first window's popup. Awaits the matrix's lazy boundary and then the popup's, so the
- * first test in the file behaves like the rest (frontend-test-standards, "The first test in a file
- * is not like the others").
+ * Opens a place's four-day sheet over the Plan tab through Find, the one way a reader reaches it there since the window
+ * popup went (glance-to-map-plan.md G2b). Awaits the matrix's lazy boundary and then the sheet's, so the first test in
+ * the file behaves like the rest (frontend-test-standards, "The first test in a file is not like the others").
  */
-async function openPopup() {
+async function openPlanSheet() {
   await screen.findByTestId('wf-heat-strip');
-  await press(screen.getAllByTestId('wf-heat-card')[0]);
-  return tookFocus(await screen.findByTestId('window-sheet'));
+  await press(screen.getByTestId('window-first-search'));
+  fireEvent.change(await screen.findByTestId('plan-search-input'), { target: { value: 'Derwent' } });
+  await press(screen.getAllByTestId('plan-search-row')[0]);
+  return tookFocus(await screen.findByTestId('location-sheet'));
 }
 
 /** Selects the Map tab — the pane mounts on first selection — and waits for the stub pane. */
@@ -398,75 +394,45 @@ afterEach(() => {
 
 describe('App — every route into settings takes down the dialog it would open over', () => {
   describe('the masthead cog and postcode nudge, on the Plan tab', () => {
-    it('the cog over a window popup — the control case: the harness reads the real settings dialog as the one modal', async () => {
+    it('the cog over a four-day sheet — the control case: the harness reads the real settings dialog as the one modal', async () => {
       // Proves the harness first: the real settings dialog counts as a modal here, and the route M5
       // closed leaves it alone. Every negative below rests on this reading right.
       renderApp();
-      await openPopup();
+      await openPlanSheet();
 
       await press(screen.getByRole('button', { name: 'Settings' }));
       await settingsSettled();
 
       expect(modals()).toHaveLength(1);
       expect(modals()[0]).toHaveAccessibleName('Settings');
-      expect(screen.queryByTestId('window-sheet')).toBeNull();
+      expect(screen.queryByTestId('location-sheet')).toBeNull();
     });
 
-    it('⚠️ the nudge over a window popup: the popup is gone in the render settings opens in', async () => {
+    it('⚠️ the nudge over a four-day sheet: the sheet is gone in the render settings opens in', async () => {
       // Before the fix: the popup AND settings, both `aria-modal="true"`, neither inert — and the
       // popup's own Escape listener still armed underneath, so one press closed the dialog the
       // reader could not see while the one they were in stayed up (M5's measurement of the cog).
       renderApp();
-      await openPopup();
+      await openPlanSheet();
 
       await press(screen.getByRole('button', { name: NUDGE }));
       await settingsSettled();
 
       expect(modals()).toHaveLength(1);
       expect(modals()[0]).toHaveAccessibleName('Settings');
-      expect(screen.queryByTestId('window-sheet')).toBeNull();
+      expect(screen.queryByTestId('location-sheet')).toBeNull();
     });
 
-    it('the nudge over a window popup still opens settings on the postcode field', async () => {
+    it('the nudge over a four-day sheet still opens settings on the postcode field', async () => {
       // The nudge's whole reason for being a different handler from the cog. Closing the popup
       // first must not cost it: the dialog opens on the field the nudge names.
       renderApp();
-      await openPopup();
+      await openPlanSheet();
 
       await press(screen.getByRole('button', { name: NUDGE }));
       const dialog = await settingsSettled();
 
       await waitFor(() => expect(within(dialog).getByRole('textbox', { name: POSTCODE_FIELD })).toHaveFocus());
-    });
-
-    /**
-     * Where the reader lands when settings closes: the covered dialog's own recorded opener, not the
-     * control pressed.
-     *
-     * <p>The popup and the settings dialog change places in ONE commit, and the popup's
-     * `useDialogFocus` cleanup runs first: the pressed control sits outside the settings dialog,
-     * which by then claims the modal, so the cleanup counts focus as stranded and restores it to the
-     * popup's opener. The settings dialog then records THAT as its own. For a popup opened from its
-     * matrix card, that is the card. Pinned for both masthead routes, so a change at either end is a
-     * decision rather than a drift.
-     *
-     * <p>⚠️ Two limits, stated rather than implied. If that opener can no longer take focus by the
-     * time settings closes — a window that passed while settings stood — the restore falls to the
-     * route's `restoreFocusFallback`: the nudge's names its origin slot, and the cog passes none, so
-     * there focus stays where the browser put it (both pinned below). And these are jsdom pins of the ORDER:
-     * jsdom focuses a node a browser refuses (inside a `hidden` panel, or under `inert`), so they
-     * cannot speak for a landing that depends on the opener still being focusable.
-     */
-    it('the nudge over a window popup: closing settings lands on the card the popup was opened from', async () => {
-      renderApp();
-      await openPopup();
-      // The card's inner button is what takes focus (the card is a `div`), so it is the opener and the one `disabled` stands in for.
-      const card = screen.getAllByTestId('wf-heat-card')[0].querySelector('[data-testid="wf-heat-card-button"]');
-
-      await press(screen.getByRole('button', { name: NUDGE }));
-      await closeSettings(await settingsSettled());
-
-      expect(card).toHaveFocus();
     });
 
     it('Escape closes Settings opened from the cog and hands focus back to the cog, as the × does', async () => {
@@ -483,51 +449,6 @@ describe('App — every route into settings takes down the dialog it would open 
 
       expect(screen.queryByTestId('settings-modal')).toBeNull();
       expect(cog).toHaveFocus();
-    });
-
-    it('the cog over a window popup lands on the same card — the landing it has had since M5', async () => {
-      renderApp();
-      await openPopup();
-      // The card's inner button is what takes focus (the card is a `div`), so it is the opener and the one `disabled` stands in for.
-      const card = screen.getAllByTestId('wf-heat-card')[0].querySelector('[data-testid="wf-heat-card-button"]');
-
-      await press(screen.getByRole('button', { name: 'Settings' }));
-      await closeSettings(await settingsSettled());
-
-      expect(card).toHaveFocus();
-    });
-
-    it('⚠️ the nudge over a window popup: with that card unable to take focus by the close, it lands on the nudge', async () => {
-      // A window that passes while settings stands takes its card with it. `disabled` stands in for
-      // the removal — `useDialogFocus` treats an opener that refuses focus as one that has gone —
-      // because removing a node React still owns would break its next render of the strip.
-      renderApp();
-      await openPopup();
-      // The card's inner button is what takes focus (the card is a `div`), so it is the opener and the one `disabled` stands in for.
-      const card = screen.getAllByTestId('wf-heat-card')[0].querySelector('[data-testid="wf-heat-card-button"]');
-      const nudge = screen.getByRole('button', { name: NUDGE });
-
-      await press(nudge);
-      const dialog = await settingsSettled();
-      act(() => { card.disabled = true; });
-      await closeSettings(dialog);
-
-      expect(nudge, 'the nudge\'s fallback: the origin slot it stands in').toHaveFocus();
-    });
-
-    it('the cog over a window popup, likewise: it passes no fallback, so focus is left where the browser put it', async () => {
-      // The control for the case above: the same lost card, a route with no successor to name.
-      renderApp();
-      await openPopup();
-      // The card's inner button is what takes focus (the card is a `div`), so it is the opener and the one `disabled` stands in for.
-      const card = screen.getAllByTestId('wf-heat-card')[0].querySelector('[data-testid="wf-heat-card-button"]');
-
-      await press(screen.getByRole('button', { name: 'Settings' }));
-      const dialog = await settingsSettled();
-      act(() => { card.disabled = true; });
-      await closeSettings(dialog);
-
-      expect(document.activeElement).toBe(document.body);
     });
 
     it('the nudge with nothing open: closing settings returns to the nudge itself', async () => {
@@ -689,14 +610,14 @@ describe('App — every route into settings takes down the dialog it would open 
       expect(modals()[0]).toHaveAccessibleName('Settings');
     });
 
-    it('over an open window popup: the popup is gone, the Map tab is in force and the pane holds the night door', async () => {
+    it('over an open four-day sheet: the sheet is gone, the Map tab is in force and the pane holds the night door', async () => {
       renderApp();
-      await openPopup();
+      await openPlanSheet();
 
       await press(await screen.findByTestId('aurora-banner'));
 
       await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true'));
-      expect(screen.queryByTestId('window-sheet')).toBeNull();
+      expect(screen.queryByTestId('location-sheet')).toBeNull();
       expect(modals()).toHaveLength(0);
       await waitFor(() => expect(handoff()).toMatchObject({
         source: 'plan', eventType: 'AURORA', night: { kind: 'aurora', date: TOMORROW }, from: 'plan',

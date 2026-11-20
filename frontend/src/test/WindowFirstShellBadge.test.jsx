@@ -136,10 +136,10 @@ const renderShell = (overrides = {}) => {
   const props = {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
   };
-  const view = render(<WindowFirstShell legacyWindowPopup {...props} />);
+  const view = render(<WindowFirstShell {...props} />);
   const withContext = (next) => {
     useBriefing.mockReturnValue(ctx({ ...overrides, ...next }));
-    view.rerender(<WindowFirstShell legacyWindowPopup {...props} />);
+    view.rerender(<WindowFirstShell {...props} />);
   };
   return { ...view, withContext };
 };

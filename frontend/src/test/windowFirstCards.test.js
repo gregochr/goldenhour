@@ -983,7 +983,7 @@ describe('buildWindowCards', () => {
 
       it('⚠️ carries no empty-state descriptor of its own any more', () => {
         // M2 deleted `lensEmpty`. The card's per-window sentence is now composed by the POPUP from
-        // the same two thresholds (`WindowSheetDialog`'s quiet line) and the plan-wide one by
+        // the same two thresholds (the retired window popup's quiet line) and the plan-wide one by
         // `planConflicts.js` — both from the lenses directly, so the descriptor had two readers and
         // then none. Pinned as an absence because a field nothing renders is the kind of thing that
         // comes back by accident.
@@ -1846,7 +1846,7 @@ describe('buildWindowCards — the origin\'s scope', () => {
  * L5 made them.** `map-landing-plan.md` §3 L5 step 6b asked for BOTH raw `displayVerdict` readers to
  * move onto `resolveRegionDisplay`; only `windowFirstRegions` did. Before that they at least agreed
  * by both being raw — so the partial fix is what created the pair. Both render inside one
- * `WindowSheetDialog`: the card's word at its head, the rail beneath it.
+ * the retired window popup: the card's word at its head, the rail beneath it.
  *
  * <p>The fixture carries the LEGACY shape — a triage `verdict` and no `displayVerdict`, which is
  * what a `daily_briefing_cache` payload written before the field existed deserialises to. That is

@@ -3,7 +3,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
-import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 
 /**
  * P14 — the responsive pass.
@@ -23,7 +22,7 @@ import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
  * What IS honest, and what this file does, is `frontend-test-standards.md:189-191` verbatim:
  * "assert the class or attribute the component sets, and leave the pixel behaviour to the browser
  * check." Every phone rule P14 added hooks onto a class or a `data-`/`aria-` attribute, and this
- * file pins that hook for the components it renders — the shell, both panes and the window popup —
+ * file pins that hook for the components it renders — the shell, both panes —
  * so a rename cannot silently orphan a rule.
  *
  * It does NOT cover the whole arm, and the gap is worth naming rather than implying: the heat
@@ -41,65 +40,9 @@ const TODAY = '2026-08-09';
 
 function renderShell(props = {}) {
   const handlers = { onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
-  render(<WindowFirstShell legacyWindowPopup {...handlers} />);
+  render(<WindowFirstShell {...handlers} />);
   return handlers;
 }
-
-function card(overrides = {}) {
-  return {
-    key: `${TODAY}:SUNSET`,
-    date: TODAY,
-    targetType: 'SUNSET',
-    lead: false,
-    kicker: null,
-    when: 'Tonight',
-    time: '20:41',
-    verdict: 'WORTH_IT',
-    verdictLabel: 'Worth it',
-    bestRating: 4,
-    withinReachCount: 3,
-    confidence: 'high',
-    allBadges: [],
-    rows: [],
-    pick: null,
-    spots: [],
-    allSpots: [],
-    pool: [],
-    ...overrides,
-  };
-}
-
-/** The popup's field inputs, in the shape the shell builds — nothing here paints. */
-const FIELD = {
-  eventSummary: null,
-  // One catalogue spot, because the popup's grid takes its second column only when there is a field
-  // to put in it — an empty catalogue is a real state and it is the OTHER arm of the same test.
-  spots: [{
-    id: 1, name: 'Bamburgh Beach', lat: 6, lng: 4, regionName: 'Coast', rid: 'Coast', skySubject: true, scores: [4],
-  }],
-  points: [],
-  windows: [],
-  series: new Map(),
-  reachById: new Map(),
-  lens: {},
-  onSelectRegion: () => {},
-  selectedRegion: null,
-  singleRegionScope: false,
-  origin: null,
-};
-
-const renderPopup = (overrides = {}) => render(
-  <WindowSheetDialog
-    card={card(overrides)}
-    index={0}
-    total={6}
-    field={FIELD}
-    topicIndex={new Map()}
-    scopeNames={[]}
-    todayStr={TODAY}
-    onClose={vi.fn()}
-  />,
-);
 
 describe('P14 responsive hooks — shell chrome', () => {
   // Each of these carries a `@media (max-width: 639px)` rule in index.css. The class IS the hook;
@@ -200,63 +143,5 @@ describe('P14 responsive hooks — shell chrome', () => {
     renderShell();
     const tick = screen.getByTestId('window-first-tickline');
     expect(within(tick).getByTestId('window-first-search')).toBeInTheDocument();
-  });
-});
-
-describe('P14 responsive hooks — the window popup', () => {
-  // ⚠️ Every rule below lives in a `@media` block index.css owns, and jsdom evaluates none of them
-  // — so the CLASS is the hook and the pixels are a browser claim. What is asserted is the hook
-  // itself on a NAMED element, never `container.querySelector` (the standards forbid that form) and
-  // never the bare presence of the dialog, which every other file already pins.
-  it('carries the card class its full-screen phone rule selects', () => {
-    renderPopup();
-    expect(screen.getByTestId('window-sheet-card')).toHaveClass('wf-wsh');
-  });
-
-  it('gives the nav its own class, so the phone rule can move it to its own row', () => {
-    renderPopup();
-    expect(screen.getByTestId('window-sheet-nav')).toHaveClass('wf-wsh-nav');
-  });
-
-  // ⚠️ The two-column grid is DATA-driven as well as media-driven, and the data half is testable:
-  // `.wf-wsh-grid` is one column by default and takes its second only when there is a field to put
-  // in it. Both arms, because a hard-coded attribute would satisfy either one alone.
-  it('asks for two columns only when there is a field to draw', () => {
-    const { unmount } = renderPopup();
-    expect(screen.getByTestId('window-sheet-grid')).toHaveAttribute('data-field', 'true');
-    unmount();
-
-    render(
-      <WindowSheetDialog
-        card={card()}
-        index={0}
-        total={6}
-        field={{ ...FIELD, spots: [] }}
-        topicIndex={new Map()}
-        scopeNames={[]}
-        todayStr={TODAY}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId('window-sheet-grid')).not.toHaveAttribute('data-field');
-  });
-
-  // The popup opens with no catalogue at all — the state before `/api/locations` resolves. Gating
-  // the dialog on it made every matrix cell a control with no visible effect.
-  it('opens without a field, rather than not opening', () => {
-    render(
-      <WindowSheetDialog
-        card={card()}
-        index={0}
-        total={6}
-        field={{ ...FIELD, spots: [] }}
-        topicIndex={new Map()}
-        scopeNames={[]}
-        todayStr={TODAY}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId('window-sheet-title')).toBeInTheDocument();
-    expect(screen.queryByTestId('wf-row-map')).toBeNull();
   });
 });

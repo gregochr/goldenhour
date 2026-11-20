@@ -11,7 +11,6 @@ import FavouriteToggle, { FavouriteMark, FavouriteUpsell, useFavouriteUpsell } f
 import AreaSheet from '../components/AreaSheet.jsx';
 import PlanSearch from '../components/PlanSearch.jsx';
 import WindowSpotCard from '../components/WindowSpotCard.jsx';
-import WindowRegionRail from '../components/WindowRegionRail.jsx';
 import RegionsJump from '../components/map/RegionsJump.jsx';
 import ComingUpWatchlist from '../components/ComingUpWatchlist.jsx';
 import { buildScoreIndex } from '../utils/locationSheet.js';
@@ -179,71 +178,6 @@ describe('Find, resting', () => {
     expect(screen.getAllByTestId('plan-search-row')).toHaveLength(1);
     fireEvent.change(screen.getByTestId('plan-search-input'), { target: { value: 'ra' } });
     expect(screen.getAllByTestId('plan-search-row')[0]).toHaveTextContent('Craster');
-  });
-});
-
-describe('the popup region rail', () => {
-  const ROWS = [
-    { name: 'North', verdict: 'good', verdictLabel: 'Worth it', bestRating: 4, drawnCount: 3, countNoun: 'spots' },
-    { name: 'South', verdict: 'poor', verdictLabel: 'Poor', bestRating: 2, drawnCount: 2, countNoun: 'spots' },
-  ];
-  const rail = (options, favourites) => withFavourites(
-    <WindowRegionRail rows={ROWS} windowBest={4} drawnCount={5} countNoun="spots" selected={null} onSelect={vi.fn()} favourites={favourites} />,
-    options,
-  );
-  const FAV = (onSelect = vi.fn(), selected = null) => ({
-    cells: [{ key: 'places', name: 'My places', count: 2 }, { key: 'area:9', name: "Hadrian's Wall", count: 1 }],
-    selected,
-    onSelect,
-  });
-
-  it('adds ★ My places and one cell per starred area under All, as pressed toggles that unpress All', () => {
-    const onSelect = vi.fn();
-    const { rerender } = render(rail({ places: [1] }, FAV(onSelect)));
-    const cells = screen.getAllByTestId('wf-region-favourite');
-    expect(cells.map((c) => c.textContent)).toEqual(['★ My places 2 places', "★ Hadrian's Wall 1 place"]);
-    fireEvent.click(cells[0]);
-    expect(onSelect).toHaveBeenCalledWith('places');
-    rerender(rail({ places: [1] }, FAV(onSelect, 'places')));
-    expect(screen.getAllByTestId('wf-region-favourite')[0]).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getAllByTestId('wf-region-cell')[0]).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(screen.getAllByTestId('wf-region-favourite')[0]);
-    expect(onSelect).toHaveBeenLastCalledWith(null);
-  });
-
-  it('draws nothing extra for a Pro reader with no star, or with no favourites prop', () => {
-    render(rail({ status: 'ready' }, null));
-    expect(screen.queryByTestId('wf-region-favourite')).toBeNull();
-  });
-
-  it('a Lite reader gets one ★ My places cell with the Pro pill that opens the worded upsell', () => {
-    render(rail({ status: 'locked' }, FAV()));
-    const locked = screen.getByTestId('wf-region-favourite-locked');
-    expect(locked).toHaveTextContent('★ My places');
-    expect(locked).toHaveTextContent('Pro');
-    fireEvent.click(locked);
-    expect(screen.getByTestId('wf-region-favourite-upsell-panel')).toHaveTextContent('Pro keeps your own list');
-  });
-
-  it('⚠️ the cells are a labelled section, and the ★ glyph is hidden so the name reads "My places", not "black star"', () => {
-    render(rail({ places: [1] }, FAV()));
-    expect(screen.getByRole('group', { name: 'Your places' })).toContainElement(screen.getAllByTestId('wf-region-favourite')[0]);
-    const cell = screen.getAllByTestId('wf-region-favourite')[0];
-    expect(cell.querySelector('[aria-hidden="true"]')).toHaveTextContent('★');
-    expect(cell).toHaveAccessibleName(/^My places 2 places/);
-    expect(cell).not.toHaveAccessibleName(/★/);
-  });
-
-  it('⚠️ Escape on the Lite trigger with the upsell open closes only the panel, and the key does not escape', () => {
-    const onKey = vi.fn();
-    document.addEventListener('keydown', onKey);
-    render(rail({ status: 'locked' }, FAV()));
-    const locked = screen.getByTestId('wf-region-favourite-locked');
-    fireEvent.click(locked);
-    fireEvent.keyDown(locked, { key: 'Escape' });
-    expect(screen.queryByTestId('wf-region-favourite-upsell-panel')).toBeNull();
-    expect(onKey).not.toHaveBeenCalled();
-    document.removeEventListener('keydown', onKey);
   });
 });
 

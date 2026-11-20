@@ -414,7 +414,7 @@ export function buildTideAlignmentIndex(days) {
 /**
  * Each location's lunar eclipse sight per window — the popup's dawn-race source (L4,
  * `docs/engineering/lunar-eclipse-plan.md` §2.7), keyed exactly like {@link buildSlotIndex} so
- * {@code WindowSheetDialog} reads it through the same {@link lookupForWindow} every other
+ * the retired window popup reads it through the same {@link lookupForWindow} every other
  * per-location, per-window fact in this file goes through.
  *
  * <p>Reads {@code BriefingSlot.eclipse} (the served {@code EclipseSight}, {@code NON_NULL} on the

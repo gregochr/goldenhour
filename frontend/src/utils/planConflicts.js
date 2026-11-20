@@ -180,7 +180,7 @@ export function buildPlanConflict({
    * tier (plan §2.5), so the tier gated nothing and naming it in the line describes an act that did
    * not happen. The reach BRANCH cannot be reached in that state — an ungated pool is never empty —
    * but the floor-shut branch can, and it must not say "in reach" then. Asked of the whole scope
-   * rather than of any one card's drawn set, for the reason `WindowSheetDialog` records.
+   * rather than of any one card's drawn set, for the reason the retired window popup records.
    */
   const reachMeasured = measuredArg ?? scope.some((spot) => spot?.driveMinutes != null);
   const tierLabel = (REACH_TIERS.find((tier) => tier.id === tierId)?.label ?? null);

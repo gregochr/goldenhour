@@ -775,14 +775,12 @@ function areaLabel(regionName, tiny) {
  * @param {Array}    [props.hotTopics] the served {@code briefing.hotTopics}, for the scope filter
  *                                    and (at M2) the science notes. Absent simply means no topic is
  *                                    scope-filtered — see {@code windowFirstTopics.js}
- * @param {Set}      [props.openKeys] the window keys whose cards are open
  * @param {?Map<string, number>} [props.highlightKeys] Ask PhotoCast's selected pick, as the window key
  *                                    its card carries mapped to the pick's rank (F5, plan §2.8 — a Map
  *                                    and not a Set because the rank is drawn on the card). Empty or
  *                                    absent highlights nothing, and so does a key whose card is not a
  *                                    control (an away cell) or is not among the rendered windows. The
- *                                    highlight never opens the popup and is a different mark from
- *                                    {@code openKeys}'s: both can sit on one card.
+ *                                    highlight never opens a window.
  * @param {string}   props.todayStr   today's ISO date in Europe/London, for the horizon fallback,
  *                                    the today column and the elapsed-morning cell
  * @param {?string}  [props.runAge]   the last forecast run's age, already formatted by the shell
@@ -802,7 +800,7 @@ function areaLabel(regionName, tiny) {
  *                                    drawn under an away origin, even when set.
  */
 export default function WindowFirstHeatStrip({
-  cards, pointSets, unratedSets, stoodSets, spots, reachById, fieldReachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
+  cards, pointSets, unratedSets, stoodSets, spots, reachById, fieldReachById, hotTopics, todayStr, runAge, onOpenWindow,
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
   picksLocked = false, groundSets = null, picks = null,
   comingUpEntries = null, renderedEntryIds = null, openableKeys = null, forecastDates = null,
@@ -1501,7 +1499,6 @@ export default function WindowFirstHeatStrip({
    */
   const renderCard = (card, column, row, solo) => {
     const notScored = unscored.has(card.key);
-    const open = Boolean(openKeys?.has(card.key));
     // Ask's pick lands here — only on a card that is a control: an away cell is a read-out and a
     // highlight on it would promise a window nobody forecast.
     const askRank = card.away ? null : (highlightKeys?.get(card.key) ?? null);
@@ -2038,7 +2035,6 @@ export default function WindowFirstHeatStrip({
       'wf-hc',
       tint,
       solo ? 'solo' : null,
-      open ? 'on' : null,
       card.pickKind === 'best' ? 'best' : null,
       card.pickKind === 'also' ? 'also' : null,
     ].filter(Boolean).join(' ');
@@ -2080,9 +2076,7 @@ export default function WindowFirstHeatStrip({
         // put "Poor" — measured to AA in `index.css`, and the one word a reader most needs at a
         // glance — back under the floor that measurement set.
         data-unscored={notScored ? 'true' : undefined}
-        data-open={open ? 'true' : undefined}
-        // Ask PhotoCast's selected pick (F5) — a DIFFERENT mark from `data-open`, and the two can sit on
-        // one card: the highlight never opens the popup, and an open popup never takes the highlight.
+        // Ask PhotoCast's selected pick (F5): a highlight only, it never opens a window.
         data-ask-highlight={askRank !== null ? 'true' : undefined}
         className={className}
         style={place}
@@ -2607,7 +2601,6 @@ WindowFirstHeatStrip.propTypes = {
   fieldReachById: PropTypes.instanceOf(Map),
   /** The served hot topics, for the scope filter. Absent means nothing is scope-filtered. */
   hotTopics: PropTypes.array,
-  openKeys: PropTypes.instanceOf(Set),
   highlightKeys: PropTypes.instanceOf(Map),
   todayStr: PropTypes.string,
   runAge: PropTypes.string,

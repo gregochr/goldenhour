@@ -73,7 +73,6 @@ const findButton = () => screen.getByTestId('window-first-search');
 const find = () => screen.queryByTestId('plan-search-panel');
 const input = () => screen.getByTestId('plan-search-input');
 const sheet = () => screen.queryByTestId('location-sheet');
-const popup = () => screen.queryByTestId('window-sheet');
 // jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
 const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const selectedTab = () => screen.getByRole('tab', { selected: true });
@@ -85,7 +84,7 @@ function Rig({ shellProps }) {
   const closeDialogs = useCallback(() => closeRef.current?.(), []);
   const register = useCallback((fn) => { closeRef.current = fn; }, []);
   const shell = (
-    <WindowFirstShell legacyWindowPopup
+    <WindowFirstShell
       {...{ locations: [], onShowOnMap: vi.fn(), onSignOut: vi.fn(), onOpenSettings: vi.fn() }}
       {...{ onTabChange: setCurrent, registerCloseDialogs: register }}
       {...shellProps}
@@ -196,18 +195,6 @@ describe('⌘K / Ctrl K — the guard matrix', () => {
     await expectActs();
   });
 
-  it('⚠️ opens over the window popup — the popup is one of the two layers Find may stand on', async () => {
-    mount();
-    await ready();
-    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-    await screen.findByTestId('window-sheet');
-    await settle();
-
-    await expectActs();
-    await settle();
-    expect(__inspectForTests().layers).toBe(2);
-  });
-
   it('closes on a second press, ahead of every refusal — focus is in Find\'s own field by then', async () => {
     mount();
     await ready();
@@ -303,22 +290,6 @@ describe('⌘K / Ctrl K — the guard matrix', () => {
     await expectActs();
   });
 
-  it('⚠️ is refused while the guide\'s modal is up (it opens as a modal over the window popup)', async () => {
-    mount();
-    await ready();
-    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-    await screen.findByTestId('window-sheet');
-    fireEvent.click(screen.getByRole('button', { name: 'Guide for this tab' }));
-    expect(await screen.findByTestId('guide-dialog')).toBeInTheDocument();
-    await settle();
-
-    expectRefused(chord());
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByTestId('guide-dialog')).toBeNull());
-    await expectActs();
-  });
-
   it('is live on Coming up and the Map, and refused on Operations (a pick there would mean nothing)', async () => {
     mount({ props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await ready();
@@ -375,7 +346,7 @@ describe('the Find button', () => {
 });
 
 describe('what a pick does on At a Glance (unchanged)', () => {
-  it('a place opens its next-days sheet, a window its popup, a region plans from it', async () => {
+  it('a place opens its next-days sheet, a region plans from it', async () => {
     const ctx = findCtx();
     mount({ ctx });
     await ready();
@@ -389,13 +360,6 @@ describe('what a pick does on At a Glance (unchanged)', () => {
     await waitFor(() => expect(sheet()).toBeNull());
 
     fireEvent.click(findButton());
-    await screen.findByTestId('plan-search-panel');
-    fireEvent.click(screen.getAllByRole('option', { name: /Tonight/ })[0]);
-    expect(await screen.findByTestId('window-sheet')).toBeInTheDocument();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(popup()).toBeNull());
-
-    fireEvent.click(findButton());
     await type('north york');
     fireEvent.click(screen.getByRole('option', { name: /North York Moors/ }));
     expect(ctx.setOrigin).toHaveBeenCalledWith(REGION);
@@ -403,8 +367,8 @@ describe('what a pick does on At a Glance (unchanged)', () => {
 });
 
 describe('what a pick does on Coming up (decision D6: the Plan tab, then the sheet)', () => {
-  const toComingUp = async (ctx = findCtx()) => {
-    mount({ ctx });
+  const toComingUp = async (ctx = findCtx(), props = {}) => {
+    mount({ ctx, props });
     await ready();
     fireEvent.click(tab('Coming up'));
     await act(async () => { await Promise.resolve(); });
@@ -437,18 +401,14 @@ describe('what a pick does on Coming up (decision D6: the Plan tab, then the she
     expect(document.activeElement).toBe(tab('At a Glance'));
   });
 
-  it('a window takes the reader to the Plan tab and opens its popup', async () => {
-    await toComingUp();
+  it('a window opens the Map on it, recording Coming up as where Back returns to (G2a)', async () => {
+    const onOpenMapTab = vi.fn();
+    await toComingUp(findCtx(), { mapPane: MAP_PANE, onOpenMapTab });
 
     fireEvent.click(screen.getAllByRole('option', { name: /Tonight/ })[0]);
 
-    expect(await screen.findByTestId('window-sheet')).toBeInTheDocument();
-    expect(selectedTab()).toHaveTextContent(/At a Glance/);
-    // The same popup a Glance window pick opens (`openWindow(key)`); its close lands on the Plan tab button.
-    await settle();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(popup()).toBeNull());
-    expect(document.activeElement).toBe(tab('At a Glance'));
+    expect(onOpenMapTab).toHaveBeenCalledTimes(1);
+    expect(onOpenMapTab.mock.calls[0][0]).toMatchObject({ from: 'coming-up', inPlace: false });
   });
 
   it('a region plans from it and leaves the reader on Coming up', async () => {

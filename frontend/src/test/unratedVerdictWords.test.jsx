@@ -3,7 +3,6 @@ import {
   VERDICT_LABEL, VERDICT_LABEL_SHORT, SLOT_VERDICT_LABEL, shortVerdictLabel,
 } from '../utils/windowFirstCards.js';
 import { VERDICT_TINT } from '../components/WindowFirstHeatStrip.jsx';
-import { VERDICT_TREATMENT } from '../components/WindowSheetDialog.jsx';
 import { resolveRegionDisplay } from '../utils/tierUtils.js';
 import { unratedRules, setsVerdictHue } from './unratedStylesheet.js';
 
@@ -22,11 +21,10 @@ describe('every verdict word has an explicit arm in every map that keys on one',
     expect(WORDS.sort()).toEqual(['AWAITING', 'MAYBE', 'STAND_DOWN', 'UNRATED', 'WORTH_IT']);
   });
 
-  it.each(WORDS)('%s has an entry in VERDICT_LABEL_SHORT, SLOT_VERDICT_LABEL, VERDICT_TINT and VERDICT_TREATMENT', (word) => {
+  it.each(WORDS)('%s has an entry in VERDICT_LABEL_SHORT, SLOT_VERDICT_LABEL, and VERDICT_TINT', (word) => {
     expect(VERDICT_LABEL_SHORT, 'VERDICT_LABEL_SHORT').toHaveProperty(word);
     expect(SLOT_VERDICT_LABEL, 'SLOT_VERDICT_LABEL').toHaveProperty(word);
     expect(VERDICT_TINT, 'VERDICT_TINT').toHaveProperty(word);
-    expect(VERDICT_TREATMENT, 'VERDICT_TREATMENT').toHaveProperty(word);
   });
 
   it.each(WORDS)('%s resolves to itself', (word) => {

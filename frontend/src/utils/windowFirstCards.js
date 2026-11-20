@@ -841,7 +841,7 @@ export function buildWindowCards(
     // helper prefers the served `displayVerdict` and MAPS the legacy triage `verdict` where the
     // cached payload carries only that; reading raw here dropped to `AWAITING` while the region rail
     // beside it — built by `buildRegionRows`, converged at L5 — said `Worth it`. Both render in one
-    // `WindowSheetDialog`, the card's word at its head and the rail under it. Found by the
+    // the retired window popup, the card's word at its head and the rail under it. Found by the
     // cross-phase review on #792 (§4 #39).
     const verdictSource = scopedRegion ? resolveRegionDisplay(scopedRegion) : null;
     const servedVerdict = verdictSource || win?.verdict || 'AWAITING';

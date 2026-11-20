@@ -64,12 +64,6 @@ async function askOne(question = 'Best at dawn?') {
   return screen.findByTestId('ask-picks');
 }
 
-async function openPopup() {
-  await screen.findByTestId('wf-heat-strip');
-  await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-  return screen.findByTestId('window-sheet');
-}
-
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
@@ -494,50 +488,10 @@ describe('Escape', () => {
     expect(dock()).not.toBeNull();
   });
 
-  it('⚠️ the popup\'s own Escape ladder is untouched by an open dock: one press, one layer, the dock stays', async () => {
-    renderAskShell({ width: 1280, ctx: matrixCtx() });
-    await openDock();
-    screen.getByTestId('ask-input').blur();
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-spot-all'));
-    expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByTestId('window-spot-sheet')).toBeNull());
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByTestId('window-sheet')).toBeNull());
-    expect(dock()).not.toBeNull();
-  });
 });
 
 describe('under a dialog the dock is inert and the page is not', () => {
   const inert = () => screen.getByTestId('ask-dock');
-
-  it('a window popup', async () => {
-    renderAskShell({ width: 1280, ctx: matrixCtx() });
-    await openDock();
-    expect(inert()).not.toHaveAttribute('inert');
-    await openPopup();
-    expect(inert()).toHaveAttribute('inert');
-    expect(field()).toBeDisabled();
-    expect(appContainer()).not.toHaveAttribute('inert');
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByTestId('window-sheet')).toBeNull());
-    expect(inert()).not.toHaveAttribute('inert');
-    expect(field()).toBeEnabled();
-  });
-
-  it('the drill-down stacked over it', async () => {
-    renderAskShell({ width: 1280, ctx: matrixCtx() });
-    await openDock();
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-spot-all'));
-    expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
-    expect(inert()).toHaveAttribute('inert');
-    expect(appContainer()).not.toHaveAttribute('inert');
-  });
 
   it('search', async () => {
     renderAskShell({ width: 1280 });
@@ -571,23 +525,17 @@ describe('under a dialog the dock is inert and the page is not', () => {
     expect(inert()).not.toHaveAttribute('inert');
   });
 
-  it('the pick dialog stacked over the popup', async () => {
-    const base = matrixCtx();
-    const windowCards = [{
-      ...base.windowCards[0],
-      pick: {
-        kind: 'best', regionName: 'North York Moors & Coast', headline: 'Breaking clear',
-        detail: 'Low cloud clears.', locationName: 'Whitby', locationId: WHITBY,
-      },
-    }];
-    renderAskShell({ width: 1280, ctx: { ...base, windowCards } });
+  it('opening a dialog never closes the dock, and the dock never closes a dialog', async () => {
+    const { rerenderShell } = renderAskShell({ width: 1280 });
     await openDock();
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-    expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
-    expect(inert()).toHaveAttribute('inert');
-    expect(field()).toBeDisabled();
-    expect(appContainer()).not.toHaveAttribute('inert');
+    rerenderShell({
+      locationSheetHandoff: {
+        id: WHITBY, name: 'Whitby', regionName: 'North York Moors & Coast', nonce: 1,
+      },
+    });
+    await screen.findByTestId('location-sheet');
+    expect(dock()).not.toBeNull();
+    expect(modalCount()).toBe(1);
   });
 
   it('⚠️ NOT a dead backend: the field is disabled and the dock stays operable, so it can always be closed', async () => {
@@ -601,14 +549,6 @@ describe('under a dialog the dock is inert and the page is not', () => {
     expect(dock()).toBeNull();
   });
 
-  it('opening a dialog never closes the dock, and the dock never closes a dialog', async () => {
-    renderAskShell({ width: 1280, ctx: matrixCtx() });
-    await openDock();
-    await openPopup();
-    expect(dock()).not.toBeNull();
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    expect(modalCount()).toBe(1);
-  });
 });
 
 describe('focus is never left to fall to <body>', () => {
@@ -623,20 +563,6 @@ describe('focus is never left to fall to <body>', () => {
 
     expect(dock()).toHaveAttribute('inert');
     expect(tab('At a Glance')).toHaveFocus();
-  });
-
-  it('is left alone when focus is elsewhere: a press on a window card is the reader\'s own focus', async () => {
-    renderAskShell({ width: 1280, ctx: matrixCtx() });
-    await openDock();
-    const card = (await screen.findAllByTestId('wf-heat-card'))[0];
-    // The control is the card's inner button: focusing the `div` would focus nothing and pass vacuously.
-    card.querySelector('[data-testid="wf-heat-card-button"]').focus();
-    expect(card.querySelector('[data-testid="wf-heat-card-button"]')).toHaveFocus();
-    // A keyboard press: the click lands on the BUTTON (Enter on it), which bubbles to the card.
-    await act(async () => { fireEvent.click(card.querySelector('[data-testid="wf-heat-card-button"]')); });
-    await screen.findByTestId('window-sheet');
-    expect(dock()).toHaveAttribute('inert');
-    expect(tab('At a Glance')).not.toHaveFocus();
   });
 
   it('⚠️ the window narrowing past 1024px under a focused dock hands focus to the tab in force', async () => {

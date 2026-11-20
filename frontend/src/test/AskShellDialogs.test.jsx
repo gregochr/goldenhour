@@ -2,18 +2,17 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, cleanup, fireEvent, screen, waitFor,
+  cleanup, fireEvent, screen,
 } from '@testing-library/react';
 import { resetViewport } from './askViewport.js';
-import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { matrixCtx, renderAskShell, shellCtx } from './askShellHarness.jsx';
+import { matrixCtx, renderAskShell } from './askShellHarness.jsx';
 import {
   NOW, readyResponse, settings, WHITBY,
 } from './askFixtures.js';
 
 /**
  * "Opening Ask never closes a dialog" and "the sheet is the single modal" (plan §2.6, Dialogs):
- * while a window popup, the drill-down over it, the location sheet, search or settings is open the
+ * while the location sheet, search or settings is open the
  * Ask entry is DISABLED — a refusal, with nothing taken down — and while Ask's sheet is open nothing
  * else can be opened.
  *
@@ -43,13 +42,6 @@ const bar = () => screen.getByTestId('ask-bar');
 const askDialog = () => screen.queryByRole('dialog', { name: 'Ask PhotoCast' });
 const modalCount = () => document.querySelectorAll('[aria-modal="true"]').length;
 
-/** Opens the first window's popup, awaiting the matrix's own lazy boundary first. */
-async function openPopup() {
-  await screen.findByTestId('wf-heat-strip');
-  await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-  return screen.findByTestId('window-sheet');
-}
-
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
@@ -68,37 +60,6 @@ afterEach(() => {
 });
 
 describe('Ask over an open dialog is refused, and nothing is closed', () => {
-  it('the window popup: the bar is disabled, pressing it opens nothing, the popup stays', async () => {
-    renderAskShell({ width: 390, ctx: matrixCtx() });
-    await openPopup();
-    expect(bar()).toBeDisabled();
-    fireEvent.click(bar());
-    expect(askDialog()).toBeNull();
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    expect(modalCount()).toBe(1);
-  });
-
-  it('the same on the tablet: the field is disabled over the popup', async () => {
-    renderAskShell({ width: 800, ctx: matrixCtx() });
-    await openPopup();
-    expect(screen.getByTestId('ask-field')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('ask-field'));
-    expect(askDialog()).toBeNull();
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-  });
-
-  it('the drill-down stacked over the popup: still disabled, both layers stay', async () => {
-    renderAskShell({ width: 390, ctx: matrixCtx() });
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-spot-all'));
-    expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
-    expect(bar()).toBeDisabled();
-    fireEvent.click(bar());
-    expect(askDialog()).toBeNull();
-    expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-  });
-
   it('search: the bar is disabled while search is open, and search stays', async () => {
     renderAskShell({ width: 390 });
     await screen.findByTestId('ask-bar');
@@ -153,29 +114,6 @@ describe('Ask over an open dialog is refused, and nothing is closed', () => {
     expect(modalCount()).toBe(1);
   });
 
-  it('is NOT disabled by a popup whose window has gone: the key outlives its card, the dialog does not', async () => {
-    // `openWindowKey` is deliberately never released when its card leaves the list (the event
-    // passed); the popup stops rendering, and Ask must follow what is on screen, not the stale key.
-    const { rerenderShell } = renderAskShell({ width: 390, ctx: matrixCtx() });
-    await openPopup();
-    expect(bar()).toBeDisabled();
-
-    vi.spyOn(briefingContext, 'useWindowFirstBriefing')
-      .mockReturnValue(shellCtx({ ...matrixCtx(), windowCards: [], heatStripCards: [] }));
-    rerenderShell();
-
-    await waitFor(() => expect(screen.queryByTestId('window-sheet')).toBeNull());
-    expect(bar()).toBeEnabled();
-  });
-
-  it('is enabled again as soon as the popup closes', async () => {
-    renderAskShell({ width: 390, ctx: matrixCtx() });
-    await openPopup();
-    expect(bar()).toBeDisabled();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByTestId('window-sheet')).toBeNull());
-    expect(bar()).toBeEnabled();
-  });
 });
 
 describe('with Ask\'s sheet open, nothing else can open', () => {

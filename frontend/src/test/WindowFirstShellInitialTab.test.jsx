@@ -130,10 +130,10 @@ const renderShell = (extraProps = {}) => {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
     ...extraProps,
   };
-  const view = render(<WindowFirstShell legacyWindowPopup {...props} />);
+  const view = render(<WindowFirstShell {...props} />);
   const rerenderWith = (nextProps) => {
     Object.assign(props, nextProps);
-    view.rerender(<WindowFirstShell legacyWindowPopup {...props} />);
+    view.rerender(<WindowFirstShell {...props} />);
   };
   return { ...view, props, rerenderWith };
 };
@@ -210,7 +210,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
     expect(onTabChange).toHaveBeenLastCalledWith('map');
   });
 
-  it('stays on Plan, with the popup still open, when the reader opened a window before the map pane arrived', async () => {
+  it('stays on Plan when the reader pressed a Glance card before the map pane arrived', async () => {
     const { rerenderWith } = renderShell({ initialTab: 'map' });
     await screen.findByTestId('wf-heat-strip');
     // `fireEvent.click` alone dispatches only a `click`, never the `pointerdown` a real press
@@ -221,12 +221,10 @@ describe('WindowFirstShell — initialTab="map"', () => {
       fireEvent.pointerDown(heatCard);
       fireEvent.click(heatCard);
     });
-    await screen.findByTestId('window-sheet');
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
 
     expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
   });
 
   it('stays on Plan when the reader changed the Drive or Rating lens — no dialog involved at all', () => {

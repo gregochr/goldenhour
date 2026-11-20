@@ -426,19 +426,6 @@ describe('the Plan-card highlight on the dock', () => {
     expect(highlighted()).toHaveLength(0);
   });
 
-  it('is a different mark from the open card: both can sit on one card', async () => {
-    await dockWithAnswer();
-    await screen.findByTestId('wf-heat-strip');
-    fireEvent.click(screen.getByTestId('ask-pick-select-2'));
-
-    await act(async () => { fireEvent.click(heatCard(`${TODAY}:SUNSET`)); });
-    await screen.findByTestId('window-sheet');
-
-    const card = heatCard(`${TODAY}:SUNSET`);
-    expect(card).toHaveAttribute('data-open', 'true');
-    expect(card).toHaveAttribute('data-ask-highlight', 'true');
-  });
-
   it('is gone the moment Ask is: a server that says 404 hides every surface, and a ring with nothing to clear it would stick', async () => {
     await dockWithAnswer();
     await screen.findByTestId('wf-heat-strip');

@@ -1,22 +1,14 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { act, render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
-import { openMapDoor } from '../utils/mapDoors.js';
-
-// A passthrough spy over the door's close-then-move entry, so a test can neutralise it for ONE press
-// and prove the handler's OWN closes (not the door's) are what end the browsing.
-vi.mock('../utils/mapDoors.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...actual, openMapDoor: vi.fn(actual.openMapDoor) };
-});
 
 describe('WindowFirstShell', () => {
   const renderShell = (props = {}) => {
     const handlers = { onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
-    render(<WindowFirstShell legacyWindowPopup {...handlers} />);
+    render(<WindowFirstShell {...handlers} />);
     return handlers;
   };
 
@@ -276,29 +268,12 @@ describe('WindowFirstShell — the strip it hosts', () => {
     ...extra,
   });
 
-  /**
-   * Opens the Nth `wf-heat-card` in DOCUMENT order, awaiting the matrix's own `lazy()` boundary
-   * first.
-   *
-   * <p>⚠️ `nth` is a DOM position, not a window's position in `heatStripCards`/the popup's own ring
-   * — the two agree only when every fixture card shares one row. Since matrix-axis plan §6 the
-   * desktop default is ROW-MAJOR: the whole sunrise row precedes the whole sunset row, so on the
-   * `twoWindows()` fixture below (today's SUNSET then tomorrow's SUNRISE) `nth: 0` opens tomorrow's
-   * sunrise and `nth: 1` opens today's sunset — the reverse of the array/ring order those two
-   * windows are still stepped in by `window-sheet-next`/`-prev`.
-   */
-  const openPopup = async (nth = 0) => {
-    await screen.findByTestId('wf-heat-strip');
-    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[nth]); });
-    return screen.findByTestId('window-sheet');
-  };
-
   const renderWithBriefing = (ctx, props = {}) => {
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx);
     const handlers = {
       onOpenSettings: vi.fn(), onSignOut: vi.fn(), onOpenMapTab: vi.fn(), ...props,
     };
-    render(<WindowFirstShell legacyWindowPopup {...handlers} />);
+    render(<WindowFirstShell {...handlers} />);
     return handlers;
   };
 
@@ -462,213 +437,6 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(screen.getByTestId('wf-heat-time')).toHaveTextContent('21:11');
   });
 
-  describe('the window popup', () => {
-    const SECOND = { ...CARD, key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', lead: false, kicker: null, when: 'Tomorrow sunrise' };
-    const STRIP_SECOND = {
-      key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', dow: 'Wed', sunrise: true, label: 'Tomorrow sunrise', time: '05:20', verdict: 'WORTH_IT', verdictLabel: 'Worth it', pickKind: null, away: false, confidence: 'high', pool: [], bestReach: null, badges: [],
-    };
-    const twoWindows = () => {
-      const ctx = briefingWith('2026-08-04T12:00:00', new Map(), [CARD, SECOND]);
-      return { ...ctx, heatStripCards: [...ctx.heatStripCards, STRIP_SECOND] };
-    };
-
-    it('⚠️ opens nothing until a cell is pressed', async () => {
-      // The lead-open default went with the accordion. Six cards were open-one-collapse-five
-      // because they were all on the page at once; a dialog is not, and opening one on first paint
-      // would put a scrim over the plan a reader has just arrived at.
-      renderWithBriefing(twoWindows());
-      await screen.findByTestId('wf-heat-strip');
-      expect(screen.queryByTestId('window-sheet')).toBeNull();
-      expect(screen.getAllByTestId('wf-heat-card').map((c) => c.dataset.open))
-        .toEqual([undefined, undefined]);
-    });
-
-    it('opens on the window whose cell was pressed, and marks that cell', async () => {
-      // ⚠️ DOM index 0, not 1 (matrix-axis plan §6.4) — the desktop default is now ROW-MAJOR: the
-      // whole sunrise row precedes the whole sunset row, so `SECOND` (tomorrow's sunrise) is the
-      // FIRST `wf-heat-card` in document order even though it is the second window chronologically.
-      renderWithBriefing(twoWindows());
-      await openPopup(0);
-      expect(screen.getByTestId('window-sheet-title')).toHaveTextContent('Tomorrow sunrise');
-      expect(screen.getAllByTestId('wf-heat-card').map((c) => c.dataset.open))
-        .toEqual(['true', undefined]);
-    });
-
-    it('says which of the six it is, and steps to the next one', async () => {
-      renderWithBriefing(twoWindows());
-      await openPopup(1);
-      expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('1/2');
-
-      await act(async () => { fireEvent.click(screen.getByTestId('window-sheet-next')); });
-      expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('2/2');
-      expect(screen.getByTestId('window-sheet-title')).toHaveTextContent('Tomorrow sunrise');
-    });
-
-    it('⚠️ wraps at both ends, as its own control does', async () => {
-      // Six windows on a ring. A disabled arrow at each end would be two controls that do nothing
-      // on the two windows a reader is most often in.
-      renderWithBriefing(twoWindows());
-      await openPopup(1);
-      await act(async () => { fireEvent.click(screen.getByTestId('window-sheet-prev')); });
-      expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('2/2');
-    });
-
-    it('closes on its own esc control, leaving the plan where it was', async () => {
-      renderWithBriefing(twoWindows());
-      await openPopup(1);
-      fireEvent.click(screen.getByTestId('window-sheet-close'));
-      expect(screen.queryByTestId('window-sheet')).toBeNull();
-      expect(screen.getAllByTestId('wf-heat-card')).toHaveLength(2);
-    });
-
-    describe('the arrow keys step it, and only while it is topmost', () => {
-      it('steps forward on ArrowRight and back on ArrowLeft', async () => {
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-        await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); });
-        expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('2/2');
-        await act(async () => { fireEvent.keyDown(document, { key: 'ArrowLeft' }); });
-        expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('1/2');
-      });
-
-      it('wraps, exactly as the visible control does', async () => {
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-        await act(async () => { fireEvent.keyDown(document, { key: 'ArrowLeft' }); });
-        expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('2/2');
-      });
-
-      it('⚠️ leaves a modified arrow alone, because Alt+Left is the browser\'s Back', async () => {
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-        await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight', altKey: true }); });
-        expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('1/2');
-      });
-
-      it('⚠️ leaves a text field\'s caret keys alone', async () => {
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-        const input = document.createElement('input');
-        document.body.appendChild(input);
-        await act(async () => { fireEvent.keyDown(input, { key: 'ArrowRight' }); });
-        expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('1/2');
-        input.remove();
-      });
-
-      it('⚠️ does not step the window under a dialog stacked over it', async () => {
-        // The stacked surface has its own arrow behaviour, and stepping the popup underneath it
-        // would move a page the reader cannot see.
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-        fireEvent.click(screen.getByTestId('window-sheet-pick'));
-        await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); });
-        expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('1/2');
-      });
-
-      it('does nothing at all while the popup is shut', async () => {
-        renderWithBriefing(twoWindows());
-        await screen.findByTestId('wf-heat-strip');
-        await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); });
-        expect(screen.queryByTestId('window-sheet')).toBeNull();
-      });
-    });
-
-    describe('Escape closes one layer per press, topmost first', () => {
-      it('takes the stacked sheet first and leaves the popup standing', async () => {
-        // ⚠️ `Modal` installs a document-level Escape listener PER INSTANCE, so two open dialogs
-        // both close on one press unless the lower one declines the key. This is that guard.
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-        fireEvent.click(screen.getByTestId('window-sheet-pick'));
-        expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
-
-        await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
-        expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
-        expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-
-        await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
-        expect(screen.queryByTestId('window-sheet')).toBeNull();
-      });
-
-      /**
-       * The whole walk, with SEARCH on top — the rung that was wired at M2 and dormant until M3.
-       *
-       * <p>M2 built `escapeEnabled` on all three lower layers and recorded that the ordering's
-       * first rung could not be reached: search was refused while any dialog was open, and
-       * `PlanSearch` closes itself on every pick, so search could never be open OVER anything. M3
-       * anchors search to the masthead — a surface the popup is drawn over rather than inside — so
-       * search is now permitted with the popup open, and this is the first test that can walk all
-       * three layers down. ⚠️ Since F2 it is opened by the masthead's ⌕ here: `/` belongs to Ask.
-       */
-      it('⚠️ walks search → sheet → popup, one layer per press', async () => {
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-        fireEvent.click(screen.getByTestId('window-sheet-pick'));
-        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
-        // Search over a sheet over the popup would be three layers; the guard refuses it, so the
-        // stack under test is search over the popup. Close the sheet first, then open search.
-        expect(screen.queryByTestId('plan-search')).toBeNull();
-
-        await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
-        expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
-
-        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
-        expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
-        expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-
-        // One press, one layer: search goes and the popup is still standing behind it.
-        await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
-        expect(screen.queryByTestId('plan-search')).toBeNull();
-        expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-
-        await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
-        expect(screen.queryByTestId('window-sheet')).toBeNull();
-      });
-
-      it('⚠️ refuses the arrow keys while search is over the popup', async () => {
-        // `← →` step windows, and a reader typing "wed" into the box must not also be walking the
-        // plan behind it. The guard existed before search could be open over the popup at all,
-        // which means nothing could exercise it until now.
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-        const before = screen.getByTestId('window-sheet-title').textContent;
-
-        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
-        await screen.findByTestId('plan-search');
-        await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); });
-
-        expect(screen.getByTestId('window-sheet-title').textContent).toBe(before);
-      });
-    });
-
-    describe('the search button against the popup', () => {
-      it('opens search over an open popup — the stack M3 exists to allow', async () => {
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-
-        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
-
-        expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
-        // The popup stays MOUNTED underneath, which is what makes the Escape order meaningful —
-        // a search that closed the popup on the way in would need no ordering at all.
-        expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-      });
-
-      it('⚠️ still refuses it over a layer stacked ON the popup', async () => {
-        // Those are already stacked; a third layer has nowhere to go, and the reader's place in
-        // the sheet would be lost behind a box they cannot see the list of.
-        renderWithBriefing(twoWindows());
-        await openPopup(1);
-        fireEvent.click(screen.getByTestId('window-sheet-pick'));
-
-        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
-
-        expect(screen.queryByTestId('plan-search')).toBeNull();
-        expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
-      });
-    });
-  });
-
   describe('away days', () => {
     // Built through the real deriver rather than hand-written, because M5 deleted the away block's
     // rendered payload (`label`, `note`, `windowCount`) along with the promoted strip that read it —
@@ -767,133 +535,6 @@ describe('WindowFirstShell — the strip it hosts', () => {
       .not.toMatch(/arrive in later phases|Window-first Plan/);
   });
 
-  it('lets a reader close the pick dialog without going anywhere', async () => {
-    // Every control left in that dialog navigates off the Plan screen, so a cancel-less dialog
-    // forces an unwanted map handoff. `onClose` was wired but nothing pinned it: replacing it with
-    // a no-op left the whole suite green.
-    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-
-    fireEvent.click(screen.getByTestId('window-pick-dialog-backdrop'));
-    // The pick goes; the popup it was opened from stays — closing one layer must not take the one
-    // underneath it, which is the same rule Escape follows.
-    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    expect(onOpenMapTab).not.toHaveBeenCalled();
-  });
-
-  it('hands the dialog the window it belongs to, in the right order', async () => {
-    // The header reads "<when> · <time>". Swapping the two props left the suite green and the
-    // header reading "21:11 · Sunset".
-    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-
-    expect(screen.getByTestId('window-pick-dialog')).toHaveTextContent('Sunset · 21:11');
-  });
-
-  it('opens the pick dialog from the popup and routes both of its destinations', async () => {
-    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    await openPopup();
-
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-    expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('window-pick-dialog-region'));
-    // The structured door (overlay convergence C4): a normalised `region` trigger, carrying the
-    // Plan's live lens and `inPlace: false` (the pick dialog is a Plan dialog), not the overlay hatch.
-    expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      kind: 'region', region: 'Northumberland & Tyneside', date: '2026-08-04', eventType: 'SUNSET',
-      inPlace: false, minRating: null, limitMinutes: 45,
-    }));
-    // Opening a destination closes the dialog — leaving it over the map it just opened would hide
-    // the thing the user asked to see.
-    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
-    // ⚠️ AND THE POPUP, which this comment used to call "the tab change's job". It is not: this
-    // route never goes through `selectTab`, so nothing else clears `openWindowKey`. the Plan-tab overlay
-    // this comment was written against (retired in overlay convergence C5) was itself an `aria-modal`
-    // dialog with an unconditional document Escape listener and NOT a `Modal`, so it took no `stacked` opt-in — and the instant the pick dialog goes,
-    // `stackedOverPopup` goes false and the popup re-arms its own listener and re-takes
-    // `aria-modal`. Two modals, the lower one fully tab-reachable under the overlay, one press
-    // closing both. M4 fixed this on the two sheet routes and missed the third; an adversarial
-    // review of M5 found it.
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
-  });
-
-  it('routes the pick\'s location as a location, not as a region', async () => {
-    // The two calls take different shapes and open different things: a positional
-    // (date, eventType, locationName) focuses one spot, an object focuses a region.
-    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    await openPopup();
-
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-    fireEvent.click(screen.getByTestId('window-pick-dialog-location-action'));
-
-    expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      kind: 'location', locationName: 'Bamburgh Beach', date: '2026-08-04', eventType: 'SUNSET',
-      inPlace: false,
-    }));
-    // The same close-everything rule as the region route above — see its note for why the popup
-    // may not survive a handoff to the map.
-    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
-  });
-
-  it('⚠️ withholds BOTH pick-dialog actions when the shell has no map door (a button that opens nothing is banned)', async () => {
-    renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { onOpenMapTab: undefined });
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-
-    expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
-    expect(screen.queryByTestId('window-pick-dialog-region')).toBeNull();
-    expect(screen.queryByTestId('window-pick-dialog-location-action')).toBeNull();
-  });
-
-  it('⚠️ the region action closes the dialog AND the popup itself, even if the door did not (the explicit closes are load-bearing)', async () => {
-    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-    openMapDoor.mockImplementationOnce(() => {});
-
-    fireEvent.click(screen.getByTestId('window-pick-dialog-region'));
-
-    expect(onOpenMapTab).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
-  });
-
-  it('⚠️ the location action closes the dialog AND the popup itself, even if the door did not', async () => {
-    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-    openMapDoor.mockImplementationOnce(() => {});
-
-    fireEvent.click(screen.getByTestId('window-pick-dialog-location-action'));
-
-    expect(onOpenMapTab).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
-  });
-
-  it('⚠️ routes a spot card to that place\'s own sheet, OVER the popup — not to the map', async () => {
-    // M4 (D-3) retargeted this click. Until then it opened the map and closed the popup, and the
-    // rule at the seam was "arriving at a destination ends the browsing". A sheet is not a
-    // destination — it is one place's four days, opened from the window still being read — so the
-    // popup stays underneath and the map moves one tap further, into the sheet's own footer.
-    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    await openPopup();
-
-    fireEvent.click(screen.getByTestId('window-spot'));
-
-    const sheet = await screen.findByTestId('location-sheet');
-    expect(within(sheet).getByTestId('location-sheet-title')).toHaveTextContent('Bamburgh Beach');
-    // The window popup is STILL THERE. This is the whole point of the retarget and the reason the
-    // Escape order has three rungs.
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    expect(onOpenMapTab).not.toHaveBeenCalled();
-  });
-
   it('says so plainly when there are no windows', () => {
     renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [], []));
     expect(screen.getByTestId('window-first-pane-empty')).toBeInTheDocument();
@@ -912,34 +553,6 @@ describe('WindowFirstShell — the strip it hosts', () => {
 
   // ── The shell's own wiring into the strip ──
   describe('what the shell hands the matrix', () => {
-    it('opens the popup for the window a cell names', async () => {
-      // The cell's only job beyond the picture. Deleting `onOpenWindow={openWindow}` leaves six
-      // inert buttons, and every other test in this file passes — which is exactly what the retired
-      // rail's own "hands a day to the map" test used to catch one level up.
-      const second = {
-        ...CARD, key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', lead: false, kicker: null, when: 'Tomorrow sunrise',
-      };
-      const base = briefingWith('2026-08-04T12:00:00', new Map(), [CARD, second]);
-      renderWithBriefing({
-        ...base,
-        heatStripCards: [...base.heatStripCards, {
-          key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', dow: 'Wed', sunrise: true, label: 'Tomorrow sunrise', time: '05:20', verdict: 'WORTH_IT', verdictLabel: 'Worth it', pickKind: null, away: false, confidence: 'high', pool: [], bestReach: null, badges: [],
-        }],
-      });
-      const strip = await screen.findByTestId('wf-heat-strip');
-
-      await act(async () => {
-        fireEvent.click(within(strip).getByRole('button', { name: /Tomorrow sunrise/ }));
-      });
-
-      expect(screen.getByTestId('window-sheet-title')).toHaveTextContent('Tomorrow sunrise');
-      // And the cell says so in the accessibility tree, not only in the stylesheet.
-      // ⚠️ Index 0, not 1 (matrix-axis plan §6.4) — row-major DOM puts the sunrise row (this
-      // fixture's tomorrow-sunrise card) before the sunset row (today's own card).
-      expect(within(within(strip).getAllByTestId('wf-heat-card')[0]).getByTestId('wf-heat-card-button'))
-        .not.toHaveAttribute('aria-expanded');
-    });
-
     it('⚠️ is a plain button since G2a: it opens the Map, so it is neither a dialog trigger nor a disclosure', async () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
       await screen.findByTestId('wf-heat-strip');
@@ -950,7 +563,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     });
   });
 
-  describe('the pick dialog, after the rail chip went', () => {
+  describe('the strip’s wiring, after the rail chip went', () => {
     it('⚠️ hands the matrix the served hot topics, or the scope filter never runs in the app', () => {
     // The one wiring the A8 filter depends on, and its failure is SILENT: with `hotTopics`
     // undefined the index is empty, every badge joins to nothing, and a badge with no topic is
@@ -1006,16 +619,6 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
   });
 
-  it('opens the pick prose from the popup header badge', async () => {
-      renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
-      await openPopup();
-      fireEvent.click(screen.getByTestId('window-sheet-pick'));
-
-      const dialog = screen.getByTestId('window-pick-dialog').textContent;
-      expect(dialog).toContain('Breaking clear');
-      expect(dialog).toContain('Low cloud clears.');
-    });
-
     it('offers no second trigger on the matrix — the pick legend is passive', async () => {
       // The rule the plan states and the exit criterion the review checks: no nested interactive
       // control inside the card button. `within(button).queryAllByRole('button')` would find the
@@ -1050,7 +653,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       expect(legend.tagName).toBe('SPAN');
       expect(legend).toHaveTextContent('Best bet');
       fireEvent.click(legend);
-      expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+      expect(screen.queryByRole('dialog')).toBeNull();
     });
   });
 
