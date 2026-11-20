@@ -96,10 +96,10 @@ function renderWithHandoff(extra = {}) {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
     locations: [], mapPane: MAP, ...extra,
   };
-  const view = render(<WindowFirstShell {...base} />);
+  const view = render(<WindowFirstShell legacyWindowPopup {...base} />);
   return {
     ...view,
-    setHandoff: (locationSheetHandoff) => view.rerender(<WindowFirstShell {...base} locationSheetHandoff={locationSheetHandoff} />),
+    setHandoff: (locationSheetHandoff) => view.rerender(<WindowFirstShell legacyWindowPopup {...base} locationSheetHandoff={locationSheetHandoff} />),
   };
 }
 
@@ -337,7 +337,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // that may not even be the one they are looking at.
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
     render(
-      <WindowFirstShell
+      <WindowFirstShell legacyWindowPopup
         onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
         locations={[]} mapPane={MAP}
         locationSheetHandoff={{ id: 1, name: 'Spot 1', regionName: 'North East', nonce: 4 }}

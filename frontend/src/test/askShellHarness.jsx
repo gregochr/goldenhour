@@ -170,7 +170,7 @@ export function renderAskShell({
   };
   const ui = (next = {}) => (
     <AskProvider>
-      <WindowFirstShell {...baseProps} {...next} />
+      <WindowFirstShell legacyWindowPopup {...baseProps} {...next} />
     </AskProvider>
   );
   const view = render(ui());

@@ -462,6 +462,7 @@ export default function WindowFirstShell({
   healthDot = null, healthStatusLine = null, light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
   locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false, initialTab = null,
   forecastDates = null, registerCloseDialogs = null, onFindOnMap = null, onFindOpenChange = null,
+  legacyWindowPopup = false,
 }) {
   const {
     heatStripCards, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
@@ -618,8 +619,8 @@ export default function WindowFirstShell({
    */
   const [focusedRegion, setFocusedRegion] = useState(null);
   /**
-   * The topic row the open popup should emphasise, as `{key, type}` — set only by
-   * {@code goToPlanWindow} (a Coming up lane's tap-through, hot-topics-by-day-plan §3 C1).
+   * The topic row the open popup should emphasise, as `{key, type}`. Nothing sets it since G2a: the lane's
+   * tap-through opens the Map, not the popup. The popup is unreachable and is deleted in G2b, with this.
    *
    * <p>Keyed to the window it was set for, and read through {@code emphasisTopic} below, so it can
    * only ever apply to that window: stepping `‹ ›` to another key hides it at once, and closing the
@@ -646,6 +647,16 @@ export default function WindowFirstShell({
    * dead from then on — see `commitTabInForce` below.
    */
   const [activeTab, setActiveTab] = useState(null);
+  /**
+   * How a reader reached the Map from a Glance card, a Find pick or a lane's tap-through (G2a, glance-to-map-plan.md
+   * "Back"): {@code {from, pending}} or null. The door writes {@code pending: true}; {@code selectTab('map')} (run by
+   * the tab request the same press raises) confirms it, and any other tab selection ends it, so a manual tab press or
+   * the breadcrumb's return never leaves a Back layer behind. While confirmed, one Back layer returns to {@code from}.
+   * State and not a ref, and updated only through a functional update: {@code selectTab} may run during render and
+   * from effects whose dependency lists omit it.
+   */
+  const [mapArrival, setMapArrival] = useState(null);
+  const mapArrivedFrom = mapArrival != null && !mapArrival.pending ? mapArrival.from : null;
   /**
    * The tabs this shell actually has, which is a function of the panes it was handed.
    *
@@ -924,6 +935,12 @@ export default function WindowFirstShell({
    */
   const selectTab = (id) => {
     setActiveTab(id);
+    // Leaving the Map ends an arrival; arriving on it (or re-selecting it) keeps the door's request.
+    setMapArrival((prev) => {
+      if (prev == null) return prev;
+      if (id !== 'map') return null;
+      return prev.pending ? { from: prev.from, pending: false } : prev;
+    });
     // Sticky: a pane that has been opened stays mounted, so its state and its fetches survive a
     // round trip through another tab. `ManageView` in particular reads the hash at mount and then follows
     // `#manage/<known tab>` through its own `hashchange` listener, so an already-mounted Manage moves with it.
@@ -1172,7 +1189,6 @@ export default function WindowFirstShell({
   const openMapTab = useCallback((door) => openMapDoor({
     // Every map door takes the layers under it down too, the area sheet included (it can sit under a place sheet).
     openOverPopup: (next) => { setAreaSheet(null); openOverPopup(next); },
-    openWindow,
     onOpenMapTab,
     ratingLens,
     reachLens,
@@ -1189,7 +1205,7 @@ export default function WindowFirstShell({
       inPlace: effectiveTab === 'map',
       ...(effectiveTab === 'map' ? {} : { from: effectiveTab }),
     },
-  }), [openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens, effectiveTab]);
+  }), [openOverPopup, onOpenMapTab, ratingLens, reachLens, effectiveTab]);
   /**
    * The Plan tab's "show this on the map" producers' ONE entry (overlay convergence C4,
    * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the spot sheet's rows, the pick dialog's two actions and the
@@ -1444,6 +1460,18 @@ export default function WindowFirstShell({
   useBackLayer({ open: sheetSpot != null, onBack: () => openOverPopup(null) });
   useBackLayer({ open: openPick?.pick != null, onBack: () => openOverPopup(null) });
   useBackLayer({ open: areaSheet != null, onBack: () => setAreaSheet(null) });
+  // The arrival's own layer (G2a): a Glance card or a Find pick put the reader on the Map, and Back returns them to
+  // the tab they left. It counts toward `MAX_LAYER_DEPTH` (raised to 3 for it) and registers only while the Map is
+  // the tab in force, so a rejected or lost door cannot leave it standing. `selectTab` ends it for every other tab.
+  const arrivalTab = mapArrivedFrom != null && effectiveTab === 'map' ? mapArrivedFrom : null;
+  useBackLayer({
+    open: arrivalTab != null,
+    mode: 'close',
+    onBack: () => {
+      selectTab(arrivalTab);
+      requestAnimationFrame(() => document.getElementById(tabDomId(arrivalTab))?.focus());
+    },
+  });
   useBackLayer({ open: searchSeed != null, onBack: () => setSearchSeed(null) });
   /**
    * The popup's dawn-race source — each location's lunar eclipse sight per window (L4,
@@ -2236,28 +2264,8 @@ export default function WindowFirstShell({
     [windowCards],
   );
   /**
-   * A Coming up lane's tap-through: Plan, with that window's popup open and the tapped topic's row
-   * emphasised (hot-topics-by-day-plan §3 C1 "Plan window door", Q6).
-   *
-   * <p>One click handler, in this order, and the order is the point:
-   * <ol>
-   *   <li>{@code selectTab('plan')} — which also clears every dialog and any stale emphasis;
-   *   <li>focus the Plan tab button, as {@code goToPlan} does. The popup captures its opener when it
-   *       mounts, and the lane button that was just pressed lives in a panel {@code selectTab} has
-   *       hidden — so without this the popup would restore focus to a node that is not reachable,
-   *       and closing it would drop the reader to {@code <body>};
-   *   <li>{@code openWindow(key)} — the existing opener, not the raw setter, so it also clears the
-   *       focused region and warms the lazy chunks;
-   *   <li>set the emphasis <b>only if</b> the popup's own scoped {@code windowTopics} contains a row
-   *       of that type. The popup is scope-filtered and the lanes are not, so a region-scoped topic
-   *       can be absent from it, and emphasising a row that is not there would be a lie.
-   * </ol>
-   *
-   * <p>A key with no card (it changed since the lanes were built) leaves the reader on Plan with
-   * nothing opened — the same place a plain {@code goToPlan} puts them.
-   *
-   * @param {string} key       the `date:TYPE` window key
-   * @param {string} topicType the tapped lane's HotTopic type
+   * The pre-G2a lane tap-through (Plan, that window's popup open and the topic's row emphasised), kept only behind
+   * {@code legacyWindowPopup} and deleted with the popup in G2b.
    */
   const goToPlanWindow = (key, topicType) => {
     selectTab('plan');
@@ -2269,6 +2277,28 @@ export default function WindowFirstShell({
     const present = windowTopics(key, card.allBadges, topicIndex, planScopeNames)
       .some((row) => String(row.badge?.type || '').toUpperCase() === wanted);
     if (present) setEmphasis({ key, type: wanted });
+  };
+  /**
+   * A window opened on the Map (G2a, glance-to-map-plan.md): a Glance card, a lane's tap-through and a warning lane
+   * all land here. The window selects on the Map through the one {@code kind: 'event'} door ({@link showOnMap}, which
+   * closes the Plan dialogs first and merges the live lens), and the tapped topic, when there is one, rides it so the
+   * Map selects that chip.
+   *
+   * <p>Records where the reader came from so {@code selectTab('map')} can register the arrival's Back layer: Back
+   * returns to Glance. Nothing is recorded for a press already on the Map. With no Map door (no forecast) the press
+   * does nothing, as the Map has nothing to show.
+   *
+   * @param {string}  key       the `date:TYPE` window key
+   * @param {?string} topicType the tapped lane's HotTopic type, or null
+   */
+  const openWindowOnMap = (key, topicType = null) => {
+    if (!showOnMap) return;
+    const [date, eventType] = String(key).split(':');
+    if (!date || !eventType) return;
+    if (effectiveTab !== 'map') setMapArrival({ from: effectiveTab, pending: true });
+    showOnMap({
+      kind: 'event', date, eventType, ...(topicType ? { topicType: String(topicType).toUpperCase() } : {}),
+    });
   };
   /**
    * The sheet footer's origin action — this place's own region, and whether it may be planned from.
@@ -2379,7 +2409,7 @@ export default function WindowFirstShell({
     // Closed-over `findNode` reads the ref only; the open flag is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchSeed]);
-  /** Where a Coming up pick that needs the Plan tab lands: the tab's own button, as `goToPlanWindow` does. */
+  /** Where a Coming up pick that needs the Plan tab lands: the tab's own button, as `goToPlan` does. */
   const focusPlanTab = () => tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
   /** The windows Find offers on the Map: only those the map's own window control can reach. */
   const mapFindWindows = useMemo(
@@ -2408,21 +2438,26 @@ export default function WindowFirstShell({
     openWindow(null);
     openOverPopup({ spot });
   };
-  /** A window picked in Find: the popup on Plan, the Plan tab and then the popup from Coming up, the Map's own window on the Map. */
+  /**
+   * A window picked in Find (G2a): the Map with that window selected, from any tab. On the Map it is selected in place;
+   * from Plan or Coming up it goes through the Map door and records the arrival, so Back returns to the tab it left.
+   */
   const pickFindWindow = (key) => {
-    if (effectiveTab === 'map') {
-      const [date, targetType] = String(key).split(':');
-      openMapTab({ date, targetType });
-      return;
-    }
-    if (effectiveTab === 'coming-up') {
-      selectTab('plan');
-      focusPlanTab();
+    const [date, targetType] = String(key).split(':');
+    if (legacyWindowPopup && effectiveTab !== 'map') {
+      // Scaffold (G2a, deleted in G2b): the pre-G2a routes into the popup.
+      if (effectiveTab === 'coming-up') {
+        selectTab('plan');
+        focusPlanTab();
+        openWindow(key);
+        return;
+      }
+      openOverPopup(null);
       openWindow(key);
       return;
     }
-    openOverPopup(null);
-    openWindow(key);
+    if (effectiveTab !== 'map') setMapArrival({ from: effectiveTab, pending: true });
+    openMapTab({ date, targetType });
   };
   /**
    * A region picked in Find. Plan and Coming up plan from it (the origin moves, as ever); the Map only pans and
@@ -3276,12 +3311,12 @@ export default function WindowFirstShell({
             forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
             onOpenComingUp={openComingUp}
             onShowOnMap={showOnMap ?? NO_MAP_DOOR}
-            onGoToPlanWindow={goToPlanWindow}
+            onGoToPlanWindow={legacyWindowPopup ? goToPlanWindow : openWindowOnMap}
             openKeys={openWindowKeys}
             highlightKeys={askHighlight}
             todayStr={todayStr}
             runAge={age}
-            onOpenWindow={openWindow}
+            onOpenWindow={legacyWindowPopup ? openWindow : openWindowOnMap}
             origin={origin ?? null}
             homeCoords={homeCoords}
             picksLocked={picksLocked}
@@ -3536,11 +3571,15 @@ export default function WindowFirstShell({
             // popup's OWN focus (`openField.selectedRegion`, already forced null under an away
             // origin — see `openField`'s own note), never re-derived here.
             onOpenInMap={onOpenMapTab
-              ? () => openMapTab({
-                date: openCard.date,
-                targetType: openCard.targetType,
-                region: openField.selectedRegion ?? null,
-              })
+              ? () => {
+                // The popup closes with its own door (the door no longer does it, G2a); deleted with the popup in G2b.
+                openWindow(null);
+                openMapTab({
+                  date: openCard.date,
+                  targetType: openCard.targetType,
+                  region: openField.selectedRegion ?? null,
+                });
+              }
               : undefined}
             onSeeAllSpots={sheetOffersMore(openCard, typesByName)
               ? (card) => openOverPopup({ sheetKey: card.key })
@@ -3813,9 +3852,13 @@ export default function WindowFirstShell({
             // footer comment names for `onPlanFrom`. `undefined`, never a no-op arrow, so
             // `LocationFourDaySheet` renders `location-sheet-nomap`'s sentence in its place.
             onShowOnMap={onOpenMapTab
-              ? (date, targetType, name) => openMapTab({
-                date, targetType, locationName: name, region: null,
-              })
+              ? (date, targetType, name) => {
+                // Closes the popup the sheet may stand on (the door no longer does it, G2a); deleted with it in G2b.
+                openWindow(null);
+                openMapTab({
+                  date, targetType, locationName: name, region: null,
+                });
+              }
               : undefined}
           />
         </Suspense>
@@ -3856,6 +3899,12 @@ export default function WindowFirstShell({
 }
 
 WindowFirstShell.propTypes = {
+  /**
+   * Scaffold (G2a, deleted with the popup in G2b): routes a card, a lane and a Find window pick to the window popup
+   * as before instead of the Map. Nothing in the app passes it; the popup's own tests do, so the unreachable popup
+   * stays proven until it is deleted.
+   */
+  legacyWindowPopup: PropTypes.bool,
   /**
    * The dates the reader holds a colour forecast for (`App`'s `allDates`), handed to the Coming up
    * tab so it can withhold a map door onto a date with nothing to draw. Null or absent means the

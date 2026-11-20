@@ -155,13 +155,13 @@ const EMPTY_TEXT = 'No forecast to show.';
 
 const renderWithBriefing = (ctx) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx);
-  return render(<WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} />);
+  return render(<WindowFirstShell legacyWindowPopup onOpenSettings={vi.fn()} onSignOut={vi.fn()} />);
 };
 
 /** Re-mounts the SAME element with a newly-stubbed context, for the `rerender` tests below. */
 const rerenderWithBriefing = (rerender, ctx) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx);
-  return rerender(<WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} />);
+  return rerender(<WindowFirstShell legacyWindowPopup onOpenSettings={vi.fn()} onSignOut={vi.fn()} />);
 };
 
 describe('WindowFirstShell — the Plan pane\'s pending state', () => {

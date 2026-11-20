@@ -147,7 +147,7 @@ async function renderShell(overrides = {}, { onOpenMapTab = vi.fn(), forecastDat
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(overrides));
   await act(async () => {
     render(
-      <WindowFirstShell
+      <WindowFirstShell legacyWindowPopup
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}

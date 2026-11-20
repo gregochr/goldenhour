@@ -85,7 +85,7 @@ function Rig({ shellProps }) {
   const closeDialogs = useCallback(() => closeRef.current?.(), []);
   const register = useCallback((fn) => { closeRef.current = fn; }, []);
   const shell = (
-    <WindowFirstShell
+    <WindowFirstShell legacyWindowPopup
       {...{ locations: [], onShowOnMap: vi.fn(), onSignOut: vi.fn(), onOpenSettings: vi.fn() }}
       {...{ onTabChange: setCurrent, registerCloseDialogs: register }}
       {...shellProps}

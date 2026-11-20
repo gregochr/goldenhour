@@ -117,7 +117,7 @@ let resizeCallbacks;
 
 const renderShell = (extraProps = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-  return render(<WindowFirstShell
+  return render(<WindowFirstShell legacyWindowPopup
     onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
     locations={[]}
     {...extraProps}
@@ -273,7 +273,7 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
   it('⚠️ attaches the observer when the bar mounts AFTER the first commit', () => {
     const withoutLens = { ...ctx(), reachLens: null, ratingLens: null };
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(withoutLens);
-    const { rerender } = render(<WindowFirstShell
+    const { rerender } = render(<WindowFirstShell legacyWindowPopup
       onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
       locations={[]}
     />);
@@ -281,7 +281,7 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
     const before = intersections.length;
 
     briefingContext.useWindowFirstBriefing.mockReturnValue(ctx());
-    rerender(<WindowFirstShell
+    rerender(<WindowFirstShell legacyWindowPopup
       onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
       locations={[]}
     />);

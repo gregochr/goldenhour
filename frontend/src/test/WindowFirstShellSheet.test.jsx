@@ -178,7 +178,7 @@ const renderShell = (overrides = {}, extraProps = {}) => {
     locations: LOCATIONS,
     ...extraProps,
   };
-  const view = render(<WindowFirstShell {...props} />);
+  const view = render(<WindowFirstShell legacyWindowPopup {...props} />);
   return { ...props, ...view, props };
 };
 
@@ -287,7 +287,7 @@ describe('WindowFirstShell — the drill-down', () => {
   it('offers no type control when the roster never arrived', async () => {
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
     render(
-      <WindowFirstShell
+      <WindowFirstShell legacyWindowPopup
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}
@@ -316,7 +316,7 @@ describe('WindowFirstShell — the drill-down', () => {
       const grown = card({ allSpots: [NEAR, FAR, spot({ key: '3', locationName: 'Simonside', rating: 3, driveMinutes: 41 })] });
       vi.spyOn(briefingContext, 'useWindowFirstBriefing')
         .mockReturnValue(ctx({ windowCards: [grown] }));
-      rerender(<WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
+      rerender(<WindowFirstShell legacyWindowPopup onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
       expect(screen.getByTestId('window-spot-sheet-count')).toHaveTextContent('2 of 3');
     });
 
@@ -326,7 +326,7 @@ describe('WindowFirstShell — the drill-down', () => {
       expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
       vi.spyOn(briefingContext, 'useWindowFirstBriefing')
         .mockReturnValue(ctx({ windowCards: [] }));
-      rerender(<WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
+      rerender(<WindowFirstShell legacyWindowPopup onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
       expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
     });
   });
@@ -622,7 +622,7 @@ describe('WindowFirstShell — the drill-down', () => {
         await screen.findByTestId('plan-search');
         expect(screen.getAllByRole('dialog')).toHaveLength(2);
 
-        rerender(<WindowFirstShell {...props} settingsOpen />);
+        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen />);
         expect(screen.queryAllByRole('dialog')).toHaveLength(0);
       });
 
@@ -631,7 +631,7 @@ describe('WindowFirstShell — the drill-down', () => {
         await openSheet();
         expect(screen.getAllByRole('dialog')).toHaveLength(2);
 
-        rerender(<WindowFirstShell {...props} settingsOpen />);
+        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen />);
         expect(screen.queryAllByRole('dialog')).toHaveLength(0);
       });
 
@@ -639,12 +639,12 @@ describe('WindowFirstShell — the drill-down', () => {
         // The edge's second job. An edge that latched on the first opening and never reset passed
         // every other test here: each of them opens settings once.
         const { props, rerender } = renderShell();
-        rerender(<WindowFirstShell {...props} settingsOpen />);
-        rerender(<WindowFirstShell {...props} settingsOpen={false} />);
+        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen />);
+        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen={false} />);
         await openPopup();
         expect(screen.getAllByRole('dialog')).toHaveLength(1);
 
-        rerender(<WindowFirstShell {...props} settingsOpen />);
+        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen />);
         expect(screen.queryAllByRole('dialog')).toHaveLength(0);
       });
     });

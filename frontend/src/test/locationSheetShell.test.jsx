@@ -232,7 +232,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     const value = ctx(extra);
     const merged = shellProps(props);
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(value);
-    render(<WindowFirstShell {...merged} />);
+    render(<WindowFirstShell legacyWindowPopup {...merged} />);
     return { ...value, props: merged };
   };
 
@@ -784,7 +784,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       current = ctx({ setOrigin });
       const merged = shellProps();
       vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockImplementation(() => current);
-      render(<WindowFirstShell {...merged} />);
+      render(<WindowFirstShell legacyWindowPopup {...merged} />);
 
       await openStackedSheet();
       fireEvent.click(screen.getByRole('button', { name: 'Plan from Lake District' }));

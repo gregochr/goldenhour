@@ -856,8 +856,7 @@ describe('teardown', () => {
     install();
     vi.stubEnv('DEV', true);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    registerBackLayer({ onBack: vi.fn() });
-    registerBackLayer({ onBack: vi.fn() });
+    for (let i = 0; i < MAX_LAYER_DEPTH; i += 1) registerBackLayer({ onBack: vi.fn() });
     await tick();
     b.userBack();
     b.flush();

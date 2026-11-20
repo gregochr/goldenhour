@@ -100,6 +100,12 @@ vi.mock('../api/authApi.js', () => ({
 // `resolveInitialTab()` reads as a desktop and opens on Map, and the banner's door is judged by the
 // tab in force when it is pressed.
 vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
+// G2a scaffold (deleted with the popup in G2b): the popup is no longer reachable from a card, so this file's popup
+// cases run the shell with `legacyWindowPopup`, the way the app did before the Map door.
+vi.mock('../components/WindowFirstShell.jsx', async (importOriginal) => {
+  const Real = (await importOriginal()).default;
+  return { default: (props) => <Real legacyWindowPopup {...props} /> };
+});
 /** What the callout's `Four days here ›` hands `App` — the peek, which does not move the tab. */
 const PEEK = {
   id: 1, name: 'Derwentwater', regionName: 'Lake District',

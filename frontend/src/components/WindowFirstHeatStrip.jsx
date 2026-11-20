@@ -1607,7 +1607,10 @@ export default function WindowFirstHeatStrip({
       && favourites.isPlaceStarred(facts.best.locationId);
     const warningsHere = card.away ? [] : (cardWarnings.get(card.key) ?? []);
     const cardWarningNames = warningsHere.map(warningName).filter(Boolean);
-    const accessibleName = [card.label, card.time, card.verdictLabel]
+    // A control card names its door first ("Open Saturday sunrise on the map", G2a: the card opens the Map), then the
+    // same words as before, so the visible time, verdict and pick words stay in the name (WCAG 2.5.3). An away cell
+    // is a read-out and keeps the plain label.
+    const accessibleName = [card.away ? card.label : `Open ${card.label} on the map`, card.time, card.verdictLabel]
       // The scope follows the verdict word directly, in the long form the qualifier speaks.
       .concat(scopeSpoken ? [scopeSpoken] : [])
       .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
@@ -2088,18 +2091,9 @@ export default function WindowFirstHeatStrip({
           onOpenWindow?.(card.key);
         }}
       >
-        {/* Which window is open was a CSS-only signal — a gold border tint and two recoloured words
-            — so a screen-reader user could not tell which one they were in, and neither could anyone
-            who cannot resolve the tint.
-
-            ⚠️ M1 stated it as `aria-expanded` + `aria-controls` pointing at the row this cell
-            revealed. At M2 the row is gone and the cell opens a DIALOG, so both had to change rather
-            than merely be re-pointed: `aria-controls` would have named an id no longer in the
-            document (an IDREF that resolves to nothing is announced as nothing), and `aria-expanded`
-            on a control that opens a modal reads as an in-place disclosure a reader can Tab into.
-            `aria-haspopup="dialog"` is the pattern for a control that opens one, and the expanded
-            state stays alongside it — ARIA permits the pair, and it is how a reader hears which of
-            six cards the dialog on screen belongs to.
+        {/* ⚠️ A plain button: since G2a a card opens the Map tab with its window selected (no dialog, no
+            disclosure), so neither `aria-haspopup` nor `aria-expanded` applies; its name opens with
+            "Open <window> on the map".
 
             `aria-labelledby` at the visually-hidden sentence, rather than leaving
             name-from-contents to find it. Both routes end at the same string, but this one is
@@ -2122,8 +2116,6 @@ export default function WindowFirstHeatStrip({
           type="button"
           className="wf-hc-hit"
           data-testid="wf-heat-card-button"
-          aria-haspopup="dialog"
-          aria-expanded={open}
           aria-labelledby={nameId}
         >
           <span id={nameId} className="sr-only">{accessibleName}</span>

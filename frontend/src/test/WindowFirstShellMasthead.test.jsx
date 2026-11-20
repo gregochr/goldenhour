@@ -72,7 +72,7 @@ const renderShell = (extraProps = {}, ctxOverrides = {}) => {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
     ...extraProps,
   };
-  return { ...props, ...render(<WindowFirstShell {...props} />) };
+  return { ...props, ...render(<WindowFirstShell legacyWindowPopup {...props} />) };
 };
 
 beforeEach(() => {
@@ -408,10 +408,10 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(screen.getByTestId('masthead-menu')).toBeInTheDocument();
 
       mockIsMobile = false;
-      rerender(<WindowFirstShell {...rest} />);
+      rerender(<WindowFirstShell legacyWindowPopup {...rest} />);
       expect(screen.queryByTestId('masthead-menu-button')).toBeNull();
       mockIsMobile = true;
-      rerender(<WindowFirstShell {...rest} />);
+      rerender(<WindowFirstShell legacyWindowPopup {...rest} />);
 
       expect(screen.getByTestId('masthead-menu-button')).toHaveAttribute('aria-expanded', 'false');
       expect(screen.queryByTestId('masthead-menu')).toBeNull();
@@ -469,7 +469,7 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(setOrigin).toHaveBeenCalledWith(null);
       vi.spyOn(briefingContext, 'useWindowFirstBriefing')
         .mockReturnValue({ ...ctx(), origin: null, setOrigin });
-      rerender(<WindowFirstShell {...rest} />);
+      rerender(<WindowFirstShell legacyWindowPopup {...rest} />);
 
       // The row stays (Find alone), with no origin to take focus, so ⋯ is the nearest control.
       expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();

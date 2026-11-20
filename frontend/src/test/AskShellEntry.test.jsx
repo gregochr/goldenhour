@@ -337,7 +337,7 @@ describe('availability: whether Ask exists at all', () => {
     // nothing reads the settings endpoint.
     installViewport(390);
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(shellCtx());
-    render(<WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()} />);
+    render(<WindowFirstShell legacyWindowPopup onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()} />);
     await act(async () => {});
     expect(screen.queryByTestId('ask-bar')).toBeNull();
     expect(getAskSettings).not.toHaveBeenCalled();

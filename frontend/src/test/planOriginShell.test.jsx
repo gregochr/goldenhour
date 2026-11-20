@@ -167,13 +167,13 @@ describe('WindowFirstShell — the origin', () => {
   const renderShell = (extra = {}) => {
     const value = ctx(extra);
     const spy = vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(value);
-    const view = render(<WindowFirstShell {...shellProps()} />);
+    const view = render(<WindowFirstShell legacyWindowPopup {...shellProps()} />);
     // `moveOrigin` re-renders the same tree with a different context value, which is the only way
     // to exercise a TRANSITION here — the context is stubbed, so a second `renderShell` would be a
     // fresh mount and would lose exactly the state a transition has to survive.
     value.moveOrigin = (next) => {
       spy.mockReturnValue(ctx({ ...extra, ...next }));
-      view.rerender(<WindowFirstShell {...shellProps()} />);
+      view.rerender(<WindowFirstShell legacyWindowPopup {...shellProps()} />);
     };
     return value;
   };
@@ -229,7 +229,7 @@ describe('WindowFirstShell — the origin', () => {
             region ? { id: region.id, name: region.name, baseName: region.baseName } : null,
           ),
         });
-        return <Held.Provider value={value}><WindowFirstShell {...shellProps()} /></Held.Provider>;
+        return <Held.Provider value={value}><WindowFirstShell legacyWindowPopup {...shellProps()} /></Held.Provider>;
       }
       const renderHeld = () => {
         vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockImplementation(useHeldBriefing);

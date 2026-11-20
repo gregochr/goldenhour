@@ -12,7 +12,6 @@ const DOOR = { date: '2026-09-05', targetType: 'SUNSET', region: 'Lake District'
 function collaborators(overrides = {}) {
   return {
     openOverPopup: vi.fn(),
-    openWindow: vi.fn(),
     onOpenMapTab: vi.fn(),
     ratingLens: { minRating: 4 },
     reachLens: { tier: { limitMinutes: 150 } },
@@ -22,17 +21,15 @@ function collaborators(overrides = {}) {
 }
 
 describe('openMapDoor — closes, then moves, in order', () => {
-  it('calls openOverPopup(null), then openWindow(null), then onOpenMapTab — in that order', () => {
+  it('calls openOverPopup(null), then onOpenMapTab — in that order', () => {
     const c = collaborators();
     openMapDoor(c);
 
     expect(c.openOverPopup).toHaveBeenCalledTimes(1);
     expect(c.openOverPopup).toHaveBeenCalledWith(null);
-    expect(c.openWindow).toHaveBeenCalledTimes(1);
-    expect(c.openWindow).toHaveBeenCalledWith(null);
     expect(c.onOpenMapTab).toHaveBeenCalledTimes(1);
 
-    const order = [c.openOverPopup, c.openWindow, c.onOpenMapTab]
+    const order = [c.openOverPopup, c.onOpenMapTab]
       .map((fn) => fn.mock.invocationCallOrder[0]);
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
@@ -41,7 +38,6 @@ describe('openMapDoor — closes, then moves, in order', () => {
     const c = collaborators({ onOpenMapTab: undefined });
     expect(() => openMapDoor(c)).not.toThrow();
     expect(c.openOverPopup).toHaveBeenCalledWith(null);
-    expect(c.openWindow).toHaveBeenCalledWith(null);
   });
 });
 

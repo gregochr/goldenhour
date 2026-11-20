@@ -176,7 +176,7 @@ test.describe('The production nginx config', () => {
     expect(result.ms).toBeLessThan(STATUS_STREAM_FIRST_EVENT_MS);
   });
 
-  test('no inline <style> element appears on any main tab or in the window sheet (style-src is self only)', async ({ page }) => {
+  test('no inline <style> element appears on any main tab (style-src is self only)', async ({ page }) => {
     const styleCount = () => page.evaluate(() => document.querySelectorAll('style').length);
     await loginAndWaitForForecast(page);
     expect(await styleCount(), 'on sign-in').toBe(0);
@@ -184,10 +184,8 @@ test.describe('The production nginx config', () => {
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     expect(await styleCount(), 'on the Plan').toBe(0);
     await page.getByTestId('wf-heat-card').nth(2).click();
-    await expect(page.getByTestId('window-sheet')).toBeVisible();
-    expect(await styleCount(), 'with the window sheet open').toBe(0);
-    await page.getByTestId('window-sheet-close').click();
-    await expect(page.getByTestId('window-sheet')).toHaveCount(0);
+    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    expect(await styleCount(), 'after a card opens the Map').toBe(0);
     await openTab(page, 'coming-up');
     expect(await styleCount(), 'on Coming up').toBe(0);
     await openMapTab(page);

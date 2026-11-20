@@ -5,77 +5,65 @@ import {
 import { waitForDetail, servedRow, sheetRows, expectExpandedRow } from './sheet-helpers.js';
 
 /**
- * Drilling into one forecast from the Plan matrix: heat card, window sheet, a place, its location sheet: two
- * dialogs deep and never three. The place is Bamburgh Beach, the fixture's one rising-tide coast (its next high
- * water is 45 minutes after the light), so the sheet's "Rising tide" fact is asserted here and its absence on an
- * inland place. Escape closes the TOP layer first, and the close buttons work.
+ * Drilling into one forecast from the Plan matrix (glance-to-map-plan.md G2a): a heat card opens the MAP with that
+ * window selected, and a place's location sheet is one dialog deep, reached through Find. The place is Bamburgh Beach,
+ * the fixture's one rising-tide coast (its next high water is 45 minutes after the light), so the sheet's "Rising
+ * tide" fact is asserted here and its absence on an inland place. Escape and the close button work.
  */
 test.describe('Forecast drill-down from the Plan matrix', () => {
-  /** Opens the Plan, a window sheet that is not the first card, and returns its dialog. */
-  async function openWindowSheet(page) {
+  /** Opens a place's location sheet through Find on the Plan tab, and returns it. */
+  async function openPlaceSheet(page, name) {
+    await openTab(page, 'plan');
+    await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
+    await page.getByTestId('window-first-search').click();
+    await page.getByTestId('plan-search-input').fill(name);
+    const detail = waitForDetail(page);
+    await page.getByTestId('plan-search-row').filter({ hasText: name }).first().click();
+    const sheet = page.getByTestId('location-sheet');
+    await expect(sheet).toBeVisible();
+    expect((await detail).status()).toBe(200);
+    return sheet;
+  }
+
+  test('a heat card opens the Map on that window', async ({ page }) => {
+    test.setTimeout(60_000);
+    await loginAndWaitForForecast(page);
     await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     // Never the first card: it may be the window that is about to pass.
     await page.getByTestId('wf-heat-card').nth(2).click();
-    const windowSheet = page.getByTestId('window-sheet');
-    await expect(windowSheet).toBeVisible();
-    await expect.poll(() => windowSheet.getByTestId('window-spot').count()).toBeGreaterThanOrEqual(6);
-    return windowSheet;
-  }
+    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('window-sheet')).toHaveCount(0);
+  });
 
-  test('heat card, window sheet, place, location sheet, and Escape one layer at a time', async ({ page }) => {
+  test('a place from Find: its location sheet shows the served rows and Escape closes it', async ({ page }) => {
     test.setTimeout(60_000);
     await installDialogDepthObserver(page);
     await loginAndWaitForForecast(page);
     const forecast = await fetchForecast(page);
-    const windowSheet = await openWindowSheet(page);
-
-    // The primary route: a place in the window sheet. The location sheet opens OVER it: two dialogs.
-    const bamburgh = windowSheet.getByTestId('window-spot').filter({ hasText: 'Bamburgh Beach' });
-    await expect(bamburgh).toHaveCount(1);
-    const firstDetail = waitForDetail(page);
-    await bamburgh.click();
-    const sheet = page.getByTestId('location-sheet');
-    await expect(sheet).toBeVisible();
+    const sheet = await openPlaceSheet(page, 'Bamburgh Beach');
     await expect(page.getByTestId('location-sheet-title')).toHaveText('Bamburgh Beach');
-    expect((await firstDetail).status()).toBe(200);
-    await expect(windowSheet).toBeVisible();
-    expect((await dialogDepth(page)).nowDialogs, 'window sheet under the location sheet').toBe(2);
 
-    const rows = await sheetRows(sheet);
-    const opened = rows.filter((row) => row.expanded);
+    const opened = (await sheetRows(sheet)).filter((row) => row.expanded);
     expect(opened).toHaveLength(1);
     await expectExpandedRow(sheet, opened[0].key, servedRow(forecast, 'Bamburgh Beach', opened[0].key), {
       risingTide: true,
     });
 
-    // Escape: the location sheet (the top layer) closes first, then the window sheet.
     await page.keyboard.press('Escape');
     await expect(sheet).toHaveCount(0);
-    await expect(windowSheet).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(windowSheet).toHaveCount(0);
 
-    // The depth the observer saw over the whole journey: two at most, and only one claiming aria-modal.
     const depth = await dialogDepth(page);
     expect(depth.maxDialogs, 'concurrent dialogs').toBeLessThanOrEqual(2);
     expect(depth.maxModal, 'concurrent aria-modal elements').toBeLessThanOrEqual(1);
     expect(depth.nowDialogs).toBe(0);
   });
 
-  test('an inland place shows no rising tide; both close buttons work in order', async ({ page }) => {
+  test('an inland place shows no rising tide; the close button works', async ({ page }) => {
     await installDialogDepthObserver(page);
     await loginAndWaitForForecast(page);
     const forecast = await fetchForecast(page);
-    const windowSheet = await openWindowSheet(page);
-
-    const place = windowSheet.getByTestId('window-spot').filter({ hasText: 'Ingleborough' });
-    await expect(place).toHaveCount(1);
-    const detail = waitForDetail(page);
-    await place.click();
-    const sheet = page.getByTestId('location-sheet');
-    await expect(sheet).toBeVisible();
-    expect((await detail).status()).toBe(200);
+    const sheet = await openPlaceSheet(page, 'Ingleborough');
     const opened = (await sheetRows(sheet)).filter((row) => row.expanded);
     expect(opened).toHaveLength(1);
     await expectExpandedRow(sheet, opened[0].key, servedRow(forecast, 'Ingleborough', opened[0].key), {
@@ -84,9 +72,6 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
 
     await page.getByTestId('location-sheet-close').click();
     await expect(sheet).toHaveCount(0);
-    await expect(windowSheet).toBeVisible();
-    await page.getByTestId('window-sheet-close').click();
-    await expect(windowSheet).toHaveCount(0);
 
     const depth = await dialogDepth(page);
     expect(depth.maxDialogs).toBeLessThanOrEqual(2);
@@ -98,7 +83,7 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
    * keyboard and assistive tech use the button, a pointer lands on the card. These two tests pin both routes in a
    * real browser, where `pointer-events` and focus restoration are real.
    */
-  test('keyboard: Tab onto a card, Enter opens its window, closing it returns focus to the same button', async ({ page }) => {
+  test('keyboard: Tab onto a card, Enter opens its window on the Map', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
     await openTab(page, 'plan');
@@ -126,18 +111,8 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
     await expect(focusedButton).toHaveAttribute('aria-labelledby', stops[0]);
 
     await page.keyboard.press('Enter');
-    const windowSheet = page.getByTestId('window-sheet');
-    await expect(windowSheet).toBeVisible();
-
-    await page.keyboard.press('Escape');
-    await expect(windowSheet).toHaveCount(0);
-    await expect(focusedButton, 'focus returns to the button that opened the window').toHaveAttribute('aria-labelledby', stops[0]);
-
-    // Space opens it too.
-    await page.keyboard.press(' ');
-    await expect(windowSheet).toBeVisible();
-    await page.getByTestId('window-sheet-close').click();
-    await expect(windowSheet).toHaveCount(0);
+    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('window-sheet')).toHaveCount(0);
   });
 
   test('pointer: the legend\'s overhang opens its window, and the hit button never takes a pointer', async ({ page }) => {
@@ -192,12 +167,7 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
     expect(atTop, 'the legend\'s top edge lands on the legend').toBe('wf-heat-legend');
 
     await page.mouse.click(probe.x, probe.y);
-    const windowSheet = page.getByTestId('window-sheet');
-    await expect(windowSheet).toBeVisible();
-    // The click left focus on the button (the opener the sheet returns it to), not on <body>.
-    await page.getByTestId('window-sheet-close').click();
-    await expect(windowSheet).toHaveCount(0);
-    await expect(legendCard.getByTestId('wf-heat-card-button'), 'focus is on the button of the card that was clicked').toBeFocused();
+    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
   });
 });
 
@@ -250,12 +220,8 @@ test.describe('Heat card hit test on a coarse pointer (Pixel 7)', () => {
     // A real touch at the verdict-time text's centre: the point sits on the card's spans, which let it through.
     const time = await page.getByTestId('wf-heat-card').nth(2).getByTestId('wf-heat-time').boundingBox();
     await page.touchscreen.tap(time.x + time.width / 2, time.y + time.height / 2);
-    const windowSheet = page.getByTestId('window-sheet');
-    await expect(windowSheet).toBeVisible();
+    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
     expect(await page.evaluate(() => window.__clicks), 'a tap is one click, so one open').toBe(1);
-    await expect(page.getByTestId('window-sheet')).toHaveCount(1);
-    await page.getByTestId('window-sheet-close').click();
-    await expect(windowSheet).toHaveCount(0);
   });
 });
 
