@@ -3186,7 +3186,7 @@ button.wf-wlane:focus-visible {
 
    ⚠️ What it COSTS, stated rather than left to be found:
    · BEST BET used to match PIXEL FOR PIXEL across four surfaces — this legend, the deleted popup's pick
-     badge (the deleted `.wf-wsh-pick`), the retired pick dialog's kind label and the Map medallion all read
+     badge (the retired pick badge), the retired pick dialog's kind label and the Map medallion all read
      `#A8C795`. This moves the legend alone, so BEST now differs from the other three. The handoff
      does the same (its popup badge is `#A8C795`), so this reproduces the design rather than
      drifting from it — but it breaks a match the code had.
@@ -12562,7 +12562,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      `padding: 0` any more. It was, and being unlayered, 0,1,0 and ~7400 lines below
      `.app-safe-modal`, it won on source order and cancelled the modal's safe-area padding outright
      — on a phone, which is the only device class that has an unsafe zone, for the Plan tab's one
-     popup, whose `.wf-wsh` was `height: 100dvh`. Its footer sat under the home indicator and the
+     popup, whose full-height card was `height: 100dvh`. Its footer sat under the home indicator and the
      feature was a no-op exactly where it was needed. Found by adversarial review; measured in
      Chromium at 390×844 with a 34px bottom inset before and after.
 
@@ -12618,7 +12618,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    · The body gutter, the lens bar's padding and the deleted popup's two-column body are the same on iPad
      and desktop in the spec, and already correct.
    · The deleted popup's width: the spec's `calc(100% - 28px)` is 14px a side, and the deleted popup's inset comes
-     from the SHARED `Modal`'s 16px gutter, not from the deleted `.wf-wsh`. What the rule actually changes on an
+     from the SHARED `Modal`'s 16px gutter, not from the retired popup's own card. What the rule actually changes on an
      834px iPad is the 780px cap, which would otherwise engage — so it is raised, and the last 2px a
      side is left to `Modal`, which every dialog in the app shares.
 
