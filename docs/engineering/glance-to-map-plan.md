@@ -118,3 +118,8 @@ All 16 whole files confirmed orphaned once the popup goes. Wrong entries: `dawnR
 - Binning the popup alone saves **$0**: the Map region panel and callout read the region gloss headline AND detail.
 - The Best-bet advisor does **not** choose the Glance card (`PlanWindowProjector.selectPicks` is deterministic); it writes `bestBets`, which no frontend surface reads. It feeds `pipeline_run_pick` (admin cycle comparison), the replay tool and honesty/fallback paths.
 - Follow-up PRs (separate from G1–G3): **(1) skip gloss for day 5**, which the briefing glosses (`BRIEFING_WINDOW_DAYS = 5`) but nothing renders (`PLAN_OWNED_DAYS = 4`): ~$0.4–0.9 per 30 days, no prompt change, guard the date rollover. **(2) Retire the advisor call**: ~$2.8 per 30 days, owner decision; first trace its aurora link (`AuroraRegionSelector`, `BestBetAuroraPromptRegressionTest`) and confirm the admin comparison is unused. Dropping only `detail` (~$0.3) is not recommended. Figures are estimates; confirm with `measured-costs.sql`. Record the decision in `claude-cost-ledger.md`.
+
+## Owner decisions (2026-11-20)
+- **Back-to-Glance applies to Glance cards AND Find arrivals** (the shell's `mapArrivedFrom` Back layer is set by both doors).
+- Defaults taken for G2a (owner may overrule): the lane's `tapTopic`/`tapWarning` and any Coming-up entry that names a window open the Map on that window via the same `showOnMap` event door, with the same Back layer.
+- Claude-cost follow-ups (day-5 gloss trim first; advisor retirement after the aurora trace and owner confirmation) are separate PRs after G3.
