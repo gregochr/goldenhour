@@ -21,7 +21,7 @@ const PANEL_VIEWPORT_MARGIN_PX = 8;
 /**
  * This component's tones, in the window-first arm's own badge idiom.
  *
- * <p>Copied in shape, not in spirit, from the window popup's {@code VERDICT_TREATMENT}:
+ * <p>Copied in shape, not in spirit, from the deleted window popup's {@code VERDICT_TREATMENT}:
  * a fill at 12–14% of the hue, a border at 40–50%, and the <em>lifted</em> text variant for the
  * word, because this pill is 10.5px type on a tint of its own hue — precisely the size band
  * {@code --color-badge-*} exists for (see the palette note in {@code index.css}).

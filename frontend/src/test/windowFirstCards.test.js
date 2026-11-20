@@ -5,7 +5,6 @@ import {
 } from '../utils/windowFirstCards.js';
 import { bestReachLine } from '../components/WindowFirstHeatStrip.jsx';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
-import { buildRegionRows } from '../utils/windowFirstRegions.js';
 import { factsOf } from './tideFactsFixture.js';
 
 const TODAY = '2026-08-04';
@@ -426,13 +425,9 @@ describe('buildWindowCards', () => {
       expect(build({ events: events([TODAY, 'SUNSET']), days })[0].allBadges).toEqual([]);
     });
 
-    it('gives every card a rows array, so the renderer never guards', () => {
-      const days = [day(TODAY, [{ targetType: 'SUNSET', regions: [], unregioned: [], window: { verdict: 'MAYBE' } }])];
-      expect(build({ events: events([TODAY, 'SUNSET']), days })[0].rows).toEqual([]);
-    });
   });
 
-  describe('the attribute row, and the badge list beside it', () => {
+  describe('the window tide, and the one badge list beside it', () => {
     /** A snow topic as the backend serialises one, with the facts its strategy emits. */
     const snowBadge = (overrides = {}) => ({
       type: 'SNOW_TOPS',
@@ -459,21 +454,17 @@ describe('buildWindowCards', () => {
       windowLevel: 0.5,
     };
 
-    it('turns the window tide rollup into the card\'s first row', () => {
+    it('carries the served window tide through whole, for the Map\'s tide strip', () => {
       const [card] = build(oneWindow({ tide: TIDE }));
 
-      expect(card.rows.map((r) => r.channel)).toEqual(['tide']);
+      expect(card.tide).toEqual(TIDE);
+      expect(card).not.toHaveProperty('rows');
     });
 
-    it('⚠️ promotes NOTHING into a row any more, and keeps every badge on one list', () => {
-      // The duplication rule this used to encode — "a topic is a row or a badge, never both" — was
-      // about a card with a header of chips above a row band. The popup has one list: its topic
-      // rows carry the label, the detail, the science note AND the measured facts, so a snow
-      // attribute row would print one topic twice. `badges` (the post-promotion remainder) went
-      // with the promotion; `allBadges` is the whole population and the only list.
+    it('⚠️ keeps every badge on one list', () => {
+      // `allBadges` is the whole population and the only list: a topic is never promoted out of it.
       const [card] = build(oneWindow({ badges: [snowBadge()] }));
 
-      expect(card.rows).toEqual([]);
       expect(card.allBadges.map((b) => b.label)).toEqual(['Snow on the fells']);
       expect(card).not.toHaveProperty('badges');
     });
@@ -495,11 +486,11 @@ describe('buildWindowCards', () => {
       expect(card.allBadges[0].rarityRank).toBeDefined();
     });
 
-    it('keeps the tide row beside a snow topic, rather than one displacing the other', () => {
+    it('keeps the tide beside a snow topic, rather than one displacing the other', () => {
       const fresh = snowBadge({ type: 'SNOW_FRESH', label: 'Fresh snow', rarityRank: 10 });
       const [card] = build(oneWindow({ tide: TIDE, badges: [fresh, snowBadge()] }));
 
-      expect(card.rows.map((r) => r.channel)).toEqual(['tide']);
+      expect(card.tide).toEqual(TIDE);
       expect(card.allBadges.map((b) => b.label)).toEqual(['Fresh snow', 'Snow on the fells']);
     });
   });
@@ -1093,14 +1084,12 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
       ]))[0].movement).toBeNull();
     });
 
-    it('breaks a tie on the NAME, exactly as the region rail does', () => {
-      // ⚠️ A cross-module invariant, and one P6 made observable. `buildRegionRows` ranks the open
-      // row's rail with `a.name.localeCompare(b.name)` on a tie; before P6 this function published
-      // only a NUMBER, so a payload-order tiebreak here was invisible — equal means are equal.
-      // Publishing the region's name and its delta means a divergent tiebreak puts one region on
-      // the thumbnail's chip and a different one at rank 1 of the rail eight pixels below, each
-      // with its own movement figure. Payload order here is Northumberland first; the rail would
-      // pick Cumbria.
+    it('breaks a tie on the NAME, as the Map\'s region rows do', () => {
+      // ⚠️ A cross-module invariant. `byMeanThenName` ranks the Map's region rows with
+      // `a.name.localeCompare(b.name)` on a tie. Publishing the region's name and its delta means a divergent
+      // tiebreak here puts one region on the Glance card's chip and a different one at rank 1 of the Map's
+      // region list, each with its own movement figure. Payload order here is Northumberland first; the Map
+      // would pick Cumbria.
       const [card] = build(withRegions([
         { regionName: 'Northumberland', meanRating: 3.4, meanRatingDelta: 0.6 },
         { regionName: 'Cumbria', meanRating: 3.4, meanRatingDelta: -0.2 },
@@ -1842,15 +1831,11 @@ describe('buildWindowCards — the origin\'s scope', () => {
 
 
 /**
- * ⚠️ **The card's verdict and the region rail's must not disagree, and the half-done convergence at
- * L5 made them.** `map-landing-plan.md` §3 L5 step 6b asked for BOTH raw `displayVerdict` readers to
- * move onto `resolveRegionDisplay`; only `windowFirstRegions` did. Before that they at least agreed
- * by both being raw — so the partial fix is what created the pair. Both render inside one
- * the retired window popup: the card's word at its head, the rail beneath it.
+ * The card reads its verdict through `resolveRegionDisplay`, the same resolver the Map's region rows use.
  *
  * <p>The fixture carries the LEGACY shape — a triage `verdict` and no `displayVerdict`, which is
  * what a `daily_briefing_cache` payload written before the field existed deserialises to. That is
- * the only input on which the two can differ, so it is the only one that can pin the fix.
+ * the only input on which a raw reader and the resolver differ, so it is the only one that can pin the fix.
  */
 describe('the scoped card reads its verdict through the shared resolver', () => {
   const LEGACY = { regionName: 'The Lakes', verdict: 'GO', meanRating: 4.2, slots: [{ canopy: false }] };
@@ -1865,15 +1850,6 @@ describe('the scoped card reads its verdict through the shared resolver', () => 
     );
 
     expect(cards[0].verdict).toBe('WORTH_IT');
-  });
-
-  it('...the same answer the region rail gives for that payload', () => {
-    const DATE = '2026-09-06';
-    const rows = buildRegionRows(
-      { targetType: 'SUNSET', regions: [LEGACY] }, DATE,
-    );
-
-    expect(rows[0].verdict).toBe('WORTH_IT');
   });
 });
 

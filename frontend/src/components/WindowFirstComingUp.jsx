@@ -379,7 +379,7 @@ export default function WindowFirstComingUp({
                 data-chip={chip.id}
                 data-testid="coming-up-chip"
                 // `aria-pressed`, not `aria-current`: this is a filter toggle and exactly one chip
-                // is on at a time — the same convention `WindowRegionRail` already uses for the
+                // is on at a time — the same convention the since-deleted `WindowRegionRail` already uses for the
                 // same shape of control.
                 aria-pressed={activeFilter === chip.id}
                 onClick={() => setActiveFilter(chip.id)}

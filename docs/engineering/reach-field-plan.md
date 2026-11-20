@@ -1,5 +1,7 @@
 # Reach field: the At a Glance thumbnails follow the drive tier
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 Design handoff: `design_handoff_reach_field` (2026-11-13). One PR.
 
 ## Problem

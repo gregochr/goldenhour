@@ -1,5 +1,7 @@
 # Back closes the top dialog
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 Status: planned 2026-11-07. **PR 3 (the first-run guard) built 2026-11-07; the Android Chrome measurement is still the manual pass.** Owner request, raised while planning Phase 3a.1 of `engineering-gaps-plan.md`.
 Research was done at `origin/main` 404d8392. Reviewed by five adversarial lenses on 2026-11-07; the **amendments section at the end is binding and wins over the earlier sections where they conflict**.
 

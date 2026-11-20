@@ -1,5 +1,7 @@
 # Heat field — Plan strip + Map tab, v2 only — implementation plan
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 **Status:** drafted 2026-08-18 from the `PhotoCast.zip` design handoff (2026-08-18, high
 fidelity); adversarially reviewed the same day (4 lenses, ~25 findings upheld and applied — the
 notable ones: the day-rail replacement is a recorded decision **reversal** with a pinned test to

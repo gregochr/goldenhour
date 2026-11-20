@@ -1,5 +1,7 @@
 # Plan matrix — the day/window matrix replaces the strip-plus-list (design v3)
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 **Status: COMPLETE — M1–M5 are all on `main` (M5 as `4627898b`, #599). The flag flip is the owner's call and this series no longer blocks it; §11 states what it still waits on, and §11c is the list to read before flipping.** Written 2026-08-20 against the v3 design bundle at
 `docs/design/plan-matrix/` (README.md there is the pixel-level spec; this document is the port
 plan). Base: main at v2.18.14, heat-field series P0–P8 complete and merged, window-first flag

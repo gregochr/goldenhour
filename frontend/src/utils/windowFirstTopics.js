@@ -347,13 +347,9 @@ export function windowTopics(key, badges, topicIndex, scopeNames) {
   }
   // Rarest first — the payload's own `rarityRank` (1 = rarest), an absent rank sorting last.
   //
-  // ⚠️ NO further tiebreak, and that is deliberate: `windowFirstRows.buildWindowRows` ranks the SAME
-  // badges with the same one key and lets `Array.prototype.sort`'s stability (spec-guaranteed since
-  // ES2019) hold the payload's order for a tie. A label tiebreak here was written first and removed
-  // — it is a better ordering in the abstract, and it would have ordered two equal-rarity snow
-  // topics one way on the card and the other way in the window row eight pixels below it. (The
-  // promoted strip's `rankOfBadge` was the third surface under this rule and went at M5; the rule
-  // binds the two that are left, and binds anything that joins them.)
+  // ⚠️ NO further tiebreak, and that is deliberate: `Array.prototype.sort`'s stability (spec-guaranteed since ES2019)
+  // holds the payload's order for a tie, and a label tiebreak would order two equal-rarity topics differently from
+  // every other surface that ranks the same badges on the same one key.
   return rows.sort((a, b) => (a.badge.rarityRank ?? Number.MAX_SAFE_INTEGER)
     - (b.badge.rarityRank ?? Number.MAX_SAFE_INTEGER));
 }

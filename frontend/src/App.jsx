@@ -747,7 +747,7 @@ function AppInner() {
    *
    * @param {{id: *, name: string, regionName: ?string, inPlan: boolean, date: ?string,
    *        targetType: ?string}} spot the sheet's own identity shape
-   *        (`utils/locationSheet.sheetSpotOf`'s), the destination flag, and the window the map is
+   *        (`id`, `name`, `regionName`), the destination flag, and the window the map is
    *        on (which the shell turns into the sheet's `focusWindowKey`) — all built by
    *        `MapView.jsx`'s caller
    */

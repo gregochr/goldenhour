@@ -9,7 +9,7 @@ import { eclipseSpotLine } from '../../utils/dawnRace.js';
  *
  * <p>Reads one location's served `BriefingSlot.eclipse` (an `EclipseSight`) via the caller's own
  * `buildEclipseIndex`/`lookupForWindow` join (`utils/locationSheet.js`, built at L4) — the SAME
- * index `DawnRace`'s host already resolves for the popup, so the sheet/callout figure and a mounted
+ * index the since-deleted `DawnRace`'s host already resolves for the deleted popup, so the sheet/callout figure and a mounted
  * dawn race can never disagree about one location's own altitude, bearing or set/rise time.
  *
  * <p>Renders nothing when {@code eclipseSpotLine} finds nothing to print (no sight, or a sight with

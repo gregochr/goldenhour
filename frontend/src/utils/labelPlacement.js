@@ -4,7 +4,7 @@
  * reshaped as a pure function so every field-geography consumer phase (G2 thumbnails, G3 popup
  * rings) reuses one proven implementation instead of re-deriving the arithmetic.
  *
- * <p>This is a sibling of {@code WindowRowFieldMap}'s own {@code fits}, not a replacement for it —
+ * <p>This is a sibling of the since-deleted {@code WindowRowFieldMap}'s own {@code fits}, not a replacement for it —
  * {@code fits} has no nudge ladder and carries a WCAG 2.5.8 target-separation test that only
  * applies to real controls (chips); this util is for decorative labels that may hunt for clear
  * air. Do not merge them.
@@ -19,7 +19,7 @@ export const NUDGES = [0, -13, 13, -24, 24, -36, 36];
 
 /**
  * The Map tab's own dy ladder (map-tab-v2-plan.md §3 P8, `docs/design/map-tab-v2/README.md` §6) —
- * a SECOND, longer-reaching ladder for a bigger canvas than the Plan popup's field map, not a
+ * a SECOND, longer-reaching ladder for a bigger canvas than the deleted Plan popup's field map, not a
  * replacement for {@link NUDGES}. The two callers keep their own numbers: Plan thumbnails and the
  * popup field map pass no {@code options} at all and so see {@link NUDGES} exactly as before;
  * {@code MapLabels} passes this one explicitly. One module, two ladders.

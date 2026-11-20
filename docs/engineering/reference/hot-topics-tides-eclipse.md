@@ -29,14 +29,13 @@ switch keyed on type. `BriefingSlot.eclipse` (nullable `EclipseSight`, no migrat
 `daily_briefing_cache` JSON like `TideInfo`) carries the per-location, per-window sight: altitude,
 bearing, moonset/moonrise, `setsInShadow`/`risesInShadow`, and (only on a window close enough to
 twilight) a `race` (`DAWN`/`DUSK`/null) with four served light `stops` for the track's gradient — a
-high, leisurely eclipse has a sight with no race, and the popup then shows facts only. The admin hot-
+high, leisurely eclipse has a sight with no race, and the Map callout and four-day sheet then show facts only. The admin hot-
 topic simulation template attaches this SAME fixed sight to every slot of its simulated window at
 **serve time only** — it is never persisted, which is the one thing that makes the feature
-browser-verifiable before the next live eclipse actually occurs. `DawnRace` (`components/DawnRace.jsx`
-+ pure geometry in `utils/dawnRace.js`) draws the track in the popup, `aria-hidden`, with one visible
-accessible sentence stating the whole answer (the tide-run chart's own rule) — `raceModel`/
-`raceSentence`/`eclipseSpotLine` are filter/map/select over already-served instants, not a
-derivation (the `comingUpSparkline.js`/`dawnRace.js` precedent the Backend-heavy bullet names below).
+browser-verifiable before the next live eclipse actually occurs. The dawn/dusk race track (`DawnRace` and `raceModel`/`raceSentence` in `utils/dawnRace.js`) lived in the window popup and
+was deleted with it (glance-to-map-plan.md G2b/G2c); `utils/dawnRace.js` keeps `formatRaceTime` and `eclipseSpotLine`, a
+filter/map/select over already-served instants, not a derivation (the `comingUpSparkline.js`/`dawnRace.js` precedent the
+Backend-heavy bullet names below).
 The Plan card's chip gets a clocked emphasised pill (`CLOCKED_TOPIC_TYPES`, shared with solar
 `ECLIPSE`) reading the eclipse's own maximum time after a divider. ⚠️ **No `clearToDeg` anywhere** —
 the solar handoff's "clear to the west N of M" and its west-horizon ranking were dropped for want of
@@ -46,8 +45,7 @@ altitude/bearing/set-or-rise-in-shadow line, mounted as `EclipseSpotLine`
 `LocationFourDaySheet` and `MapCallout` (L7), fed by `utils/locationSheet.buildEclipseIndex` via the
 same `lookupForWindow` join `TideInfo` already uses. **No promoted strip and no T−1 promotion rule**
 (§6 Q1's default) — the promoted-strip machinery the solar handoff assumed was retired at plan-matrix
-M5 before this feature existed, so the evening-before need is carried by the clocked chip and the
-popup alone; a page-level strip is an open owner decision, not a gap in this feature. Coming up
+M5 before this feature existed, so the evening-before need is carried by the clocked chip alone; a page-level strip is an open owner decision, not a gap in this feature. Coming up
 carries a 🌘 glyph, a `next`-from-the-UK accent row and a dashed-top `aside` exposure note ("No
 filter needed — bracket, the shadow is ~10 stops under the lit edge"), never `safetyNote` (the design
 is explicit the lunar note carries no safety warning, unlike the sun's). The tab badge's rarity gap

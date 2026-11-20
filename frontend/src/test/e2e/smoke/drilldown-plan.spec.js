@@ -33,7 +33,7 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
     // Never the first card: it may be the window that is about to pass.
     await page.getByTestId('wf-heat-card').nth(2).click();
     await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('window-sheet')).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
   test('a place from Find: its location sheet shows the served rows and Escape closes it', async ({ page }) => {
@@ -112,7 +112,7 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
 
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('window-sheet')).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
   test('pointer: the legend\'s overhang opens its window, and the hit button never takes a pointer', async ({ page }) => {

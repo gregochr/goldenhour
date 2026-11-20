@@ -55,26 +55,22 @@ const DIM_AT_OR_BELOW = 2;
 /**
  * One place, its next solar windows, and what each one costs to reach (plan D10, P8).
  *
- * <h2>Three ways in, and the two new ones open it OVER the window popup</h2>
+ * <h2>Ways in, and what it stacks over</h2>
  *
- * <p>P8 hung this off the search alone (§9.9, owner-resolved 2026-08-20). D-3 <b>reversed</b> that
- * for M4, and the reversal has a reason rather than a change of mind: the call was made while a
- * spot card's click opened the map, and those cards now live inside a dialog. So the popup's field
- * chips and its ranked spot cards open this sheet <em>stacked on</em> the popup — the reader keeps
- * the window they were reading — while a search result opens it with the popup closed, because
- * arriving from search is a different gesture and the shell's "closes FIRST" rule governs it.
+ * <p>P8 hung this off the search alone (§9.9, owner-resolved 2026-08-20); it now opens from a Find result on any
+ * tab, from the Map callout's {@code Four days here ›} (over the Map, without moving the tab), from Ask's
+ * {@code Open in Plan ›} and from a spot row on the area sheet, which it then stacks over. The window popup and the
+ * pick dialog it once stacked over were deleted (glance-to-map-plan.md G2b), so the layer under it is the area sheet
+ * or nothing.
  *
- * <p>Escape then takes exactly one layer per press: the popup underneath declines the key while
- * this one is up ({@code stackedOverLayer} counts {@code sheetSpot}), so a press takes this sheet
- * off and leaves the window behind it. It is wired exactly as {@code WindowSpotSheet}'s is, because
- * they are the same rung.
+ * <p>Escape takes exactly one layer per press: an area sheet underneath declines the key while this one is up
+ * ({@code stackedOverLayer} counts {@code sheetSpot}), so a press takes this sheet off and leaves the area sheet
+ * behind it. It is wired exactly as {@code WindowSpotSheet}'s is, because they are the same rung.
  *
- * <p>⚠️ <b>The bundle README's three-rung order (search → this sheet → the popup) is NOT what
- * ships, so {@code escapeEnabled}'s {@code searchSeed} arm is a belt that can no longer engage.</b>
- * M5 refuses the third layer outright — every route into search guards on {@code stackedOverLayer}
- * — so the supported stack is two deep: search over the popup, or a sheet over the popup, never
- * both (plan-matrix §4 A22). Nor can search survive the way in: {@code PlanSearch} calls
- * {@code onClose} on every pick, so a search result closes it in the same commit that opens this.
+ * <p>⚠️ <b>{@code escapeEnabled}'s {@code searchSeed} arm is a belt that can no longer engage.</b> Every route into
+ * search guards on {@code stackedOverLayer}, so the supported stack is two deep (plan-matrix §4 A22). Nor can search
+ * survive the way in: {@code PlanSearch} calls {@code onClose} on every pick, so a search result closes it in the
+ * same commit that opens this.
  *
  * <p>The map is not lost: the footer carries it, and names the window it will open in the
  * vocabulary the strip behind it uses.
@@ -106,7 +102,7 @@ const DIM_AT_OR_BELOW = 2;
  * figure, the base named beside it, the outside badge and <em>every departure time on every row</em>
  * would change while the reader is looking at them. D-4 resolves it by removing the condition rather
  * than the objection — {@code close-then-move}: this component calls {@code onClose} and only then
- * {@code onPlanFrom}, and the shell's handler takes the window popup down before it calls
+ * {@code onPlanFrom}, and the shell's handler takes every other layer down before it calls
  * {@code setOrigin}. The origin never moves under an open surface, which is what P8's invariant
  * actually says. The ordering is asserted as an ordering, not as an outcome, because a later edit
  * that merely reached the same end state would silently lose it.
@@ -123,7 +119,7 @@ const DIM_AT_OR_BELOW = 2;
  * @param {?object}  [props.scoreIndex] from {@code buildScoreIndex}
  * @param {?object}  [props.slotIndex]  from {@code buildSlotIndex}
  * @param {boolean}  [props.scoresKnown] whether the ratings response has arrived. Defaults FALSE, so
- *        a caller that has not thought about it makes no claim — {@code WindowRowFieldMap}'s rule
+ *        a caller that has not thought about it makes no claim — the since-deleted {@code WindowRowFieldMap}'s rule
  * @param {?Map}     [props.reachById]  the reach map the PAGE plans from
  * @param {string[]} [props.scopeRegionNames] the region names in scope
  * @param {?object}  [props.origin]     the origin descriptor, for the outside badge's wording
@@ -169,7 +165,7 @@ const DIM_AT_OR_BELOW = 2;
  *        no "best here", no lead line, no scores door, no "Nothing written". Light times, the region's gloss, the
  *        comfort rows and the tide stay. False draws exactly what the sheet always drew
  * @param {?Function} [props.onOpenSubRegions] opens Settings on the picker from the block's button; the shell
- *        closes this sheet (and any popup under it) first, so no third dialog stacks up
+ *        closes this sheet (and any layer under it) first, so no third dialog stacks up
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
@@ -341,7 +337,7 @@ export default function LocationFourDaySheet({
   // row. The opener knows something the sheet does not: a heat spot (Plan search's result, the one
   // route that can reach a place before the roster) carries `skySubject: false` for a place that is
   // not a sky subject. So, with no record, no rated row and that flag, the sheet says it is loading
-  // and draws NO window rows; with any other spot shape (a popup chip, which comes from the joined
+  // and draws NO window rows; with any other spot shape (a Find result or a map chip, which comes from the joined
   // roster) it behaves exactly as before. Never the window rows for a hide.
   const hidePending = location == null && spot?.skySubject === false
     && sheet.rows.every((row) => row.rating == null);
@@ -391,7 +387,7 @@ export default function LocationFourDaySheet({
       closeOnEscape={escapeEnabled}
       /* ⚠️ ONE predicate, two consequences, and they must never come apart: the layer that
          answers Escape is the layer that is not `inert`. M5 measured the alternative in a browser —
-         three `aria-modal` dialogs at once and a Tab out of the top one landing inside the popup
+         three `aria-modal` dialogs at once and a Tab out of the top one landing inside the dialog
          underneath — so a stacked layer holds no tab stops and leaves the accessibility tree, while
          the top one keeps both. Derived from `escapeEnabled` rather than taking a second prop
          precisely so a future caller cannot set one and forget the other. See `Modal`'s own note
@@ -445,7 +441,7 @@ export default function LocationFourDaySheet({
             rides with them, which is what keeps the card inside `.wf-sheet-card`'s
             `max-height: calc(100dvh - 32px); overflow: hidden` at 400% zoom — with a fourth
             unshrinkable band the head, lead and footer together exceeded a 320×256 viewport and the
-            map action clipped with nothing able to scroll. the retired pick dialog records the same
+            map action clipped with nothing able to scroll. `WindowSpotSheet` records the same
             defect and the same three-band shape. */}
         {/* ⚠️ For a hide the one scroller holds no focusable element (a table has none), so a keyboard
             reader — Safari in particular, whose Tab skips scrollable containers that hold nothing
@@ -600,7 +596,7 @@ export default function LocationFourDaySheet({
               ? nextAlignedRow(scanRows, tideAlignmentIndex, { id: spot?.id, name: spot?.name }, rowIndex)
               : -1;
             // The eclipse spot line's own fact for THIS row (L7) — the same
-            // `buildEclipseIndex`/`lookupForWindow` join `DawnRace`'s host reads in the popup (L4).
+            // `buildEclipseIndex`/`lookupForWindow` join the since-deleted `DawnRace` host's read (L4).
             // Null on an away day, like `tideFact` above, and on any window carrying no served
             // eclipse sight at all (no catalogued or simulated eclipse on this night, or the row's
             // own window is not the eclipse's).
@@ -877,7 +873,7 @@ export default function LocationFourDaySheet({
         <div className="wf-sheet-foot font-mono">
           {/* ⚠️ CLOSE-THEN-MOVE, and the two calls are in this order deliberately (D-4, M4.3). The
               sheet takes ITSELF down before it asks the page to re-frame, because the only surface
-              this component can guarantee is its own; the shell's handler takes the window popup
+              this component can guarantee is its own; the shell's handler takes every other layer
               down before it reaches `setOrigin`. P8's invariant — the origin never moves under an
               open surface — is what both halves are protecting, and the class comment records why
               it was worth honouring rather than arguing away.

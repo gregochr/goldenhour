@@ -30,7 +30,7 @@ import { dayLabelFor, eventWord } from './windowFirstCards.js';
 /**
  * Three-letter weekday for the matrix's day header ("Sat"). Upper-cased by the stylesheet.
  *
- * <p>Exported since M2 so the window popup's date tile draws the same abbreviation from the same
+ * <p>Exported since M2 so the deleted window popup's date tile draws the same abbreviation from the same
  * function — a dialog naming a different day from the card that opened it is exactly the class of
  * defect a second spelling produces.
  */

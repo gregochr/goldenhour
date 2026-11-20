@@ -516,7 +516,7 @@ export default function WindowFirstMapPane({
   );
   /**
    * The map callout's per-location eclipse sight (L7, `docs/engineering/lunar-eclipse-plan.md`
-   * §3 L7) — the SAME `buildEclipseIndex` join the Plan-tab popup's `DawnRace` already reads
+   * §3 L7) — the SAME `buildEclipseIndex` join the deleted Plan-tab popup's the since-deleted `DawnRace` already reads
    * (`WindowFirstShell.jsx`'s own `eclipseIndex`), over the SAME {@code briefing.days}, so the map
    * and the Plan tab can never disagree about one location's own moon geometry for one window.
    */

@@ -156,20 +156,3 @@ export function fieldConfidence(tier, verdict) {
 export function fieldBloomAllowed(verdict) {
   return verdict !== 'UNRATED';
 }
-
-/**
- * Multiplies the alpha channel of an {@code rgba(r,g,b,a)} string by {@code scale} (clamped to
- * [0,1]). Returns the input unchanged when scale ≥ 1 or the string is not an rgba() literal, so
- * it is safe to apply blindly.
- *
- * @param {string} rgba  an "rgba(r,g,b,a)" colour string
- * @param {number} scale multiplier for the alpha
- * @returns {string} the scaled colour, or the input unchanged
- */
-export function scaleRgbaAlpha(rgba, scale) {
-  if (typeof rgba !== 'string' || !(scale < 1)) return rgba;
-  const m = rgba.match(/^rgba\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/i);
-  if (!m) return rgba;
-  const alpha = Math.max(0, Math.min(1, parseFloat(m[4]) * scale));
-  return `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${Number(alpha.toFixed(3))})`;
-}

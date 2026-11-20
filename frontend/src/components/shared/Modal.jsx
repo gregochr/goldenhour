@@ -27,10 +27,11 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  * leave v1 byte-identical" — is discharged along with the rest of the v1 UI it protected; see the
  * v1-retirement plan §4.3 for the ruling this component now runs under.)
  *
- * <p><b>What it is for.</b> The Plan screen stacks up to three of these — the window popup, a sheet
- * over it, and search over that — and M5 measured the result in a real browser: three elements
- * carrying {@code aria-modal="true"} at once, and a Tab walk that left the topmost sheet, crossed
- * the page behind it and landed <em>inside the popup underneath</em> on the seventeenth press.
+ * <p><b>What it is for.</b> The Plan screen once stacked up to three of these — the window popup (since deleted,
+ * glance-to-map-plan.md G2b), a sheet over it, and search over that — and M5 measured the result in a real browser:
+ * three elements carrying {@code aria-modal="true"} at once, and a Tab walk that left the topmost sheet, crossed
+ * the page behind it and landed <em>inside the dialog underneath</em> on the seventeenth press. The supported stack
+ * is two deep now (an area sheet under a place sheet), and the same two attributes hold it.
  * "There is exactly one modal" was simply false, and the two attributes here are what make it true
  * again: a stacked layer is {@code inert} (so it holds no tab stops and leaves the accessibility
  * tree entirely) and drops {@code aria-modal} (so no two elements claim to be the modal at once).
@@ -54,8 +55,8 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  * usually arrives AFTER the covering layer has already captured, and the sentence had the race the
  * wrong way round while being right that there is one. The recorder below is what makes the outcome
  * not matter. So the naive version broke the thing the hook exists for: open
- * the location sheet from a field chip on the popup's map, press Escape, and focus landed on
- * {@code <body>} rather than on the chip. Measured in a real browser, both before and after — and
+ * a sheet from a control inside another dialog, press Escape, and focus landed on
+ * {@code <body>} rather than on that control. Measured in a real browser, both before and after — and
  * intermittently, since it is a race with how fast React flushes passive effects, which is exactly
  * the kind of defect that reaches a pilot.
  *
@@ -163,14 +164,14 @@ export default function Modal({
    * {@code lastInside} null, so the uncover restored nothing and left them on {@code <body>}
    * beneath a layer that is once again claiming {@code aria-modal="true"} — an AT hiding the rest
    * of the page while focus sits outside the dialog, and the next Tab walking the page behind the
-   * backdrop. Reachable by keyboard: open the popup, press the masthead's ⌕ for search, then Escape.
+   * backdrop. Reachable by keyboard: open a sheet, press the masthead's ⌕ for search, then Escape.
    *
    * <p>⚠️ <b>Not every-time on every engine, and the first draft of this said otherwise.</b> Paired
    * old-vs-new runs through Playwright: on WebKit the reader is stranded on every attempt; on
    * Chromium only when the covering layer mounts a frame or more after the press, because a cover
    * that mounts in the same frame captures this root as its own return address and hands it back on
    * unmount. That delay is the normal case on first use — {@code PlanSearch},
-   * the retired window popup and {@code LocationFourDaySheet} are all {@code lazy()} behind a
+   * the area sheet and {@code LocationFourDaySheet} are all {@code lazy()} behind a
    * {@code Suspense} boundary — and the rare one afterwards, when the chunk is warm.
    *
    * <p>⚠️ <b>Keyboard-only in practice, and an earlier draft of this comment claimed otherwise.</b>
@@ -185,10 +186,10 @@ export default function Modal({
    * argument for it is wrong.</b> It is tempting to say "this is just what an OPEN does", and
    * borrow {@link useDialogFocus}'s three reasons for preferring the container. All three fail
    * here: its "nothing to Tab to" case cites the settings modal's spinner, and
-   * {@code UserSettingsModal} never passes {@code stacked} at all (only four Plan-shell dialogs do —
-   * and only two of those can reach this branch in production, since {@code WindowSpotSheet} and
-   * the retired pick dialog are stacked only while search is open, which the shell refuses to open
-   * over them — every one of which has a close button); its "content still loading" case cannot apply to a
+   * {@code UserSettingsModal} never passes {@code stacked} at all (only Plan-shell dialogs do —
+   * and the one that can reach this branch in production is the area sheet, stacked under a place sheet
+   * opened from it, since {@code WindowSpotSheet} is stacked only while the guide is up, and the shell refuses to
+   * open search over a sheet — every one of which has a close button); its "content still loading" case cannot apply to a
    * dialog that has been mounted for the whole life of the layer that covered it; and its "do not
    * fight a consumer autofocus" case has nothing to fight, because an uncover re-runs no consumer
    * effect. An adversarial review caught that borrowing — worth keeping, because a maintainer who
@@ -292,7 +293,7 @@ export default function Modal({
 
          ⚠️ AND ON POINTERDOWN, which is not belt-and-braces: **macOS and iOS Safari do not focus a
          `<button>` on click** unless Full Keyboard Access is on, and that is the default. So on the
-         gesture this whole mechanism was measured against — click a chip on the popup's map, then
+         gesture this whole mechanism was measured against — click a control inside a dialog that opens another, then
          press Escape — the focus event never fires there, `lastInside` stays null, and the fix
          degrades silently to the `<body>` behaviour it replaces. Both browser measurements behind it
          were headless Chromium; an adversarial review caught the engine assumption. `pointerdown`
@@ -307,8 +308,8 @@ export default function Modal({
         // restore is for. The restore's own "did the focus land" check cannot catch it either,
         // because such a node takes focus perfectly well.
         //
-        // No live route today: the one portalled child these dialogs render (the spot peek) is
-        // `aria-hidden` with nothing focusable in it. This closes the asymmetry with
+        // No live route today: the portalled children these dialogs could render (the deleted spot peek was one) were
+        // `aria-hidden` with nothing focusable in them. This closes the asymmetry with
         // `onPointerDown` below, which has always tested containment — raised independently by two
         // adversarial reviewers against the uncover fallback, whose arrival is what gives a bad
         // record something correct to beat.

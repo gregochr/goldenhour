@@ -1107,8 +1107,8 @@ export default function WindowFirstHeatStrip({
   /**
    * Where each card's home marker and region labels actually ended up, or absent while the placer
    * has not run for that card's current frame — the same two-pass measurement
-   * {@code WindowRowFieldMap} uses for its chips, because these labels are droppable (G1's
-   * {@code placeWithNudges}) rather than the popup's own never-dropped region labels.
+   * the since-deleted {@code WindowRowFieldMap} uses for its chips, because these labels are droppable (G1's
+   * {@code placeWithNudges}) rather than the deleted popup's own never-dropped region labels.
    */
   const [labelPlacements, setLabelPlacements] = useState(() => new Map());
   /** Candidate DOM nodes for the measurement pass, keyed by `${cardKey}::home` / `${cardKey}::region::${name}`. */
@@ -1309,7 +1309,7 @@ export default function WindowFirstHeatStrip({
    * paint the off-screen measuring pass first, and every label would visibly snap into place a
    * frame later.
    *
-   * <p>Two-pass measurement, the same technique {@code WindowRowFieldMap} uses for its chips: the
+   * <p>Two-pass measurement, the same technique the since-deleted {@code WindowRowFieldMap} uses for its chips: the
    * render below always emits a candidate for every anchor in {@code frames}, off-screen and
    * hidden until this effect has measured and placed it. Unlike that component's OWN region labels
    * (seeded, never dropped), these are droppable — a name that cannot find clear air is absent
@@ -1712,7 +1712,7 @@ export default function WindowFirstHeatStrip({
               data-testid="wf-heat-canvas"
               ref={canvasRef(card.key)}
             />
-            {/* Decorative duplication of what the card already states accessibly — the popup's own
+            {/* Decorative duplication of what the card already states accessibly — the deleted popup's own
                 `.wf-mlab` is the precedent (plan §2.2) — so the whole layer is `aria-hidden`. No
                 `!geoFailed` gate of its own: the check above already unmounts the whole well on
                 that path, and this is the SECOND, independent absence mechanism — `drawGeo`

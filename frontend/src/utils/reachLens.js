@@ -355,7 +355,7 @@ export function gateSpotsByReach(spots, limitMinutes, { measured = false } = {})
  * everything. Naming a gate that gated nothing is §6 clause 7's own sentence ("no count describes a
  * set that was never filtered"), and this is the page's ONE count statement (§4 A7), so it is the
  * most load-bearing place the claim could have been wrong. Found by an adversarial review of M5,
- * which had fixed the same claim in the window popup and stopped there. The two NUMBERS are
+ * which had fixed the same claim in the deleted window popup and stopped there. The two NUMBERS are
  * unchanged — what goes is the assertion about which set the denominator is.
  *
  * @param {number} args.spotCount    spots drawn across every window, after both gates

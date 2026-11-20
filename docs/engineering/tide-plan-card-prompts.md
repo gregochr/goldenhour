@@ -1,5 +1,7 @@
 # Tide alignment on the Plan card — kickoff prompts for the implementing sessions
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 Paste one prompt into a **fresh Claude Code session (Sonnet)**, in order (§8 of the plan says which
 may run in parallel). Each phase lands as its own reviewed commit and PR before a dependent session
 starts — the plan's **§0 Status block and Phase log are the source of truth between sessions**. If a

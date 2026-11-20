@@ -3476,7 +3476,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * This window's lunar eclipse sight for a location (L7, `docs/engineering/lunar-eclipse-plan.md`
    * §3 L7) — the callout's per-location line, read through the SAME `buildEclipseIndex`/
-   * `lookupForWindow` join the popup's `DawnRace` reads for this location's window (L4). Gated
+   * `lookupForWindow` join the since-deleted `DawnRace` read for this location's window (L4). Gated
    * exactly like {@code getTideOnLightForLocation} above and for the identical reason: a served
    * `EclipseSight` is a fact about a SOLAR window, never a night, and it says nothing while the tab
    * has no forecast on screen for the window it names.
@@ -5376,7 +5376,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /**
    * The ring labels' own {@code reachMeasured} — "a real drive time gated this screen's reach
-   * lens" (§5.2), the same honesty rule {@code WindowRowFieldMap}'s ring labels apply.
+   * lens" (§5.2), the same honesty rule the since-deleted {@code WindowRowFieldMap}'s ring labels apply.
    *
    * <p>⚠️ Read off the FULL {@code activeDriveMap} in force, never off {@code labelSpots} (map-tab-
    * v2-plan.md §3 P8 review, a confirmed finding): {@code labelSpots} is built from

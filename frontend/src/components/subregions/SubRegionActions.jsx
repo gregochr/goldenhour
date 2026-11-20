@@ -38,7 +38,7 @@ export function SubRegionActionButton({
 }) {
   const { state, openSubRegions } = useSubRegionStatus();
   const action = subRegionAction(state);
-  // `noFallback`: a surface that must close itself first (the popup) never falls back to the provider's opener,
+  // `noFallback`: a surface that must close itself first (the deleted popup) never falls back to the provider's opener,
   // which would stack Settings over it.
   const open = noFallback ? onOpen : (onOpen ?? openSubRegions);
   if (!action?.label || typeof open !== 'function') return null;

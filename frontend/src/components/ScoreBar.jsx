@@ -8,8 +8,8 @@ import { rampHex, starFromScore } from '../utils/scoreRamp.js';
  * Plan pane and the map popup.
  *
  * <p>Merges what were two components (heat-scale-unification-plan.md, Stage 5b): the Plan pane's
- * {@code PlanScoreBar} (itself extracted from {@code WindowSpotPeek}'s module-private
- * {@code PeekScoreBar}, location-sheet superset plan Phase 1) and the map popup's module-private
+ * {@code PlanScoreBar} (itself extracted from the since-deleted {@code WindowSpotPeek}'s module-private
+ * the since-deleted {@code PeekScoreBar}, location-sheet superset plan Phase 1) and the map popup's module-private
  * {@code PopupScoreRow} in the since-deleted {@code MarkerPopupContent.jsx}. Both drew the same two measurements from
  * quoted copies of the same two gradient strings; once the fill is derived from the ramp instead of
  * hard-coded, the reason to keep them apart (importing the since-deleted MarkerPopupContent's ~1,300-line module graph
@@ -47,7 +47,7 @@ import { rampHex, starFromScore } from '../utils/scoreRamp.js';
  *
  * <p>The two surfaces' markup stays genuinely different rather than being forced into one shape:
  * {@code dense} selects the Plan pane's Tailwind-classed, `.wf-peek-bar`-based markup at a 10px type
- * scale; the default renders the popup's inline-style markup at 11px, carried across unedited.
+ * scale; the default renders the deleted popup's inline-style markup at 11px, carried across unedited.
  * CLAUDE.md's "Tailwind only (no inline styles)" rule was already violated by both predecessors
  * before this merge — converting either markup style wholesale is pre-existing debt, not this stage's
  * job.

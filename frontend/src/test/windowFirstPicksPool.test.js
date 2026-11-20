@@ -6,7 +6,6 @@ import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildSpread, spokenPoolPhrase, spreadRowState } from '../utils/windowFirstSpread.js';
 import { thinVerdictCount } from '../utils/windowFirstThinSample.js';
-import { buildRegionRows, buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { bestReachLine } from '../components/WindowFirstHeatStrip.jsx';
 import { factsOf } from './tideFactsFixture.js';
 
@@ -242,72 +241,5 @@ describe('the Best row of a shaped card', () => {
 
   it('omits the row for a reader with no place of their own (null, never "nothing in reach")', () => {
     expect(bestReachLine(stripCard(shapedSummary(), new Set()))).toBeNull();
-  });
-});
-
-describe('the region rows of a shaped body', () => {
-  const picks = new Map([
-    ['Coast', { allowedPlaces: 1, places: 3 }],
-    ['Dales', { allowedPlaces: 0, places: 1 }],
-  ]);
-  const rows = (summary = shapedSummary(), regionPicks = picks) => {
-    const [card] = build(summary);
-    return buildRegionRows(summary, card.spots, card.allSpots, { limitMinutes: null, minRating: null }, regionPicks);
-  };
-
-  it('counts the reader\'s places and the outside ones apart, and carries the served star', () => {
-    const coast = rows().find((r) => r.name === 'Coast');
-
-    expect(coast).toMatchObject({
-      shaped: true, hasPicks: true, drawnCount: 1, outsideCount: 2, picksBestRating: 4,
-    });
-  });
-
-  it('puts a region with a pick first, then verdict tier, then name', () => {
-    const summary = shapedSummary();
-    summary.regions.push({
-      regionName: 'Alpha', displayVerdict: 'WORTH_IT', meanRating: null, slots: [slot(9, 'Zed', null, { gated: true })],
-    });
-    const regionPicks = new Map([...picks, ['Alpha', { allowedPlaces: 0, places: 1 }]]);
-
-    // Alpha is the better verdict and sorts first by name, but the reader has no pick there.
-    expect(rows(summary, regionPicks).map((r) => r.name)).toEqual(['Coast', 'Alpha', 'Dales']);
-  });
-
-  it('puts the served lead region first when it holds a pick, whatever the order would say', () => {
-    const summary = shapedSummary();
-    summary.regions.unshift({
-      regionName: 'Aaron', displayVerdict: 'WORTH_IT', meanRating: null, slots: [slot(8, 'Mine', 3)],
-    });
-    summary.shapedLeadRegion = 'Coast';
-    const regionPicks = new Map([...picks, ['Aaron', { allowedPlaces: 1, places: 1 }]]);
-
-    expect(rows(summary, regionPicks)[0].name).toBe('Coast');
-  });
-
-  it('leaves the lead where it falls when the reader holds no pick in it', () => {
-    const summary = shapedSummary();
-    summary.shapedLeadRegion = 'Dales';
-
-    expect(rows(summary)[0].name).toBe('Coast');
-  });
-
-  it('leaves the unshaped order and fields untouched', () => {
-    const summary = shapedSummary();
-    summary.regions.forEach((r) => { r.meanRating = 3; r.slots.forEach((s) => { delete s.gated; }); });
-    const [card] = build(summary, null);
-    const plain = buildRegionRows(summary, card.spots, card.allSpots, { limitMinutes: null, minRating: null });
-
-    expect(plain.every((r) => !('shaped' in r))).toBe(true);
-    expect(plain.map((r) => r.name)).toEqual(['Coast', 'Dales']);
-  });
-});
-
-describe('regionSeries on a shaped body', () => {
-  it('holds null for every region (the means are stripped), which the popup renders as silence', () => {
-    const series = buildRegionSeries(EVENTS, days(shapedSummary()));
-
-    expect(series.get('Coast').get(`${TODAY}:SUNSET`)).toBeNull();
-    expect(series.get('Dales').get(`${TODAY}:SUNSET`)).toBeNull();
   });
 });

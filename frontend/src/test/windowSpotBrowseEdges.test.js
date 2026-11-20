@@ -4,7 +4,6 @@ import {
   ANY_TYPE_ID,
   browseEmptyLine,
   browseSpots,
-  sheetOffersMore,
   spotTypes,
 } from '../utils/windowSpotBrowse.js';
 
@@ -84,18 +83,6 @@ describe('browseSpots — the input list', () => {
     expect(result.map((s) => s.key)).toEqual(['b', 'c', 'a']);
     expect(spots.map((s) => s.key)).toEqual(['a', 'b', 'c']);
     expect(result).not.toBe(spots);
-  });
-});
-
-describe('sheetOffersMore', () => {
-  it('offers more when the card holds a spot but shows none, even with no spots list at all', () => {
-    expect(sheetOffersMore({ allSpots: [spot({ rating: null })] }, new Map())).toBe(true);
-  });
-
-  it('offers nothing for a card with no spots or no card', () => {
-    expect(sheetOffersMore({ allSpots: [] }, new Map())).toBe(false);
-    expect(sheetOffersMore(null, new Map())).toBe(false);
-    expect(sheetOffersMore({}, new Map())).toBe(false);
   });
 });
 

@@ -170,15 +170,15 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * item, and it is the one that now says what the press did ("Home · Durham").
  *
  * <p>⚠️ <b>It lands BEFORE a closing dialog's own restore, and that is deliberate.</b> The shell's
- * {@code onGoHome} also closes the window popup, and ⌂ is reachable from inside it: the popup holds
- * no trap and leaves this row in the Tab order. On that route the popup's {@code useDialogFocus}
- * cleanup, a passive effect, used to find focus nowhere and put the reader back on the card that
- * opened the popup. The handoff is a layout effect, so it runs first; the restore then finds focus
+ * {@code onGoHome} also closes any open sheet layer, and ⌂ is reachable from inside one: a sheet holds
+ * no trap and leaves this row in the Tab order. On that route the sheet's {@code useDialogFocus}
+ * cleanup, a passive effect, used to find focus nowhere and put the reader back on the control that
+ * opened the sheet. The handoff is a layout effect, so it runs first; the restore then finds focus
  * somewhere real, with no layer left claiming modality, and stands down. An owner decision
- * (2026-09-16): the reader had left the dialog and acted in the masthead, so the popup route ends
+ * (2026-09-16): the reader had left the dialog and acted in the masthead, so the sheet route ends
  * on the origin control too. Moving the handoff to a passive effect would reverse it, and
- * `planOriginShell.test.jsx`'s popup test is what says so. ⚠️ <b>Not while the settings dialog is ALSO
- * open</b> — the popup opened behind settings is a route CLAUDE.md lists as open. That layer still
+ * `planOriginShell.test.jsx`'s sheet test is what says so. ⚠️ <b>Not while the settings dialog is ALSO
+ * open</b> — a sheet opened behind settings is a route CLAUDE.md lists as open. That layer still
  * claims modality, so the restore reads the origin control as stranded and returns the reader to the
  * card, exactly as before this handoff existed (measured in jsdom through the real `App`, and in
  * Chromium, WebKit and Firefox on a harness with a real `Modal`; the Plan-tab map overlay that was
@@ -250,7 +250,7 @@ export default function MastheadTickLine({
   // element or ⌂ — and spends the record either way. The slot's element is attached by then — refs
   // attach before layout effects run. And only while focus is still nowhere: nothing in this commit
   // should have placed it, but a reader's position is never taken. ⚠️ A LAYOUT effect, and for ⌂
-  // that is load-bearing: see the class comment on the popup's passive restore.
+  // that is load-bearing: see the class comment on the sheet's passive restore.
   useLayoutEffect(() => {
     if (!departed.current) return;
     departed.current = null;

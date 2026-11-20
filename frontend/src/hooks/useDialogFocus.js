@@ -40,7 +40,7 @@ const focusLanded = (el) => {
  *
  * <p><b>Ruling (v1-retirement plan §4.3): this stays as-is.</b> "At most one modal" is held
  * route-by-route — the masthead's search refuses a third layer, the cog closes every Plan dialog
- * before opening settings, the map handoffs close the popup first — rather than by a single
+ * before opening settings, the map handoffs close the sheets first — rather than by a single
  * shell-wide containment. The three reasons above are none of them about v1: they are live
  * facts about this app (Leaflet's own tab-stop mutation, the body-portalled bottom sheet, the
  * spinner with nothing to Tab to) that survive v1's departure unchanged. What v1's departure DID
@@ -174,9 +174,9 @@ export default function useDialogFocus(active = true, { restoreFallback = null }
       // leaving them where they are is right. This cleanup governs a dialog being DESTROYED, and on
       // a stacked route that also changes which layer claims modality.
       //
-      // <p>The route: Plan popup open, press `/` to open search — the popup goes `stacked` and
+      // <p>The route: a Plan sheet open, press `/` to open search — the sheet goes `stacked` and
       // `inert` — Tab out onto the page behind the backdrop (a supported move, pinned by
-      // `WindowFirstShellSheet.test.jsx`), then `Escape`. Search closes, the popup re-claims
+      // `WindowFirstShellSheet.test.jsx`), then `Escape`. Search closes, the sheet re-claims
       // `aria-modal="true"` and drops `inert`, and with the unconditional "focus is somewhere real"
       // test BOTH guards stood down: nothing returned the reader into the layer now claiming
       // modality, so their next Tab walked content AT is hiding. `Modal`'s own doc names that end
@@ -187,12 +187,12 @@ export default function useDialogFocus(active = true, { restoreFallback = null }
       // choosing — they are orphaned, and the restore is what recovers them.
       //
       // <p>⚠️ **"Choice" is read from where focus IS, never from who put it there**, and one route
-      // relies on that: the masthead's ⌂ closes the window popup in the commit that removes ⌂,
+      // relies on that: the masthead's ⌂ closes the open sheet in the commit that removes ⌂,
       // and `MastheadTickLine`'s LAYOUT-effect handoff puts the reader on the origin control
       // before this passive cleanup runs, so the restore stands down (an owner decision,
       // 2026-09-16). Asking here whether focus moved during the close sends that reader back to
-      // the card with this hook's own tests still green (measured 2026-09-17);
-      // `planOriginShell.test.jsx`'s popup test is what fails.
+      // the opener with this hook's own tests still green (measured 2026-09-17);
+      // `planOriginShell.test.jsx`'s sheet test is what fails.
       //
       // <p>Arm C is unaffected, and that is why the narrowing is safe rather than a revert: the map
       // drilldown's two panels are `role="dialog"` WITHOUT `aria-modal` deliberately, so when the

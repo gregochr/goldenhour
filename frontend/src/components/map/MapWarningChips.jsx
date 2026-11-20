@@ -5,7 +5,7 @@ import { warningLabel, warningsForMapWindow } from '../../utils/warnings.js';
 import WarningStrip from '../WarningStrip.jsx';
 import WarningChip, { ServedWarningFooter } from '../WarningChip.jsx';
 import MapInfoPanel from './MapInfoPanel.jsx';
-import { WindowWarningsBody } from '../WindowWarningRow.jsx';
+import { WindowWarningsBody } from '../WindowWarningsBody.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 
 /** The Map's active window row, as far as the warnings read it. */
@@ -59,7 +59,7 @@ function useMapWarnings({
  * chip is a link to the Met Office warnings page (no dialog, no history entry). Beside each chip a SEPARATE "Details"
  * button (a chip is a link and is never inside a disclosure button) opens the warning in full in
  * {@link MapWarningPanel}, a frame-level sibling hung under this group (never inside it, which would change the
- * group's height and re-place the map's labels), through the same {@code WindowWarningsBody} the window popup draws
+ * group's height and re-place the map's labels), through the same {@code WindowWarningsBody} the deleted window popup draws
  * (glance-to-map-plan.md G1). The attribution stays visible open or closed, and a stale feed with no warning has
  * nothing to expand and so no button. A warning never changes a rating, the heat field, a verdict or a pick; this
  * reads {@code warnings} and nothing else.

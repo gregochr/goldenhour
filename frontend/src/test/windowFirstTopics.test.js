@@ -264,9 +264,8 @@ describe('windowTopics — the join', () => {
   it('⚠️ leaves a rarity TIE in the payload\'s own order, as the two sibling rankers do', () => {
     // The fixture is deliberately REVERSE-alphabetical. An earlier cut added a label tiebreak here
     // and pinned it with an already-sorted pair, so the assertion passed on `Array.prototype.sort`'s
-    // stability alone and could not tell the two orderings apart. The tiebreak is now gone —
-    // `windowFirstRows` ranks the same badges on rank alone — so this fixture proves the card and
-    // the window row agree rather than proving a sort ran.
+    // stability alone and could not tell the two orderings apart. The tiebreak is now gone, so this
+    // fixture proves the payload's order holds rather than proving a sort ran.
     const rows = windowTopics(
       '2026-08-05:SUNRISE',
       [

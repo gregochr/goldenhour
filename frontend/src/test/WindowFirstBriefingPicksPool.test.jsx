@@ -177,14 +177,6 @@ describe('WindowFirstBriefingProvider: a shaped body on the Plan', () => {
     expect(ground.outside).toHaveLength(2);
   });
 
-  it('publishes the picks across each region for the rail', async () => {
-    await mountWith(shapedBody());
-
-    const { regionPicks } = last();
-    expect(regionPicks.get('North East')).toMatchObject({ allowedPlaces: 1, places: 2 });
-    expect(regionPicks.get('Dales')).toMatchObject({ allowedPlaces: 0, places: 1 });
-  });
-
   it('gates a place the served list leaves out even when its row carries no marker', async () => {
     const body = shapedBody();
     delete body.days[0].eventSummaries[0].regions[0].slots[1].gated;
@@ -208,12 +200,11 @@ describe('WindowFirstBriefingProvider: a shaped body on the Plan', () => {
 });
 
 describe('WindowFirstBriefingProvider: every other body is untouched', () => {
-  it.each(['PRO_USER', 'ADMIN'])('%s: no grounds, no region picks, and cards without the shaped fields', async (role) => {
+  it.each(['PRO_USER', 'ADMIN'])('%s: no grounds, and cards without the shaped fields', async (role) => {
     mockRole = role;
     await mountWith(openBody(), SCORES.map((s) => ({ ...s, rating: 3, gated: undefined })));
 
     expect(last().heatGroundSets.size).toBe(0);
-    expect(last().regionPicks).toBeNull();
     const [card] = last().windowCards;
     expect(card).not.toHaveProperty('outsideCount');
     expect(card).not.toHaveProperty('picksScoped');

@@ -31,7 +31,7 @@ After `docker compose up`, the `deploy` job in `.github/workflows/deploy.yml` ru
 
 ## Drive times from home are Pro (pro-features-gate-plan.md D1, 2026-10-25)
 
-The client half. `WindowFirstBriefingContext` derives `driveLocked = role is not PRO_USER/ADMIN` (context default `false` for a provider-less render) and, when locked, **never calls `getReach()`**; `reachById` stays empty, so every drive and leave line (spot card, peek, sheet meta and row leave, callout facts, the popup's "within reach" wording) goes absent exactly as for an account with no postcode. The away-origin swap to the region-base matrix (`effectiveReachById`) is unchanged, so a Lite reader keeps region-base minutes as lines. A stale demoted client that still thinks it is Pro gets a 403 from `/api/user/settings/reach`; the existing `.catch` empties the map (no error state, no retry). Settings hides the `Last calculated:` stamp for non-Pro (it goes stale once the nightly job stops measuring the account). `forecastApi.refreshDriveTimes` (dead, posted to the removed `/api/locations/drive-times`) was deleted. The server half is D2.
+The client half. `WindowFirstBriefingContext` derives `driveLocked = role is not PRO_USER/ADMIN` (context default `false` for a provider-less render) and, when locked, **never calls `getReach()`**; `reachById` stays empty, so every drive and leave line (spot card, peek, sheet meta and row leave, callout facts) goes absent exactly as for an account with no postcode. The away-origin swap to the region-base matrix (`effectiveReachById`) is unchanged, so a Lite reader keeps region-base minutes as lines. A stale demoted client that still thinks it is Pro gets a 403 from `/api/user/settings/reach`; the existing `.catch` empties the map (no error state, no retry). Settings hides the `Last calculated:` stamp for non-Pro (it goes stale once the nightly job stops measuring the account). `forecastApi.refreshDriveTimes` (dead, posted to the removed `/api/locations/drive-times`) was deleted. The server half is D2.
 
 ## Lite sub-region picks and the change rule (sub-regions-plan S2)
 
@@ -231,7 +231,7 @@ changing or clearing it changes the routing target, so `LocationService.update` 
 `invalidateDriveTimes`); a pin move behind a drive point, or a rename over the same coordinates, changes no target and
 invalidates nothing. The reach payload carries `driveTo` (the name) and the Plan/Map drive line reads
 `1h 20min to Glenridding` (callout, the Plan strip's peek chip, the four-day sheet's meta line), with miles dropped on
-that line; list rows, leave times and popup verdicts do not name it.
+that line; list rows, leave times and verdicts do not name it.
 **The 422** (`DriveRoutabilityGuard`, called by `LocationController` *before* the service's transaction opens): a create,
 a coordinate move on a place with no drive point, and clearing a drive point are refused with `422
 {error, code: NO_ROAD_ROUTE, field: drivePoint}` ("No road route reaches this point. Add a drive point, e.g. the nearest
