@@ -7,6 +7,14 @@ import WarningChip, { WarningFooter } from '../WarningChip.jsx';
 import { WindowWarningsBody } from '../WindowWarningRow.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 
+/** The Map's active window row, as far as the warnings read it. */
+const EVENT_SHAPE = PropTypes.shape({
+  kind: PropTypes.string,
+  past: PropTypes.bool,
+  date: PropTypes.string,
+  eventType: PropTypes.string,
+});
+
 /** The id the toggles' {@code aria-controls} names, on {@link MapWarningPanel}'s root. */
 export const MAP_WARNING_PANEL_ID = 'wf-map-warning-panel';
 
@@ -132,12 +140,7 @@ export default function MapWarningChips({
 }
 
 MapWarningChips.propTypes = {
-  event: PropTypes.shape({
-    kind: PropTypes.string,
-    past: PropTypes.bool,
-    date: PropTypes.string,
-    eventType: PropTypes.string,
-  }),
+  event: EVENT_SHAPE,
   locations: PropTypes.arrayOf(PropTypes.object),
   slotIndex: PropTypes.object,
   scoreIndex: PropTypes.object,
@@ -211,12 +214,7 @@ export function MapWarningPanel({
 }
 
 MapWarningPanel.propTypes = {
-  event: PropTypes.shape({
-    kind: PropTypes.string,
-    past: PropTypes.bool,
-    date: PropTypes.string,
-    eventType: PropTypes.string,
-  }),
+  event: EVENT_SHAPE,
   locations: PropTypes.arrayOf(PropTypes.object),
   slotIndex: PropTypes.object,
   scoreIndex: PropTypes.object,

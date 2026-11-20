@@ -13,9 +13,11 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, render, screen, fireEvent, within,
+  act, screen, fireEvent, within,
 } from '@testing-library/react';
-import { mapViewState } from './mapViewMocks.jsx';
+import {
+  mapViewState, renderGlanceMap, resetGlanceMap, restoreGlanceClock,
+} from './mapViewGlanceHarness.jsx';
 
 vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
 vi.mock('../components/map/MapCallout.jsx', () => ({
@@ -23,53 +25,19 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
 }));
 
 import MapView from '../components/MapView.jsx';
-import { getWarnings } from '../api/warningsApi.js';
-import { WarningsProvider } from '../context/WarningsContext.jsx';
 import { windowKey } from '../utils/windowKeys.js';
-import {
-  TODAY, TOMORROW, PICK, CARD, AMBER, DAYS, heatProp, locations, cardsByKey,
-} from './mapViewGlanceFixtures.js';
+import { TODAY, PICK, CARD, cardsByKey } from './mapViewGlanceFixtures.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
-import { response, METOFFICE_URL } from './warningsFixture.js';
+import { METOFFICE_URL } from './warningsFixture.js';
 
 let onOpenList;
-async function renderMap(props = {}) {
-  let result;
-  getWarnings.mockResolvedValue(response([AMBER]));
-  const locs = locations();
-  const element = (extra = {}) => (
-    <WarningsProvider>
-      <MapView
-        locations={locs}
-        date={TODAY}
-        forecastDates={[TODAY, TOMORROW]}
-        autoEventType="SUNSET"
-        heat={heatProp()}
-        regionVerdictIndex={buildRegionVerdictIndex(DAYS)}
-        windowCardsByKey={cardsByKey()}
-        onOpenList={onOpenList}
-        {...props}
-        {...extra}
-      />
-    </WarningsProvider>
-  );
-  await act(async () => { result = render(element()); });
-  return { ...result, again: (extra) => act(async () => { result.rerender(element(extra)); }) };
-}
+const renderMap = (props) => renderGlanceMap(MapView, onOpenList, props);
 
 beforeEach(() => {
-  localStorage.clear();
-  mapViewState.role = 'PRO_USER';
-  mapViewState.isMobile = false;
+  resetGlanceMap();
   onOpenList = vi.fn(() => true);
-  getWarnings.mockReset();
-  vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
 });
-afterEach(() => {
-  vi.useRealTimers();
-  localStorage.clear();
-});
+afterEach(restoreGlanceClock);
 
 describe('the Map\'s Best bet · why', () => {
   it('draws nothing without a pick, for a Lite reader or an away origin the server scoped out', async () => {

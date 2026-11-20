@@ -7,23 +7,15 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeAll, beforeEach, afterEach,
 } from 'vitest';
+import { act, screen, fireEvent } from '@testing-library/react';
 import {
-  act, render, screen, fireEvent,
-} from '@testing-library/react';
-import { mapViewState } from './mapViewMocks.jsx';
+  mapViewState, renderGlanceMap, resetGlanceMap, restoreGlanceClock,
+} from './mapViewGlanceHarness.jsx';
 
 vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
 vi.mock('../components/map/MapCallout.jsx', () => ({
   default: ({ location }) => <b data-testid="probe-callout-name">{location?.name}</b>,
 }));
-
-import { getWarnings } from '../api/warningsApi.js';
-import { WarningsProvider } from '../context/WarningsContext.jsx';
-import {
-  TODAY, TOMORROW, AMBER, DAYS, heatProp, locations, cardsByKey,
-} from './mapViewGlanceFixtures.js';
-import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
-import { response } from './warningsFixture.js';
 
 let MapView;
 let onOpenList;
@@ -31,41 +23,13 @@ beforeAll(async () => {
   mapViewState.realSheets = true;
   ({ default: MapView } = await import('../components/MapView.jsx'));
 });
-
-async function renderMap() {
-  getWarnings.mockResolvedValue(response([AMBER]));
-  const locs = locations();
-  await act(async () => {
-    render(
-      <WarningsProvider>
-        <MapView
-          locations={locs}
-          date={TODAY}
-          forecastDates={[TODAY, TOMORROW]}
-          autoEventType="SUNSET"
-          heat={heatProp()}
-          regionVerdictIndex={buildRegionVerdictIndex(DAYS)}
-          windowCardsByKey={cardsByKey()}
-          onOpenList={onOpenList}
-        />
-      </WarningsProvider>,
-    );
-  });
-}
+const renderMap = () => renderGlanceMap(MapView, onOpenList);
 
 beforeEach(() => {
-  localStorage.clear();
-  mapViewState.role = 'PRO_USER';
-  mapViewState.isMobile = true;
+  resetGlanceMap({ isMobile: true });
   onOpenList = vi.fn(() => true);
-  getWarnings.mockReset();
-  vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
 });
-afterEach(() => {
-  vi.useRealTimers();
-  localStorage.clear();
-});
+afterEach(restoreGlanceClock);
 
 describe('the phone warning sheet, real BottomSheet', () => {
   it('is a labelled sheet that is not aria-modal, so it is not a foreign modal to the Map\'s rules', async () => {
