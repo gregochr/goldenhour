@@ -133,7 +133,7 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: |
           chmod +x backend/mvnw
-          cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
+          cd backend && ../scripts/mvn-retry.sh ./mvnw clean verify --batch-mode --no-transfer-progress
 
       # Changed-lines coverage: at least 90% of the lines a PR adds or changes under backend/src/main
       # must be covered (the per-class and bundle floors cannot see a PR that adds untested code to an
@@ -502,11 +502,11 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: |
           chmod +x backend/mvnw
-          cd backend && ./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*,E2eRoleUsers*' -DfailIfNoSpecifiedTests=false --batch-mode --no-transfer-progress
+          cd backend && ../scripts/mvn-retry.sh ./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*,E2eRoleUsers*' -DfailIfNoSpecifiedTests=false --batch-mode --no-transfer-progress
 
       - name: Checkstyle for the local-only source roots
         if: needs.changes.outputs.docs_only != 'true'
-        run: cd backend && ./mvnw -Plocal-dev generate-test-sources checkstyle:check --batch-mode --no-transfer-progress
+        run: cd backend && ../scripts/mvn-retry.sh ./mvnw -Plocal-dev generate-test-sources checkstyle:check --batch-mode --no-transfer-progress
 
       # -Plocal-dev adds H2 and src/local/java to the jar; the local profile has no Flyway and makes its own
       # schema. The smoke script starts it with photocast.e2e.seed-fixture=true, so the database is not empty:
@@ -516,7 +516,7 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: |
           chmod +x backend/mvnw
-          cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package --batch-mode --no-transfer-progress
+          cd backend && ../scripts/mvn-retry.sh ./mvnw -Plocal-dev -Dmaven.test.skip=true package --batch-mode --no-transfer-progress
 
       - name: Build the frontend
         if: needs.changes.outputs.docs_only != 'true'

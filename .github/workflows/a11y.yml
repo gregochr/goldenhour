@@ -58,7 +58,7 @@ jobs:
       - name: Build the backend jar (local-dev profile)
         run: |
           chmod +x backend/mvnw
-          cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package --batch-mode --no-transfer-progress
+          cd backend && ../scripts/mvn-retry.sh ./mvnw -Plocal-dev -Dmaven.test.skip=true package --batch-mode --no-transfer-progress
 
       - name: Build the frontend
         run: cd frontend && npm run build
