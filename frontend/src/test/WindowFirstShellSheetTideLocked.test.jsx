@@ -87,10 +87,10 @@ async function openSheet(overrides) {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
     locations: [], mapPane: <p data-testid="map-pane">map pane</p>,
   };
-  const view = render(<WindowFirstShell legacyWindowPopup {...base} />);
+  const view = render(<WindowFirstShell {...base} />);
   fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
   await act(async () => {
-    view.rerender(<WindowFirstShell legacyWindowPopup {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
+    view.rerender(<WindowFirstShell {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
   });
   await screen.findByTestId('location-sheet-stub');
   return view;

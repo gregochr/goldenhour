@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, cleanup, fireEvent, render, screen, waitFor, within,
+  act, cleanup, fireEvent, render, screen, waitFor,
 } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import { AskProvider } from '../context/AskContext.jsx';
@@ -18,8 +18,8 @@ import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
 import { __inspectForTests } from '../utils/dialogHistory.js';
 
 /**
- * Back on the Plan shell's own dialogs (back-closes-dialogs-plan.md, PR 2b): the window popup, the all-spots sheet,
- * the four-day location sheet, the pick dialog and Plan search. Each registers from the shell's DERIVED open state,
+ * Back on the Plan shell's own dialogs (back-closes-dialogs-plan.md, PR 2b): the four-day location sheet and Plan
+ * search (the window popup, the all-spots sheet over it and the pick dialog went in G2b, glance-to-map-plan.md). Each registers from the shell's DERIVED open state,
  * outside `Suspense`, so what is asserted is the store and the dialogs, never a history count.
  *
  * <p>The Plan dates are pinned with a Date-only fake clock, so the store's deferred shrink (a real `setTimeout`) is
@@ -58,18 +58,15 @@ const back = async () => {
   await settle();
 };
 
-const popup = () => screen.queryByTestId('window-sheet');
-const spotSheet = () => screen.queryByRole('dialog', { name: /^All spots/ });
 const locationSheet = () => screen.queryByRole('dialog', { name: /the next \d+ windows?/ });
 const searchButton = () => screen.getByRole('button', { name: /Find a place, region or day/ });
 const guideDoor = () => screen.getByRole('button', { name: 'Guide for this tab' });
-const seeAllSpots = () => screen.getByRole('button', { name: /See all spots/ });
 const guideDialog = () => screen.queryByTestId('guide-dialog');
 const search = () => screen.queryByTestId('plan-search-panel');
 const layers = () => __inspectForTests().layers;
 const tab = (name) => screen.getByRole('tab', { name });
 
-/** Mounts the shell the way App does, with a guide provider so the guide dialog can sit over the popup. */
+/** Mounts the shell the way App does, with a guide provider so the guide dialog can sit over a sheet. */
 function Rig({ shellProps }) {
   const [activeTab, setTab] = useState('plan');
   const closer = useRef(null);
@@ -78,7 +75,7 @@ function Rig({ shellProps }) {
   return (
     <AskProvider>
       <GuideProvider closeShellDialogs={closeShellDialogs} activeTab={activeTab}>
-        <WindowFirstShell legacyWindowPopup
+        <WindowFirstShell
           onOpenSettings={vi.fn()}
           onSignOut={vi.fn()}
           onShowOnMap={vi.fn()}
@@ -106,34 +103,21 @@ function mount({ width = 1280, ctx = matrixCtx(), props = {} } = {}) {
   };
 }
 
-/** Presses the first window card; returns once the popup has drawn and the store has settled. */
-async function openPopup() {
-  await screen.findByTestId('wf-heat-strip');
-  await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-  const dialog = await screen.findByTestId('window-sheet');
-  await settle();
-  return dialog;
-}
-
-const pickCtx = () => {
-  const base = matrixCtx();
-  return {
-    ...base,
-    windowCards: [{
-      ...base.windowCards[0],
-      pick: {
-        kind: 'best', regionName: 'North York Moors & Coast', headline: 'Breaking clear',
-        detail: 'Low cloud clears.', locationName: 'Whitby', locationId: WHITBY,
-      },
-    }],
-  };
-};
-
 const handoff = (id, name, nonce) => ({
   locationSheetHandoff: {
     id, name, regionName: 'North York Moors & Coast', nonce,
   },
 });
+
+/** Opens Whitby's four-day sheet by the Map callout's handoff; returns once it has drawn and the store has settled. */
+async function openSheet() {
+  const view = mount();
+  await screen.findByTestId('ask-field');
+  view.rerenderShell(handoff(WHITBY, 'Whitby', 1));
+  const dialog = await screen.findByRole('dialog', { name: /the next \d+ windows?/ });
+  await settle();
+  return { ...view, dialog };
+}
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -154,15 +138,15 @@ afterEach(() => {
 });
 
 describe('registration from the derived open state', () => {
-  it('registers in the commit that opens the popup, without waiting for its lazy chunk', async () => {
-    mount();
-    await screen.findByTestId('wf-heat-strip');
-    // A bare synchronous click: only the shell's own effects have run, so a layer here is the shell's registration.
-    fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]);
-    // The chunk is cold (this is the first open in the file): a layer with no popup on screen is the shell's own.
-    expect(popup()).toBeNull();
+  it('registers in the commit that opens the sheet, without waiting for its lazy chunk', async () => {
+    const view = mount();
+    await screen.findByTestId('ask-field');
+    // A bare synchronous rerender: only the shell's own effects have run, so a layer here is the shell's registration.
+    act(() => view.rerenderShell(handoff(WHITBY, 'Whitby', 1)));
+    // The chunk is cold (this is the first open in the file): a layer with no sheet on screen is the shell's own.
+    expect(locationSheet()).toBeNull();
     expect(layers()).toBe(1);
-    await screen.findByTestId('window-sheet');
+    await screen.findByRole('dialog', { name: /the next \d+ windows?/ });
     await settle();
     // The chunk arriving added no layer and no entry.
     expect(layers()).toBe(1);
@@ -170,82 +154,17 @@ describe('registration from the derived open state', () => {
   });
 });
 
-describe('the window popup', () => {
-  it('Back closes it and takes its entry, with no second press needed', async () => {
-    mount();
-    await openPopup();
-    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
-
-    await back();
-
-    await waitFor(() => expect(popup()).toBeNull());
-    expect(__inspectForTests()).toMatchObject({ layers: 0, committedDepth: 0 });
-    expect(b.index).toBe(0);
-  });
-
+describe('the location sheet', () => {
   it('closing it with its own close control unregisters and traverses once', async () => {
-    mount();
-    const dialog = await openPopup();
+    await openSheet();
 
-    fireEvent.click(within(dialog).getByRole('button', { name: /close/i }));
+    fireEvent.click(screen.getByTestId('location-sheet-close'));
     await settle();
 
-    expect(popup()).toBeNull();
+    expect(locationSheet()).toBeNull();
     expect(b.history.go).toHaveBeenCalledTimes(1);
     expect(b.history.go).toHaveBeenCalledWith(-1);
     expect(b.index).toBe(0);
-  });
-
-  it('a card that leaves windowCards unregisters the layer and traverses (a data-driven vanish)', async () => {
-    const { rerenderShell } = mount();
-    await openPopup();
-    expect(layers()).toBe(1);
-
-    rerenderShell({}, { ...matrixCtx(), windowCards: [], heatStripCards: [] });
-    await settle();
-
-    expect(popup()).toBeNull();
-    expect(layers()).toBe(0);
-    expect(b.history.go).toHaveBeenCalledWith(-1);
-    expect(b.index).toBe(0);
-  });
-});
-
-describe('the all-spots sheet', () => {
-  it('Back closes only the sheet; a second Back closes the popup', async () => {
-    mount();
-    await openPopup();
-    fireEvent.click(seeAllSpots());
-    await settle();
-    expect(__inspectForTests()).toMatchObject({ layers: 2, committedDepth: 2 });
-
-    await back();
-    expect(spotSheet()).toBeNull();
-    expect(popup()).toBeInTheDocument();
-    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
-
-    await back();
-    await waitFor(() => expect(popup()).toBeNull());
-    expect(__inspectForTests()).toMatchObject({ layers: 0, committedDepth: 0 });
-  });
-});
-
-describe('the location sheet', () => {
-  it('opened from the popup: Back closes the sheet only, then the popup', async () => {
-    mount();
-    await openPopup();
-    fireEvent.click(within(screen.getByTestId('window-sheet')).getAllByTestId('window-spot')[0]);
-    await screen.findByRole('dialog', { name: /the next \d+ windows?/ });
-    await settle();
-    expect(layers()).toBe(2);
-
-    await back();
-    expect(locationSheet()).toBeNull();
-    expect(popup()).toBeInTheDocument();
-
-    await back();
-    await waitFor(() => expect(popup()).toBeNull());
-    expect(layers()).toBe(0);
   });
 
   it('opened alone (a handoff from the Map): Back closes it', async () => {
@@ -280,23 +199,6 @@ describe('the location sheet', () => {
   });
 });
 
-describe('the pick dialog', () => {
-  it('Back closes it and leaves the popup', async () => {
-    mount({ ctx: pickCtx() });
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-    expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
-    await settle();
-    expect(layers()).toBe(2);
-
-    await back();
-
-    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
-    expect(popup()).toBeInTheDocument();
-    expect(layers()).toBe(1);
-  });
-});
-
 describe('Plan search', () => {
   it('Back closes it', async () => {
     mount({ ctx: {} });
@@ -312,25 +214,8 @@ describe('Plan search', () => {
     expect(layers()).toBe(0);
   });
 
-  it('over the popup it is a second layer, and Back takes search first, then the popup', async () => {
-    mount();
-    await openPopup();
-    fireEvent.click(searchButton());
-    await screen.findByTestId('plan-search-panel');
-    await settle();
-    expect(layers()).toBe(2);
-
-    await back();
-    expect(search()).toBeNull();
-    expect(popup()).toBeInTheDocument();
-
-    await back();
-    await waitFor(() => expect(popup()).toBeNull());
-  });
-
   it('is refused while the modal guide is up (the !guideModal guard): no third layer', async () => {
-    mount();
-    await openPopup();
+    await openSheet();
     fireEvent.click(guideDoor());
     expect(screen.getByTestId('guide-dialog')).toBeInTheDocument();
     await settle();
@@ -343,49 +228,14 @@ describe('Plan search', () => {
     expect(search()).toBeNull();
     expect(layers()).toBe(before);
 
-    // 2a's guide over 2b's popup: Back closes the guide only.
+    // 2a's guide over 2b's sheet: Back closes the guide only.
     await back();
     expect(guideDialog()).toBeNull();
-    expect(popup()).toBeInTheDocument();
+    expect(locationSheet()).toBeInTheDocument();
     expect(layers()).toBe(1);
   });
 
-  it('the beyond line\'s search link is refused under the modal guide too (the !guideModal guard)', async () => {
-    const reach = new Map([[WHITBY, { locationId: WHITBY, driveMinutes: 400, distanceMiles: 300 }]]);
-    mount({ ctx: { ...matrixCtx(), reachById: reach, effectiveReachById: reach } });
-    await openPopup();
-    fireEvent.click(guideDoor());
-    expect(guideDialog()).toBeInTheDocument();
-    await settle();
-    const before = layers();
-    expect(before).toBe(2);
-    const link = screen.getByTestId('wf-heat-beyond-search');
-
-    fireEvent.click(link);
-    await settle();
-
-    expect(search()).toBeNull();
-    expect(layers()).toBe(before);
-  });
-
-  it('a third layer is already refused on the other route: popup, search, then the guide opens a new tab', async () => {
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    mount();
-    await openPopup();
-    fireEvent.click(searchButton());
-    await screen.findByTestId('plan-search-panel');
-    await settle();
-    expect(layers()).toBe(2);
-
-    fireEvent.click(guideDoor());
-    await settle();
-
-    expect(open).toHaveBeenCalledTimes(1);
-    expect(guideDialog()).toBeNull();
-    expect(layers()).toBe(2);
-  });
-
-  it('a pick from search is a real swap: search gives way to the popup at the same depth, no go and one push', async () => {
+  it('a pick from search is a real swap: search gives way to the sheet at the same depth, no go and one push', async () => {
     mount();
     await screen.findByTestId('ask-field');
     fireEvent.click(searchButton());
@@ -393,8 +243,9 @@ describe('Plan search', () => {
     await settle();
     expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
 
-    fireEvent.click(screen.getAllByRole('option', { name: /Tonight/ })[0]);
-    await screen.findByTestId('window-sheet');
+    fireEvent.change(screen.getByTestId('plan-search-input'), { target: { value: 'Whitby' } });
+    fireEvent.click(screen.getAllByRole('option', { name: /Whitby/ })[0]);
+    await screen.findByRole('dialog', { name: /the next \d+ windows?/ });
     await settle();
 
     expect(search()).toBeNull();
@@ -404,34 +255,33 @@ describe('Plan search', () => {
   });
 });
 
-describe('selectTab with two layers', () => {
-  const closeBothByTab = async () => {
-    mount({ props: { mapPane: MAP_PANE } });
-    await openPopup();
-    fireEvent.click(seeAllSpots());
+describe('selectTab with a layer open', () => {
+  const closeByTab = async () => {
+    const view = mount({ props: { mapPane: MAP_PANE } });
+    await screen.findByTestId('ask-field');
+    view.rerenderShell({ ...handoff(WHITBY, 'Whitby', 1), mapPane: MAP_PANE });
+    await screen.findByRole('dialog', { name: /the next \d+ windows?/ });
     await settle();
-    expect(layers()).toBe(2);
+    expect(layers()).toBe(1);
     fireEvent.click(tab('Map'));
     await settle();
   };
 
-  it('makes one go(-2) and takes both layers', async () => {
-    await closeBothByTab();
+  it('makes one go(-1) and takes the layer', async () => {
+    await closeByTab();
 
-    expect(popup()).toBeNull();
-    expect(spotSheet()).toBeNull();
+    expect(locationSheet()).toBeNull();
     expect(layers()).toBe(0);
     expect(b.history.go).toHaveBeenCalledTimes(1);
-    expect(b.history.go).toHaveBeenCalledWith(-2);
+    expect(b.history.go).toHaveBeenCalledWith(-1);
     expect(b.index).toBe(0);
   });
 
   it('Back afterwards reopens nothing', async () => {
-    await closeBothByTab();
+    await closeByTab();
 
     await back();
 
-    expect(popup()).toBeNull();
-    expect(spotSheet()).toBeNull();
+    expect(locationSheet()).toBeNull();
   });
 });

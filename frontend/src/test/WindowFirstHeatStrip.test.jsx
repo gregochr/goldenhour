@@ -623,22 +623,6 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     expect(sunrise).toHaveClass('wf-hc-sun', 'am');
     expect(sunrise).not.toHaveClass('pm');
   });
-
-  it('marks the open row\'s card, so the matrix says which row you are in', async () => {
-    await renderStrip({ openKeys: new Set([`${TODAY}:SUNSET`]) });
-    const card = screen.getByTestId('wf-heat-card');
-    expect(card).toHaveAttribute('data-open', 'true');
-    // G2a: the card opens the Map, so its button carries no disclosure state.
-    expect(within(card).getByTestId('wf-heat-card-button')).not.toHaveAttribute('aria-expanded');
-    expect(card).toHaveClass('on');
-  });
-
-  it('leaves every other card unmarked', async () => {
-    await renderStrip({ openKeys: new Set(['2026-08-05:SUNRISE']) });
-    const card = screen.getByTestId('wf-heat-card');
-    expect(card).not.toHaveAttribute('data-open');
-    expect(within(card).getByTestId('wf-heat-card-button')).not.toHaveAttribute('aria-expanded');
-  });
 });
 
 describe('WindowFirstHeatStrip — the spread histogram (bars mode, above the minimum-sample gate)', () => {

@@ -170,7 +170,7 @@ export default function Modal({
    * Chromium only when the covering layer mounts a frame or more after the press, because a cover
    * that mounts in the same frame captures this root as its own return address and hands it back on
    * unmount. That delay is the normal case on first use — {@code PlanSearch},
-   * {@code WindowSheetDialog} and {@code LocationFourDaySheet} are all {@code lazy()} behind a
+   * the retired window popup and {@code LocationFourDaySheet} are all {@code lazy()} behind a
    * {@code Suspense} boundary — and the rare one afterwards, when the chunk is warm.
    *
    * <p>⚠️ <b>Keyboard-only in practice, and an earlier draft of this comment claimed otherwise.</b>
@@ -187,7 +187,7 @@ export default function Modal({
    * here: its "nothing to Tab to" case cites the settings modal's spinner, and
    * {@code UserSettingsModal} never passes {@code stacked} at all (only four Plan-shell dialogs do —
    * and only two of those can reach this branch in production, since {@code WindowSpotSheet} and
-   * {@code WindowPickDialog} are stacked only while search is open, which the shell refuses to open
+   * the retired pick dialog are stacked only while search is open, which the shell refuses to open
    * over them — every one of which has a close button); its "content still loading" case cannot apply to a
    * dialog that has been mounted for the whole life of the layer that covered it; and its "do not
    * fight a consumer autofocus" case has nothing to fight, because an uncover re-runs no consumer

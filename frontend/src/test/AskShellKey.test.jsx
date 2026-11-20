@@ -6,7 +6,7 @@ import {
 } from '@testing-library/react';
 import { resetViewport } from './askViewport.js';
 import {
-  MAP_PANE, OPERATIONS_PANE, matrixCtx, renderAskShell,
+  MAP_PANE, OPERATIONS_PANE, renderAskShell,
 } from './askShellHarness.jsx';
 import {
   deferred, NOW, readyResponse, settings,
@@ -80,13 +80,6 @@ async function expectActs() {
   const press = slash();
   expect(press.defaultPrevented).toBe(true);
   expect(await screen.findByTestId('ask-dock')).toBeInTheDocument();
-}
-
-/** Opens the first window's popup, awaiting the matrix's own lazy boundary first. */
-async function openPopup() {
-  await screen.findByTestId('wf-heat-strip');
-  await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-  return screen.findByTestId('window-sheet');
 }
 
 beforeEach(() => {
@@ -290,33 +283,6 @@ describe('what / does NOT do', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByTestId('plan-search-panel')).toBeNull());
     await expectActs();
-  });
-
-  it('⚠️ is ignored over an open window popup, and the popup stays', async () => {
-    // Search was the one thing allowed over the popup (M3); the dock is not: its column is covered
-    // by the popup's own scrim, and a live control must not appear under an aria-modal dialog.
-    renderAskShell({ width: 1280, ctx: matrixCtx() });
-    await openPopup();
-    expect(field()).toBeDisabled();
-
-    expectRefused(slash());
-
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByTestId('window-sheet')).toBeNull());
-    await expectActs();
-  });
-
-  it('⚠️ is ignored over a layer stacked on the popup, and both layers stay', async () => {
-    renderAskShell({ width: 1280, ctx: matrixCtx() });
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-spot-all'));
-    expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
-
-    expectRefused(slash());
-
-    expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
   });
 
   it('⚠️ is ignored over the four-day location sheet', async () => {

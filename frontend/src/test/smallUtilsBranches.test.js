@@ -3,7 +3,6 @@ import { parseAliases, formatAliases, errorText } from '../utils/aliasText.js';
 import {
   comingUpOutsideFacts, entrySubject, outsideLineText, COASTAL_KIND, DARK_SKY_KIND,
 } from '../utils/comingUpOutside.js';
-import { firstClause } from '../utils/firstClause.js';
 import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost.js';
 import { resolveInitialTab } from '../utils/initialTab.js';
 import {
@@ -110,31 +109,6 @@ describe('comingUpOutside', () => {
       'None of your sub-regions are dark-sky sites. These nights open the map with dark-sky spots shown outside your sub-regions.',
     );
     expect(outsideLineText('darkSky', facts, true)).toContain('This night opens the map');
-  });
-});
-
-describe('firstClause', () => {
-  it('returns null for null and for blank text', () => {
-    expect(firstClause(null)).toBeNull();
-    expect(firstClause('   ')).toBeNull();
-  });
-
-  it('cuts at the first boundary past the minimum length', () => {
-    expect(firstClause('Clear skies over the coast this morning, with some haze later'))
-      .toBe('Clear skies over the coast this morning.');
-  });
-
-  it('keeps the whole text when a late boundary leaves only junk before it', () => {
-    const junk = ','.repeat(30);
-    expect(firstClause(junk)).toBe(`${junk}.`);
-  });
-
-  it('keeps a short text whole and full-stops it', () => {
-    expect(firstClause('Short, text')).toBe('Short, text.');
-  });
-
-  it('keeps text that already ends in terminal punctuation', () => {
-    expect(firstClause('Short text!')).toBe('Short text!');
   });
 });
 

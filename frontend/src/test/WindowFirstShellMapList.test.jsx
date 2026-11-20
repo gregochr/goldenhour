@@ -130,7 +130,7 @@ const renderShell = (request, extraProps = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
   const report = vi.fn();
   const view = render(
-    <WindowFirstShell legacyWindowPopup
+    <WindowFirstShell
       onOpenSettings={vi.fn()}
       onSignOut={vi.fn()}
       onOpenMapTab={vi.fn()}

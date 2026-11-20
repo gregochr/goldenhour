@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, cleanup, fireEvent, render, screen, waitFor,
+  cleanup, fireEvent, render, screen, waitFor,
 } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import { AskProvider } from '../context/AskContext.jsx';
@@ -53,7 +53,7 @@ function Rig({ shellProps }) {
   return (
     <AskProvider>
       <GuideProvider closeShellDialogs={closeShellDialogs} activeTab={tab}>
-        <WindowFirstShell legacyWindowPopup
+        <WindowFirstShell
           onOpenSettings={vi.fn()}
           onSignOut={vi.fn()}
           onShowOnMap={vi.fn()}
@@ -229,21 +229,6 @@ describe('review round 1', () => {
     await waitFor(() => expect(screen.getByTestId('masthead-menu-button')).toHaveFocus());
   });
 
-  it('the popup\'s ArrowLeft/Right stepping stands down under a stacked guide and returns after', async () => {
-    const base = matrixCtx();
-    const second = { ...base.windowCards[0], key: '2026-10-06:SUNRISE', date: '2026-10-06', targetType: 'SUNRISE' };
-    mount({ ctx: { ...base, windowCards: [base.windowCards[0], second] } });
-    await screen.findByTestId('wf-heat-strip');
-    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-    await screen.findByTestId('window-sheet', {}, SLOW);
-    // Stepping is live with nothing over the popup: the key is consumed.
-    expect(fireEvent.keyDown(document.body, { key: 'ArrowRight' })).toBe(false);
-    fireEvent.click(door());
-    expect(screen.getByTestId('guide-dialog')).toBeInTheDocument();
-    expect(fireEvent.keyDown(document.body, { key: 'ArrowRight' })).toBe(true);
-    fireEvent.click(screen.getByTestId('guide-close'));
-    expect(fireEvent.keyDown(document.body, { key: 'ArrowRight' })).toBe(false);
-  });
 });
 
 describe('the phone', () => {
@@ -359,35 +344,38 @@ describe('the docked guide and the Ask dock share one slot', () => {
 });
 
 describe('stacked over the shell\'s own dialogs', () => {
-  const openPopup = async () => {
-    await screen.findByTestId('wf-heat-strip');
-    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-    return screen.findByTestId('window-sheet', {}, SLOW);
+  /** Mounts the shell and opens a place's four-day sheet by the Map callout's handoff. */
+  const mountWithSheet = async () => {
+    const { rerenderShell } = mount({ ctx: matrixCtx() });
+    rerenderShell({
+      locationSheetHandoff: {
+        id: 123, name: 'Whitby', regionName: 'North York Moors & Coast', nonce: 1,
+      },
+    });
+    return screen.findByTestId('location-sheet', {}, SLOW);
   };
 
-  it('over the window popup it is a dialog, and the popup is told it is stacked: inert, no aria-modal', async () => {
-    mount({ ctx: matrixCtx() });
-    const popup = await openPopup();
-    expect(popup).toHaveAttribute('aria-modal', 'true');
+  it('over the four-day location sheet it is a dialog, and the sheet is told it is stacked: inert, no aria-modal', async () => {
+    const sheet = await mountWithSheet();
+    expect(sheet).toHaveAttribute('aria-modal', 'true');
     fireEvent.click(door());
     expect(screen.getByTestId('guide-dialog')).toHaveAttribute('aria-modal', 'true');
-    expect(popup).not.toHaveAttribute('aria-modal');
-    expect(popup).toHaveAttribute('inert');
+    expect(sheet).not.toHaveAttribute('aria-modal');
+    expect(sheet).toHaveAttribute('inert');
     expect(modalCount()).toBe(1);
     expect(guideDock()).toBeNull();
   });
 
-  it('Escape closes only the guide; the popup answers the next one', async () => {
-    mount({ ctx: matrixCtx() });
-    await openPopup();
+  it('Escape closes only the guide; the sheet answers the next one', async () => {
+    await mountWithSheet();
     fireEvent.click(door());
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByTestId('guide-dialog')).toBeNull();
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    expect(screen.getByTestId('window-sheet')).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByTestId('window-sheet')).not.toHaveAttribute('inert');
+    expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
+    expect(screen.getByTestId('location-sheet')).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByTestId('location-sheet')).not.toHaveAttribute('inert');
     fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByTestId('window-sheet')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('location-sheet')).toBeNull());
   });
 
   it('over search it is a dialog, and search is stacked and withholds its Escape', async () => {
@@ -404,28 +392,6 @@ describe('stacked over the shell\'s own dialogs', () => {
     expect(screen.getByTestId('plan-search')).toBeInTheDocument();
   });
 
-  it('over the pick dialog (itself stacked on the popup) that is already two deep: a new tab, nothing closed', async () => {
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    const base = matrixCtx();
-    const windowCards = [{
-      ...base.windowCards[0],
-      pick: {
-        kind: 'best', regionName: 'North York Moors & Coast', headline: 'Breaking clear',
-        detail: 'Low cloud clears.', locationName: 'Whitby', locationId: 1,
-      },
-    }];
-    mount({ ctx: { ...base, windowCards } });
-    await openPopup();
-    fireEvent.click(screen.getByTestId('window-sheet-pick'));
-    const pick = screen.getByTestId('window-pick-dialog');
-    expect(pick).toHaveAttribute('aria-modal', 'true');
-    fireEvent.click(door());
-    // G3 review 1: the popup under the pick is a layer (stacked, inert), so this is two deep already.
-    expect(open).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId('guide-dialog')).toBeNull();
-    expect(screen.getByTestId('window-pick-dialog')).toHaveAttribute('aria-modal', 'true');
-    open.mockRestore();
-  });
 });
 
 describe('the Ask surfaces\' own `?`', () => {

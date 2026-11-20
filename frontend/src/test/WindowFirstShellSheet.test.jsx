@@ -1,53 +1,21 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { openMapDoor } from '../utils/mapDoors.js';
-
-// A passthrough spy over the door's close-then-move entry, so one press can be run with the door's
-// own closes neutralised and the handler's EXPLICIT closes proven to be what ends the browsing.
-vi.mock('../utils/mapDoors.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...actual, openMapDoor: vi.fn(actual.openMapDoor) };
-});
 
 /**
- * The drill-down's wiring, which lives in the shell and nowhere else.
- *
- * <p>Scoped to the sheet rather than being a general shell suite — the shell has never had one, and
- * the four rules below cannot be reached from any component's own test because each of them is a
- * decision about how the shell joins two things: which card the sheet reads, when a trigger is worth
- * offering, what the sheet is told about the reach lock, and what a modal does to the peek.
+ * The shell's own dialog wiring around a four-day location sheet: the routes into settings, search, and the closer
+ * `App` is handed. (The window popup and the drill-down opened from it went in G2b, glance-to-map-plan.md; the Map's
+ * own spot list is covered by `WindowFirstShellMapList.test.jsx`.)
  */
-// Thin-sample F2: the row map is stubbed to print the unrated set the shell hands the open card, so
-// "the OPEN window's own set" is observable without a canvas.
-// The reach-field wiring is read off the props the shell hands these two children; the strip still
-// renders for real, the row map stays the stub below.
-const seen = vi.hoisted(() => ({ strip: null, rowMap: null }));
+const seen = vi.hoisted(() => ({ strip: null }));
 
 vi.mock('../components/WindowFirstHeatStrip.jsx', async (importOriginal) => {
   const actual = await importOriginal();
   const Real = actual.default;
   return { ...actual, default: (props) => { seen.strip = props; return <Real {...props} />; } };
 });
-
-vi.mock('../components/WindowRowFieldMap.jsx', async (importOriginal) => ({
-  ...(await importOriginal()),
-  default: (props) => {
-    seen.rowMap = props;
-    const { windowKey, unrated, stood } = props;
-    return (
-      <div
-        data-testid="stub-row-map"
-        data-window={windowKey}
-        data-stood={(stood || []).map((p) => p.key).join(',') || '-'}
-      >
-        {(unrated || []).map((p) => p.name).join(',') || '-'}
-      </div>
-    );
-  },
-}));
 
 const TODAY = '2026-08-08';
 
@@ -178,48 +146,20 @@ const renderShell = (overrides = {}, extraProps = {}) => {
     locations: LOCATIONS,
     ...extraProps,
   };
-  const view = render(<WindowFirstShell legacyWindowPopup {...props} />);
+  const view = render(<WindowFirstShell {...props} />);
   return { ...props, ...view, props };
 };
 
-/**
- * Opens the first window's popup, where the drill-down's trigger now lives.
- *
- * <p>Awaits the matrix's own `lazy()` boundary before clicking, so the first test in the file
- * behaves like the rest rather than like a race the module cache happens to win.
- */
-const openPopup = async () => {
-  await screen.findByTestId('wf-heat-strip');
-  await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-  return screen.findByTestId('window-sheet');
-};
-
-/**
- * Opens the drill-down over that popup.
- *
- * <p>⚠️ <b>The bare click is deliberate, and the asymmetry with {@link openPopup} above is the
- * point.</b> The popup awaits because {@code WindowSheetDialog} is {@code lazy()} and on the
- * file's FIRST open genuinely is not there yet (from the second, its payload is fulfilled and
- * that {@code findBy*} resolves synchronously too); this sheet is {@code WindowSpotSheet}, a
- * STATIC import behind a plain
- * {@code useState}, so Testing Library's act-wrapped {@code fireEvent} flushes it in the same
- * commit. Measured rather than assumed, because it reads like an omission and has been refiled as
- * one: over 30 invocations idle and again under a 20-process CPU load, the sheet's testid and a
- * dialog carrying its accessible name were both present SYNCHRONOUSLY on the line after this
- * click — every time, including the first, where the popup's own wait had just cost 858 ms. (That
- * was measured BEFORE the warm-up hook below, so it is a figure no run of this file will produce
- * again; what it shows is that even an 858 ms wait immediately before this click left the sheet
- * no tick behind.) A {@code findBy*} here would wait for nothing and imply a race that does not
- * exist.
- */
-const openSheet = async () => {
-  await openPopup();
-  fireEvent.click(screen.getByTestId('window-spot-all'));
+/** Opens a place's four-day sheet by the Map callout's handoff, which is what puts a layer up on Plan. */
+const openSheet = async (view) => {
+  view.rerender(<WindowFirstShell {...view.props} locationSheetHandoff={{
+    id: 1, name: 'Bamburgh Beach', regionName: 'Northumberland & Tyneside', nonce: 1,
+  }} />);
+  return screen.findByTestId('location-sheet');
 };
 
 beforeEach(() => {
   seen.strip = null;
-  seen.rowMap = null;
   localStorage.clear();
   window.matchMedia = (query) => ({
     matches: false,
@@ -234,317 +174,54 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe('WindowFirstShell — the drill-down', () => {
+describe('WindowFirstShell — the dialogs around the four-day sheet', () => {
   describe('the reach field wiring', () => {
     const HOME_MAP = new Map([[1, { driveMinutes: 20 }]]);
     const EFFECTIVE_MAP = new Map([[1, { driveMinutes: 200 }]]);
-    const away = () => ({
-      reachById: HOME_MAP,
-      effectiveReachById: EFFECTIVE_MAP,
-      windowCards: [card({ reachLimitMinutes: 45, reachMeasured: true })],
-    });
 
     it('gives the strip the effective map as fieldReachById and keeps reachById home', async () => {
-      renderShell(away());
+      renderShell({
+        reachById: HOME_MAP,
+        effectiveReachById: EFFECTIVE_MAP,
+        windowCards: [card({ reachLimitMinutes: 45, reachMeasured: true })],
+      });
       await screen.findByTestId('wf-heat-strip');
       expect(seen.strip.fieldReachById).toBe(EFFECTIVE_MAP);
       expect(seen.strip.reachById).toBe(HOME_MAP);
     });
-
-    it('gives the popup\'s row map the effective map and the card\'s tier', async () => {
-      renderShell(away());
-      await openPopup();
-      await screen.findByTestId('stub-row-map');
-      expect(seen.rowMap.fieldReachById).toBe(EFFECTIVE_MAP);
-      expect(seen.rowMap.reachById).toBe(HOME_MAP);
-      expect(seen.rowMap.reachLimitMinutes).toBe(45);
-      expect(seen.rowMap.reachMeasured).toBe(true);
-    });
   });
 
-  it('opens on the window whose trigger was pressed', async () => {
-    renderShell();
-    await openSheet();
-    expect(screen.getByRole('dialog', { name: 'All spots — Tonight Sunset' })).toBeInTheDocument();
-  });
+  it('⚠️ takes every plan dialog down before opening SETTINGS', async () => {
+    // `UserSettingsModal` is a sibling of this shell in `App`: not a `Modal` this shell renders, invisible to
+    // `stackedOverLayer`, and taking no `stacked` opt-in. So it cannot be ordered: it can only be arrived at with
+    // nothing else open.
+    const view = renderShell();
+    await openSheet(view);
 
-  it('hands the sheet the UNGATED list, so its reach control has something to reveal', async () => {
-    renderShell();
-    await openSheet();
-    // The strip drew one; the sheet opens on the same tier and draws the same one, and widening
-    // finds the second. A sheet handed `card.spots` could never do that.
-    fireEvent.click(within(screen.getByTestId('window-spot-sheet-reach')).getByRole('button', { name: 'Any' }));
-    expect(screen.getByTestId('window-spot-sheet-count')).toHaveTextContent('2 spots');
-  });
-
-  it('joins the roster by name, so the type control has words to offer', async () => {
-    renderShell();
-    await openSheet();
-    const chips = within(screen.getByTestId('window-spot-sheet-type')).getAllByRole('button');
-    expect(chips.map((c) => c.textContent)).toEqual(['Any type', 'Landscape', 'Seascape']);
-  });
-
-  it('offers no type control when the roster never arrived', async () => {
-    vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-    render(
-      <WindowFirstShell legacyWindowPopup
-        onOpenSettings={vi.fn()}
-        onSignOut={vi.fn()}
-        onShowOnMap={vi.fn()}
-      />,
-    );
-    await openSheet();
-    expect(screen.queryByTestId('window-spot-sheet-type')).toBeNull();
-  });
-
-  it('passes the lens lock down, so a LITE user cannot narrow reach here either', async () => {
-    renderShell({
-      reachLens: { ...ctx().reachLens, locked: true, tierId: 'any', tier: { id: 'any', label: 'Any', limitMinutes: null } },
-    });
-    await openSheet();
-    within(screen.getByTestId('window-spot-sheet-reach')).getAllByRole('button')
-      .forEach((b) => expect(b).toBeDisabled());
-  });
-
-  describe('it holds the window by key, not the card object', () => {
-    it('follows the live card when the poll rebuilds it', async () => {
-      const { rerender } = renderShell();
-      await openSheet();
-      expect(screen.getByTestId('window-spot-sheet-count')).toHaveTextContent('1 of 2');
-      // The same window, rebuilt with a third spot — what a poll, a resolved reach fetch or a lens
-      // change all produce. A held object would still be describing two.
-      const grown = card({ allSpots: [NEAR, FAR, spot({ key: '3', locationName: 'Simonside', rating: 3, driveMinutes: 41 })] });
-      vi.spyOn(briefingContext, 'useWindowFirstBriefing')
-        .mockReturnValue(ctx({ windowCards: [grown] }));
-      rerender(<WindowFirstShell legacyWindowPopup onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
-      expect(screen.getByTestId('window-spot-sheet-count')).toHaveTextContent('2 of 3');
-    });
-
-    it('closes itself when the window it describes has passed', async () => {
-      const { rerender } = renderShell();
-      await openSheet();
-      expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
-      vi.spyOn(briefingContext, 'useWindowFirstBriefing')
-        .mockReturnValue(ctx({ windowCards: [] }));
-      rerender(<WindowFirstShell legacyWindowPopup onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
-      expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
-    });
-  });
-
-  describe('the trigger appears only where the sheet can differ', () => {
-    it('is absent on three unrated spots of one type that the lens never touched', async () => {
-      const flat = [1, 2, 3].map((n) => spot({
-        key: String(n), locationId: n, locationName: 'Wastwater', rating: null, driveMinutes: null,
-      }));
-      renderShell({ windowCards: [card({ allSpots: flat, spots: flat, reachTotal: 3 })] });
-      await openPopup();
-      expect(screen.queryByTestId('window-spot-all')).toBeNull();
-    });
-
-    it('is present as soon as one of them is rated', async () => {
-      const flat = [1, 2, 3].map((n) => spot({
-        key: String(n), locationId: n, locationName: 'Wastwater', rating: n === 1 ? 3 : null, driveMinutes: null,
-      }));
-      renderShell({ windowCards: [card({ allSpots: flat, spots: flat, reachTotal: 3 })] });
-      await openPopup();
-      expect(screen.getByTestId('window-spot-all')).toBeInTheDocument();
-    });
-  });
-
-  describe('⚠️ Escape closes one layer per press, and the drill-down is the layer this phase adds', () => {
-    // `Modal` installs a document-level Escape listener PER INSTANCE, so two open dialogs both close
-    // on a single press unless the lower one declines the key. `stackedOverPopup`'s `sheetCard`
-    // operand is that guard, and this is the only test that drives it: dropping the operand leaves
-    // the whole suite green with one press closing both.
-    it('takes the drill-down first and leaves the popup standing', async () => {
-      renderShell();
-      await openSheet();
-      expect(screen.getAllByRole('dialog')).toHaveLength(2);
-
-      fireEvent.keyDown(document, { key: 'Escape' });
-      expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
-      expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    });
-
-    /**
-     * ⚠️ M5's containment, and it is the SAME predicate as the Escape order above.
-     *
-     * <p>The layer that answers Escape is the layer that is not {@code inert}. Both consequences are
-     * derived from one {@code escapeEnabled} prop inside each dialog for exactly that reason, so a
-     * future caller cannot set one and forget the other — and this pair of tests is what would catch
-     * them coming apart.
-     *
-     * <p>What jsdom can see is the ATTRIBUTE ({@code 'inert' in HTMLElement.prototype} is
-     * {@code false} here, so the behaviour is a no-op). The behaviour was measured in Chromium: with
-     * two layers open, twenty-four Tab presses from the top one never entered the layer beneath, and
-     * before the fix the seventeenth press reached the masthead's search button while three
-     * {@code aria-modal} dialogs stood open at once.
-     */
-    it('⚠️ makes the popup inert while the drill-down is over it, and the only modal once it goes', async () => {
-      renderShell();
-      await openSheet();
-
-      const popup = screen.getByTestId('window-sheet');
-      const sheet = screen.getByTestId('window-spot-sheet');
-      expect(popup).toHaveAttribute('inert');
-      expect(popup).not.toHaveAttribute('aria-modal');
-      expect(sheet).not.toHaveAttribute('inert');
-      expect(sheet).toHaveAttribute('aria-modal', 'true');
-
-      fireEvent.keyDown(document, { key: 'Escape' });
-      expect(screen.getByTestId('window-sheet')).not.toHaveAttribute('inert');
-      expect(screen.getByTestId('window-sheet')).toHaveAttribute('aria-modal', 'true');
-    });
-
-    it('leaves exactly ONE element claiming to be the modal, whatever is stacked', async () => {
-      // The property, stated as a count rather than per element: three dialogs can be open at once
-      // on this surface (popup, sheet, search) and the defect this replaces was that all three said
-      // `aria-modal="true"`. A screen reader resolves the stack from that attribute, so two of them
-      // is not a smaller version of the same thing — it is an unanswerable question.
-      renderShell();
-      await openSheet();
-      expect(screen.getAllByRole('dialog')).toHaveLength(2);
-      // Filtered off the ROLE query rather than `document.querySelectorAll('[aria-modal]')`: the
-      // standards' rule, and it also fails usefully — a raw selector says "0 found", this says
-      // which dialogs are on screen and which of them claims the attribute.
-      expect(screen.getAllByRole('dialog').filter((d) => d.getAttribute('aria-modal') === 'true'))
-        .toHaveLength(1);
-    });
-
-      /**
-     * ⚠️ The two masthead controls that could open a FOURTH modal, both found by an adversarial
-     * review of M5's first cut and both measured in a browser before being fixed here.
-     *
-     * <p>Neither is reachable by pointer while a dialog is up — a backdrop covers them — and both
-     * are reachable by Tab, because {@code useDialogFocus} is deliberately not a trap. The search
-     * button was reached on the seventeenth press and the settings cog on the forty-second.
-     */
-    it('⚠️ makes the DRILL-DOWN sheet inert in its turn, when search sits over it', async () => {
-      // The same predicate on a different component. `stacked={!escapeEnabled}` is derived inside
-      // each of the four dialogs, so each derivation is its own line and each can be broken on its
-      // own — an adversarial review found three of the four unpinned. This is `WindowSpotSheet`'s.
-      renderShell();
-      await openSheet();
-      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
-      await openPopup();
-      await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
-      await screen.findByTestId('plan-search');
-
-      expect(screen.getByTestId('window-sheet')).toHaveAttribute('inert');
-      expect(screen.getAllByRole('dialog').filter((d) => d.getAttribute('aria-modal') === 'true'))
-        .toHaveLength(1);
-    });
-
-    it('⚠️ refuses to open search while a layer is stacked, and leaves the tab order', async () => {
-      // The `/` shortcut has refused this since M3, with a comment saying why ("a third layer has
-      // nowhere to go"); the BUTTON beside it did not. What that bought, measured: `Modal` gives
-      // every dialog `fixed inset-0 z-50`, so with equal z-index paint order is DOM order, and the
-      // sheet — which renders after search — painted its scrim and its whole card over the search
-      // panel. The reader typed into a box behind a dead, dimmed sheet.
-      renderShell();
-      await openSheet();
-
-      const search = screen.getByTestId('window-first-search');
-      expect(search.tabIndex).toBe(-1);
-      await act(async () => { fireEvent.click(search); });
-
-      // ⚠️ Asserted on the SHEET's own state, not on search's absence. `PlanSearch` is `lazy()`, so
-      // a `queryByTestId(...).toBeNull()` immediately after the click is satisfied by the chunk not
-      // having resolved yet and survives the guard being deleted — measured. `stacked` is a plain
-      // prop on a dialog that is already mounted, so it flips in the same commit as `searchSeed`
-      // and there is nothing to wait for: if the guard goes, the sheet goes inert right here.
-      expect(screen.getByTestId('window-spot-sheet')).not.toHaveAttribute('inert');
-      expect(screen.getByTestId('window-spot-sheet')).toHaveAttribute('aria-modal', 'true');
-      expect(screen.queryByTestId('plan-search')).toBeNull();
-    });
-
-    it('still opens search over the popup ALONE, which is the stack M3 designed for', async () => {
-      // The other half, and the reason the guard is `stackedOverPopup` rather than "any dialog":
-      // search is anchored to the masthead, which the popup is drawn OVER rather than inside, so
-      // this pair is the one stack this arm supports. A guard that broke it would be a regression
-      // dressed as a fix.
-      renderShell();
-      await openPopup();
-
-      const search = screen.getByTestId('window-first-search');
-      expect(search.tabIndex).not.toBe(-1);
-      await act(async () => { fireEvent.click(search); });
-      expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
-      expect(screen.getAllByRole('dialog').filter((d) => d.getAttribute('aria-modal') === 'true'))
-        .toHaveLength(1);
-    });
-
-    it('⚠️ takes every plan dialog down before opening SETTINGS', async () => {
-      // `UserSettingsModal` is a sibling of this shell in `App`: not a `Modal` this shell renders,
-      // invisible to `stackedOverPopup`, and taking no `stacked` opt-in. So it cannot be ordered —
-      // it can only be arrived at with nothing else open. Measured before the fix: two
-      // `aria-modal="true"` elements with neither inert, and one Escape press closing the POPUP
-      // underneath while the settings dialog stayed up.
-      const { onOpenSettings } = renderShell();
-      await openSheet();
-
-      await act(async () => { fireEvent.click(screen.getByTestId('window-first-settings')); });
-      expect(onOpenSettings).toHaveBeenCalled();
-      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
-    });
-
-  it('takes the popup on the second press', async () => {
-      renderShell();
-      await openSheet();
-      fireEvent.keyDown(document, { key: 'Escape' });
-      fireEvent.keyDown(document, { key: 'Escape' });
-      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
-    });
+    await act(async () => { fireEvent.click(screen.getByTestId('window-first-settings')); });
+    expect(view.props.onOpenSettings).toHaveBeenCalled();
+    expect(screen.queryAllByRole('dialog')).toHaveLength(0);
   });
 
   /**
-   * ⚠️ Every route into `App`'s settings dialog takes the shell's dialogs down first — the popup, the
-   * layers stacked over it and search.
+   * ⚠️ Every route into `App`'s settings dialog takes the shell's dialogs down first: a sheet and search.
    *
-   * <p>`UserSettingsModal` is a sibling of this shell in `App`, so it cannot be ordered against a
-   * shell dialog. It can only open with none of them up; otherwise two `aria-modal="true"` elements
-   * stand, and the lower one's Escape listener, still armed, closes the dialog the reader cannot see.
-   * The cog's own case (M5) is in the Escape block above. `AppSettingsRoutes.test.jsx` counts the
-   * modals against the real settings dialog. These are the shell's half, rendered WITHOUT `App`, and
-   * that is what makes them the pins for the cog's and the nudge's own closes: under `App` the
-   * `settingsOpen` edge covers both routes as well, so no App-level test can tell which one held.
+   * <p>`UserSettingsModal` is a sibling of this shell in `App`, so it cannot be ordered against a shell dialog. It can
+   * only open with none of them up; otherwise two `aria-modal="true"` elements stand, and the lower one's Escape
+   * listener, still armed, closes the dialog the reader cannot see. `AppSettingsRoutes.test.jsx` counts the modals
+   * against the real settings dialog. These are the shell's half, rendered WITHOUT `App`.
    */
   describe('the routes into settings', () => {
     const NUDGE = 'Set a postcode for light and drive times';
     const noHome = { homePlace: null };
 
-    /**
-     * Reachable where the cog is. With ONLY the popup open, `searchOpen` is false, so the tick line
-     * keeps its tab stops, and `useDialogFocus` is not a trap. (M5 measured the cog, in the row
-     * above the tick line, on the forty-second Tab from an open popup. The tick line's own press-17
-     * measurement was taken from an open location sheet, before M5 took the row out of the tab order
-     * under a stacked layer — so it is not a measurement of this route.)
-     */
     describe('the postcode nudge', () => {
-      it('⚠️ closes the popup, the layer it can be tabbed to from', async () => {
+      it('closes a sheet standing over the page first, though it cannot be tabbed to there', async () => {
+        // A belt, stated for the reason `onGoHome` states its own: the invariant is written once per route, not once
+        // per reachable route.
         const onSetPostcode = vi.fn();
-        renderShell(noHome, { onSetPostcode });
-        await openPopup();
-
-        const nudge = screen.getByRole('button', { name: NUDGE });
-        // The precondition that makes this a live route rather than a belt: with only the popup up
-        // the tick line is still in the tab order. (Over a stacked layer or search it is not — the
-        // cases below.)
-        expect(nudge).not.toHaveAttribute('tabindex', '-1');
-
-        await act(async () => { fireEvent.click(nudge); });
-        expect(onSetPostcode).toHaveBeenCalledTimes(1);
-        expect(screen.queryAllByRole('dialog')).toHaveLength(0);
-      });
-
-      it('closes a layer stacked over the popup too, though it cannot be tabbed to there', async () => {
-        // A belt, stated for the reason `onGoHome` states its own: the invariant is written once per
-        // route, not once per reachable route. It is not the popup's close that takes the drill-down
-        // with it — `WindowSpotSheet` is keyed on its own `sheetKey`, not rendered inside the popup —
-        // so a nudge that closed only the popup would leave this sheet standing.
-        const onSetPostcode = vi.fn();
-        renderShell(noHome, { onSetPostcode });
-        await openSheet();
+        const view = renderShell(noHome, { onSetPostcode });
+        await openSheet(view);
 
         const nudge = screen.getByRole('button', { name: NUDGE });
         expect(nudge).toHaveAttribute('tabindex', '-1');
@@ -565,22 +242,20 @@ describe('WindowFirstShell — the drill-down', () => {
       });
 
       it('closes first on the fallback route too, when no postcode handler was handed over', async () => {
-        // `onSetPostcode ?? onOpenSettings` — the nudge can never be a dead end, and it must not be
-        // the one route out of the plan that skips the close either.
-        const { onOpenSettings } = renderShell(noHome);
-        await openPopup();
+        // `onSetPostcode ?? onOpenSettings` — the nudge can never be a dead end, and it must not be the one route out
+        // of the plan that skips the close either.
+        const view = renderShell(noHome);
+        await openSheet(view);
 
         await act(async () => { fireEvent.click(screen.getByRole('button', { name: NUDGE })); });
-        expect(onOpenSettings).toHaveBeenCalledTimes(1);
+        expect(view.props.onOpenSettings).toHaveBeenCalledTimes(1);
         expect(screen.queryAllByRole('dialog')).toHaveLength(0);
       });
 
       it('hands the handler the argument the tick line gave it, untouched', () => {
-        // What the tick line hands its handler is the tick line's business, so the shell's wrapper
-        // must pass it through as it came. Today it is the origin slot's resolver — a function
-        // returning the slot's current element, for the settings dialog's close — which makes
-        // IDENTITY assertable rather than only the count: a wrapper that dropped the argument,
-        // replaced it, or wrapped it (`handler(args)` for `handler(...args)`) fails here.
+        // What the tick line hands its handler is the tick line's business, so the shell's wrapper must pass it
+        // through as it came. Today it is the origin slot's resolver — a function returning the slot's current
+        // element, for the settings dialog's close — which makes IDENTITY assertable rather than only the count.
         const onSetPostcode = vi.fn();
         renderShell(noHome, { onSetPostcode });
         const nudge = screen.getByRole('button', { name: NUDGE });
@@ -594,319 +269,77 @@ describe('WindowFirstShell — the drill-down', () => {
     });
 
     it('⚠️ the cog closes SEARCH too — the one dialog its M5 close missed', async () => {
-      // M5's close was the popup and the layers over it; search is neither — it is `searchSeed` —
-      // and the cog is reachable from an open search box, since the tick line leaves the tab order
-      // under it and the cog does not. So Shift+Tab out of the box onto ⚙ put search and settings up
-      // together.
-      const { onOpenSettings } = renderShell();
+      // The cog is reachable from an open search box, since the tick line leaves the tab order under it and the cog
+      // does not. So Shift+Tab out of the box onto ⚙ put search and settings up together.
+      const { props } = renderShell();
       await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
       await screen.findByTestId('plan-search');
       expect(screen.getByRole('button', { name: 'Settings' })).not.toHaveAttribute('tabindex', '-1');
 
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Settings' })); });
-      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+      expect(props.onOpenSettings).toHaveBeenCalledTimes(1);
       expect(screen.queryAllByRole('dialog')).toHaveLength(0);
     });
 
     /**
-     * The route the shell never sees. The Map tab's ⌂ opens settings through the map pane, so `App`
-     * reports the dialog as `settingsOpen` and the shell answers the rising edge during render.
-     * Driven here by the prop alone — no cog, no nudge — so nothing else can be what closed the
-     * dialogs.
+     * The route the shell never sees. The Map tab's ⌂ opens settings through the map pane, so `App` reports the dialog
+     * as `settingsOpen` and the shell answers the rising edge during render. Driven here by the prop alone — no cog,
+     * no nudge — so nothing else can be what closed the dialogs.
      */
     describe('when `App` reports settings open, by a route the shell never saw', () => {
-      it('⚠️ takes the popup and search over it down in the render settings opens in', async () => {
+      it('⚠️ takes search down in the render settings opens in', async () => {
         const { props, rerender } = renderShell();
-        await openPopup();
         await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
         await screen.findByTestId('plan-search');
-        expect(screen.getAllByRole('dialog')).toHaveLength(2);
+        expect(screen.getAllByRole('dialog')).toHaveLength(1);
 
-        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen />);
+        rerender(<WindowFirstShell {...props} settingsOpen />);
         expect(screen.queryAllByRole('dialog')).toHaveLength(0);
       });
 
-      it('takes a layer stacked over the popup down too', async () => {
-        const { props, rerender } = renderShell();
-        await openSheet();
-        expect(screen.getAllByRole('dialog')).toHaveLength(2);
+      it('takes a four-day sheet down too', async () => {
+        const view = renderShell();
+        await openSheet(view);
+        expect(screen.getAllByRole('dialog')).toHaveLength(1);
 
-        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen />);
+        view.rerender(<WindowFirstShell {...view.props} settingsOpen />);
         expect(screen.queryAllByRole('dialog')).toHaveLength(0);
       });
 
       it('closes again on the next opening, because the edge re-arms when settings closes', async () => {
-        // The edge's second job. An edge that latched on the first opening and never reset passed
-        // every other test here: each of them opens settings once.
-        const { props, rerender } = renderShell();
-        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen />);
-        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen={false} />);
-        await openPopup();
+        // The edge's second job. An edge that latched on the first opening and never reset passed every other test
+        // here: each of them opens settings once.
+        const view = renderShell();
+        view.rerender(<WindowFirstShell {...view.props} settingsOpen />);
+        view.rerender(<WindowFirstShell {...view.props} settingsOpen={false} />);
+        await openSheet(view);
         expect(screen.getAllByRole('dialog')).toHaveLength(1);
 
-        rerender(<WindowFirstShell legacyWindowPopup {...props} settingsOpen />);
+        view.rerender(<WindowFirstShell {...view.props} settingsOpen />);
         expect(screen.queryAllByRole('dialog')).toHaveLength(0);
       });
     });
   });
 
-  it('closes the sheet before the map door opens, so two dialogs are never stacked', async () => {
-    // The map overlay of the day was itself `aria-modal` (retired in overlay convergence C5), and any
-    // layer a door lands on is no place for a dialog left standing. Leaving the sheet mounted underneath puts two dialogs on
-    // the page, gives Escape two listeners, and holds the reader's place in a list they have just
-    // navigated away from.
-    renderShell();
-    await openSheet();
-    fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
-    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
-  });
-
-  describe('a window the lens emptied', () => {
-    // Reach emptied it: both spots were beyond the tier, which `reachedTotal: 0` is the record of.
-    // The popup then draws its quiet sentence in place of the ranked strip — and the trigger beside
-    // it, for the reason the deleted card's empty state carried one.
-    const gated = () => card({
-      allSpots: [NEAR, FAR],
-      spots: [],
-      reachTotal: 2,
-      reachedTotal: 0,
-    });
-
-    it('offers the trigger beside the quiet sentence, where the number is otherwise unactionable', async () => {
-      renderShell({ windowCards: [gated()] });
-      await openPopup();
-      expect(screen.getByTestId('window-sheet-empty')).toBeInTheDocument();
-      expect(screen.getByTestId('window-sheet-see-all')).toBeInTheDocument();
-    });
-
-    it('opens WIDENED, rather than onto the tier that emptied it', async () => {
-      // Inheriting here would open a dialog whose entire content is "nothing matches" — a door
-      // onto a wall. The header says so, and the widening still dies with the sheet.
-      renderShell({ windowCards: [gated()] });
-      await openPopup();
-      fireEvent.click(screen.getByTestId('window-sheet-see-all'));
-      expect(within(screen.getByTestId('window-spot-sheet-reach')).getByRole('button', { name: 'Any' }))
-        .toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByTestId('window-spot-sheet-widened')).toBeInTheDocument();
-      expect(screen.getAllByTestId('window-spot')).toHaveLength(2);
-    });
-
-    it('opens a populated window on the bar\'s tier, unchanged', async () => {
-      renderShell();
-      await openSheet();
-      expect(within(screen.getByTestId('window-spot-sheet-reach')).getByRole('button', { name: '45 min' }))
-        .toHaveAttribute('aria-pressed', 'true');
-      expect(screen.queryByTestId('window-spot-sheet-widened')).toBeNull();
-    });
-
-    // The RATING-emptied twin of the case above, and the one the widening must NOT fire for. The
-    // fixture differs in a single field — `reachedTotal` is 2 rather than 0 — because that is the
-    // whole distinction: both spots cleared the drive limit, and the floor is what removed them.
-    //
-    // Widening reach here gates nothing. It discards the reader's tier, claims a widening that
-    // removed nothing, and still opens onto an empty list, because the sheet inherits the floor
-    // that did the emptying. Guarding on `spots.length === 0` — which stopped meaning "reach
-    // emptied it" the moment the floor was composed in — did exactly that.
-    const ratingGated = () => card({
-      allSpots: [NEAR, FAR],
-      spots: [],
-      reachTotal: 2,
-      reachedTotal: 2,
-    });
-
-    it('opens a RATING-emptied window on the bar\'s own tier, and claims no widening', async () => {
-      renderShell({ windowCards: [ratingGated()] });
-      await openPopup();
-      fireEvent.click(screen.getByTestId('window-sheet-see-all'));
-
-      expect(within(screen.getByTestId('window-spot-sheet-reach')).getByRole('button', { name: '45 min' }))
-        .toHaveAttribute('aria-pressed', 'true');
-      expect(screen.queryByTestId('window-spot-sheet-widened')).toBeNull();
-    });
-  });
-
-  it('names the day in the trigger, because a lead card\'s title is the bare event', async () => {
-    // "See all spots in Sunset" names no day on the one card most likely to be read — the same
-    // defect the sheet's own header had.
-    renderShell();
-    await openPopup();
-    // The strip's scroll arrows take the same label and are not asserted here: they render only
-    // while the strip overflows, which jsdom has no layout to produce.
-    expect(screen.getByRole('button', { name: 'See all spots in Tonight Sunset' })).toBeInTheDocument();
-  });
-
-  describe('a dialog on screen suppresses the spot peek', () => {
-    // `Modal` renders inside Tailwind's `z-50` and `.wf-peek` is portalled to the body at 60, while
-    // `useDialogFocus` is explicitly not a trap — so from either dialog a keyboard user can Tab back
-    // onto a card behind the backdrop and paint a panel over it. Both operands are pinned, because
-    // the pick half is a defect that predates this phase and a revert to `sheetCard != null` would
-    // silently restore it.
-    const SCORES = new Map([[`${TODAY}|SUNSET|Bamburgh Beach`, {
-      locationName: 'Bamburgh Beach', fierySkyPotential: 68, goldenHourPotential: 74,
-      summary: 'Mid-level cloud should catch the last light.',
-    }]]);
-    const OPEN_DELAY = 180;
-    const withScores = (overrides = {}) => renderShell({ scoreIndex: SCORES, ...overrides });
-    /**
-     * Lets the dialog's focus move land before the hover.
-     *
-     * <p>Load-bearing, and found by a mutation sweep: `useDialogFocus` moves focus on a frame, and
-     * the peek's own `focusin` listener dismisses a panel whose anchor is not the focused element.
-     * Hovering before that settles produced a green test under `modalOpen = false` — it was pinning
-     * the focus rule, not the suppression, and could not fail.
-     */
-    const settle = () => act(() => vi.advanceTimersByTime(OPEN_DELAY * 2));
-    const hoverFirstStripCard = () => {
-      const strip = screen.getByTestId('window-spot-scroller');
-      fireEvent.mouseEnter(within(strip).getAllByTestId('window-spot')[0]);
-      act(() => vi.advanceTimersByTime(OPEN_DELAY * 2));
-    };
-
-    // `shouldAdvanceTime`, because the matrix and the popup are both behind `lazy()` boundaries and
-    // RTL's `findBy*` polls on a timer: frozen fake timers never resolve either. The peek's own
-    // delay is still driven explicitly by `advanceTimersByTime`. The sibling file records the same
-    // pairing for the same reason.
-    beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
-    afterEach(() => vi.useRealTimers());
-
-    it('opens one with the popup topmost — the control case the next two rest on', async () => {
-      // ⚠️ The popup itself does NOT suppress the peek: the cards are inside it, so a panel opened
-      // from one is about the surface the reader is on. What suppresses it is another dialog OVER
-      // the popup, which is what the next two drive.
-      withScores();
-      await openPopup();
-      hoverFirstStripCard();
-      expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
-    });
-
-    it('opens none while the drill-down is up', async () => {
-      withScores();
-      await openSheet();
-      settle();
-      hoverFirstStripCard();
-      expect(screen.queryByTestId('wf-peek')).toBeNull();
-    });
-
-    it('opens none while the PICK dialog is up', async () => {
-      withScores({
-        windowCards: [card({ pick: { kind: 'best', regionName: 'N&T', headline: 'Breaking clear' } })],
-      });
-      await openPopup();
-      fireEvent.click(screen.getByTestId('window-sheet-pick'));
-      settle();
-      hoverFirstStripCard();
-      expect(screen.queryByTestId('wf-peek')).toBeNull();
-    });
-  });
-
-  it('opens the map on the spot clicked inside the sheet, not on its region', async () => {
-    const { onOpenMapTab } = renderShell();
-    await openSheet();
-    fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
-    // The `location` trigger, which centres one location - a `region` trigger opens a whole region.
-    expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      kind: 'location', locationName: 'Bamburgh Beach', date: TODAY, eventType: 'SUNSET', inPlace: false,
-    }));
-  });
-
-  it('⚠️ takes the WINDOW POPUP down with it, not just this sheet', async () => {
-    // The Plan-tab overlay this was written against was itself an `aria-modal` dialog with its own
-    // unconditional document Escape listener, and the popup re-arms its own the moment nothing is stacked on it — so a
-    // sheet-only close leaves two dialogs on the page and makes one press take both. The sheet's
-    // own comment has always stated that rule; until M4 it closed only the sheet. Its sibling in
-    // `locationSheetShell.test.jsx` pins the same line for the four-day sheet's footer.
-    renderShell();
-    await openSheet();
-    fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
-    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
-  });
-
-  it('⚠️ closes the sheet AND the popup itself even when the door did not (the explicit closes are load-bearing)', async () => {
-    const { onOpenMapTab } = renderShell();
-    await openSheet();
-    openMapDoor.mockImplementationOnce(() => {});
-
-    fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
-
-    expect(onOpenMapTab).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
-  });
-
   it('registers a closer with App that takes every dialog the shell owns down, and unregisters on unmount', async () => {
     const registerCloseDialogs = vi.fn();
-    const { unmount } = renderShell({}, { registerCloseDialogs });
-    await openSheet();
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+    const view = renderShell({}, { registerCloseDialogs });
+    await openSheet(view);
     const closer = registerCloseDialogs.mock.calls.at(-1)[0];
     expect(typeof closer).toBe('function');
 
     act(() => { closer(); });
 
-    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
+    expect(screen.queryByTestId('location-sheet')).toBeNull();
 
-    unmount();
+    view.unmount();
     expect(registerCloseDialogs).toHaveBeenLastCalledWith(null);
   });
-
-  it('keeps naming the MAP on its own cards, which is what the caller opt-in is for', async () => {
-    // M4 retargeted the popup's copy of the ranked strip to the location sheet and gave the card's
-    // destination wording to the caller (plan §3 rule 10). This sheet did not retarget, so its
-    // cards must read exactly what they always did — the default, unchanged.
-    renderShell();
-    await openSheet();
-    expect(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0])
-      .toHaveTextContent('Open on map');
-  });
 });
 
-describe('WindowFirstShell — the open window\'s own unrated set reaches the row map', () => {
-  it('hands the opened card its set, not another window\'s and not an empty one', async () => {
-    const other = card({ key: '2026-08-09:SUNRISE', date: '2026-08-09', targetType: 'SUNRISE' });
-    const mine = card();
-    const point = (name) => ({ id: name, name, lat: 55, lng: -1, rid: 'R', r: [0] });
-    renderShell({
-      windowCards: [mine, other],
-      heatUnratedSets: new Map([
-        [mine.key, [point('Alnmouth')]],
-        [other.key, [point('Wastwater')]],
-      ]),
-    });
-    await openPopup();
-    const stub = await screen.findByTestId('stub-row-map');
-    // Whichever window the matrix put first is the one opened; the stub must carry THAT window's
-    // set and never the other's.
-    const sets = new Map([[mine.key, 'Alnmouth'], [other.key, 'Wastwater']]);
-    const opened = stub.getAttribute('data-window');
-    expect(sets.has(opened)).toBe(true);
-    expect(stub).toHaveTextContent(sets.get(opened));
-    sets.delete(opened);
-    expect(stub).not.toHaveTextContent([...sets.values()][0]);
-  });
-});
-
-describe('WindowFirstShell — the open window\'s own stood set reaches the row map and the strip (big-seas F4)', () => {
+describe('WindowFirstShell — the stood set reaches the strip (big-seas F4)', () => {
   const stoodPoint = (key) => ({
     lat: 55, lng: -1, reason: 'HIGH_CLOUD', rid: 'Northumberland & Tyneside', key,
-  });
-
-  it('hands the opened card its stood set, not another window\'s', async () => {
-    const other = card({ key: '2026-08-09:SUNRISE', date: '2026-08-09', targetType: 'SUNRISE' });
-    const mine = card();
-    renderShell({
-      windowCards: [mine, other],
-      heatStoodSets: new Map([
-        [mine.key, [stoodPoint('#1')]],
-        [other.key, [stoodPoint('#2')]],
-      ]),
-    });
-    await openPopup();
-    const stub = await screen.findByTestId('stub-row-map');
-    const keys = new Map([[mine.key, '#1'], [other.key, '#2']]);
-    const opened = stub.getAttribute('data-window');
-    expect(stub.getAttribute('data-stood')).toBe(keys.get(opened));
   });
 
   it('hands the strip heatStoodSets: a thumbnail\'s hidden sentence says places stood down', async () => {

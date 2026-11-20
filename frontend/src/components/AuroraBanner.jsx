@@ -195,7 +195,7 @@ function deriveModel(status, field) {
 
 /**
  * A star rating: the digit, a visual ★ and a spoken word. NVDA at its default symbol level does not
- * speak U+2605, so a bare "4★" is announced as "4" and loses its unit (`WindowSheetDialog.jsx` records
+ * speak U+2605, so a bare "4★" is announced as "4" and loses its unit (the retired window popup records
  * the same finding); the glyph is hidden and " stars" is read instead, the pattern the rest of the
  * app uses. The visible text is unchanged.
  */

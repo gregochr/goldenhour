@@ -1009,7 +1009,7 @@ describe('MastheadTickLine — theme tokens it cites', () => {
   /**
    * Every `var(--…)` this component's stylesheet block emits must be a token `index.css` declares.
    *
-   * <p>The guard `WindowSheetDialog.test.jsx` introduced, and the reason it exists rather than a
+   * <p>The guard the retired popup suite introduced, and the reason it exists rather than a
    * cascade test: <b>jsdom does not resolve `var()`</b>, so an undefined token renders as inherited
    * and every colour assertion in the suite passes anyway. That is exactly how M2 shipped a "Maybe"
    * badge in bone, on `--color-badge-marginal`, which `@theme static` has never declared.

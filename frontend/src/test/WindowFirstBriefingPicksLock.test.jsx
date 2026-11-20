@@ -5,7 +5,6 @@ import { WindowFirstBriefingProvider, useWindowFirstBriefing } from '../context/
 import MapWindowPanel from '../components/map/MapWindowPanel.jsx';
 import MapRegionPanel from '../components/map/MapRegionPanel.jsx';
 import WindowControl from '../components/map/WindowControl.jsx';
-import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
@@ -25,7 +24,7 @@ vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole 
  * The best-bets lock (docs/engineering/pro-features-gate-plan.md §3, §7.1, P1).
  *
  * <p><b>What breaks if these fail:</b> a Lite reader is shown "Best bet" / "Also good" on the Plan
- * matrix, the window popup, the pick dialog, or the Map's pill and panels, because the one place the
+ * matrix or the Map's pill and panels, because the one place the
  * pick is derived (`buildWindowCards`) no longer honours the lock, or because a Pro reader loses the
  * pick it should see. The payload here STILL carries the pick (the state before P2 ships), so passing
  * proves the client lock on its own.
@@ -144,13 +143,11 @@ describe('WindowFirstBriefingProvider — the best-bets lock', () => {
 });
 
 describe('the pick surfaces, fed a Lite reader\'s cards', () => {
-  let card;
   let strip;
 
   beforeEach(async () => {
     resetMocks();
     await mount('LITE_USER');
-    card = latest.current.windowCards[0];
     [strip] = latest.current.heatStripCards;
     cleanup();
   });
@@ -235,35 +232,5 @@ describe('the pick surfaces, fed a Lite reader\'s cards', () => {
     }];
     render(<WindowControl events={events} activeIndex={0} onSelect={vi.fn()} verdicts={new Map()} />);
     expect(screen.queryByTestId('wf-win-pick')).toBeNull();
-  });
-
-  it('draws no pick chip in the window popup, so the pick dialog has nothing to open from', () => {
-    expect(card.pick).toBeNull();
-    render(
-      <WindowSheetDialog
-        card={{
-          ...card,
-          rows: [],
-          allSpots: [],
-          spots: [],
-          pool: [],
-          bestReach: null,
-          reachTotal: 0,
-          withinReachCount: 0,
-        }}
-        index={0}
-        total={1}
-        field={{
-          selectedRegion: null, onSelectRegion: vi.fn(), colourMode: 'verdict', geometry: null,
-        }}
-        topicIndex={new Map()}
-        scopeNames={[]}
-        todayStr={TODAY}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-      />,
-    );
-    expect(screen.queryByTestId('window-sheet-pick')).toBeNull();
-    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
   });
 });

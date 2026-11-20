@@ -157,26 +157,6 @@ describe('the highlight', () => {
     expect(within(tonight()).getByRole('button')).not.toHaveAccessibleName(/Ask pick/);
   });
 
-  it('is a DIFFERENT mark from the open card: both attributes can sit on one card, neither implies the other', async () => {
-    await renderStrip({
-      openKeys: new Set([`${TODAY}:SUNSET`]),
-      highlightKeys: new Map([[`${TODAY}:SUNSET`, 1]]),
-    });
-
-    expect(tonight()).toHaveAttribute('data-open', 'true');
-    expect(tonight()).toHaveAttribute('data-ask-highlight', 'true');
-
-    cleanup();
-    await renderStrip({ highlightKeys: new Map([[`${TODAY}:SUNSET`, 1]]) });
-    expect(tonight()).toHaveAttribute('data-ask-highlight', 'true');
-    expect(tonight()).not.toHaveAttribute('data-open');
-
-    cleanup();
-    await renderStrip({ openKeys: new Set([`${TODAY}:SUNSET`]) });
-    expect(tonight()).toHaveAttribute('data-open', 'true');
-    expect(tonight()).not.toHaveAttribute('data-ask-highlight');
-  });
-
   it('does NOT open the popup: nothing is called, and pressing the card still opens it', async () => {
     const onOpenWindow = vi.fn();
     await renderStrip({ onOpenWindow, highlightKeys: new Map([[`${TODAY}:SUNSET`, 1]]) });

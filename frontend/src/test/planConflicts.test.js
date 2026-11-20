@@ -14,7 +14,7 @@ import { gateSpotsByRating } from '../utils/ratingLens.js';
  * offer a step which would change nothing, the LITE path that offers no reach action with no role
  * anywhere near it, the unrated-versus-low-ceiling distinction, and the away origin's way home. The
  * ones about a single card's headline are gone with the card, and their per-window replacement is
- * the popup's quiet sentence, asserted in {@code WindowSheetDialog.test.jsx}.
+ * the popup's quiet sentence, asserted in the retired popup suite.
  *
  * <h2>The gates are RUN, never assumed</h2>
  *

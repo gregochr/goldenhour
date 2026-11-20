@@ -17,7 +17,7 @@ import { __inspectForTests } from '../utils/dialogHistory.js';
 
 /**
  * G2a (glance-to-map-plan.md): a Glance card, a lane and a Find window pick open the MAP with that window selected, and
- * Back returns to the tab they left (card and Find arrivals only). The shell here has no `legacyWindowPopup`, so this is
+ * Back returns to the tab they left (card and Find arrivals only). This is
  * what the app does.
  *
  * <p>`App` is not mounted: `onOpenMapTab` is a spy, and the tab request `App` would raise from it is re-sent by hand

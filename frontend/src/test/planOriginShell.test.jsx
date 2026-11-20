@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
-  render, screen, fireEvent, within, act, waitFor,
+  render, screen, fireEvent, within, act,
 } from '@testing-library/react';
 import React from 'react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
@@ -167,13 +167,13 @@ describe('WindowFirstShell — the origin', () => {
   const renderShell = (extra = {}) => {
     const value = ctx(extra);
     const spy = vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(value);
-    const view = render(<WindowFirstShell legacyWindowPopup {...shellProps()} />);
+    const view = render(<WindowFirstShell {...shellProps()} />);
     // `moveOrigin` re-renders the same tree with a different context value, which is the only way
     // to exercise a TRANSITION here — the context is stubbed, so a second `renderShell` would be a
     // fresh mount and would lose exactly the state a transition has to survive.
     value.moveOrigin = (next) => {
       spy.mockReturnValue(ctx({ ...extra, ...next }));
-      view.rerender(<WindowFirstShell legacyWindowPopup {...shellProps()} />);
+      view.rerender(<WindowFirstShell {...shellProps()} />);
     };
     return value;
   };
@@ -229,7 +229,7 @@ describe('WindowFirstShell — the origin', () => {
             region ? { id: region.id, name: region.name, baseName: region.baseName } : null,
           ),
         });
-        return <Held.Provider value={value}><WindowFirstShell legacyWindowPopup {...shellProps()} /></Held.Provider>;
+        return <Held.Provider value={value}><WindowFirstShell {...shellProps()} /></Held.Provider>;
       }
       const renderHeld = () => {
         vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockImplementation(useHeldBriefing);
@@ -249,42 +249,6 @@ describe('WindowFirstShell — the origin', () => {
 
         fireEvent.click(home);
 
-        const origin = screen.getByRole('button', { name: HOME_NAME });
-        expect(document.activeElement).toBe(origin);
-        await nextFrames();
-        expect(document.activeElement).toBe(origin);
-      });
-
-      it('⚠️ lands there from inside an open popup too — not back on the card that opened it', async () => {
-        // The one route that did not end on <body>. The popup holds no trap and leaves the masthead
-        // in the Tab order, so a reader can Tab out of it onto ⌂, and `onGoHome` closes the popup in
-        // that press's commit. The popup's `useDialogFocus` cleanup — a PASSIVE effect — then found
-        // focus nowhere and put them back on its opener card. An owner decision (2026-09-16) makes it
-        // the origin control here too: the tick line's layout effect lands first, and the restore,
-        // finding focus somewhere real with no modal layer left, stands down. With `App`'s map
-        // overlay or settings dialog ALSO open the restore still picks the card, because that layer
-        // claims modality and the origin control reads as stranded. This test opens neither.
-        renderHeld();
-        const card = await screen.findByTestId('wf-heat-card');
-        // The control is the card's inner button (the `div` takes no focus: focusing it would pass vacuously).
-        card.querySelector('[data-testid="wf-heat-card-button"]').focus(); // a keyboard reader opens it from the card, which becomes its return address
-        expect(card.querySelector('[data-testid="wf-heat-card-button"]')).toHaveFocus();
-        // The keyboard's press lands on the BUTTON (Enter on it), which bubbles to the card.
-        fireEvent.click(card.querySelector('[data-testid="wf-heat-card-button"]'));
-        const sheet = await screen.findByTestId('window-sheet');
-        // Spend the popup's mount frame first: left pending, its focus move could land anywhere in
-        // the steps below and supply an answer of its own.
-        await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
-        const home = screen.getByRole('button', { name: 'Plan from home again' });
-        home.focus(); // Tabbed out of the popup onto ⌂
-
-        fireEvent.click(home);
-
-        expect(screen.queryByTestId('window-sheet'), 'precondition: the press closed the popup').toBeNull();
-        // What keeps this test guarding the ORDER: were the card gone, the popup's restore would have
-        // nowhere to go, and a handoff moved to a passive effect — running after the restore — would
-        // pass here too.
-        expect(card.isConnected, 'precondition: the popup\'s return address is still there').toBe(true);
         const origin = screen.getByRole('button', { name: HOME_NAME });
         expect(document.activeElement).toBe(origin);
         await nextFrames();
@@ -403,86 +367,18 @@ describe('WindowFirstShell — the origin', () => {
     });
   });
 
-  describe('the open POPUP under an away origin', () => {
-    it('⚠️ ignores a region focus made at home, which nothing on screen could then clear', async () => {
-      // The focus is NOT cleared on an origin move — deliberately, since a reader who goes home
-      // finds the page as they left it — and away the rail that would clear it is withheld. Left
-      // live it filtered an already-scoped strip to a region the reader had scoped out and printed
-      // "Nothing in Northumberland for this window" under a chip naming Keswick.
-      //
-      // The surface moved at M2 (an accordion row became a dialog) and the rule did not.
-      const value = renderShell();
-      fireEvent.click(await screen.findByTestId('wf-heat-card'));
-
-      const rail = await screen.findByTestId('wf-region-rail');
-      fireEvent.click(within(rail).getByRole('button', { name: /Northumberland/ }));
-      // The card's spot is in the Lake District, so focusing Northumberland empties the strip and
-      // the popup's quiet sentence appears — the state that must NOT survive the move.
-      // Every filter in force is named, region clause included — the sentence is true of all of
-      // them ("nothing within 45 min in Northumberland"), and naming only the region would credit
-      // one control with three controls' work, which is the rule the strip footer already follows.
-      expect(screen.getByTestId('window-sheet-empty'))
-        .toHaveTextContent('Nothing within 45 min in Northumberland for this sunset.');
-
-      value.moveOrigin({ origin: ORIGIN });
-
-      // The rail is gone, and so is every trace of the focus it set.
-      expect(screen.queryByTestId('wf-region-rail')).toBeNull();
-      expect(screen.queryByTestId('window-sheet-empty')).toBeNull();
-      expect(screen.getByTestId('window-spot-strip')).toBeInTheDocument();
-    });
-
-    /**
-     * ⚠️ CLOSE-WITH-MOVE, and it is the P8 invariant rather than tidiness.
-     *
-     * <p>M3 lets search sit OVER an open popup, so without the close a reader could move the origin
-     * while the popup watched: the reach default drops to 90, `effectiveReachById` swaps, and the
-     * popup's spot strip, best-in-reach figure, spread histogram, region rail and every leave-by
-     * re-derive underneath them. P8 refused to build exactly that ("moving the origin from inside
-     * an open sheet would swap the drive, the base named beside it, the outside badge and every
-     * departure on every row while the reader watches"), and M4.3's `Plan from <region>` footer is
-     * specified with the same semantics.
-     *
-     * <p>⚠️ The guarantee is <b>one commit</b>, not a sequence — and the first cut of this test
-     * asserted the wrong thing. Both setters are called from one handler, so React batches them: at
-     * the moment `setOrigin` runs, the DOM has not been touched and the popup is still there. That
-     * is not a defect, it is a stronger property than ordering — there is no frame in which the
-     * popup is rendered against the new origin, because the unmount and the origin change land in
-     * the same commit. So what is asserted is the committed state, which is the thing a reader can
-     * actually see.
-     */
-    it('⚠️ never leaves the popup standing when a search result moves the origin', async () => {
-      const value = renderShell();
-      fireEvent.click(await screen.findByTestId('wf-heat-card'));
-      expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByTestId('window-first-search'));
-      const input = await screen.findByTestId('plan-search-input');
-      fireEvent.change(input, { target: { value: 'lake' } });
-      fireEvent.click(screen.getByRole('option', { name: /Lake District/ }));
-
-      expect(value.setOrigin).toHaveBeenCalledWith(LAKES);
-      expect(screen.queryByTestId('window-sheet'),
-        'the popup must not survive the move that re-derives everything inside it').toBeNull();
-      expect(screen.queryByTestId('plan-search')).toBeNull();
-    });
-
-    it('closes it for a LOCATION result too, which M4 will stack differently from its own chips', async () => {
-      // M4 does open this sheet OVER the popup — but from the popup's own field chips, where the
-      // reader is already looking at that window. Arriving from search is a different gesture, and
-      // it is the one the shell's own "closes FIRST" rule already governs everywhere else.
+  describe('a search result under an away origin', () => {
+    it('opens the sheet for a LOCATION result', async () => {
       renderShell();
-      fireEvent.click(await screen.findByTestId('wf-heat-card'));
+      await screen.findByTestId('wf-heat-card');
       fireEvent.click(screen.getByTestId('window-first-search'));
       fireEvent.change(await screen.findByTestId('plan-search-input'), { target: { value: 'derwent' } });
       const row = screen.queryAllByRole('option').find((o) => o.dataset.kind === 'location');
       expect(row, 'the fixture must offer a location row, or this test proves nothing').toBeTruthy();
       fireEvent.click(row);
 
-      // The sheet is lazy, so it arrives a tick later — what matters is that the popup has already
-      // gone by then rather than being left underneath it.
+      // The sheet is lazy, so it arrives a tick later.
       expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-      expect(screen.queryByTestId('window-sheet')).toBeNull();
     });
   });
 

@@ -19,7 +19,7 @@
  * `undefined`, which `onOpenMapTab`'s own consumers (`App.jsx`'s `openMapTabFromPlan`) branch on.
  *
  * @param {object} params
- * @param {Function} params.openOverPopup closes the popup/pick/sheet-by-key layer (`(null) => void`)
+ * @param {Function} params.openSheetLayer closes the popup/pick/sheet-by-key layer (`(null) => void`)
  * @param {?Function} params.onOpenMapTab `App.jsx`'s `openMapTabFromPlan`, or undefined when there
  *        is nothing to map (`allDates.length === 0`) — optional-chained, so this function still
  *        performs the close even with nothing to hand the payload to
@@ -30,9 +30,9 @@
  *        supplies
  */
 export function openMapDoor({
-  openOverPopup, onOpenMapTab, ratingLens, reachLens, door,
+  openSheetLayer, onOpenMapTab, ratingLens, reachLens, door,
 }) {
-  openOverPopup(null);
+  openSheetLayer(null);
   onOpenMapTab?.({
     ...door,
     minRating: ratingLens?.minRating ?? null,

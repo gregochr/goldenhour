@@ -107,11 +107,11 @@ const renderShell = (overrides = {}, extraProps = {}) => {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onOpenMapTab: vi.fn(), locations: [],
     ...extraProps,
   };
-  const view = render(<WindowFirstShell legacyWindowPopup {...props} />);
+  const view = render(<WindowFirstShell {...props} />);
   /** Hands the shell a different briefing context, the way the provider would on a poll. */
   const withContext = (next) => {
     useBriefing.mockReturnValue(ctx({ ...overrides, ...next }));
-    view.rerender(<WindowFirstShell legacyWindowPopup {...props} />);
+    view.rerender(<WindowFirstShell {...props} />);
   };
   return { ...props, ...view, withContext };
 };
@@ -277,7 +277,7 @@ describe('WindowFirstShell — the tab bar', () => {
       fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
       expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
 
-      rerender(<WindowFirstShell legacyWindowPopup
+      rerender(<WindowFirstShell
         onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
         locations={[]} operationsPane={null}
       />);
@@ -438,58 +438,22 @@ describe('WindowFirstShell — moving between tabs', () => {
   });
 
   it('takes any open dialog down with the tab it belonged to', async () => {
-    // The sheet and the pick dialog live outside the pane and their state is independent of the
-    // tab, so without this a reader who opened a window's spot list and then pressed Coming up
-    // would be left with a modal about a Plan window floating over the almanac feed — and
-    // `useDialogFocus` is not a focus trap, so closing it would hand focus to a trigger that is no
-    // longer on screen.
-    // Five rated spots, because `sheetOffersMore` withholds the trigger below four and when
-    // nothing is rated. No conditional here: if the trigger stops appearing this test must fail
-    // rather than skip itself.
-    const spots = [1, 2, 3, 4, 5].map((n) => ({
-      key: String(n),
-      locationId: n,
-      locationName: `Spot ${n}`,
-      regionName: 'Northumberland & Tyneside',
-      rating: n === 5 ? 3 : 4,
-      driveMinutes: 20 + n,
-      distanceMiles: 10 + n,
-      far: false,
-    }));
-    const withSpots = { ...card(), spots, allSpots: spots, reachTotal: spots.length };
-    // The matrix needs a descriptor and a catalogue, since the ranked list is inside the popup a
-    // matrix cell opens. The file's default is deliberately empty (see the containment test below).
+    // The four-day location sheet lives outside the pane and its state is independent of the tab, so without this a
+    // reader who opened a place's sheet and then pressed Coming up would be left with a modal about a Plan place
+    // floating over the almanac feed. `useDialogFocus` is not a focus trap, so closing it would hand focus to a
+    // trigger that is no longer on screen. Opened the way a reader opens it from Plan now: through Find.
     renderShell({
-      windowCards: [withSpots],
-      heatStripCards: [{
-        key: withSpots.key,
-        date: withSpots.date,
-        targetType: 'SUNSET',
-        dow: 'Sat',
-        sunrise: false,
-        label: 'Tonight Sunset',
-        time: '20:41',
-        verdict: 'WORTH_IT',
-        verdictLabel: 'Worth it',
-        pickKind: null,
-        away: false,
-        confidence: 'high',
-        pool: spots,
-        badges: [],
-      }],
       heatSpots: [{
-        id: 1, name: 'Spot 1', lat: 55.61, lng: -1.71, regionName: 'Northumberland & Tyneside', rid: 'Northumberland & Tyneside', skySubject: true, bortleClass: 3, scores: [4],
+        id: 1, name: 'Spot 1', lat: 55.61, lng: -1.71, regionName: 'Northumberland & Tyneside',
+        rid: 'Northumberland & Tyneside', skySubject: true, bortleClass: 3, scores: [4],
       }],
     });
 
-    // Since M2 the ranked list lives inside the window popup, so the drill-down is a SECOND dialog
-    // stacked over a first — which makes this assertion stronger than it was: leaving the tab must
-    // take both down, not the top one.
-    await screen.findByTestId('wf-heat-strip');
-    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-    await screen.findByTestId('window-sheet');
-    fireEvent.click(screen.getByTestId('window-spot-all'));
-    expect(screen.getAllByRole('dialog').length).toBe(2);
+    fireEvent.click(screen.getByTestId('window-first-search'));
+    fireEvent.change(await screen.findByTestId('plan-search-input'), { target: { value: 'Spot 1' } });
+    await act(async () => { fireEvent.click(screen.getAllByTestId('plan-search-row')[0]); });
+    await screen.findByTestId('location-sheet');
+    expect(screen.getAllByRole('dialog').length).toBe(1);
 
     await openComingUp();
 
@@ -915,8 +879,8 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
         locations: [], mapPane: MAP, ...extra,
       };
-      const view = render(<WindowFirstShell legacyWindowPopup {...base} />);
-      return { ...view, setRequest: (tabRequest) => view.rerender(<WindowFirstShell legacyWindowPopup {...base} tabRequest={tabRequest} />) };
+      const view = render(<WindowFirstShell {...base} />);
+      return { ...view, setRequest: (tabRequest) => view.rerender(<WindowFirstShell {...base} tabRequest={tabRequest} />) };
     };
 
     it('selects the requested tab and mounts its pane', () => {
@@ -1033,14 +997,14 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
         locations: [], mapPane: null,
       };
-      const view = render(<WindowFirstShell legacyWindowPopup {...base} />);
-      act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} tabRequest={{ id: 'map', nonce: 1 }} />));
+      const view = render(<WindowFirstShell {...base} />);
+      act(() => view.rerender(<WindowFirstShell {...base} tabRequest={{ id: 'map', nonce: 1 }} />));
       expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
 
       // The forecast arrives; the pane appears. Plan must still be the selected tab.
       const MAP2 = <p data-testid="map-pane">map pane</p>;
-      act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={MAP2} tabRequest={{ id: 'map', nonce: 1 }} />));
+      act(() => view.rerender(<WindowFirstShell {...base} mapPane={MAP2} tabRequest={{ id: 'map', nonce: 1 }} />));
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
     });
@@ -1064,9 +1028,9 @@ describe('WindowFirstShell — when the feed is fetched', () => {
 
       const openMapWithFocus = () => {
         vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-        const view = render(<WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} />);
+        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
         act(() => view.rerender(
-          <WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
+          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
         ));
         act(() => screen.getByTestId('map-control').focus());
         expect(document.activeElement).toBe(screen.getByTestId('map-control'));
@@ -1076,7 +1040,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       it('selects Plan explicitly and moves focus to the Plan tab button, which then drives the bar', () => {
         const view = openMapWithFocus();
         act(() => view.rerender(
-          <WindowFirstShell legacyWindowPopup {...base} mapPane={null} tabRequest={{ id: 'map', nonce: 1 }} />,
+          <WindowFirstShell {...base} mapPane={null} tabRequest={{ id: 'map', nonce: 1 }} />,
         ));
         expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
         expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
@@ -1089,9 +1053,9 @@ describe('WindowFirstShell — when the feed is fetched', () => {
 
       it('does not snap the reader back when the next alert offers the Map tab again', () => {
         const view = openMapWithFocus();
-        act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={null} />));
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
         expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-        act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} />));
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={mapWithControl} />));
         expect(tab('Map')).toHaveAttribute('aria-selected', 'false');
         expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
       });
@@ -1100,21 +1064,21 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
         const outside = document.createElement('button');
         document.body.appendChild(outside);
-        const view = render(<WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} />);
+        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
         act(() => view.rerender(
-          <WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
+          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
         ));
         act(() => outside.focus());
-        act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={null} />));
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
         expect(document.activeElement).toBe(outside);
         outside.remove();
       });
 
       it('does nothing for a Plan reader when a Map pane that was never in force goes away', () => {
         vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-        const view = render(<WindowFirstShell legacyWindowPopup {...base} mapPane={mapWithControl} />);
+        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
         const before = document.activeElement;
-        act(() => view.rerender(<WindowFirstShell legacyWindowPopup {...base} mapPane={null} />));
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
         expect(document.activeElement).toBe(before);
         expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
       });
@@ -1130,7 +1094,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
         locations: [], mapPane: MAP, tabRequest: { id: 'map', nonce: 4 },
       };
-      render(<WindowFirstShell legacyWindowPopup {...props} />);
+      render(<WindowFirstShell {...props} />);
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
     });
@@ -1164,7 +1128,7 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
     const onTabChange = vi.fn();
     const view = render(
-      <WindowFirstShell legacyWindowPopup
+      <WindowFirstShell
         onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
         locations={[]} mapPane={MAP} onTabChange={onTabChange} {...extra}
       />,

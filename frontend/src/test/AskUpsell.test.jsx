@@ -457,8 +457,9 @@ describe('the preview is a static sketch', () => {
 });
 
 describe('a press on a Plan card while the upsell is open', () => {
-  it.each([[390, 'ask-bar'], [1280, 'ask-field']])('at %i px closes it AND opens the card popup, on one click', async (width, testId) => {
-    renderLite(width, { ctx: { ...LITE, ...matrixCtx() } });
+  it.each([[390, 'ask-bar'], [1280, 'ask-field']])('at %i px closes it AND opens the Map on that window, on one click', async (width, testId) => {
+    const onOpenMapTab = vi.fn();
+    renderLite(width, { ctx: { ...LITE, ...matrixCtx() }, props: { onOpenMapTab } });
     const trigger = await screen.findByTestId(testId);
     await screen.findByTestId('wf-heat-strip');
     await press(trigger);
@@ -471,6 +472,6 @@ describe('a press on a Plan card while the upsell is open', () => {
     });
 
     expect(popover()).toBeNull();
-    expect(await screen.findByTestId('window-sheet')).toBeInTheDocument();
+    expect(onOpenMapTab).toHaveBeenCalledTimes(1);
   });
 });

@@ -96,10 +96,10 @@ function renderWithHandoff(extra = {}) {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
     locations: [], mapPane: MAP, ...extra,
   };
-  const view = render(<WindowFirstShell legacyWindowPopup {...base} />);
+  const view = render(<WindowFirstShell {...base} />);
   return {
     ...view,
-    setHandoff: (locationSheetHandoff) => view.rerender(<WindowFirstShell legacyWindowPopup {...base} locationSheetHandoff={locationSheetHandoff} />),
+    setHandoff: (locationSheetHandoff) => view.rerender(<WindowFirstShell {...base} locationSheetHandoff={locationSheetHandoff} />),
   };
 }
 
@@ -165,50 +165,29 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     raf.mockRestore();
   });
 
-  it('lands the sheet as the ONLY dialog layer, taking any open window popup down with it', async () => {
-    const spots = [1, 2, 3, 4, 5].map((n) => ({
-      key: String(n),
-      locationId: n,
-      locationName: `Spot ${n}`,
-      regionName: 'Northumberland & Tyneside',
-      rating: n === 5 ? 3 : 4,
-      driveMinutes: 20 + n,
-      distanceMiles: 10 + n,
-      far: false,
-    }));
-    const withSpots = { ...card(), spots, allSpots: spots, reachTotal: spots.length };
+  /**
+   * Renders the shell on Plan with a catalogue (so Find has a place to offer), then opens that place's sheet through
+   * Find: the one way a reader reaches a four-day sheet on Plan since the popup went (G2b).
+   */
+  async function openSheetThroughFind() {
     const { setHandoff } = renderWithHandoff();
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx({
-      windowCards: [withSpots],
-      heatStripCards: [{
-        key: withSpots.key,
-        date: withSpots.date,
-        targetType: 'SUNSET',
-        dow: 'Sat',
-        sunrise: false,
-        label: 'Tonight Sunset',
-        time: '20:41',
-        verdict: 'WORTH_IT',
-        verdictLabel: 'Worth it',
-        pickKind: null,
-        away: false,
-        confidence: 'high',
-        pool: spots,
-        badges: [],
-      }],
       heatSpots: [{
         id: 1, name: 'Spot 1', lat: 55.61, lng: -1.71, regionName: 'Northumberland & Tyneside', rid: 'Northumberland & Tyneside', skySubject: true, bortleClass: 3, scores: [4],
       }],
     }));
-    // Force the new context to actually apply — the shell has to re-render once for the strip to
-    // exist before it can be clicked.
+    // Force the new context to actually apply — the shell has to re-render once.
     fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
+    fireEvent.click(screen.getByTestId('window-first-search'));
+    fireEvent.change(await screen.findByTestId('plan-search-input'), { target: { value: 'Spot 1' } });
+    await act(async () => { fireEvent.click(screen.getAllByTestId('plan-search-row')[0]); });
+    await screen.findByTestId('location-sheet');
+    expect(screen.getAllByRole('dialog').length).toBe(1);
+    return setHandoff;
+  }
 
-    await screen.findByTestId('wf-heat-strip');
-    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-    await screen.findByTestId('window-sheet');
-    fireEvent.click(screen.getByTestId('window-spot-all'));
-    expect(screen.getAllByRole('dialog').length).toBe(2);
+  it('lands the sheet as the ONLY dialog layer, taking any open sheet down with it', async () => {
+    const setHandoff = await openSheetThroughFind();
 
     act(() => setHandoff({
       id: 1, name: 'Spot 1', regionName: 'Northumberland & Tyneside', inPlan: true, nonce: 1,
@@ -217,7 +196,6 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     const dialogs = await screen.findAllByRole('dialog');
     expect(dialogs).toHaveLength(1);
     expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
   });
 
   it('lands as the only layer on the PEEK route TOO — the route that never calls selectTab(\'plan\')', async () => {
@@ -227,54 +205,14 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // mutation-proven. What it pins is the reason the peek routes through `selectTab` at all:
     // there is exactly ONE definition of "take every dialog this shell owns down", and both routes
     // are it.
-    const spots = [1, 2, 3, 4, 5].map((n) => ({
-      key: String(n),
-      locationId: n,
-      locationName: `Spot ${n}`,
-      regionName: 'Northumberland & Tyneside',
-      rating: n === 5 ? 3 : 4,
-      driveMinutes: 20 + n,
-      distanceMiles: 10 + n,
-      far: false,
-    }));
-    const withSpots = { ...card(), spots, allSpots: spots, reachTotal: spots.length };
-    const { setHandoff } = renderWithHandoff();
-    vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx({
-      windowCards: [withSpots],
-      heatStripCards: [{
-        key: withSpots.key,
-        date: withSpots.date,
-        targetType: 'SUNSET',
-        dow: 'Sat',
-        sunrise: false,
-        label: 'Tonight Sunset',
-        time: '20:41',
-        verdict: 'WORTH_IT',
-        verdictLabel: 'Worth it',
-        pickKind: null,
-        away: false,
-        confidence: 'high',
-        pool: spots,
-        badges: [],
-      }],
-      heatSpots: [{
-        id: 1, name: 'Spot 1', lat: 55.61, lng: -1.71, regionName: 'Northumberland & Tyneside', rid: 'Northumberland & Tyneside', skySubject: true, bortleClass: 3, scores: [4],
-      }],
-    }));
-    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
+    const setHandoff = await openSheetThroughFind();
 
-    await screen.findByTestId('wf-heat-strip');
-    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
-    await screen.findByTestId('window-sheet');
-    expect(screen.getAllByRole('dialog').length).toBe(1);
-
-    // No `inPlan` — the peek. The popup must still come down with it.
+    // No `inPlan` — the peek. The earlier sheet must still come down with it.
     act(() => setHandoff({ id: 1, name: 'Spot 1', regionName: 'Northumberland & Tyneside', nonce: 1 }));
 
     const dialogs = await screen.findAllByRole('dialog');
     expect(dialogs).toHaveLength(1);
     expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
     // And the tab did not move on the way — the whole point of this route.
     expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
   });
@@ -337,7 +275,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // that may not even be the one they are looking at.
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
     render(
-      <WindowFirstShell legacyWindowPopup
+      <WindowFirstShell
         onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
         locations={[]} mapPane={MAP}
         locationSheetHandoff={{ id: 1, name: 'Spot 1', regionName: 'North East', nonce: 4 }}

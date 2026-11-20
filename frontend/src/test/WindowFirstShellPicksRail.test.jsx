@@ -1,8 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import {
-  render, screen, fireEvent, act, cleanup, waitFor, within,
-} from '@testing-library/react';
+import { render, screen, act, cleanup } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { SubRegionStatusProvider } from '../context/SubRegionStatusContext.jsx';
@@ -14,15 +12,12 @@ vi.mock('../api/subRegionApi.js', () => ({ getSubRegions: vi.fn(), saveSubRegion
 import { getSubRegions } from '../api/subRegionApi.js';
 
 /**
- * The shell's half of the popup's sub-regions rail (sub-regions-plan §11 S5b-1, handoff task 6).
+ * The shell's half of the sub-regions shaped body (sub-regions-plan §11 S5b-1): the strip's picks facts and the lens
+ * bar's count.
  *
- * <p><b>What breaks if these fail:</b> the rail's S4 action opens Settings OVER the popup (three dialogs once its
- * confirm opens) instead of closing the popup first; the popup is handed a body that is not shaped when it is (or
- * the reverse); the strip's picks facts leak to a Pro, Admin or flag-off reader; the lens bar counts places outside
- * the picks.
- *
- * <p>Scoped like {@code WindowFirstShellRegion}: the components take everything as props, so what only the shell can
- * be wrong about is the joins, and they are asserted here against the real strip and the real popup.
+ * <p><b>What breaks if these fail:</b> the strip's picks facts leak to a Pro, Admin or flag-off reader, or the lens bar
+ * counts places outside the picks. (The popup's rail went with the popup in G2b; the Map's own Regions list is
+ * covered by its own suites.)
  */
 
 vi.mock('../utils/heatField.js', async (importOriginal) => {
@@ -139,11 +134,10 @@ async function renderShell(overrides = {}, { opener = openSettings, enabled = tr
   HTMLCanvasElement.prototype.getContext = () => ({});
   getSubRegions.mockResolvedValue(OPEN);
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(overrides));
-  await import('../components/WindowSheetDialog.jsx');
   await act(async () => {
     render(
       <SubRegionStatusProvider enabled={enabled} onOpen={opener}>
-        <WindowFirstShell legacyWindowPopup
+        <WindowFirstShell
           onOpenSettings={vi.fn()}
           onSignOut={vi.fn()}
           onShowOnMap={vi.fn()}
@@ -161,13 +155,7 @@ afterEach(() => {
   openSettings.mockClear();
 });
 
-async function openWindow() {
-  await screen.findByTestId('wf-heat-strip');
-  await act(async () => { fireEvent.click(screen.getByTestId('wf-heat-card')); });
-  return screen.findByTestId('window-sheet');
-}
-
-describe('WindowFirstShell: the sub-regions rail of the popup', () => {
+describe('WindowFirstShell: the shaped body on the Plan screen', () => {
   it('hands the strip the picks facts, so its key and note draw for a shaped body', async () => {
     await renderShell();
     await screen.findByTestId('wf-heat-strip');
@@ -183,46 +171,6 @@ describe('WindowFirstShell: the sub-regions rail of the popup', () => {
     expect(screen.queryByTestId('wf-heat-picks')).toBeNull();
   });
 
-  it('builds the popup\'s rail from the shaped rows: picks first, no window star, and the label says so', async () => {
-    await renderShell();
-    const sheet = await openWindow();
-
-    expect(within(sheet).getByTestId('wf-region-rail-label').textContent).toBe('By region · your sub-regions first');
-    expect(within(sheet).getAllByTestId('wf-region-cell').map((c) => c.dataset.region)).toEqual(['all', 'Coast', 'Dales']);
-    expect(within(sheet).getAllByTestId('wf-region-cell')[0]).toHaveTextContent('1 in your sub-regions · 2 outside');
-    expect(within(sheet).getAllByTestId('wf-region-cell')[2]).toHaveTextContent('outside your sub-regions');
-  });
-
-  it('closes the popup FIRST when the rail\'s action runs, so Settings is the second dialog, never a third', async () => {
-    await renderShell();
-    const sheet = await openWindow();
-    await act(async () => {
-      fireEvent.click(within(sheet).getAllByTestId('wf-region-cell')[2]);
-    });
-
-    const action = await screen.findByTestId('wf-region-picks-action');
-    expect(screen.getAllByRole('dialog')).toHaveLength(1);
-    await act(async () => { fireEvent.click(action); });
-
-    expect(screen.queryByTestId('window-sheet')).toBeNull();
-    expect(screen.queryAllByRole('dialog')).toHaveLength(0);
-    expect(openSettings).toHaveBeenCalledTimes(1);
-    // The return-focus fallback is the selected tab's node, as the location sheet's route hands it.
-    expect(typeof openSettings.mock.calls[0][0]).toBe('function');
-  });
-
-  it('draws the S4 action nowhere when the app gave no way to open Settings', async () => {
-    await renderShell({}, { opener: null });
-    const sheet = await openWindow();
-    await act(async () => {
-      fireEvent.click(within(sheet).getAllByTestId('wf-region-cell')[2]);
-    });
-
-    await waitFor(() => expect(getSubRegions).toHaveBeenCalled());
-    expect(screen.getByTestId('wf-prose-outside')).toBeInTheDocument();
-    expect(screen.queryByTestId('wf-region-picks-action')).toBeNull();
-  });
-
   it('counts the lens bar over the reader\'s places only', async () => {
     await renderShell();
     await screen.findByTestId('wf-heat-strip');
@@ -231,22 +179,5 @@ describe('WindowFirstShell: the sub-regions rail of the popup', () => {
     const count = document.querySelector('.wf-lens-res, .wf-lens-count');
     expect(count).toHaveTextContent(/\b1\b/);
     expect(count).not.toHaveTextContent(/\b3\b/);
-  });
-
-  it('Escape closes the popup one layer at a time, the region door first', async () => {
-    await renderShell();
-    const sheet = await openWindow();
-    await act(async () => {
-      fireEvent.click(within(sheet).getAllByTestId('wf-region-cell')[2]);
-    });
-
-    fireEvent.click(await screen.findByTestId('wf-subregions-region-upsell-trigger'));
-    expect(screen.getByTestId('wf-subregions-region-upsell-popover')).toBeInTheDocument();
-    fireEvent.keyDown(screen.getByTestId('wf-subregions-region-upsell-popover'), { key: 'Escape' });
-
-    expect(screen.queryByTestId('wf-subregions-region-upsell-popover')).toBeNull();
-    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByTestId('window-sheet')).toBeNull());
   });
 });

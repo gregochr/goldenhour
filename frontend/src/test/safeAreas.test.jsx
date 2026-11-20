@@ -162,8 +162,7 @@ describe('safe areas', () => {
       // Once `.app-safe-modal` made that padding `max(1rem, inset)`, each cap ate the whole
       // safe-area padding and left the panel's foot exactly where it was — the feature was a no-op
       // for precisely the dialogs that reach their cap. `--safe-v`/`--safe-b` give it back.
-      const sources = ['../index.css', '../components/WindowPickDialog.jsx',
-        '../components/PlanSearch.jsx', '../components/BottomSheet.jsx'];
+      const sources = ['../index.css', '../components/PlanSearch.jsx', '../components/BottomSheet.jsx'];
 
       sources.forEach((file) => {
         const text = file.endsWith('.css') ? decls(read(file)) : read(file);

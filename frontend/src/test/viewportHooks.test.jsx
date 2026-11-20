@@ -4,7 +4,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import useElementWidth from '../hooks/useElementWidth.js';
 import useStickyViewportFill from '../hooks/useStickyViewportFill.js';
-import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useIsWide } from '../hooks/useIsWide.js';
 
@@ -263,52 +262,6 @@ describe('media-query hooks', () => {
         },
       })),
     );
-  });
-
-  describe('useIsCoarsePointer', () => {
-    it('asks for "(pointer: coarse)" and reports its match', () => {
-      matches = true;
-      const { result } = renderHook(() => useIsCoarsePointer());
-      expect(globalThis.matchMedia).toHaveBeenCalledWith('(pointer: coarse)');
-      expect(result.current).toBe(true);
-    });
-
-    it('is false for a fine pointer and follows a change event, then stops listening on unmount', () => {
-      const { result, unmount } = renderHook(() => useIsCoarsePointer());
-      expect(result.current).toBe(false);
-
-      act(() => listeners.forEach((h) => h({ matches: true })));
-      expect(result.current).toBe(true);
-
-      unmount();
-      expect(listeners).toHaveLength(0);
-    });
-
-    it('reads as not coarse where matchMedia is not implemented, leaving hover on', () => {
-      vi.stubGlobal('matchMedia', undefined);
-      const { result } = renderHook(() => useIsCoarsePointer());
-      expect(result.current).toBe(false);
-    });
-
-    it('tolerates a media query list with no event API (older engines)', () => {
-      vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
-      const { result, unmount } = renderHook(() => useIsCoarsePointer());
-      expect(result.current).toBe(true);
-      expect(() => unmount()).not.toThrow();
-    });
-
-    it('answers false when rendered with no window at all (server render)', () => {
-      const Probe = () => <span>{String(useIsCoarsePointer())}</span>;
-      const realWindow = globalThis.window;
-      vi.stubGlobal('window', undefined);
-      let html;
-      try {
-        html = renderToString(<Probe />);
-      } finally {
-        vi.stubGlobal('window', realWindow);
-      }
-      expect(html).toContain('false');
-    });
   });
 
   describe.each([
