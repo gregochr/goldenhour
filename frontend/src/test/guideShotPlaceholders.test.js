@@ -13,7 +13,7 @@ const source = (page) => readFileSync(resolve(GUIDE_DIR, `${page}.html`), 'utf8'
 const shotIds = (html) => [...html.matchAll(/<figure[^>]*\sid="(shot-[^"]+)"/g)].map((m) => m[1]);
 
 const PLACEHOLDERS = {
-  'weather-warnings': ['shot-warn-popup', 'shot-warn-stale', 'shot-warn-ask'],
+  'weather-warnings': ['shot-warn-stale', 'shot-warn-ask'],
   'at-a-glance': ['shot-warn-lanes'],
   map: ['shot-warn-map-chips', 'shot-warn-callout'],
   'coming-up': ['shot-warn-coming-up'],

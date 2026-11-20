@@ -34,6 +34,7 @@
 <div class="g-body">
 <section class="g-sec" id="window"><h2>Choosing a sunrise, sunset or night</h2>
 <p>The control at the top left names the sunrise or sunset you're looking at, such as <span class="ui">SUNSET Friday 16:17</span>. Beside it you'll see the verdict, how many locations were rated, and the regions that look best. <span class="ui">◎ BEST BET</span> marks the one sunrise or sunset PhotoCast recommends most across the days ahead. Use <span class="ui">‹</span> and <span class="ui">›</span> to step through the days, or tap the middle to choose from the full list.</p>
+<p class="pro-line"><span class="pro">Pro</span><span>When the selected sunrise or sunset has a Best bet, a <span class="ui">◎ Best bet · why</span> button sits under the control. Press it to read the short reason PhotoCast gives for the pick, with its region. A second option reads <span class="ui">◎ Also good · why</span>. The button is not shown when there is no pick for the sunrise or sunset you are on.</span></p>
 <p>Under it, a chip names any hot topics (notable photographic conditions and events) for the selected sunrise or sunset, such as <span class="ui">Mist · 2 places</span>, or says <span class="ui">No hot topics on this window</span>. When the selected sunrise or sunset is poor and a nearby one is better, the control says so, for example <span class="ui">Tomorrow sunset is better ›</span>. Tap it to switch.</p>
 <figure class="anno" id="shot-window"><div class="crop wc"><img src="shots/map-sunset.webp" width="2150" height="994" alt="The window control for Friday's 16:17 sunset: previous arrow, SUNSET, Friday, 16:17, Best bet, Maybe with 97 rated, The Yorkshire Dales +2, a list button and next arrow, with No hot topics on this window underneath."><span class="pin xy-4_5-13_3">1</span><span class="pin xy-10_7-13_3">2</span><span class="pin xy-38_8-13_3">3</span><span class="pin xy-59_2-13_3">4</span><span class="pin xy-83_5-13_3">5</span><span class="pin xy-77_7-60_6">6</span><span class="pin xy-89_6-60_6">7</span><span class="pin xy-96_1-60_6">8</span><span class="pin xy-41_7-79_4">9</span></div>
 <ol class="anno-key">
@@ -53,7 +54,8 @@
 <section class="g-sec" id="colour"><h2>Colour and zooming in</h2>
 <p>Zoomed out, the colour gives you the broad picture region by region, from <span class="ui">Poor</span> to <span class="ui">Worth it</span> on the key at the top right. As you zoom in it gives way to individual locations. Each is shown as a chip, a location marker showing its name and rating. <a href="reading-the-forecast.html#colour">What the colours and hatching mean</a>.</p>
 <p>A line on the map counts what you're seeing, such as "57 of 266 shown · 52 rated · 84 stood down". Filters and the area in view change the first number.</p>
-<p>To move around quickly, use <span class="ui">◎ Regions ▾</span>. Choose a region to see it on its own, ranked, then go back to every region for this sunrise or sunset. The <span class="ui">⌂</span> button at the bottom right brings the map back to your home area.</p>
+<p>To move around quickly, use <span class="ui">◎ Regions ▾</span>. The regions are listed best first for the sunrise or sunset you are on, each with how many of its locations are rated 4★ or better. Regions that are too thinly rated to judge come after the rest, and are never marked poor for it. On a night there is no regional verdict, so that list keeps its usual order. Choose a region to see it on its own, ranked, then go back to every region for this sunrise or sunset. The <span class="ui">⌂</span> button at the bottom right brings the map back to your home area.</p>
+<p>For every place in one go, press <span class="ui">☰ List</span> beside <span class="ui">◎ Regions</span>. It lists the places for the sunrise or sunset you are on, best first, using the same drive time and rating filters as the map, so its count matches the line above. Choose a row to close the list and open that place's callout. The button is greyed, with the reason given, when there is no list to show: a past sunrise or sunset, a night, high water, or a day with no forecast.</p>
 </section>
 <section class="g-sec" id="places"><h2>Locations</h2>
 <p>Tap a location marker for a summary: its rating, the drive time, a <span class="ui">Leave by</span> time, how dark the sky is, and the tide if it's on the coast. If a Met Office weather warning covers the location, a chip on the summary gives its level and type. Open it for the full forecast over the coming days. From here you can also choose <span class="ui">Plan from here</span> to plan from that area for a while. <a href="at-a-glance.html#away">More on planning from elsewhere</a>.</p>
@@ -120,11 +122,14 @@
 </section>
 <section class="g-sec" id="phone"><h2>On a phone</h2>
 <ul><li>Filters open from the bottom of the screen.</li>
-<li>Tap a location for a summary panel at the bottom of the screen, and drag it up for more.</li></ul>
+<li>Tap a location for a summary panel at the bottom of the screen, and drag it up for more.</li>
+<li>The List is a row in that panel, <span class="ui">See all</span> and a count of spots, and it opens from the bottom of the screen. A row closes it and opens that place.</li>
+<li>A warning's full text opens from the bottom of the screen too.</li></ul>
 </section>
 <section class="g-sec" id="warnings"><h2>Weather warnings</h2>
-<p>When the Met Office has a <a href="weather-warnings.html">weather warning</a> in force for the sunrise or sunset you are looking at, a row of chips appears at the top left, under the topic chips. Each chip gives the warning's level as a word and its weather type, with <span class="ui">Updated</span> if the Met Office has issued a newer version, and links to the Met Office's warnings page.</p>
-<ul><li>The chips follow the window control. They appear for a sunrise or sunset and not for a night, high-water or past window.</li>
+<p>When the Met Office has a <a href="weather-warnings.html">weather warning</a> in force for the sunrise or sunset you are looking at, a row of chips appears at the top left, under the topic chips. Each chip gives the warning's level as a word and its weather type, with <span class="ui">Updated</span> if the Met Office has issued a newer version, and links to the Met Office's warnings page. Beside each chip, <span class="ui">Details</span> opens the full warning in place, under the controls (from the bottom of the screen on a phone), and <span class="ui">Hide</span> closes it.</p>
+<ul><li>The full warning gives the Met Office's own words: the headline, what to expect, what to do, when it is valid and how many places in each area it covers, with the likelihood and impact matrix. The Met Office credit shows whether it is open or closed.</li>
+<li>The chips follow the window control. They appear for a sunrise or sunset and not for a night, high-water or past window.</li>
 <li>The map card for a location also carries a chip when a warning covers that location.</li>
 <li>The map draws no warning outlines or shading, and a warning never changes a star rating, a verdict or the colours on the map.</li></ul>
 <figure class="shot wide" id="shot-warn-map-chips"><div class="ph"><span>Screenshot · Map for a sunrise with warning chips under the topic chips, each naming a level and a weather type</span></div><figcaption>The chip row for the sunrise you are looking at. It sits under the topic chips, and the map itself carries no warning outlines.</figcaption></figure>
@@ -132,7 +137,7 @@
 <p>If PhotoCast has not been able to check the Met Office lately, the row says when it last did and that what you see may be out of date. The lack of a chip is never an all-clear, so check the Met Office before you travel.</p>
 </section>
 <section class="g-sec" id="tips"><h2>Tips</h2>
-<ul><li>Coming from At a Glance or Coming up, the map opens on the same sunrise or sunset. <span class="ui">← At a Glance</span> takes you back.</li>
+<ul><li>Open a card or a lane on At a Glance and the Map opens on that sunrise or sunset, with your drive time and rating filter carried over. Choosing a sunrise or sunset in Find from another tab lands here too. <span class="ui">← At a Glance</span> and your browser's Back button take you back to where you were.</li>
 <li>On the coast, open the Tide panel first. A dimmed 4★ headland usually means the tide doesn't suit it at this sunrise or sunset, not that the location is a poor choice.</li>
 <li>Zoom in before deciding. One 5★ location can hide inside an area that looks average from a distance.</li></ul>
 </section>
