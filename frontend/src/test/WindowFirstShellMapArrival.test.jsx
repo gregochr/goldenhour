@@ -12,7 +12,6 @@ import { installViewport } from './askViewport.js';
 import {
   MAP_PANE, matrixCtx, shellCtx, TODAY,
 } from './askShellHarness.jsx';
-import { settings } from './askFixtures.js';
 import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
 import { __inspectForTests } from '../utils/dialogHistory.js';
 
