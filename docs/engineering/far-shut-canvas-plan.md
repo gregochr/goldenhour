@@ -3,7 +3,7 @@
 **Status:** revised after adversarial review, 2026-11-19 (§9). **Measurement only.** Nothing in production
 changes. The draft's candidate prompt rule is withdrawn: the mechanism was overstated, the trigger evening does
 not fit it, and the regression suite holds an owner-observed counter-example. Phase A (a free sizing query, a
-case check of 19 Nov, and blind protocol classes on the daily list) decides whether a rule is ever worth
+case check of 19 Nov, and blind protocol classes assigned from stored values) decides whether a rule is ever worth
 drafting. The owner pre-approved any later replay spend (2026-11-19); that approval does not bypass the gates.
 
 ---
@@ -95,10 +95,12 @@ unaffected (OL needs far low < 50), but **FS rows with overhead low ≥ 60 are a
 them separately, and A3.3 is evaluated on FS rows with overhead low < 60, the same filter FO now has. A1's
 confounder list gains "overhead low ≥ 60". Moving OL out of FO slows FO's accrual toward 12.
 
-**A2. Blind protocol list.** `scripts/far-cloud-p1/bl_today.sql` selects today's BL, CL, FS and FO slots (one
-CASE, first match wins: BL, CL, FS, FO) at the owner's locations, but **prints only place, event, local time
-and stars**, never the class or cloud numbers. Classes are assigned afterwards from stored values. The owner
-rates every listed evening watched, whatever happened. (A slot that qualifies as both CL and FO is listed as
+**A2. Blind protocol classes.** The classes BL, CL, OL, FS and FO (one CASE, first match wins, as in
+`scripts/far-cloud-p1/bl_today.sql`) are assigned afterwards from stored values to the owner's ratings at the
+protocol locations (`broken-low-canvas-plan.md` A4: Copt Hill, Penshaw Monument, Angel of the North). The owner
+never sees a class and rates every watched sunrise or sunset there, whatever happened. `bl_today.sql` remains
+an optional reminder that prints only place, event, local time and stars; the protocol does not depend on it
+(amendment 2026-11-20, `broken-low-canvas-plan.md` A4). (A slot that qualifies as both CL and FO is classed as
 CL; this slows FO slightly and keeps the broken-low study's pre-registered definitions.)
 
 **A3. Decision point, fixed now:** **2027-01-31, or 12 FS and 12 FO protocol evenings, whichever comes later**,

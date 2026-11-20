@@ -1,7 +1,7 @@
 # Overhead low deck with a clear horizon: does the forecast ignore the layer that decides the evening?
 
 **Status:** revised after adversarial review, 2026-11-20 (§7). **Measurement only.** Nothing in production
-changes. Phase A is a free sizing query and a fifth class (OL) on the blind daily protocol list; a prompt rule
+changes. Phase A is a free sizing query and a fifth blind protocol class (OL); a prompt rule
 is not drafted unless §4's pre-registered gate passes. The owner pre-approved any later replay spend
 (2026-11-19); that does not bypass the gate.
 
@@ -48,16 +48,18 @@ not `[BUILDING]`, triage clear, `sky_rating` present: **OL-canvas** (overhead lo
 low < 30). It reports size, stars, fiery, ERA5 overhead and horizon, per-location frequency at T+0, and all admin
 outcome ratings (descriptive, **not** protocol evidence).
 
-**A2. Blind protocol class OL** on `scripts/far-cloud-p1/bl_today.sql`: cone low < 20, far low < 50, overhead
-low ≥ 60, plus the list's common conditions. Checked after BL and CL (which need overhead < 60, so never
-overlap) and before FS and FO (so a low-deck evening is never an FO control; FS is disjoint, far ≥ 80). Output
-stays blind: place, event, UK time, stars. **OL protocol evidence starts on the day this PR merges**
-(`--protocol-start` = merge date), which excludes the 16 and 20 Nov triggers.
+**A2. Blind protocol class OL**, assigned afterwards from stored values (the CASE in
+`scripts/far-cloud-p1/bl_today.sql`, which is now only an optional reminder; amendment 2026-11-20 in
+`broken-low-canvas-plan.md` A4): cone low < 20, far low < 50, overhead low ≥ 60, plus the protocol's common
+conditions (triage clear, a sky rating, not `[BUILDING]`). Checked after BL and CL (which need overhead < 60, so never
+overlap) and before FS and FO (so a low-deck evening is never an FO control; FS is disjoint, far ≥ 80). The owner
+never sees a class. **OL protocol evidence starts on 2026-11-20, the day the plan's PR (#1887) merged**
+(`--protocol-start 2026-11-20`), which excludes the 16 and 20 Nov triggers.
 
 ## 4. Decision (fixed now)
 
-**Sunsets only** decide (both triggers are sunsets; sunrise OL slots are listed and reported descriptively).
-Protocol ratings only (`by_admin`, listed slots, on or after the protocol start, "didn't see it" excluded);
+**Sunsets only** decide (both triggers are sunsets; sunrise OL slots are reported descriptively).
+Protocol ratings only (`by_admin`, at the protocol locations, on or after the protocol start, "didn't see it" excluded);
 classes from stored values afterwards.
 
 **Comparison: each arm against its own clean control, at matched forecast stars** (strata = the star the reader
@@ -78,8 +80,9 @@ the ceiling date **2027-03-31**, whichever is first. At the ceiling an arm below
 **ERA5 check, per arm** (protocol slots with ERA5 available, at least 6): ERA5 overhead low ≥ 60 in at least half
 the OL-canvas slots; ≥ 40 in at least half the OL-bare slots (a broken deck averages lower over a ~31 km cell).
 
-**Selection check:** listed-but-unwatched OL sunsets are counted per arm; a skip rate above 50% in either arm
-makes that arm inconclusive.
+**Selection check:** per arm, the share of its qualifying sunsets at the protocol locations that the owner
+rated, against the same share for all other sunsets there over the same period. An arm rated at less than half
+the baseline share is inconclusive (it suggests those evenings were being skipped).
 
 Pass (either arm) → a plan for a rule, starting from the hard part: telling a deck's sunward extent and gaps
 from stored inputs. Fail or inconclusive → record it here and in the ledger, and close.
@@ -91,11 +94,12 @@ Tooling when the counts are near: a sibling `ol_size.py` reusing `bl_size.py`'s 
 
 - Two triggers, one place, one observer.
 - **Blindness is weaker here**: on an OL afternoon the deck is visible on site, the rater wrote the hypothesis,
-  and the list prints the forecast stars; the selection check above is the guard.
+  and the app shows the forecast stars; rating every watched sunset and the selection check above are the guard.
 - ERA5 overhead low is a ~31 km cell average at the hour **before** sunset (after sunrise), not the after-glow
   window: it confirms a deck's presence, not its state when lit.
 - Sunward extent and gappiness, the real variables, are not stored.
-- The list has no model filter (A1 does: Sonnet only); near-term production is Sonnet, so this rarely matters.
+- The protocol class has no model filter (A1 does: Sonnet only); near-term production is Sonnet, so this rarely
+  matters.
 
 ## 6. Out of scope
 
