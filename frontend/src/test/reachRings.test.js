@@ -86,7 +86,7 @@ describe('reachRings — pxPerKmAtHome (map-tab-v2-plan.md §3 P8 review)', () =
     expect(calls).toEqual([[HOME.lat, HOME.lon], [HOME.lat + 1, HOME.lon]]);
   });
 
-  it('is |Δy| / 111.2 — the same "measure a real 1° delta" idiom as heatField.kmPerPx', () => {
+  it('is |Δy| / 111.2 — measures a real 1° delta at home', () => {
     const map = { latLngToContainerPoint: ([lat]) => ({ x: 0, y: (60 - lat) * 50 }) };
     // Δy for a 1° step at this map's own scale is 50; 50/111.2 is the expected px/km.
     expect(pxPerKmAtHome(map, HOME)).toBeCloseTo(50 / 111.2, 10);

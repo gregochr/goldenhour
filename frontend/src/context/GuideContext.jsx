@@ -46,7 +46,7 @@ const LAYER_SELECTOR = '[role="dialog"]';
  *   <li>{@code 'docked'} — desktop and wide ({@code useAskSurface()} is {@code 'desktop'} or
  *       {@code 'wide'}) with no {@code aria-modal} layer in the document. The SHELL draws it, in the Ask
  *       dock's slot, because it needs the docked row; this provider only holds the state.
- *   <li>{@code 'dialog'} — desktop and wide with one modal layer up (Settings, the popup, a sheet): a
+ *   <li>{@code 'dialog'} — desktop and wide with one modal layer up (Settings, the deleted popup, a sheet): a
  *       right-hand panel over a scrim, drawn here.
  *   <li>{@code 'sheet'} — phone and tablet: a tall {@code BottomSheet}, drawn here.
  * </ol>

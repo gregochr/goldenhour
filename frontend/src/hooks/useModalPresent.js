@@ -19,7 +19,7 @@ function foreignModalOpen(ownAttribute) {
  * aria-modal="true"} that is not the postcode prompt (it carries {@code data-postcode-prompt}).
  *
  * <p>Read from the DOM, not from state, because it must see every dialog: the settings dialog and
- * the map overlay are `App`'s, but the Plan popup and location sheet are the shell's and Ask's tall
+ * the map overlay are `App`'s, but the deleted Plan popup and location sheet are the shell's and Ask's tall
  * sheet is portalled to {@code <body>}, none of which {@code AppInner} can read. A
  * {@code MutationObserver} on {@code document.body} (child changes anywhere below, and an
  * {@code aria-modal} flipping on an existing node — `Modal`'s {@code stacked} opt-in does exactly

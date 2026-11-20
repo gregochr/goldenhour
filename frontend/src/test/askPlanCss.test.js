@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 /**
  * The F5 stylesheet block, read as text (jsdom applies no stylesheet: `askCss.test.js` says why). What is
  * pinned is what a screenshot cannot cheaply regress — the mock's measurements and colours, the tokens
- * they map to, and the two facts that make the Plan-card highlight a different mark from the open card.
+ * they map to, and the two facts that make the Plan-card highlight a different mark from the pick card.
  * Mock fidelity beyond that is a browser check.
  */
 const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
@@ -112,25 +112,19 @@ describe('the Plan-card highlight is a DIFFERENT mark from the open card', () =>
     expect(body).toMatch(/linear-gradient\(rgba\(201,\s*162,\s*75,\s*\.08\)/);
   });
 
-  it('adds a second, inset pixel of the same gold — which the open card’s rule does not have', () => {
+  it('adds a second, inset pixel of the same gold, which the pick card\'s own green ring does not have', () => {
     expect(ruleBody(highlight)).toMatch(/box-shadow:\s*inset 0 0 0 1px rgba\(201,\s*162,\s*75,\s*\.7\)/);
-    // The open card, in the stylesheet above this block: border .62, and NO ring (`box-shadow: none`).
-    const openAt = css.indexOf('.wf-hc.on,\ndiv.wf-hc:where([data-control]).on:hover,');
-    expect(openAt, 'the open card\'s border rule must be found, or the slice below reads from -1').toBeGreaterThanOrEqual(0);
-    const open = css.slice(openAt);
-    expect(open.slice(0, 400)).toMatch(/border-color:\s*rgba\(201,\s*162,\s*75,\s*0?\.62\)/);
-    expect(open.slice(0, 400)).toMatch(/box-shadow:\s*none/);
   });
 
   it('keeps a hover arm at the same strength, so a pointer on the card does not take the mark off', () => {
     expect(ruleBody(`${highlight}:hover`)).toMatch(/box-shadow:\s*inset 0 0 0 1px/);
   });
 
-  it('beats the most specific competitor — the doubled class — and so survives a best-and-open card', () => {
-    // `div.wf-hc:where([data-control]).best.on:hover` is (0,4,1); `div.wf-hc.wf-hc:where(…)[data-…]:hover` is
-    // (0,4,1) and comes LATER in the file, which is what wins the tie. Both must be FOUND: `indexOf` is -1
+  it('beats the most specific competitor — the doubled class — and so survives a best-pick card', () => {
+    // `div.wf-hc:where([data-control]).best:hover` is (0,3,1); `div.wf-hc.wf-hc:where(…)[data-…]:hover` is
+    // (0,4,1) and comes LATER in the file, so it wins either way. Both must be FOUND: `indexOf` is -1
     // for a missing selector, and `greaterThan(-1)` passes for anything.
-    const competitor = css.indexOf('div.wf-hc:where([data-control]).best.on:hover');
+    const competitor = css.indexOf('div.wf-hc:where([data-control]).best:hover');
     const mark = css.indexOf(highlight);
     expect(competitor).toBeGreaterThanOrEqual(0);
     expect(mark).toBeGreaterThanOrEqual(0);

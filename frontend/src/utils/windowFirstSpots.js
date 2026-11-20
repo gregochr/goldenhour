@@ -223,7 +223,7 @@ function tideFactOf(slot, factsById, factsByName) {
  *        that gating and marking are the same judgement made once.
  * @param {?Set<*>} [allowedIds] the briefing's served {@code allowedLocationIds} as a Set, on a SHAPED body only
  *        (S5b-1). A slot the server marked {@code gated}, or one whose id that list does not name, becomes a spot
- *        with {@code gated: true} and no star: it stays in the list (the Map and the popup name it) but is in
+ *        with {@code gated: true} and no star: it stays in the list (the Map and the deleted popup name it) but is in
  *        neither half of any count. Null leaves every spot exactly as it was.
  * @returns {Array} spot descriptors, ordered by {@link compareSpots}
  */

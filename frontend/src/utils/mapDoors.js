@@ -2,12 +2,12 @@
  * The map doors' shared close-then-move-and-merge entry (doors D2, D3, D4 —
  * `plan-to-map-doors-plan.md` §3). Extracted as a PURE function, separate from
  * `WindowFirstShell.jsx`'s own `openMapTab` wrapper, for one reason: no door UI ships in D2 (plan
- * §3 D2 task 1's own text — D3 wires the sheet footer, D4 the popup field), so the wrapper itself
+ * §3 D2 task 1's own text — D3 wires the sheet footer, D4 the deleted popup field), so the wrapper itself
  * has no caller yet and cannot be exercised through a rendered button. This function is the "test-
  * only caller" plan §3 D2 task 1 promises D2 delivers — a plain function taking its collaborators
  * as arguments, callable directly from a test with no component render at all.
  *
- * <p><b>Ordering.</b> Closes the sheet layers FIRST (since G2a no door opens the window popup, so it is not
+ * <p><b>Ordering.</b> Closes the sheet layers FIRST (since G2a no door opens the deleted window popup, so it is not
  * closed here), mirroring every other existing map route in `WindowFirstShell.jsx` (the location sheet's own `onShowOnMap` wrapper) — a door
  * onto the map must never leave a Plan dialog mounted underneath the Map tab.
  *
@@ -19,7 +19,7 @@
  * `undefined`, which `onOpenMapTab`'s own consumers (`App.jsx`'s `openMapTabFromPlan`) branch on.
  *
  * @param {object} params
- * @param {Function} params.openSheetLayer closes the popup/pick/sheet-by-key layer (`(null) => void`)
+ * @param {Function} params.openSheetLayer closes the Map list, four-day sheet or area sheet layer (`(null) => void`)
  * @param {?Function} params.onOpenMapTab `App.jsx`'s `openMapTabFromPlan`, or undefined when there
  *        is nothing to map (`allDates.length === 0`) — optional-chained, so this function still
  *        performs the close even with nothing to hand the payload to

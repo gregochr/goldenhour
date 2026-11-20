@@ -45,7 +45,7 @@ const card = () => ({
   reachTotal: 0,
 });
 
-/** Five rated spots — `sheetOffersMore` withholds the "See all" trigger below four. */
+/** Five rated spots. */
 const spots = [1, 2, 3, 4, 5].map((n) => ({
   key: String(n),
   locationId: n,

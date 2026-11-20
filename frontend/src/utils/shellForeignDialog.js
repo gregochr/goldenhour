@@ -6,7 +6,7 @@
  * {@code App}, the map overlay is another, and Ask's own sheet is portalled to {@code <body>}. But
  * {@code Modal} renders IN PLACE rather than through a portal, so every dialog the shell does own is
  * a DESCENDANT of its root and every one it does not is not. Containment therefore answers "is this
- * mine" without naming any of them — which is what lets the window popup be treated differently from
+ * mine" without naming any of them — which is what lets the deleted window popup be treated differently from
  * the settings modal by callers that care to.
  *
  * <p>Read at press time, from the DOM, by three callers that must never disagree: the {@code /}

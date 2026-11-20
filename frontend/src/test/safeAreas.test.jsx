@@ -178,7 +178,7 @@ describe('safe areas', () => {
       // reads as a card floating over a dead page. But being unlayered, 0,1,0 and thousands of
       // lines below `.app-safe-modal`, it won on source order and cancelled the safe padding
       // outright, on the one device class with an unsafe zone, for the Plan tab's flagship dialog
-      // whose `.wf-wsh` is full-height. Measured at 390×844 with a 34px bottom inset: the popup's
+      // whose card is full-height. Measured at 390×844 with a 34px bottom inset: the popup's
       // foot now sits 34px clear where it was flush, and at a zero inset it is still exactly `0px`.
       expect(rule('[data-testid="window-sheet"]'), 'a bare `padding: 0` re-opens the defect')
         .toMatch(/padding: var\(--safe-t\) var\(--safe-r\) var\(--safe-b\) var\(--safe-l\)/);

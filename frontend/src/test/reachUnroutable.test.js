@@ -9,7 +9,6 @@ import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildWindowSpots } from '../utils/windowFirstSpots.js';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { bestReachLine } from '../components/WindowFirstHeatStrip.jsx';
-import { buildRegionRows } from '../utils/windowFirstRegions.js';
 import { browseEmptyLine, browseSpots } from '../utils/windowSpotBrowse.js';
 import { buildPlanConflict } from '../utils/planConflicts.js';
 import { noRouteClause, spreadTitle } from '../utils/windowFirstSpread.js';
@@ -354,8 +353,7 @@ describe('the card — a Helvellyn-shaped place with no route', () => {
     expect(noRouteClause(3, 'Keswick')).toBe(' · 3 places have no route from Keswick');
   });
 
-  it('agrees between the card and the region rail on the same location across two windows', () => {
-    // Two windows, one location: the gate must drop it in both the card and the rail row built from it.
+  it('drops the same location from the card in every window', () => {
     const reach = REACH(UNROUTABLE_ENTRY);
     const twoDays = [
       { date: TODAY, eventSummaries: days()[0].eventSummaries },
@@ -365,32 +363,10 @@ describe('the card — a Helvellyn-shaped place with no route', () => {
       [{ date: TODAY, targetType: 'SUNSET' }, { date: TOMORROW, targetType: 'SUNSET' }],
       twoDays, TODAY, TOMORROW, new Set(), reach, { limitMinutes: 45, defaultLimitMinutes: 45 },
     );
-    cards.forEach((card, index) => {
-      const es = twoDays[index].eventSummaries[0];
-      const rows = buildRegionRows(es, card.spots, card.allSpots, {
-        limitMinutes: 45, minRating: null, measured: card.reachMeasured,
-      });
+    cards.forEach((card) => {
       expect(card.spots.map((s) => s.locationName)).toEqual(['Near Wood']);
-      // The rail counted the same survivors: Helvellyn is out of both.
-      expect(rows[0].drawnCount).toBe(card.spots.length);
-      expect(rows[0].totalCount).toBe(3);
+      expect(card.allSpots).toHaveLength(3);
     });
-  });
-
-  it('the rail says a region emptied by reach is "away", counting an unroutable place as removed by reach', () => {
-    // Near Wood is 90 min and Helvellyn has no route: at 45 min both are out, so reach emptied the region and
-    // its row states the nearest measured drive. If the rail ran the gate without the card's `measured`, the
-    // unroutable place would "survive" reach and the row would stay silent about why it is empty.
-    const es = days()[0].eventSummaries[0];
-    const reach = REACH(UNROUTABLE_ENTRY);
-    reach.set(1, { driveMinutes: 90, distanceMiles: 40, driveStatus: 'MEASURED' });
-    const card = cardFor(reach, 45);
-    expect(card.spots).toEqual([]);
-    const lens = { limitMinutes: 45, minRating: null };
-    const measured = buildRegionRows(es, card.spots, card.allSpots, { ...lens, measured: card.reachMeasured });
-    const unthreaded = buildRegionRows(es, card.spots, card.allSpots, lens);
-    expect(measured[0].awayLabel).toBe('1h 10min away');
-    expect(unthreaded[0].awayLabel).toBeNull();
   });
 });
 

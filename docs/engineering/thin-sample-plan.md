@@ -1,5 +1,7 @@
 # Thin-sample field and pick eligibility — build plan
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 Owner ask, 2026-10-22: on the Plan tab the Sat 24 Oct sunrise card wore BEST BET, read `Worth it 4.0★`
 and glowed orange over Tyneside on **6 rated places of 83** in reach. The only caveat was the spread
 row's quiet `6/83 rated`. A new reader would miss it.

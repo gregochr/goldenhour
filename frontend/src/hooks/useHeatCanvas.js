@@ -160,7 +160,7 @@ const RESIZE_THROTTLE_MS = 170;
  * always was, because their height is {@code round(width × aspect)} and cannot move on its own.
  *
  * <p>The proof this widening was behaviour-preserving is the same proof as last time:
- * {@code WindowFirstHeatStrip.test.jsx} and {@code WindowRowFieldMap.test.jsx} pass <b>unedited</b>.
+ * {@code WindowFirstHeatStrip.test.jsx} and the since-deleted {@code WindowRowFieldMap.test.jsx} pass <b>unedited</b>.
  *
  * <h2>What it owns, and what it deliberately does not</h2>
  *

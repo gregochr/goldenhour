@@ -1,5 +1,7 @@
 # Location sheet superset — implementation plan
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 **For an Opus/Sonnet build session. Written 2026-08-24 against `main` @ `1281e64a` (post-M5).**
 
 > **Status (2026-08-25):** Phase 1 merged as #613 (`57fde7cb`) — score bars in the sheet, shared

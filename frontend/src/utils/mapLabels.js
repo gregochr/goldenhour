@@ -208,7 +208,7 @@ export function homeLabelItems(homePoint, zoom) {
 
 // ── Ring labels ──────────────────────────────────────────────────────────────────────────────────
 
-/** "25 mi" — deliberately a tiny LOCAL formatter, the same call `WindowRowFieldMap.jsx` makes for
+/** "25 mi" — deliberately a tiny LOCAL formatter, the same call the since-deleted `WindowRowFieldMap.jsx` makes for
  * the identical reason (its own comment): there is no shared distance-formatting vocabulary to
  * reuse, and a plain distance is answerable from the authored mile constant alone. */
 function formatMiles(mi) {
@@ -222,7 +222,7 @@ function formatMiles(mi) {
  * bottom does not plant a label off-screen for the placer to reject anyway).
  *
  * <p>Text is a DISTANCE by default and a DURATION only when {@code reachMeasured} — the same rule
- * {@code WindowRowFieldMap}'s own ring labels apply, using the app's real
+ * the since-deleted {@code WindowRowFieldMap}'s own ring labels apply, using the app's real
  * {@code formatDriveDuration} (not the bundle's bare {@code "1h 30"} string) so the two surfaces'
  * duration text can never drift apart.
  *

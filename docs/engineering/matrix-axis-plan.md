@@ -1,5 +1,7 @@
 # Plan — naming the matrix axis (design bundle `design_handoff_matrix_axis`)
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 **Status: COMPLETE — both phases merged 2026-08-30**, the day this plan landed (#707): Phase 1, the
 sunrise/sunset card chips, as #708 (`37cc964f`); Phase 2, the row rails and sticky headings, as
 #710 (`e540680d`). ⚠️ This line read "planned, not started" until 2026-09-11 — twelve days after

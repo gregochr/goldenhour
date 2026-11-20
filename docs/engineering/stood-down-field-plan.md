@@ -1,5 +1,7 @@
 # Weather stand-downs count in the heat field — plan
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 Source: design handoff `design_handoff_stood_down_field` (2026-11-12). One PR, two parts. Frontend only.
 
 ## The defect

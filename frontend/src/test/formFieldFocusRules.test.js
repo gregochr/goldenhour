@@ -10,7 +10,7 @@ import { compile } from 'tailwindcss';
 /**
  * The focus outline of every text input, `<select>` and `<textarea>` that pairs a focus ring
  * (`ring-*`, a `box-shadow`) or a focus-time border-colour change with `outline-none` — 28 call
- * sites across the auth pages, the admin management views, `SortableHeader`'s filter input, the
+ * sites across the auth pages, the admin management views, the
  * Plan-overlay drive-time `<select>` and the aurora simulation form.
  *
  * <p>Same defect as the shared `.btn*` classes (see `docs/engineering/frontend-test-standards.md`'s
@@ -406,7 +406,6 @@ describe('form-field focus outlines — their call sites', () => {
     const expectedFiles = [
       'components/AuroraSimulateModal.jsx',
       'components/users/userFormClasses.js',
-      'components/shared/SortableHeader.jsx',
     ];
     const filesWithOutlineHidden = new Set(
       sites.filter(({ classes }) => classes.includes('focus:outline-hidden')).map(({ file }) => file),

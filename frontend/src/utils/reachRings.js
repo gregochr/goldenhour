@@ -2,11 +2,11 @@
  * Reach ring tiers — ONE definition shared by every host that draws "how far from home" circles,
  * so a second surface can never silently disagree about what the rings mean.
  *
- * <p>Originally authored inline in {@code WindowRowFieldMap.jsx} (field-geography plan §3.2,
+ * <p>Originally authored inline in the since-deleted {@code WindowRowFieldMap.jsx} (field-geography plan §3.2,
  * re-authored §5.2 — a 2026-08-30 owner decision: 25 mi / 50 mi, not the earlier unlabelled 40/80
  * km, and not the design bundle's 36/72 km either). Extracted here at map-tab-v2-plan.md §3 P8,
  * decision D-4, so {@code MapHeatLayer}'s canvas rings on the Map tab draw the exact same two
- * circles as the Plan popup's field map — a second authored pair of numbers here would drift the
+ * circles as the deleted Plan popup's field map — a second authored pair of numbers here would drift the
  * moment either host's constant changed without the other noticing.
  *
  * <p>25 mi / 50 mi ≈ 40.2336 / 80.4672 km — visually indistinguishable from the original 40/80 km,
@@ -23,7 +23,7 @@ export const MI_TO_KM = 1.609344;
  * <p>The label a ring carries depends on the SCREEN's own {@code reachMeasured} state (§5.2): by
  * default it states the distance itself — a claim true for every account, measured or not — and
  * only upgrades to the minutes figure once a real drive time has gated that screen's reach lens.
- * See {@code WindowRowFieldMap}'s own ring-label JSX and {@code MapLabels}' ring-label candidate
+ * See the since-deleted {@code WindowRowFieldMap}'s own ring-label JSX and {@code MapLabels}' ring-label candidate
  * builder for the two call sites that apply that rule.
  */
 export const RING_TIERS = [[25, 45], [50, 90]].map(([mi, minutes]) => ({
@@ -41,10 +41,8 @@ export const RING_MIN_PX = 18;
  * {@code map.getCenter()} instead, which is the right reference for the KERNEL's radius (centred
  * on wherever the reader is currently looking) but the wrong one for a ring centred on home: as
  * the reader pans north or south while home stays put, the "same" 25 mi ring would visibly grow or
- * shrink by double-digit percentages across this roster's latitude span. Adapted from
- * {@code heatField.kmPerPx}'s own "measure a real 1° delta at the reference point" pattern, for
- * Leaflet's {@code latLngToContainerPoint} projection instead of the flat SVG one that function
- * serves.
+ * shrink by double-digit percentages across this roster's latitude span. It measures a real
+ * 1° delta at the reference point through Leaflet's {@code latLngToContainerPoint} projection.
  *
  * <p>Deliberately takes no {@code lng} parameter: a same-longitude 1° latitude delta is what
  * isolates the latitude-dependent scale term from Web Mercator's OWN longitude-independent

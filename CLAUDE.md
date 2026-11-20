@@ -5,7 +5,7 @@
 A full-stack app that evaluates sunrise/sunset colour potential at configured locations.
 
 - **Backend**: Spring Boot 4 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, H2/PostgreSQL persistence, scheduled runs, admin alert emails and user emails.
-- **Frontend**: React 19 + Vite + Tailwind — Map tab (Leaflet, v2: heat field default, chronological window control), Plan matrix (labelled *At a Glance*; day × event heatmap, popup and location sheet), Coming up feed, Operations tab, JWT-authenticated, and **Ask PhotoCast** (Pro and Admin; a flag-gated plain-English question box over the served forecasts, linked to the Map and the Plan matrix). Outcome recording has one UI: the Map tab's "How was it?" block, where Pro and Admin readers rate a past sunrise or sunset in the location callout (`docs/engineering/outcome-rating-plan.md`); the older free-text `POST /api/outcome` stack was deleted in code (`docs/engineering/v1-retirement-plan.md` §8; its `actual_outcome` table was dropped in V195, its one row moved to `outcome_rating`).
+- **Frontend**: React 19 + Vite + Tailwind — Map tab (Leaflet, v2: heat field default, chronological window control), Plan matrix (labelled *At a Glance*; day × event heatmap whose cards open the Map; location sheet), Coming up feed, Operations tab, JWT-authenticated, and **Ask PhotoCast** (Pro and Admin; a flag-gated plain-English question box over the served forecasts, linked to the Map and the Plan matrix). Outcome recording has one UI: the Map tab's "How was it?" block, where Pro and Admin readers rate a past sunrise or sunset in the location callout (`docs/engineering/outcome-rating-plan.md`); the older free-text `POST /api/outcome` stack was deleted in code (`docs/engineering/v1-retirement-plan.md` §8; its `actual_outcome` table was dropped in V195, its one row moved to `outcome_rating`).
 
 ---
 
@@ -69,7 +69,7 @@ Still never done by a session: creating or deleting tags, cutting a release (the
 | Area | File |
 |---|---|
 | Core pipeline, scoring, evaluation, cost tracking, job metrics and per-location failure tracking, resilience, batch cache primer | `docs/engineering/reference/pipeline.md` |
-| Daily Briefing, the Plan tab matrix (cards, popup, location sheet, dialog stacking), Plan-screen confidence, `VerdictSampleGate`, neighbour guard | `docs/engineering/reference/plan-tab.md` |
+| Daily Briefing, the Plan tab matrix (cards, location sheet, dialog stacking, Back), Plan-screen confidence, `VerdictSampleGate`, neighbour guard | `docs/engineering/reference/plan-tab.md` |
 | Map tab (v2), locations, thin-sample hatch, verdict and picks, phone peek sheet, past windows, "How was it?" rating | `docs/engineering/reference/map-tab.md` |
 | Ask PhotoCast (Ready answers, engine, typed guards, thread, night tool, client) | `docs/engineering/reference/ask-photocast.md` |
 | Aurora (polling, state machine, banner, viewline, simulation) | `docs/engineering/reference/aurora.md` |

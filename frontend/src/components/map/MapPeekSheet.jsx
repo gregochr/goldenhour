@@ -59,7 +59,7 @@ import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../sha
  * {@code TIDE} (was {@code TIDE AT THIS LIGHT} before the compact design's 390px row), unlike Other
  * windows' `OTHER WINDOWS ⇄ CLOSE` pair.
  *
- * <p>⚠️ {@code data-testid="wf-map-peek"}, deliberately NOT {@code wf-peek}: `WindowSpotPeek.jsx`
+ * <p>⚠️ {@code data-testid="wf-map-peek"}, deliberately NOT {@code wf-peek}: the since-deleted `WindowSpotPeek.jsx`
  * already owns that class in `index.css` (`position: fixed`, a 280px width, an entry animation and
  * an {@code ::after} arrow), which a same-named sheet would silently inherit (a Codex finding on
  * the plan's M0 — every hook this component and its CSS use is `wf-map-peek-*`).

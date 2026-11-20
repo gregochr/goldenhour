@@ -239,7 +239,7 @@ Planned 2026-11-07 from a research pass over `origin/main` (`3ac0bb8a`). Four PR
   - **From the Map:** `map-label-chip` → `map-callout` → `map-callout-four-days` → `location-sheet`. Expanding a row with `location-sheet-row-toggle` waits on `waitForResponse(/\/api\/forecast\/\d+$/)`, then checks that `location-sheet-facts` and its fact rows show the seeded values (rating, comfort, tide).
   - **From the Plan:** `wf-heat-card` → `window-sheet` → `window-spot` or `wf-row-map-chip` → `location-sheet`, two dialogs deep.
   - **Closing:** Escape closes the top layer first, then the next. The close buttons work. **A third dialog never opens.**
-- **`door1-obstacles.spec.js`** moves into `smoke/` on the shared fixture, with its "restart + `POST /api/briefing/run`" setup removed, because the seed replaces it.
+- **`door1-obstacles.spec.js`** (deleted with the window popup, `glance-to-map-plan.md` G2b) moved into `smoke/` on the shared fixture, with its "restart + `POST /api/briefing/run`" setup removed, because the seed replaces it.
 - **Ask:** `ask.spec.js` is re-checked on seeded data, because Ready answers may now exist. It stays non-spending.
 
 ### 3a.1 review amendments (2026-11-07). These are binding and win over the bullets above where they conflict.
@@ -341,7 +341,7 @@ Two adversarial reviews (one on the seeder, one on the specs) read the plan agai
      - On the Map route, the sheet closes, then focus returns to `map-callout-reason`, then the selection clears.
    - **Don't click** guide links (they open a new tab off-origin), `location-sheet-plan` or `location-sheet-map`.
    - **The browser Back button closes the top dialog** (amended by `back-closes-dialogs-plan.md`, PR 2a onwards: dialogs push a history entry through `utils/dialogHistory.js`). It is tested in `smoke/back.spec.js`, which waits for `<html data-back-depth>` to settle before every `goBack`; the first 3a.1 draft said it was not tested.
-7. **`door1-obstacles.spec.js`**
+7. **`door1-obstacles.spec.js`** (deleted with the window popup, `glance-to-map-plan.md` G2b)
    - Use the fixture login. Desktop viewport only in the gate; the 390×844 variant is added only if the discovery run proves it stable.
    - Wait for `document.fonts.ready` after each sheet opens, and use `expect.poll` stability twice instead of the bounded RAF loop.
    - Assert `cardCount >= 6`. A sample point outside the viewport fails the test.

@@ -174,50 +174,6 @@ export function browseSpots({
 }
 
 /**
- * How many spot cards the film strip shows without scrolling.
- *
- * <p>{@code .wf-spots > .wf-spot} is {@code flex: 0 0 calc((100% - 24px) / 3.5)}, so the fourth
- * card is the first one partly off-screen. Phone sizes at 72%, which is fewer still — so three is
- * the ceiling on what a reader can already see, on every breakpoint.
- */
-const SPOTS_VISIBLE_AT_ONCE = 3;
-
-/**
- * Whether the drill-down could show this window's reader anything the strip does not.
- *
- * <p>The trigger is drawn only where this is true, which is the rule the {@code ‹ ›} arrows already
- * hold on the same footer and for the same stated reason: a control that is present but cannot
- * change anything "reads as broken, where their absence reads as 'that is all of them'". A dialog
- * that opens onto the identical three cards the reader is already looking at is the demo control
- * §6 bans, arriving by a slightly longer route.
- *
- * <p>Four ways it can be true, and each is a real thing the sheet does:
- *
- * <ul>
- *   <li>the reach lens withheld some — the sheet's own tier can bring them back;</li>
- *   <li>more spots than fit the strip at once — the grid shows them together and ranked;</li>
- *   <li>something is rated — the floor can act;</li>
- *   <li>two or more types are present — the type control can act.</li>
- * </ul>
- *
- * <p>All four are computed from data rather than from layout, deliberately: {@code overflows} is
- * measured from {@code scrollWidth}, which jsdom cannot produce, so a rule keyed on it would be one
- * no test could reach.
- *
- * @param {object} card the window card descriptor
- * @param {?Map<string, string[]>} typesByName location name → its {@code locationType} array
- * @returns {boolean} true when the sheet is worth offering
- */
-export function sheetOffersMore(card, typesByName) {
-  const all = card?.allSpots || [];
-  if (all.length === 0) return false;
-  return all.length > (card.spots?.length ?? 0)
-    || all.length > SPOTS_VISIBLE_AT_ONCE
-    || hasRatings(all)
-    || typeOptionsFor(all, typesByName).length > 0;
-}
-
-/**
  * What the empty list may honestly suggest — naming a control only where relaxing <em>it alone</em>
  * would put something on screen.
  *

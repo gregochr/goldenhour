@@ -163,7 +163,7 @@ export function coastAlphaAt(zoom) {
 /**
  * Reach rings (map-tab-v2-plan.md §3 P8) — dashed circles at the shared 25/50 mi tiers around
  * home, drawn on the SAME canvas as the coastline stroke, in the same paint pass. The tiers are
- * `utils/reachRings.js`'s one definition, shared with `WindowRowFieldMap`'s own rings on the Plan
+ * `utils/reachRings.js`'s one definition, shared with the since-deleted `WindowRowFieldMap`'s own rings on the Plan
  * popup's field map (decision D-4) — a second set of numbers here would silently disagree with
  * that surface's circles.
  *
@@ -180,7 +180,7 @@ const RING_LINE_WIDTH = 1;
 
 /**
  * A ring wider than this multiple of the frame's larger side is entirely off-frame — skip it.
- * {@code WindowRowFieldMap}'s own constant of the same name and value; not exported from
+ * the since-deleted {@code WindowRowFieldMap}'s own constant of the same name and value; not exported from
  * `utils/reachRings.js` because it is a per-host DISPLAY concern (how big a frame this host has),
  * not a fact about the tiers themselves — see that module's own note on why only the tiers and the
  * legibility floor are shared.
@@ -219,7 +219,7 @@ function drawReachRings(ctx, map, homeCoords, width, height) {
   ctx.strokeStyle = RING_STROKE;
   for (const ring of RING_TIERS) {
     const r = ring.km * pxPerKm;
-    // The SAME two skip rules `WindowRowFieldMap`'s own rings apply: illegibly small (the shared
+    // The SAME two skip rules the since-deleted `WindowRowFieldMap`'s own rings apply: illegibly small (the shared
     // `RING_MIN_PX` floor), or so large the circle is entirely off-frame (a per-host ceiling —
     // see `RING_OFFFRAME_FACTOR`'s own note on why it is not shared).
     if (r < RING_MIN_PX || r > Math.max(width, height) * RING_OFFFRAME_FACTOR) continue;

@@ -179,7 +179,7 @@ function kindShort(event) {
  * viewreset resize` coalesce into one `requestAnimationFrame`, `moveend zoomend` settle immediately.
  * The card's own SIZE is re-measured (`cardRef`) whenever a fresh `frame` lands OR the "every
  * window" strip opens/closes — a size the browser has to lay out before {@link anchorCallout} can
- * place it, the same two-pass reasoning `MapLabels`/`WindowRowFieldMap` already use.
+ * place it, the same two-pass reasoning `MapLabels`/the since-deleted `WindowRowFieldMap` already use.
  *
  * <h2>Portalled to the chrome wrapper, not a Leaflet pane</h2>
  *
@@ -683,7 +683,7 @@ export default function MapCallout({
   }
 
   // Measure-then-place (see the class doc's two-pass note) — keyed on the `frame` OBJECT's identity,
-  // `MapLabels`'/`WindowRowFieldMap`'s own guard: a repaint that produced an identical-looking frame
+  // `MapLabels`'/the since-deleted `WindowRowFieldMap`'s own guard: a repaint that produced an identical-looking frame
   // still gets a fresh object, so this always re-measures after a real paint.
   useLayoutEffect(() => {
     if (!frame || placement?.frame === frame) return;
@@ -694,7 +694,7 @@ export default function MapCallout({
     const box = anchorCallout({
       point: frame.point, cardWidth: w, cardHeight: h, frameWidth: frame.frameWidth, band: frame.band,
     });
-    // A MEASUREMENT write, the same escape hatch `MapLabels`/`WindowRowFieldMap` document at their
+    // A MEASUREMENT write, the same escape hatch `MapLabels`/the since-deleted `WindowRowFieldMap` document at their
     // identical call: the card's box depends on its own rendered text, which cannot be known before
     // the browser lays it out. A `useLayoutEffect` write rather than `useEffect`, which is what
     // keeps this off `react-hooks/set-state-in-effect`'s rule entirely.

@@ -18,18 +18,15 @@ import { isEventPast } from '../utils/briefingDisplay.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
-import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 import {
   buildHeatPointSets, buildHeatSpots, buildHeatWindowStates, buildUnratedPointSets,
 } from '../utils/heatSpots.js';
 import { stoodPointSetsOf } from '../utils/mapStandDown.js';
-import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
 import { reachIsMeasured } from '../utils/reachLens.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { lastPlanDateStr } from '../utils/comingUpHandoff.js';
 import { buildGroundSets, isShaped } from '../utils/pickScope.js';
-import { regionPickSummaries } from '../utils/pickGeography.js';
 import { SubRegionStatusProvider } from './SubRegionStatusContext.jsx';
 
 /** The payload regenerates every ~8–10h; polling faster only adds revalidations. */
@@ -68,7 +65,6 @@ const EMPTY_GROUND_SETS = new Map();
  * {@code Map<string, Map<string, ?number>>}) and a shared empty is exactly how two shapes end up
  * documented as one.
  */
-const EMPTY_REGION_SERIES = new Map();
 
 /**
  * The region list and the shared drive-time matrix before their own fetches land.
@@ -208,8 +204,6 @@ const WindowFirstBriefingContext = createContext({
   heatUnratedSets: EMPTY_POINT_SETS,
   heatStoodSets: EMPTY_POINT_SETS,
   heatGroundSets: EMPTY_GROUND_SETS,
-  regionPicks: null,
-  regionSeries: EMPTY_REGION_SERIES,
   reachById: EMPTY_REACH,
   effectiveReachById: EMPTY_REACH,
   // Whether any drive is measured for the active origin (reach-scoped-card-plan D2). False without a provider.
@@ -381,9 +375,9 @@ export function WindowFirstBriefingProvider({
   // ⚠️ PUBLISHED on the context value since P8, and the note this replaces is why. It used to read
   // "deliberately NOT on the context value: nothing outside this file needs a row yet. P5's
   // leave-by and P8's four-day sheet do — their 'why' prose is `LocationEvaluationView.summary` —
-  // and they should export THIS rather than read `scoreIndex`, which is name-keyed and drops every
+  // and they should export THIS rather than read the name-keyed score index (since removed), which drops every
   // row missing a region or location name, i.e. a different population from the one the heat join
-  // saw." P8's first cut read `scoreIndex` anyway and an adversarial review caught it: the sheet
+  // saw." P8's first cut read that index anyway and an adversarial review caught it: the sheet
   // timed its rows id-first (`buildSlotIndex`) and rated them name-only, so a location renamed
   // since the last evaluation run got a correct departure time under "Not scored yet", while the
   // heat field behind the dialog — id-first — still painted its rating.
@@ -935,13 +929,6 @@ export function WindowFirstBriefingProvider({
     return next;
   }, [scoreRows]);
 
-  // Built once for the page rather than per strip: the spot peek looks a slot up by
-  // (locationName, date, targetType), and `evaluationScores` is keyed with the region name in
-  // front, so every lookup would otherwise be a linear scan of the whole map. Six window cards ×
-  // up to seven spots each is enough for that to matter, and the index is what
-  // `buildBriefingScoreIndex` exists for.
-  const scoreIndex = useMemo(() => buildBriefingScoreIndex(evaluationScores), [evaluationScores]);
-
   /**
    * The heat field's catalogue: one spot per joinable location, carrying one score per rendered
    * window. Derived HERE for the same reason the cards are — the strip, the row maps and the Map
@@ -1008,32 +995,6 @@ export function WindowFirstBriefingProvider({
   );
 
   /**
-   * The picks across each region (S5a-2's {@code regionPickSummaries}), for the popup's region rail (S5b-1): which
-   * regions hold a pick, how many sub-regions each has, and the places a region holds. Null unless the body is
-   * shaped.
-   */
-  const regionPicks = useMemo(
-    () => (allowedIdSet ? regionPickSummaries(heatSpotList, servedAllowedIds) : null),
-    [allowedIdSet, heatSpotList, servedAllowedIds],
-  );
-
-  /**
-   * Each region's served mean across every rendered window, for the open row's dot strip.
-   *
-   * <p>Built here rather than per card because it is a CROSS-window quantity: a card holds one
-   * event summary and the band's dots are about all of them. Deriving it in the card would mean handing
-   * every card the whole day list so that one open row could walk it — one walk per card for one answer,
-   * rebuilt on every poll.
-   *
-   * <p>Off {@code briefing.days} and {@code upcomingEvents}, which is exactly the pair the window
-   * cards are built from, so the dots can never name a window the pane does not render.
-   */
-  const regionSeries = useMemo(
-    () => buildRegionSeries(upcomingEvents, briefing?.days),
-    [upcomingEvents, briefing?.days],
-  );
-
-  /**
    * The briefing's served {@code allowedLocationIds}: an array (possibly empty) on a response the server
    * SHAPED by this reader's sub-region picks, {@code null} on every other (Pro, Admin, enforcement off,
    * or no briefing yet). <b>"Shaped" is {@code Array.isArray} of this and nothing else</b> — never the
@@ -1049,10 +1010,9 @@ export function WindowFirstBriefingProvider({
   const value = useMemo(
     () => ({
       briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
-      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
+      travelDayDates, evaluationScores, scoresLoaded, scoreRows,
       heatSpots: heatSpotList,
-      heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
-      regionSeries,
+      heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets,
       reachById, todayStr, tomorrowStr, reachLens, reachVerdicts,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
@@ -1063,9 +1023,8 @@ export function WindowFirstBriefingProvider({
       comingUpLastSeenDate, setComingUpLastSeenAt, allowedLocationIds,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
-      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
-      heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
-      regionSeries,
+      travelDayDates, evaluationScores, scoresLoaded, scoreRows,
+      heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets,
       reachById, todayStr, tomorrowStr, reachLens, reachVerdicts,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       origin, setOrigin, regions, effectiveReachById, reachMeasured,
@@ -1126,7 +1085,7 @@ WindowFirstBriefingProvider.propTypes = {
  * @returns {{briefing: ?object, loading: boolean, heatStripCards: Array, windowCards: Array,
  *           allowedLocationIds: ?Array<number>,
  *           paneItems: Array, upcomingEvents: Array,
- *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, regionSeries: Map,
+ *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map,
  *           reachById: Map,
  *           reachLens: object, reachVerdicts: ?Object<string, Array>, ratingLens: object, homePlace: ?string,
  *           todayStr: string,

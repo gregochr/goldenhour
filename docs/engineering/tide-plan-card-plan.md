@@ -1,5 +1,7 @@
 # Plan tab — tide alignment on the window card: implementation plan
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 **Source**: the design bundle vendored at `docs/design/tide-plan/` — `README.md` (the spec),
 `CLAUDE_CODE_PROMPT.md` (the designer's working order), `Plan Tide Summary.html` + `plan-tide-v6.js`
 (the prototype; the notes column is part of the spec, and its two `cut` notes are the reasoning),

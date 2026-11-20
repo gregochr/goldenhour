@@ -14,7 +14,7 @@ import MapBestBetWhy, { MapBestBetPanel } from '../components/map/MapBestBetWhy.
 import MapWarningChips, { MapWarningPanel } from '../components/map/MapWarningChips.jsx';
 import RegionsJump from '../components/map/RegionsJump.jsx';
 import WindowSpotSheet from '../components/WindowSpotSheet.jsx';
-import { WindowWarningsBody } from '../components/WindowWarningRow.jsx';
+import { WindowWarningsBody } from '../components/WindowWarningsBody.jsx';
 import { ATTRIBUTION, response, warning } from './warningsFixture.js';
 
 /**

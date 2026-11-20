@@ -1,10 +1,11 @@
 /**
- * The window popup's WARNING row (weather-warnings-plan.md W3).
+ * The shared warning body (`WindowWarningsBody`, weather-warnings-plan.md W3) that the Map's expanded warning and
+ * Coming up's warning entries draw. The window popup's card-adapter row over it was deleted in glance-to-map-plan.md G2c;
+ * the feed gating (flag off, stale, withdrawn) lives with the surfaces that own it.
  *
  * <p>What breaks if these fail: warning text is truncated (the style guide wants it in full), the Updated label or
- * the update text is missing, the matrix or its text alternative is missing, the attribution or the Met Office links
- * disappear, a stale feed reads as an all-clear, the row leaks while the flag is off, a withdrawn warning lingers, or
- * the row writes into a rating.
+ * the update text is missing, the matrix or its text alternative is missing, or the attribution or the Met Office
+ * links disappear.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -14,7 +15,7 @@ vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
 
 import { getWarnings } from '../api/warningsApi.js';
 import { WarningsProvider } from '../context/WarningsContext.jsx';
-import WindowWarningRow, { WHAT_SHOULD_I_DO_URL } from '../components/WindowWarningRow.jsx';
+import { WindowWarningsBody, WHAT_SHOULD_I_DO_URL } from '../components/WindowWarningsBody.jsx';
 import { ATTRIBUTION, METOFFICE_URL, response, warning } from './warningsFixture.js';
 
 const CARD = {
@@ -57,13 +58,13 @@ const YELLOW = warning({
   validTo: '2026-08-16T00:00:00Z',
 });
 
-const mount = async (served, card = CARD) => {
+const mount = async (served, warnings = served.warnings, counts = CARD.warningPlaceCounts) => {
   getWarnings.mockResolvedValue(served);
-  render(<WarningsProvider><WindowWarningRow card={card} /></WarningsProvider>);
+  render(<WarningsProvider><WindowWarningsBody warnings={warnings} counts={counts} /></WarningsProvider>);
   await act(async () => {});
 };
 
-describe('WindowWarningRow', () => {
+describe('WindowWarningsBody', () => {
   beforeEach(() => { getWarnings.mockReset(); });
 
   it('shows the warning in full: headline, every what-to-expect line, advice, further details and update', async () => {
@@ -119,8 +120,8 @@ describe('WindowWarningRow', () => {
     expect(screen.queryByTestId('window-warning-update')).toBeNull();
   });
 
-  it('lists several warnings most severe first, each in full', async () => {
-    await mount(response([YELLOW, AMBER]));
+  it('draws several warnings in the order given, each in full', async () => {
+    await mount(response([AMBER, YELLOW]));
     const articles = screen.getAllByTestId('window-warning');
     expect(articles.map((a) => a.dataset.level)).toEqual(['AMBER', 'YELLOW']);
   });
@@ -137,27 +138,6 @@ describe('WindowWarningRow', () => {
     expect(advice).toHaveTextContent(/^What should I do/);
   });
 
-  it('keeps a stood-down or unscored window\'s warning: the row reads no rating', async () => {
-    await mount(response([AMBER]), { ...CARD, verdict: 'STAND_DOWN', bestRating: null });
-    expect(screen.getByTestId('window-warning')).toBeInTheDocument();
-    expect(screen.getByTestId('window-sheet-warnings').textContent).not.toMatch(/★|stars?\b/i);
-  });
-
-  it('prints nothing for a window no warning covers on a fresh feed (and never says "no warnings")', async () => {
-    await mount(response([AMBER]), { ...CARD, placeIds: [99], warningIds: [] });
-    expect(screen.queryByTestId('window-sheet-warnings')).toBeNull();
-    expect(document.body.textContent).not.toMatch(/no warnings/i);
-  });
-
-  it('prints only the stale admission, never an all-clear, when the feed is stale and none applies', async () => {
-    await mount(response([], { stale: true }));
-    const row = screen.getByTestId('window-sheet-warnings');
-    expect(within(row).getByTestId('warning-stale')).toHaveTextContent('Warnings last checked');
-    expect(within(row).queryByTestId('window-warning')).toBeNull();
-    expect(within(row).queryByTestId('window-warning-advice-link')).toBeNull();
-    expect(row.textContent).not.toMatch(/no warnings|all clear/i);
-  });
-
   it('prints the stale line beside warnings that are shown', async () => {
     await mount(response([AMBER], { stale: true }));
     expect(screen.getByTestId('window-warning')).toBeInTheDocument();
@@ -165,25 +145,4 @@ describe('WindowWarningRow', () => {
     expect(screen.getByTestId('warning-attribution')).toBeInTheDocument();
   });
 
-  it('prints nothing while the feature is off', async () => {
-    await mount({ enabled: false, warnings: [], stale: true });
-    expect(screen.queryByTestId('window-sheet-warnings')).toBeNull();
-  });
-
-  it('prints nothing before the first answer, and after a refusal', async () => {
-    getWarnings.mockResolvedValue(null);
-    render(<WarningsProvider><WindowWarningRow card={CARD} /></WarningsProvider>);
-    await act(async () => {});
-    expect(screen.queryByTestId('window-sheet-warnings')).toBeNull();
-  });
-
-  it('drops a warning the next poll withdrew even though the window still names it', async () => {
-    await mount(response([]), { ...CARD, warningIds: ['amber-snow'] });
-    expect(screen.queryByTestId('window-warning')).toBeNull();
-  });
-
-  it('reads no role: the same row for every reader', async () => {
-    await mount(response([AMBER]));
-    expect(screen.getByTestId('window-warning')).toBeInTheDocument();
-  });
 });

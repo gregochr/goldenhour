@@ -198,7 +198,7 @@ DockedGuide.propTypes = {
 };
 
 /**
- * Presentation 2: a right-hand panel over another aria-modal layer (Settings, the popup, the four-day
+ * Presentation 2: a right-hand panel over another aria-modal layer (Settings, the deleted popup, the four-day
  * sheet). Portalled to {@code <body>} on its own z rung (see `index.css`), with a scrim, so it is the
  * only layer a screen reader can reach; the layer under it is told it is stacked (`GuideContext`'s
  * {@code guideModal}). Escape answers only while this is the last dialog in the document.

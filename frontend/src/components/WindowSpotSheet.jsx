@@ -147,13 +147,10 @@ function persistenceNote({ rating, type, reach }) {
  *
  * @param {object}   props
  * @param {object}   props.card         the window card descriptor, carrying {@code allSpots}
- * @param {string}   props.barTierId    the lens bar's active tier — the comparand for "widened for
- *        browsing", and the tier the sheet inherits unless {@code openTierId} overrides it
+ * @param {string}   props.barTierId    the Map's active drive tier — the comparand for "widened for
+ *        browsing", and the tier the sheet inherits
  * @param {string}   props.barFloorId   the lens bar's active rating floor, on the same terms: the
  *        value the sheet opens on and the comparand for "widened for browsing"
- * @param {string}   [props.openTierId] the tier to OPEN on, where that differs from the bar's. The
- *        shell passes "any" for a window the lens emptied, which is the one case where inheriting
- *        would open a dialog with nothing in it
  * @param {boolean}  [props.reachLocked] true when reach is inert for this user (LITE)
  * @param {?Map<string, string[]>} [props.typesByName] location name → {@code locationType} array
  * @param {Function} props.onClose      dismisses the sheet
@@ -161,18 +158,15 @@ function persistenceNote({ rating, type, reach }) {
  * @param {'modal'|'sheet'} [props.presentation] {@code 'sheet'} hosts the card in a bottom sheet (the Map's phone list)
  */
 export default function WindowSpotSheet({
-  card, barTierId, barFloorId, openTierId, reachLocked = false, typesByName, onClose, onOpenSpot, escapeEnabled = true,
+  card, barTierId, barFloorId, reachLocked = false, typesByName, onClose, onOpenSpot, escapeEnabled = true,
   presentation = 'modal',
 }) {
   const spots = card.allSpots || [];
   // Inherited from the bar, exactly as the tier below is, and local from there on. Type is the one
   // that starts loose rather than inheriting, because the bar has no type control to inherit from.
   const [ratingFloorId, setRatingFloorId] = useState(barFloorId);
-  // Usually the bar's tier — the sheet inherits, which is charge c6's own remedy. The exception is
-  // a window the lens emptied: opening THAT one on the tier that emptied it puts the reader in a
-  // dialog whose whole content is "nothing matches", which is a door onto a wall. It opens widened
-  // instead, says so in the header, and the widening still dies with the sheet.
-  const [tierId, setTierId] = useState(openTierId ?? barTierId);
+  // The bar's tier — the sheet inherits, which is charge c6's own remedy; a widening is local and dies with the sheet.
+  const [tierId, setTierId] = useState(barTierId);
   const [typeId, setTypeId] = useState(ANY_TYPE_ID);
 
   const ratingOffered = hasRatings(spots);
@@ -180,7 +174,7 @@ export default function WindowSpotSheet({
   const limitMinutes = tierById(tierId)?.limitMinutes ?? null;
   // `measured` is the card's own reader-level answer (reach-scoped-card-plan D2): the sheet browses the gate the
   // card ran, so a place with no route is dropped here under a finite tier exactly as it was on the card. The
-  // sheet that opens on "Any" (`openTierId`) still lists those places, with no drive shown, which is consistent:
+  // sheet widened to "Any" still lists those places, with no drive shown, which is consistent:
   // under "Any" nothing is dropped.
   const browseArgs = {
     spots, limitMinutes, ratingFloorId, typeId, typesByName, measured: Boolean(card.reachMeasured),
@@ -213,9 +207,9 @@ export default function WindowSpotSheet({
   });
 
   const label = `All spots — ${[card.kicker, card.when].filter(Boolean).join(' ')}`;
-  // Opened from the Map's phone peek sheet (glance-to-map-plan.md G1): the same card in a bottom sheet, which is the
-  // phone's dialog shape on that tab (the centred Modal is the Plan tab's and the desktop Map's). The shell registers
-  // the Back layer for both presentations, so the sheet takes none of its own.
+  // Opened from the Map (glance-to-map-plan.md G1): the card in a bottom sheet on a phone, which is that tab's dialog
+  // shape, and in the centred Modal on desktop and tablet. The shell registers the Back layer for both presentations,
+  // so the sheet takes none of its own.
   const sheetBody = (
       <div className={`wf-sheet-card${presentation === 'sheet' ? ' wf-sheet-card--in-sheet' : ''}`} data-testid={presentation === 'sheet' ? 'window-spot-sheet' : undefined}>
         <div className="wf-sheet-head">
@@ -374,7 +368,7 @@ export default function WindowSpotSheet({
       closeOnEscape={escapeEnabled}
       /* ⚠️ ONE predicate, two consequences, and they must never come apart: the layer that
          answers Escape is the layer that is not `inert`. M5 measured the alternative in a browser —
-         three `aria-modal` dialogs at once and a Tab out of the top one landing inside the popup
+         three `aria-modal` dialogs at once and a Tab out of the top one landing inside the dialog
          underneath — so a stacked layer holds no tab stops and leaves the accessibility tree, while
          the top one keeps both. Derived from `escapeEnabled` rather than taking a second prop
          precisely so a future caller cannot set one and forget the other. See `Modal`'s own note
@@ -403,7 +397,6 @@ WindowSpotSheet.propTypes = {
   }).isRequired,
   barTierId: PropTypes.string.isRequired,
   barFloorId: PropTypes.string.isRequired,
-  openTierId: PropTypes.string,
   reachLocked: PropTypes.bool,
   typesByName: PropTypes.instanceOf(Map),
   onClose: PropTypes.func.isRequired,

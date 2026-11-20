@@ -1,5 +1,7 @@
 # Hot topics by day: build plan
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 Owner ask, 2026-10-23. The handoff in `docs/design/hot-topics-by-day/` shows **which hot topic
 happens on which day, and where**. It contains:
 

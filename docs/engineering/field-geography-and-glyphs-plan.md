@@ -1,5 +1,7 @@
 # Field geography and topic glyphs — implementation plan
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 **Status: G1–G4 complete — the plan is finished.** This line and the phase table below are the
 source of truth between implementing sessions — update both in the same commit as each phase.
 

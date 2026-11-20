@@ -1,5 +1,7 @@
 # Field geography + glyphs — kickoff prompts for the implementing sessions
 
+> **Superseded in part (2026-11-20):** the window popup, the pick dialog and their field map, region rail, prose slot and topic rows were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card opens the Map. Read this document's popup-only parts as history.
+
 Paste one prompt into a **fresh Claude Code session (Sonnet)**, in order. Each phase lands as its
 own reviewed commit before the next session starts — the plan's **Status line and phase table are
 the source of truth between sessions**, updated in the same commit as each phase, so a new session

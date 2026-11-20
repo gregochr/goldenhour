@@ -31,7 +31,6 @@ import { isOutsidePicks } from '../utils/pickScope.js';
 import { placesOf } from '../utils/windowFirstSpots.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
-import { ANY_TIER_ID } from '../utils/reachLens.js';
 import { originAction, scopeRegions } from '../utils/planOrigin.js';
 import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
 import { buildPlanConflict } from '../utils/planConflicts.js';
@@ -142,29 +141,29 @@ AskDockFallback.propTypes = {
 };
 
 /**
- * Warms the three dialog chunks that can be STACKED, once the popup is open.
+ * Warms the three lazy dialog chunks that can be STACKED over another layer.
  *
  * <h2>⚠️ This is a correctness mitigation, not a speed one</h2>
  *
  * <p>Since M5 a covered layer is {@code inert} — and {@code stacked} is derived from the shell's
  * intent, which is synchronous, while the layer doing the covering arrives when its chunk does.
  * Measured in a browser with the sheet's chunk throttled to 2.5 s: for the whole fetch the page held
- * <b>one dialog and zero live layers</b> — the popup inert (every control, the backdrop and its
+ * <b>one dialog and zero live layers</b> — the lower layer inert (every control, the backdrop and its
  * Escape all dead) and the sheet not yet mounted, with {@code fallback={null}} rendering nothing in
- * between. Before M5 the popup merely declined Escape and stayed clickable, so this is a regression
+ * between. Before M5 the lower layer merely declined Escape and stayed clickable, so this is a regression
  * the {@code inert} work introduced rather than an inherited gap.
  *
  * <p><b>Why warming rather than a loading dialog or a mount signal.</b> A {@code Modal} fallback
  * would flash a second loading state on every cold open for a wait that is usually zero; deferring
  * {@code stacked} until the arriving layer reports its mount means a new prop on three components
  * and an extra commit on the hottest interaction on the page, at the settling commit. Warming
- * removes the window on every route that exists: a chip, a spot card, a pick badge and the masthead's
- * ⌕ (formerly {@code /} too) are all reachable ONLY from an open popup, so the fetch has the reader's whole reading time to
- * finish. It is idempotent (the module registry dedupes), it is fire-and-forget, and a failure is
+ * removes the window on every route that exists: a spot row on the area sheet, a map callout's
+ * {@code Four days here ›} and the masthead's ⌕ are each reachable only after the reader has already read the layer
+ * they come from, so the fetch has that reading time to finish. It is idempotent (the module registry dedupes), it is fire-and-forget, and a failure is
  * the same failure the real import would have had.
  *
- * <p><b>Residual, stated rather than defended against:</b> a reader who opens a window and clicks a
- * chip inside the same few hundred milliseconds on a cold, slow connection can still reach the gap.
+ * <p><b>Residual, stated rather than defended against:</b> a reader who opens a sheet and clicks a
+ * row inside the same few hundred milliseconds on a cold, slow connection can still reach the gap.
  * §11 records it, and the real fix — gate {@code stacked} on the covering layer having mounted — is
  * named there rather than smuggled in here.
  */
@@ -393,7 +392,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *
  * <p>The six-row card list is gone. What the strip used to index — a row per window, opened in
  * place, with the reader's position in the page shifting under them — is now the matrix's own six
- * cells, and (since G2b) a window opens on the Map rather than in a popup here.
+ * cells, and (since G2b) a window opens on the Map rather than in a dialog here.
  *
  * <p>{@code buildPaneItems} survives the deletion and is still read — it is the empty-state line's
  * denominator, and the derivation that keeps away days accounted for. What went is the
@@ -430,7 +429,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *        Called with the tick line's origin-slot resolver, passed through untouched — see
  *        {@link MastheadTickLine}'s {@code onSetPostcode}.
  * @param {?object} [props.homeCoords] {@code {lat, lon}}, or null with no postcode saved — reused
- *        by the heat strip's home marker and (at G3) the popup field's reach rings. `App` hands
+ *        by the heat strip's home marker and (at G3) the deleted window popup field's reach rings. `App` hands
  *        `undefined` while the home is not known, and the default folds that into null here, which
  *        is safe only because every Plan surface draws a home and none prompts for one — the map's
  *        ⌂ does, which is why `WindowFirstMapPane` and `MapView` take the prop bare.
@@ -656,7 +655,7 @@ export default function WindowFirstShell({
    * `onPointerDownCapture`/`onKeyDownCapture`/`onWheelCapture` below.
    *
    * <p>`setActiveTab`, never `selectTab` — the point is to pin the tab CURRENTLY in force without
-   * touching anything else `selectTab` does (closing the popup, the sheet, search…), which would
+   * touching anything else `selectTab` does (closing the deleted window popup, the sheet, search…), which would
    * itself be the jolt this exists to prevent. A plain event handler, not an effect, so there is no
    * set-state-in-effect suppression to write; capture phase so a child that stops propagation cannot
    * hide the interaction, and React's synthetic events travel through portals, so a dialog rendered
@@ -844,23 +843,22 @@ export default function WindowFirstShell({
   /**
    * Selects a tab, and takes any dialog down with it.
    *
-   * <p>Every dialog this shell owns — the window popup, the drill-down sheet, the four-day sheet,
-   * the pick and search — is rendered outside the pane and its state is independent of the tab, so
-   * without this a reader who opened a window and then pressed Coming up would be left with a modal
-   * about a Plan window floating over the almanac feed — and {@code useDialogFocus} is explicitly not
+   * <p>Every dialog this shell owns — the Map's spot list, the four-day sheet, the area sheet and
+   * search — is rendered outside the pane and its state is independent of the tab, so
+   * without this a reader who opened a sheet and then pressed Coming up would be left with a modal
+   * about a place floating over the almanac feed — and {@code useDialogFocus} is explicitly not
    * a focus trap, so closing it would hand focus back to a trigger that is no longer on screen.
-   * Arriving somewhere else ends the browsing, which is the same rule the strip already applies to
-   * its peek before a map handoff.
+   * Arriving somewhere else ends the browsing.
    *
    * <p><b>Naming the tab already in force is the no-move form, and it is how every route that only
-   * needs the dialogs gone closes them</b> — the map's peek handoff below, the ⚙ cog, the tick line's
+   * needs the dialogs gone closes them</b> — the map handoff below, the ⚙ cog, the tick line's
    * postcode nudge and the settings edge. One list, so a dialog added later cannot reach one of those
    * routes and miss another.
    *
    * <p>⚠️ <b>Search is on the list since 2026-09-16, and was missing from it before.</b> A keyboard
    * reader could Tab out of the search box — it is not a trap, and only the tick line leaves the tab
    * order under it — onto the tab bar and arrow to another tab with search still open; over the map,
-   * the peek then landed `inert` beneath it rather than as the only layer.
+   * the callout then landed `inert` beneath it rather than as the only layer.
    *
    * <p>⚠️ <b>This runs DURING RENDER as well as in handlers and effects</b>: the settings edge below
    * calls it. So the body must stay this component's own setters and nothing else. A focus move, a
@@ -882,7 +880,7 @@ export default function WindowFirstShell({
     setSheetKey(null);
     setSheetScope(null);
     // The four-day sheet goes with them. Every dialog this shell owns is about the Plan tab, so arriving
-    // anywhere else ends the browsing — the same rule the strip already applies to its peek before a map handoff.
+    // anywhere else ends the browsing.
     setSheetSpot(null);
     setSheetWindowKey(null);
     setSearchSeed(null);
@@ -1019,23 +1017,23 @@ export default function WindowFirstShell({
   const [sheetKey, setSheetKey] = useState(null);
   const sheetCard = sheetKey == null ? null : windowCards.find((c) => c.key === sheetKey) || null;
   /**
-   * Set only when the list was opened from the MAP (glance-to-map-plan.md G1): the Map's snapshot at the press, so the
-   * list says what the Map says. {@code {spotKeys, floorId, tierId, onPick}}: the {@code heatSpotKey}s the Map held in
-   * scope (the list's spots are intersected with them, so its counts match the Map's), the Map's own rating floor and
-   * drive tier ids (what the sheet opens on), and the callback that selects a place on the Map in place. Null for
-   * every Plan-tab opening, which is therefore exactly what it was. Cleared by every route that clears
-   * {@code sheetKey}, so a stale snapshot can never ride onto another opening.
+   * The Map's snapshot at the press that opened the list (glance-to-map-plan.md G1), so the list says what the Map
+   * says. {@code {spotKeys, floorId, tierId, onPick}}: the {@code heatSpotKey}s the Map held in scope (the list's
+   * spots are intersected with them, so its counts match the Map's), the Map's own rating floor and drive tier ids
+   * (what the sheet opens on), and the callback that selects a place on the Map in place. The list opens only from
+   * the Map, so this is set and cleared together with {@code sheetKey} in {@code openSheetLayer}: a stale snapshot
+   * can never ride onto another opening.
    */
   const [sheetScope, setSheetScope] = useState(null);
-  /** The card the list shows: the live card, its spots narrowed to the Map's in-scope set when opened from the Map. */
-  const sheetCardShown = sheetCard != null && sheetScope != null
+  /** The card the list shows: the live card, its spots narrowed to the Map's in-scope set. */
+  const sheetCardShown = sheetCard != null
     ? {
       ...sheetCard,
       allSpots: (sheetCard.allSpots || []).filter((spot) => sheetScope.spotKeys.has(
         heatSpotKey({ id: spot.locationId, name: spot.locationName }),
       )),
     }
-    : sheetCard;
+    : null;
 
   /**
    * Opens exactly ONE sheet layer (the list, the four-day location sheet or a spot sheet), taking down whatever else
@@ -1090,16 +1088,15 @@ export default function WindowFirstShell({
   }
   /**
    * The shared close-then-move-and-merge entry every map door calls (doors D2,
-   * `plan-to-map-doors-plan.md` §3 D2 task 1; D3 the sheet footer, D4 the popup field) — a thin
+   * `plan-to-map-doors-plan.md` §3 D2 task 1; D3 the sheet footer; D4's popup field is deleted) — a thin
    * wrapper over {@link openMapDoor} (`utils/mapDoors.js`), supplying this shell's own closures.
    * The logic itself — close-then-move, and the live lens-value merge — lives in that PURE
    * function precisely so it is directly unit-tested (`test/mapDoors.test.js`) without a rendered
-   * caller. D3 is its first caller (the location sheet's own `onShowOnMap` prop, below); D4 (the
-   * popup field's new button) is the second, in its own later phase.
+   * caller. D3 is its first caller (the location sheet's own `onShowOnMap` prop, below).
    *
    * <p>Since overlay convergence C4 EVERY Plan-tab map producer goes through here (via
-   * {@link showOnMap} below), so close-then-move is one rule for all of them, the pick dialog's two
-   * actions included - they used to open the overlay first and close second.
+   * {@link showOnMap} below), so close-then-move is one rule for all of them (the deleted pick dialog's two
+   * actions once included - they used to open the overlay first and close second).
    */
   const openMapTab = useCallback((door) => openMapDoor({
     // Every map door takes the layers under it down too, the area sheet included (it can sit under a place sheet).
@@ -1123,7 +1120,7 @@ export default function WindowFirstShell({
   }), [openSheetLayer, onOpenMapTab, ratingLens, reachLens, effectiveTab]);
   /**
    * The Plan tab's "show this on the map" producers' ONE entry (overlay convergence C4,
-   * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the spot sheet's rows, the pick dialog's two actions and the
+   * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the spot sheet's rows (the deleted pick dialog's two actions once among them) and the
    * Coming up cards and day chips. Each used to hand `App` a trigger that opened the frozen map
    * overlay; they now take the SAME structured door the location sheet footer takes -
    * {@link normalizeMapTrigger} turns whatever the producer sends into the one trigger shape and
@@ -1159,7 +1156,7 @@ export default function WindowFirstShell({
    * a tab without mounting its pane would show an empty panel.
    *
    * <p><b>It sits here, below the dialog state, and not beside {@code selectTab} where it reads
-   * more naturally.</b> {@code selectTab} clears {@code openPick} and {@code sheetKey}, which are
+   * more naturally.</b> {@code selectTab} clears {@code sheetKey} and the sheet state, which are
    * declared further down; calling it from an effect placed above them is a use-before-declaration
    * the linter catches. Runtime would have been fine — an effect runs after render — which is
    * exactly why this is worth a sentence rather than a silent move.
@@ -1255,7 +1252,7 @@ export default function WindowFirstShell({
    *
    * <p>⚠️ <b>The clearing and the {@code setSheetSpot} must stay in ONE synchronous body.</b>
    * {@code selectTab} clears {@code sheetSpot} (along with
-   * the popup's window key/`openPick`/`sheetKey`/`focusedRegion`), so the {@code setSheetSpot} call below
+   * the Map list's `sheetKey`), so the {@code setSheetSpot} call below
    * survives only because it is in the SAME React batch: two calls to one setter inside one commit
    * resolve to the LAST one, never the {@code null} made a line earlier. That is also why the tab
    * move rides {@code inPlan} on this payload rather than a second {@code tabRequest} from `App` —
@@ -1384,11 +1381,10 @@ export default function WindowFirstShell({
   /**
    * The served topics, indexed once for the whole page.
    *
-   * <p>The matrix builds its own for its cards; this one is the popup's, and both call
+   * <p>The matrix builds its own for its cards; this one feeds the banner's window topics, and both call
    * {@code buildTopicIndex} on the same field. That is the plan's A8 rule in force — one join, one
-   * scope filter, in {@code windowFirstTopics.js} — and it is why the dialog takes an index rather
-   * than a list of pre-joined rows: the rows are per window, and only the dialog knows which window
-   * it is about.
+   * scope filter, in {@code windowFirstTopics.js} — and it is why the consumers take an index rather than a list of
+   * pre-joined rows: the rows are per window.
    */
   const topicIndex = useMemo(() => buildTopicIndex(briefing?.hotTopics), [briefing?.hotTopics]);
 
@@ -1406,40 +1402,21 @@ export default function WindowFirstShell({
   }, [briefing?.seasonalFeatures, onSeasonalFeaturesChange]);
 
   /**
-   * Whether anything is stacked OVER the window popup — the whole of the Escape order.
+   * Whether a sheet layer (the Map's spot list, a four-day sheet or the area sheet) is up — the whole of the Escape order.
    *
    * <p>{@code Modal} installs one document-level Escape listener per instance, so two open dialogs
    * both close on a single press. The remedy is not a shared stack but a guard per layer: whichever
-   * layer is not on top declines the key, so Escape takes exactly one layer per press — the layer
-   * over the popup, then the popup itself (plan-matrix §6 M2.5).
+   * layer is not on top declines the key, so Escape takes exactly one layer per press (plan-matrix §6 M2.5).
    *
-   * <p><b>SEARCH's rung went live at M3, and it is the reason this whole ordering exists.</b> It
-   * was dormant through M2 — {@code /} was refused while <em>any</em> dialog was open, so search
-   * could never sit over anything and the three {@code escapeEnabled} props below guarded a case
-   * that could not arise. M3 anchors search to the masthead, which the popup is drawn over rather
-   * than in, so search is permitted while the window popup is open and refused over everything else.
-   * ⚠️ Since F2 the way in is the masthead's ⌕ and the origin button ONLY — {@code /} belongs to Ask
-   * (plan §6 Q1) and is refused over the popup. The rung is unchanged: the same controls open the
-   * same search over the same popup, and the same guards refuse it over a layer already stacked.
-   *
-   * <p>⚠️ <b>The stack is TWO deep, never the bundle README's three.</b> The rung over the popup is
-   * search <em>or</em> a stacked sheet, and since M5 never both — every route into search is
-   * refused while this flag stands (plan-matrix §4 A22). So read the order as "the layer above,
-   * then the popup", not as a three-rung sequence to walk down: the two upper rungs are
-   * alternatives, and each {@code escapeEnabled} prop below is written for whichever one is up.
+   * <p>⚠️ <b>The stack is TWO deep, never the bundle README's three.</b> Search over a sheet is refused: every route
+   * into search is refused while this flag stands (plan-matrix §4 A22), so a sheet and search are alternatives, and each
+   * {@code escapeEnabled} prop below is written for whichever one is up. (The window popup this order was written
+   * around was deleted in glance-to-map-plan.md G2b; the area sheet under a place sheet is the stack that remains.)
    */
   const stackedOverLayer = sheetCard != null || sheetSpot != null || areaSheet != null;
   /**
-   * The same question with search folded in — live since M3; see the note above.
-   *
-   * <p>It is what suppresses the spot peek, and every dialog is an operand deliberately rather
-   * than only the sheets. They are all {@code Modal}s, so all render inside Tailwind's
-   * {@code z-50} while {@code .wf-peek} is portalled to the body at {@code z-index: 60}; and
-   * {@code useDialogFocus} is explicitly not a focus trap, so from any of them a keyboard user can
-   * Tab back onto a spot card behind the backdrop and paint a hover panel over the dialog. (This
-   * replaced a broader `modalOpen` flag that also counted the popup itself. The popup must NOT
-   * suppress the peek — it is the surface the peek is opened from — and once the `/` guard moved
-   * onto `stackedOverLayer` at M3 that flag had no other reader.)
+   * The same question with search and the guide folded in: whether any modal layer of the shell is up, which is what
+   * disables Ask's entry points while one stands.
    */
   const modalOpenOverLayer = stackedOverLayer || searchSeed != null || guideModal;
 
@@ -1989,8 +1966,8 @@ export default function WindowFirstShell({
   );
   /**
    * The eclipse spot line's source on this sheet (L7, `docs/engineering/lunar-eclipse-plan.md`) —
-   * the SAME join the popup's {@code eclipseIndex} above builds for `DawnRace`, over the SAME
-   * `briefing.days`, so a location's own moon geometry never disagrees between the popup that
+   * the SAME join the deleted window popup's {@code eclipseIndex} above builds for `DawnRace`, over the SAME
+   * `briefing.days`, so a location's own moon geometry never disagrees between the deleted window popup that
    * opened this sheet and the sheet itself. Null-until-open, like {@code sheetTideAlignmentIndex}
    * beside it.
    */
@@ -2032,11 +2009,11 @@ export default function WindowFirstShell({
    * area is a statement about home — the provider publishes both side by side for exactly this
    * reason — and the away arm ignores the map entirely.
    *
-   * <p>No longer gated on a sheet being open, because it has a second reader: the popup's topic
+   * <p>No longer gated on a sheet being open, because it has a second reader: the deleted window popup's topic
    * scope filter (A8 rule 2) is the same question about the same scope, and the matrix already
    * makes this exact call on every render for the cards' own filter. One memo over three stable
    * inputs is cheaper than two calls and — the reason that matters — makes it impossible for the
-   * cards and the popup they open to be filtered against two different scopes.
+   * cards and the deleted window popup they open to be filtered against two different scopes.
    */
   const planScopeNames = useMemo(
     () => scopeRegions(heatSpots, reachById, origin),
@@ -2108,13 +2085,6 @@ export default function WindowFirstShell({
     else if (current) reason = `Already planning from ${name}`;
     return { name, reason, region: can ? record : null };
   }, [sheetSpot, regions, origin]);
-  // The POSITIONAL form, which centres the map on one location — the same call the pick dialog's
-  // "show location" already makes. The OBJECT form (`{region, date, eventType}`) opened a whole
-  // region and was the retired rail's region chip; nothing on this pane names a region until P3's
-  // rail lands, so it has no caller here.
-  const handleSpot = (card, spot) => (
-    showOnMap?.(card.date, card.targetType, spot.locationName)
-  );
   /**
    * Find — the masthead's labelled button, ⌘K / Ctrl K, and what a pick does on each tab
    * (find-and-favourites-plan.md F1).
@@ -2127,12 +2097,12 @@ export default function WindowFirstShell({
    * {@code selectTab} first, the way {@code askOpenInPlan} does (decision D6).
    *
    * <h2>The guards</h2>
-   * <p>The button refuses while the next-days sheet, the pick dialog or the guide's modal is up (the two-deep
-   * rule: Find is a layer over at most the window popup). The key is NOT a copy of {@code /}: it takes the
+   * <p>The button refuses while a sheet layer (the Map's spot list, the next-days sheet or the area sheet) or the
+   * guide's modal is up (the two-deep rule: Find is never a third layer). The key is NOT a copy of {@code /}: it takes the
    * button's guard, any dialog this shell does not own ({@code foreignDialogOpen}, which covers settings and
    * Ask's sheet), and a field the reader is typing in, and it does NOT read {@code askKeyRefused}, which
    * would take ⌘K from a LITE reader, from a dead Ask backend, from a window narrower than 1024px and from
-   * a reader with the window popup open. A second press while Find is open closes it, ahead of every
+   * a reader with a sheet open. A second press while Find is open closes it, ahead of every
    * refusal (the focus is in Find's own field by then). {@code preventDefault} only when the key acts, so
    * a refused ⌘K still reaches the browser. The listener is mounted at every width and for every role.
    */
@@ -2279,16 +2249,15 @@ export default function WindowFirstShell({
    * a field (input, textarea, select, or anything {@code contenteditable} — the settings modal is a
    * sibling in {@code App}); when a modifier is held, so browser and OS shortcuts are untouched (Shift
    * is NOT refused: on a German layout {@code /} is Shift+7); and while anything is over the shell —
-   * any of its own dialogs, the WINDOW POPUP included, search, settings, a dialog this shell does not
+   * any of its own dialogs, the sheets included, search, settings, a dialog this shell does not
    * own, or a dead backend. {@code askKeyRefused} is every one of the shell's own PLUS the lock (a LITE reader's
    * field is a live door to the upsell, and the key must not open a sales popover or swallow the browser's
    * quick-find), and it contains the flag that disables the field ({@code askBlocked}), so the key can never
    * be live where the control beside it is not.
    *
-   * <p>⚠️ <b>The window popup refuses it, where it used to be the one dialog search was allowed over.</b>
-   * Search is anchored to the masthead, a surface the popup is drawn over, so the two stacked; the dock
-   * is a column beside the page that the popup's scrim covers. Opening it under an {@code aria-modal}
-   * dialog would put a live control where the popup says nothing is, and the popup stays.
+   * <p>⚠️ <b>A sheet refuses it.</b> Search is anchored to the masthead, a surface a sheet is drawn over, and the dock
+   * is a column beside the page that a sheet's scrim covers. Opening it under an {@code aria-modal}
+   * dialog would put a live control where the sheet says nothing is, so the sheet stays.
    */
   useEffect(() => {
     if (!askDockEntry) return undefined;
@@ -2354,7 +2323,7 @@ export default function WindowFirstShell({
    *
    * <p>The lens bar's verdict line, because it is about the plan rather than one window (plan-matrix §6 M2.6;
    * lens-verdict-line-plan.md moved it off a card above the matrix).
-   * Its per-window counterpart is the popup's quiet sentence, and the two land together: neither
+   * Its per-window counterpart is the deleted window popup's quiet sentence, and the two land together: neither
    * alone covers what the deleted per-card ladder covered.
    */
   const conflict = useMemo(() => buildPlanConflict({
@@ -2377,14 +2346,14 @@ export default function WindowFirstShell({
    * guaranteed to be on screen whenever a topic is" — the Hot Topics door is shut on a fresh
    * session, and the promoted strip that once carried a second copy is gone (M5, D-1). Deleting the
    * card list would have put the warning behind a click, which is not somewhere a hazard notice may
-   * live. So it is stated once, above the matrix, naming its window; the popup's topic row states it
+   * live. So it is stated once, above the matrix, naming its window; the deleted window popup's topic row states it
    * again for a reader who has opened that window, exactly as the door already does.
    *
    * <p>One line rather than one per badge: a warning is about the hazard, not about the chip, and
    * the card's own rule was already "whichever badge carries one".
    */
   const safety = useMemo(() => {
-    // ⚠️ Through the SAME A8 filter the cards and the popup use, not over the raw badge list. A
+    // ⚠️ Through the SAME A8 filter the cards and the deleted window popup use, not over the raw badge list. A
     // region-scoped hazard the scope drops shows on no card and in no popup, so a banner naming its
     // window would point at a window that says nothing about it when opened.
     const hit = windowCards
@@ -2402,7 +2371,7 @@ export default function WindowFirstShell({
       ref={shellRef}
       data-testid="window-first-shell"
       // Capture phase, per `commitTabInForce`'s own note above: ANY interaction anywhere in this
-      // subtree — a popup control, the lens bar, a card, a key, a scroll — pins the opening
+      // subtree — a sheet control, the lens bar, a card, a key, a scroll — pins the opening
       // preference before it can be moved out from under the reader. Pointer, keyboard and wheel
       // are the three input classes that can reach a control here; a plain `click` needs no
       // listener of its own because it is always preceded by a `pointerdown`.
@@ -2536,10 +2505,10 @@ export default function WindowFirstShell({
             {/* ⚠️ TAKES EVERY DIALOG DOWN FIRST, and M5 added that after measuring the alternative.
                 `UserSettingsModal` is a SIBLING of this shell in `App`, so it is outside every
                 mechanism this arm has for ordering layers: it is not a `Modal` this shell renders,
-                `stackedOverLayer` cannot see it, and it takes no `stacked` opt-in. With the window
-                popup open a keyboard reader reached this cog on the forty-second Tab (measured) and
+                `stackedOverLayer` cannot see it, and it takes no `stacked` opt-in. With a sheet
+                open a keyboard reader reached this cog on the forty-second Tab (measured) and
                 got TWO `aria-modal="true"` elements with neither inert — and then one Escape press
-                closed the POPUP underneath while the settings dialog stayed up, because the popup's
+                closed the SHEET underneath while the settings dialog stayed up, because the sheet's
                 own listener was still armed. Closing first is the rule every other route out of the
                 plan already follows (`onGoHome`, the map handoffs), and it keeps the "exactly one
                 modal" property a property of the page rather than of three of its dialogs.
@@ -2550,7 +2519,7 @@ export default function WindowFirstShell({
                 true without a shell-wide `inert` (the structural alternative, still a named
                 follow-on, not adopted).
 
-                ⚠️ M5's close missed SEARCH, which is `searchSeed` rather than the popup or a layer
+                ⚠️ M5's close missed SEARCH, which is `searchSeed` rather than a sheet or a layer
                 over it — and this cog is reachable from an open search box, since the tick line
                 leaves the tab order under it and the cog does not. It now closes through
                 `selectTab` naming the tab in force, the shell's one list, which carries search;
@@ -2626,19 +2595,18 @@ export default function WindowFirstShell({
           // order and the sheet, which renders after search, painted its scrim and its whole card
           // OVER the search panel. The reader typed into a box behind a dead, dimmed sheet. The
           // shortcut's own comment (since deleted with it) had settled the rule this restores — "those
-          // are already stacked on the popup, and a third layer has nowhere to go" — so the button was
+          // are already stacked, and a third layer has nowhere to go" — so the button was
           // simply bypassing it.
           onOpenSearch={findOffered ? openFind : undefined}
           // Takes the sheet layer down first: moving the origin under an open sheet is the case the close-then-move
           // footer exists to rule out. Focus is the tick line's to settle, not this handler's.
           onGoHome={() => { openSheetLayer(null); setOrigin?.(null); }}
           // ⚠️ The cog's rule, which this route went without: `App` wired the nudge straight to its
-          // own handler, so with a window popup open — where `searchOpen` is false and this row
+          // own handler, so with a sheet open — where `searchOpen` is false and this row
           // keeps its tab stops — a reader who Tabbed out onto the nudge opened settings OVER the
-          // popup, two `aria-modal` elements with the popup's Escape listener still armed beneath.
-          // It closes through the same `selectTab(effectiveTab)` the cog does. The layers over the
-          // popup and search are belts here, exactly as they are for `onGoHome`: under either this
-          // row is out of the tab order.
+          // sheet, two `aria-modal` elements with the sheet's Escape listener still armed beneath.
+          // It closes through the same `selectTab(effectiveTab)` the cog does. Search is a belt here, exactly as
+          // it is for `onGoHome`: under it this row is out of the tab order.
           //
           // The arguments are FORWARDED, whatever they are: what the nudge hands its handler is the
           // tick line's business, and a wrapper here that swallowed them would change that contract
@@ -2649,7 +2617,7 @@ export default function WindowFirstShell({
           }}
           // Out of the tab order for TWO reasons now, which is why the prop is no longer named for
           // one of them. The anchored search panel covers this row exactly (WCAG 2.4.11) — and a
-          // layer stacked over the popup makes the search button refuse, so leaving it tabbable
+          // sheet layer makes the search button refuse, so leaving it tabbable
           // would be a control with no visible effect, which plan §3 rule 14 bans outright.
           searchOpen={searchSeed != null || stackedOverLayer}
           // map-tab-v2-plan.md §3 P11: a per-tab STATE of the tick line, read off the SAME
@@ -2892,9 +2860,9 @@ export default function WindowFirstShell({
           // postcode has no drive time anywhere, so `reachedCount` is simply everything and the
           // readout's "within reach" would name a gate that did nothing. This is the page's ONE
           // count statement (§4 A7), so it is the most load-bearing place that claim could be
-          // wrong; an adversarial review of M5 found it still making it after the popup was fixed.
+          // wrong; an adversarial review of M5 found it still making it after the deleted window popup was fixed.
           // Asked of `allSpots` — the origin scope BEFORE the reach gate — for the reason
-          // the popup's author recorded (the popup is gone): the drawn set would make the wording flicker per window.
+          // the deleted window popup's author recorded (the deleted window popup is gone): the drawn set would make the wording flicker per window.
           reachMeasured={windowCards.some((card) => card.reachMeasured)}
           // A reader with no pick has no spots to count: "0 spots across 4 windows" would be false of the picks (S5b-1).
           windowCount={picksFacts?.allowed === 0 ? 0 : windowCards.length}
@@ -3222,62 +3190,33 @@ export default function WindowFirstShell({
         </ChunkErrorBoundary>
       )}
 
-      {/* Keyed on the window, so opening a different card's sheet mounts a fresh one rather than
-          carrying the previous window's reach widening across. Both axes are inherited from the bar
-          and local from there on, so neither carries across — the sheet reads no storage at all. */}
+      {/* The Map's spot list (glance-to-map-plan.md G1). Keyed on the window, so opening a different card's list mounts
+          a fresh one rather than carrying the previous window's widening across. Both axes start from the Map's own
+          tier and floor and are local from there on, so neither carries across: the sheet reads no storage at all. */}
       {sheetCard && (
         <WindowSpotSheet
           key={sheetCard.key}
           card={sheetCardShown}
-          // Opened from the Map (glance-to-map-plan.md G1), the sheet inherits the MAP's tier and rating floor, not
-          // the Plan bar's, and on a phone it is a bottom sheet (the Map's phone dialog shape, not the centred modal).
-          // A Plan-tab opening carries no `sheetScope`, so every line below is what it was.
-          presentation={sheetScope != null && isMobile ? 'sheet' : 'modal'}
-          barTierId={sheetScope?.tierId ?? reachLens.tierId}
-          // The bar's floor is the one the sheet opens on, exactly as its tier is. The sheet's own
-          // change to either is local and dies with the dialog — see its class comment.
-          barFloorId={sheetScope?.floorId ?? ratingLens.floorId}
-          // Widen REACH only for a window REACH emptied, which is what `reachedTotal === 0` says.
-          //
-          // This keyed on `spots.length === 0` until the rating floor arrived, when `spots` became
-          // gateSpotsByRating(gateSpotsByReach(...)) and the test silently widened to "emptied by
-          // either axis". A rating-emptied window then opened on ANY_TIER_ID: it threw away the
-          // reader's chosen tier, printed "widened for browsing" over a widening that had gated
-          // nothing, and — since the sheet inherits the floor that did the emptying — still opened
-          // onto an empty list. A door onto a wall, which is the one thing this prop exists to
-          // prevent. Reachable because the emptied card renders its own "See all" trigger.
-          //
-          // `reachedTotal` is the survivors of reach alone, added alongside the floor for exactly
-          // this denominator. Widening reach can only help when reach is what removed them.
-          openTierId={sheetScope == null && sheetCard.reachedTotal === 0 && sheetCard.reachTotal > 0
-            ? ANY_TIER_ID
-            : undefined}
+          // The sheet inherits the MAP's tier and rating floor, and on a phone it is a bottom sheet (the Map's phone
+          // dialog shape, not the centred modal). Its own changes to either are local and die with the dialog.
+          presentation={isMobile ? 'sheet' : 'modal'}
+          barTierId={sheetScope.tierId}
+          barFloorId={sheetScope.floorId}
           // A boolean, never the role — plan §5c's rule that `role` enters this arm at the provider
           // and stops there. The sheet's reach control is the same PRO control the bar is (§7), so
           // it takes the same lock; the rating floor and the type are not gated at all.
           reachLocked={reachLens.locked}
           typesByName={typesByName}
-          // ⚠️ The same one-layer-per-press predicate its two sibling layers carry, and since M5 a
-          // belt that can no longer go false: search is refused while anything is stacked over the
-          // popup (`stackedOverLayer` counts this sheet), so the supported stack is two deep and
-          // nothing can sit over this one, the guide included: with two layers standing (this sheet is
-          // inert-stacked and so counted though it has no aria-modal) the guide opens its full page in a
-          // new tab instead of a third layer. Kept in the shared shape because `WindowSpotSheet`
-          // derives `stacked` from it, and those two must never come apart.
+          // ⚠️ The same one-layer-per-press predicate its sibling layers carry. Search is refused while anything is
+          // stacked (`stackedOverLayer` counts this sheet), so nothing can sit over this one but the guide, and with
+          // two layers standing the guide opens its full page in a new tab instead of a third layer. Kept in the
+          // shared shape because `WindowSpotSheet` derives `stacked` from it, and those two must never come apart.
           escapeEnabled={searchSeed == null && !guideModal}
           onClose={() => openSheetLayer(null)}
-          // Closes FIRST, and so does `openMapTab` behind `showOnMap` (overlay convergence C4): a
-          // sheet or popup left mounted under the destination would be a second `aria-modal` dialog
-          // on the page with its own Escape listener, and the window popup underneath re-arms its
-          // own the moment nothing is stacked on it. The sheet is a browsing surface and the Map tab
-          // is a destination - arriving at it ends the browsing. The explicit closes also cover the
-          // no-map-door case (`showOnMap` undefined), where the press still ends the browsing.
-          // From the Map a row selects the place IN PLACE on the Map it came from and closes the list: not
-          // `handleSpot`/`openMapTab`, which would re-door the Map (and rewrite its lens). The callout is no Back
-          // layer, so it stacks freely over what is left.
-          onOpenSpot={sheetScope != null
-            ? (spot) => { const pick = sheetScope.onPick; openSheetLayer(null); pick?.(spot); }
-            : (spot) => { openSheetLayer(null); handleSpot(sheetCard, spot); }}
+          // A row selects the place IN PLACE on the Map it came from and closes the list: not `openMapTab`, which
+          // would re-door the Map (and rewrite its lens). The callout is no Back layer, so it stacks freely over
+          // what is left.
+          onOpenSpot={(spot) => { const pick = sheetScope.onPick; openSheetLayer(null); pick?.(spot); }}
         />
       )}
 
@@ -3305,15 +3244,13 @@ export default function WindowFirstShell({
             scopeRegionNames={planScopeNames}
             origin={origin ?? null}
             onClose={() => setSearchSeed(null)}
-            // ⚠️ CLOSES THE POPUP IN THE SAME COMMIT, and that is the P8 invariant rather than
+            // ⚠️ CLOSES ANY SHEET LAYER IN THE SAME COMMIT, and that is the P8 invariant rather than
             // tidiness. (Not an ordering: React batches both setters out of one handler, so the
-            // unmount and the origin change land together and there is no frame in which the popup
+            // unmount and the origin change land together and there is no frame in which a sheet
             // is rendered against the new origin — a stronger guarantee than "close, then move".)
-            // Search can now sit OVER an open window popup (M3's whole point), so without this a
-            // reader could move the origin while the popup watched: the reach default drops to 90,
-            // `effectiveReachById` swaps, and the popup's spot strip, best-in-reach figure, spread
-            // histogram, region rail and every leave-by re-derive underneath them. P8 refused to
-            // build exactly that, and M4.3's `Plan from <region>` footer is specified as
+            // Moving the origin with a sheet up would swap `effectiveReachById` underneath it: the drive, the
+            // base named beside it, the outside badge and every leave-by would re-derive while the reader looks at
+            // them. P8 refused to build exactly that, and M4.3's `Plan from <region>` footer is specified as
             // close-then-move for the same reason — two contradictory semantics for one action on
             // one screen is what this avoids.
             // ⚠️ `openSheetLayer(null)` as well — the SAME rule, applied at every route that moves
@@ -3321,32 +3258,27 @@ export default function WindowFirstShell({
             // is the exact thing M4.3's close-then-move footer goes to trouble to prevent: the
             // drive, the base named beside it, the outside badge and every departure would all
             // change under the reader.
-            // ⚠️ It is NOT here because search can sit over that sheet — since M5 it cannot. The
-            // third layer is refused outright: all three routes into search guard on
-            // `stackedOverLayer`, which counts `sheetSpot`, so the supported stack is two deep —
-            // search over the popup, or a sheet over the popup, never both (plan-matrix §4 A22).
+            // ⚠️ It is NOT here because search can sit over that sheet — it cannot. The third layer is refused
+            // outright: all three routes into search guard on `stackedOverLayer`, which counts `sheetSpot`, so the
+            // supported stack is two deep — an area sheet under a place sheet, or search alone (plan-matrix §4 A22).
             // So this arm cannot fire with a sheet up today. It stays because the invariant is
             // stated once per route — `onGoHome` above and the sheet's own footer state it too —
             // and a route added later inherits it instead of rediscovering why this one was
             // exempt. One rule, every route.
-            // Per tab since F1: Plan and Coming up plan from the region (the line above is why the popup and
-            // any sheet close in the same commit); the Map only pans and frames it — see `pickFindRegion`.
+            // Per tab since F1: Plan and Coming up plan from the region (the line above is why any sheet
+            // closes in the same commit); the Map only pans and frames it — see `pickFindRegion`.
             onPickRegion={pickFindRegion}
-            // ⚠️ The same belt here, and for the reason above rather than a new one: nothing can
-            // be over the popup when a search pick fires, because that layer is what refuses
-            // search. Were one ever up, the pick would land on a popup nobody can see — search
-            // closes, the popup's window key moves, and the layer is still on top, so from the reader's
-            // side choosing a window did nothing until the next Escape.
+            // ⚠️ The same belt here, and for the reason above rather than a new one: nothing can be over search
+            // when a pick fires, because a sheet layer is what refuses search. A pick on a window selects it on the
+            // Map (`pickFindWindow`), which closes any sheet through `selectTab` first.
             onPickWindow={pickFindWindow}
             // P8: a location result opens that place's own six-window timeline rather than jumping
             // straight to the map. The map is not lost — the sheet's footer carries it and names
             // the window it opens.
             //
-            // Closes the popup first, for the same reason `onPickRegion` above does. M4 DOES stack
-            // this sheet over the popup — but from the popup's own chips and spot cards, where the
-            // reader is already looking at that window. Arriving from search is a different
-            // gesture, and it is the one the shell's own "closes FIRST" rule already governs
-            // everywhere else.
+            // Closes any sheet first, for the same reason `onPickRegion` above does: arriving from search is a
+            // different gesture from reading a sheet, and it is the one the shell's own "closes FIRST" rule already
+            // governs everywhere else.
             onPickLocation={pickFindLocation}
             areas={areaFind.directory}
             areaOutlook={areaFind.outlook}
@@ -3448,7 +3380,7 @@ export default function WindowFirstShell({
                 setOrigin?.(sheetPlanFrom.region);
                 // ⚠️ The focus move, and the reason is the one `applyConflictAction` already
                 // records: this commit unmounts BOTH dialogs, so `useDialogFocus`'s restore finds
-                // its captured trigger — a chip or a card that lived inside the popup — detached,
+                // its captured trigger — a chip or a card that lived inside the deleted window popup — detached,
                 // declines to focus it, and the reader is dropped at `<body>` while the page
                 // re-frames underneath them. The card's inner button (`wf-heat-card-button`), because
                 // the card is a `<div>` and an away window has no button: `querySelector` returns DOM
@@ -3467,7 +3399,7 @@ export default function WindowFirstShell({
             // `openWindow(null)` before it reads the live lens and hands the door to `onOpenMapTab`, so
             // nothing here repeats that ordering — repeating it would just be two callers racing to
             // close the same two pieces of state. `region: null` because this door names a LOCATION,
-            // never a region (the pick dialog's two actions below take the same door since C4).
+            // never a region (the deleted pick dialog's two actions below take the same door since C4).
             //
             // ⚠️ WITHHELD, not just unwired, when there is no map door: `App` hands this shell
             // `undefined` for `onOpenMapTab` whenever there is nothing to map

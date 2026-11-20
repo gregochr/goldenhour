@@ -451,6 +451,36 @@ describe('App — every route into settings takes down the dialog it would open 
       expect(cog).toHaveFocus();
     });
 
+    // The window popup's two landings (G2b dropped them with the popup) have a live equivalent in the four-day sheet a
+    // Find pick opens: the sheet and settings change places in one commit, the sheet's `useDialogFocus` cleanup counts
+    // focus as stranded and restores it to the sheet's own opener (the Find button, through `restoreFocusFallback`),
+    // and settings then records THAT as its own. jsdom pins of the ORDER, as the dropped tests were.
+    it('the nudge over a four-day sheet: closing settings lands on the Find button the sheet was opened from', async () => {
+      renderApp();
+      await openPlanSheet();
+      const find = screen.getByTestId('window-first-search');
+
+      await press(screen.getByRole('button', { name: NUDGE }));
+      await closeSettings(await settingsSettled());
+
+      expect(find).toHaveFocus();
+    });
+
+    it('the nudge over a four-day sheet: with that opener unable to take focus, it lands on the nudge', async () => {
+      renderApp();
+      await openPlanSheet();
+      const find = screen.getByTestId('window-first-search');
+      const nudge = screen.getByRole('button', { name: NUDGE });
+
+      await press(nudge);
+      const dialog = await settingsSettled();
+      // `disabled` stands in for the opener having gone: `useDialogFocus` treats an opener that refuses focus as lost.
+      act(() => { find.disabled = true; });
+      await closeSettings(dialog);
+
+      expect(nudge, 'the nudge\'s fallback: the origin slot it stands in').toHaveFocus();
+    });
+
     it('the nudge with nothing open: closing settings returns to the nudge itself', async () => {
       // The control for the two cases above: no dialog of the shell's closes, so nothing moves focus
       // before the settings dialog records its opener, and the opener is the control pressed.

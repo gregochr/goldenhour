@@ -68,10 +68,10 @@ export const EMPTY_CELL_COPY = {
 /**
  * Day-of-month for an ISO date, read at noon UTC so no timezone can move the day.
  *
- * <p>Exported since M2 for the window popup's date tile — see {@code calDow}'s note for why the
+ * <p>Exported since M2 for the deleted window popup's date tile — see {@code calDow}'s note for why the
  * dialog reads the grid's own functions rather than spelling the tile a second time.
  */
-export function dayNumber(dateStr) {
+function dayNumber(dateStr) {
   return new Date(`${dateStr}T12:00:00Z`).getUTCDate();
 }
 

@@ -5,7 +5,7 @@ amendments remain the product and design record). W1a is **backend only**: inges
 location coverage and three endpoints. W1b adds the serve-time `warningIds` overlay (briefing windows and
 `/api/forecast` location rows) and the Operations panel. Nothing here touches a rating, verdict, Best pick, count,
 heat field or Claude prompt (no Claude calls at all). The first reader-facing UI is W2 (chips on the location sheet and the
-map callout, "The client, W2" below); the popup, lanes and Coming up are later phases.
+map callout, "The client, W2" below); the lanes and Coming up are later phases (the window popup was deleted in G2b).
 
 W1c (this revision) rewrote the feed handling to the **real NSWWS v1.1 shape** recorded in plan section 11 and applied
 the style-guide rules of section 12 (ordering, the Updated flag, the configured Met Office link and attribution).
@@ -231,14 +231,14 @@ is off it polls every 30 minutes instead of two. The stale line names the day (`
 
 **Rules held.** A chip is never inside a rating, a disclosure button or the star row; no marker or map geometry; the stale line replaces any
 "none" state (the surfaces never say "no warnings"); an unknown level is printed neutral with its own word; an unknown type is rendered from the
-served value. Chips open nothing of ours (no popup yet, W3); the only action is the Met Office link. The two surfaces:
+served value. Chips open nothing of ours (no popup); the only action is the Met Office link. The two surfaces:
 `LocationFourDaySheet` (every shown row, stood-down, unscored and travel days included: one rule with the callout) and `MapCallout` (live solar windows only, travel days included; its repaint effect is keyed on the stale flag and the chip ids so the card is re-placed when a poll changes the strip).
 Tests: `warnings.test.js`, `WarningChip.test.jsx`, `WarningsContext.test.jsx`, `warningsApi.test.js`,
 `LocationFourDaySheetWarnings.test.jsx`, `MapCalloutWarnings.test.jsx`.
 
-## The client, W3 (the At a Glance lane, the card marker and the window popup row)
+## The client, W3 (the At a Glance lane, the card marker; the window popup row was deleted in G2b/G2c)
 
-Phase W3 adds the three Plan-matrix surfaces. All of them read `useWarnings()` (the W2 provider), print nothing while the
+Phase W3 added three Plan-matrix surfaces (the popup row is deleted; the Map's expanded warning and Coming up's entries now draw `WindowWarningsBody`). All of them read `useWarnings()` (the W2 provider), print nothing while the
 feature is off and never read a role.
 
 | Piece | Role |
@@ -246,7 +246,7 @@ feature is off and never read a role.
 | `utils/warnings.js` | `warningsForCard(served, card)` (which warnings belong to a window), `buildWarningLanes(days, warningsOfCard)`, the matrix (`MATRIX_GRID`, `MATRIX_COLOURS`, `matrixCell`, `matrixValue`, `matrixText`), `placeCountLines`, `validityText` (UK time), `cardMarker`. |
 | `components/WindowGlanceLanes.jsx` | The warning lanes, **first in the lanes grid** (rows 1 to k, then the source line, then the topic lanes shifted down by k + 1; topic rows are untouched when no warning applies), plus the phone's per-day cell. |
 | `components/WarningChip.jsx` `WarningCardMarker` | The text marker in a Plan window card's top row. |
-| `components/WindowWarningRow.jsx` | The popup's WARNING row (`window-sheet-warnings`), above the topic rows, below the field and rail. |
+| `components/WindowWarningsBody.jsx` | The shared full-warning body (`WindowWarningsBody`, `WarningDetail`, `WarningAdviceLink`) the Map chip's expand and Coming up's entries draw. |
 | `components/WarningMatrix.jsx` | The Met Office likelihood and impact matrix as an SVG drawn from values. |
 
 **Which warnings belong to a window.** Matched against the **polled** `GET /api/warnings` list, never trusted from the stored
@@ -266,7 +266,7 @@ in the style-guide order (level, impact, likelihood, `validFrom`), first fit **b
 (a lane's row search starts under the lowest overlapping lane already placed), so a Red takes the top row before span is
 considered and a milder warning is never drawn above a severer one in the same column; DOM and Tab order follow the rows. The
 phone sorts each day's lanes with `compareWarnings`. Text in the official level colour, level word always printed, "Updated" for the served flag, no icon, triangle or
-glyph. A lane is a button opening the first covered window's popup (`onGoToPlanWindow(key)`, no topic emphasis) when the strip can
+glyph. A lane is a button opening the first covered window on the Map (`openWindowOnMap(key)`) when the strip can
 open it, else plain text; its name is built from its content. The source line (attribution plus Met Office link) sits under the
 lanes; the stale admission replaces any "none" state (the surfaces never say "no warnings"). On the phone each day's cell gets that
 day's lanes first and the stale line is printed on the first day only.
@@ -275,13 +275,13 @@ day's lanes first and the stale line is printed on the first day only.
 agreement: the most severe warning's level word and **first weather type** ("Amber snow"), a separate never-clipped "+N" count of the other
 warnings, in the level colour, one line (the type ellipsises, the count does not), `aria-hidden`. The marker cannot carry "Updated" or the
 full phrase in a 137px card without changing the card's height, so the **lane above the cards is the first-access place for "Updated" and
-the full "<Level> warning of <types>" phrase**, the title and the card's spoken sentence carry every warning in full, and the popup row
-holds the rest. It is a filled level-colour block in bold 9.5px mono; whether it is as prominent as the verdict word was not measured, and
+the full "<Level> warning of <types>" phrase**, the title and the card's spoken sentence carry every warning in full, and the Map's expanded
+warning holds the rest. It is a filled level-colour block in bold 9.5px mono; whether it is as prominent as the verdict word was not measured, and
 it cannot be enlarged without growing the top row, so that is not guaranteed (a Red or Amber lane above the cards is the prominent signal). The
 card's one spoken sentence names every warning in full ("Amber warning of snow, updated"), after the forecast's claims and before
 the pick words. Not drawn on an away cell.
 
-**The popup row.** Per warning, in order: the chip (with Updated), the headline, "Update" (`updateDescription`, only on an
+**The full warning body** (`WindowWarningsBody`). Per warning, in order: the chip (with Updated), the headline, "Update" (`updateDescription`, only on an
 `updated` warning), "What to expect" (every line), "What should I do", "Further details", validity in UK time ("Valid Fri 14 Aug,
 12:00 to Sat 15 Aug, 08:30 (UK time)"), the places count per region from the window's served `warningPlaceCounts` ("Northumberland:
 4 of 12 places in this area", only where something is covered, omitted when the served counts lack the warning), and the matrix.
@@ -296,8 +296,8 @@ of 4, impact 2 of 4"; nothing is drawn for a missing or out-of-range value, and 
 The served `warningLevel` always wins: the grid only locates the cell, and `warningsW3.test.js` asserts the real recorded warning
 (likelihood 3, impact 2, Yellow) agrees with it (the hand-made synthetic fixtures are not evidence and do not all agree).
 
-Tests: `warningsW3.test.js`, `WarningMatrix.test.jsx`, `WindowWarningRow.test.jsx`, `WindowGlanceLanesWarnings.test.jsx`,
-`WindowFirstHeatStripWarnings.test.jsx`, `WindowSheetDialogWarnings.test.jsx`, `windowFirstWarningsModel.test.js`.
+Tests: `warningsW3.test.js`, `WarningMatrix.test.jsx`, `WindowWarningsBody.test.jsx`, `WindowGlanceLanesWarnings.test.jsx`,
+`WindowFirstHeatStripWarnings.test.jsx`, `windowFirstWarningsModel.test.js`.
 
 ## Coming up, W3b (warning entries in the dated feed)
 
@@ -313,7 +313,7 @@ body and its body-hashed ETag are byte-identical to a build without it (tested).
 | `components/WindowComingUpWarning.jsx` | The card body, drawn inside `WindowComingUpEntry`. |
 
 **Which warnings get an entry.** Plan and At a Glance own today and the next three UK days (`PlanHorizon.lastPlanDate`, the W3
-lanes and popup row). A served warning gets an entry when its `validTo` UK civil date is **after** that last plan date and its
+lanes). A served warning gets an entry when its `validTo` UK civil date is **after** that last plan date and its
 end date is taken a nanosecond before `validTo` (a warning ending exactly at UK midnight, GMT or BST, has no extra day), and its
 start (`validFrom` UK date, today when missing or later than the end) is within the requested horizon (`days`, clamped as
 `AlmanacService` clamps it). The entry carries the **true span**, never clipped (a warning under way starts in the past, as a
@@ -345,9 +345,9 @@ is printed (not even the attribution).
 
 **Rendering.** Open or closed, every warning card draws the shared `WarningChip` (official colours, the level word always printed,
 "Updated" for the served flag, no icon, triangle or logo), "Raised from Amber" while the 24 h flag holds, and the `WarningFooter`
-source line (attribution plus Met Office link). Open, it adds the warning **in full** through the W3 popup's own `WarningDetail`
+source line (attribution plus Met Office link). Open, it adds the warning **in full** through `WarningDetail`
 (headline, update text, every what-to-expect line, what should I do, further details, validity in UK time, the matrix; exported from
-`WindowWarningRow.jsx`), the style guide's advice link (`WarningAdviceLink`) and a plan door button when `action.kind` is `plan`
+`WindowWarningsBody.jsx`), the style guide's advice link (`WarningAdviceLink`) and a plan door button when `action.kind` is `plan`
 (a warning that starts after the scored days only shows here, so the full text is here). The stale line prints **once** at the top of the pane (`WarningFooter` with `stale`) while the context is stale,
 including with no warning entry: the pane has no "no warnings" state anywhere, so an empty list is never an all-clear. A warning
 card is a `<div>` (never a button, no day chips, no map door) and never touches a rating.
@@ -380,7 +380,7 @@ stored row's ids, so a withdrawn warning leaves at the next poll (the licence's 
 
 **Behaviour.** Each chip is a link to the Met Office page (`target=_blank`, `rel="noopener noreferrer"`); the chip opens no dialog of
 ours, so there is no history entry, no Escape rule and no stacked-dialog change (`mapForeignModal.js`, `dialogHistory.js` untouched).
-The full headline, "What to expect" and matrix are on the Plan window popup (W3); the Map chip carries the weather type and level in
+The full headline, "What to expect" and matrix are on the Map's expanded warning; the Map chip carries the weather type and level in
 text (visible on first access), "Updated", the attribution "Met Office Weather Warnings © Crown Copyright 2026" and the Met Office
 link. When the feed is stale the stale line prints (with its date if not today's) and the chips stay; with no warning on a fresh feed
 nothing prints, never "no warnings" or an all-clear. A warning never changes a rating, the heat field, a verdict or a pick.
@@ -405,7 +405,7 @@ and Reading the forecast pages (the location sheet and callout are covered insid
 sections), a hub card and Lite/Pro row, search registration (`guide-search.js`), and the landing index, FAQ, acknowledgements and terms. `utils/guide.js`
 gains the `weather-warnings` page and two `GUIDE_SECTIONS` (`warnings` to `#what`, `warningsFresh` to `#fresh`); `guideSections.test.js` pins the new ids, the
 exact attribution, the official colours and both Met Office links. In the app, `WarningFooter` ends with one `GuideLink` (`wf-warning-guide`), so the lane,
-popup row, location sheet, Map chip row and callout, and Coming up all get it from one place; stale, it opens `#fresh`. It opens the guide the way every
+location sheet, Map chip row and callout, and Coming up all get it from one place; stale, it opens `#fresh`. It opens the guide the way every
 `GuideLink` does (two-deep rule, stacked protocol, `replaceState` for embedded navigation); nothing about dialog stacking or Back changed.
 
 The copy says only what is built: no map outlines, the matrix with no invented words, the "Raised from" line only on Coming up cards, no

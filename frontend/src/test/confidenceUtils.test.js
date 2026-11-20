@@ -5,7 +5,6 @@ import {
   resolveConfidence,
   confidenceTreatment,
   confidenceScalar,
-  scaleRgbaAlpha,
   CONFIDENCE_TREATMENT,
 } from '../utils/confidenceUtils.js';
 
@@ -93,26 +92,6 @@ describe('confidenceUtils', () => {
     it('defaults an unknown tier to the neutral medium treatment', () => {
       expect(confidenceTreatment('nonsense')).toBe(CONFIDENCE_TREATMENT.medium);
       expect(confidenceTreatment(undefined)).toBe(CONFIDENCE_TREATMENT.medium);
-    });
-  });
-
-  describe('scaleRgbaAlpha', () => {
-    it('multiplies the alpha channel', () => {
-      expect(scaleRgbaAlpha('rgba(138,174,114,0.18)', 0.5)).toBe('rgba(138, 174, 114, 0.09)');
-    });
-
-    it('leaves the colour unchanged when scale >= 1', () => {
-      expect(scaleRgbaAlpha('rgba(1,2,3,0.4)', 1)).toBe('rgba(1,2,3,0.4)');
-      expect(scaleRgbaAlpha('rgba(1,2,3,0.4)', 1.5)).toBe('rgba(1,2,3,0.4)');
-    });
-
-    it('is a no-op on non-rgba strings', () => {
-      expect(scaleRgbaAlpha('var(--x)', 0.5)).toBe('var(--x)');
-      expect(scaleRgbaAlpha(undefined, 0.5)).toBeUndefined();
-    });
-
-    it('clamps the resulting alpha to [0,1]', () => {
-      expect(scaleRgbaAlpha('rgba(0,0,0,0.9)', 0.0)).toBe('rgba(0, 0, 0, 0)');
     });
   });
 

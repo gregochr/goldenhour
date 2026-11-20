@@ -2,7 +2,6 @@ import { formatTime, getEventTime } from './briefingDisplay.js';
 import { gateSpotsByReach, isUnroutableDropped, reachIsMeasured } from './reachLens.js';
 import { gateSpotsByRating } from './ratingLens.js';
 import { buildWindowSpots, placesOf } from './windowFirstSpots.js';
-import { buildWindowRows } from './windowFirstRows.js';
 import { gateSpotsByOrigin } from './planOrigin.js';
 import { resolveRegionDisplay } from './tierUtils.js';
 
@@ -530,7 +529,7 @@ function verdictMeanOf(scoped, top) {
  * What a card says beside a STAND_DOWN word over a blanked region (plan-card-verdict-honesty-plan.md
  * H4). The visible form is short enough for the mean's own slot ("unsettled", about 54px at
  * 10px, the honesty filter's "Too unsettled to forecast" abridged); the spoken form is the filter's label in full, so the card
- * and the popup's region rail speak one vocabulary.
+ * and the deleted popup's region rail speak one vocabulary.
  */
 export const BLANKED_STAND_DOWN_VISIBLE = 'unsettled';
 export const BLANKED_STAND_DOWN_SPOKEN = 'too unsettled to forecast';
@@ -786,7 +785,7 @@ function cardPick(pick) {
  *                                carries {@code verdictScope}; without one every card is exactly what it was.
  * @param {boolean} [picksLocked] true when the reader does not have best bets (LITE): every card's
  *                                {@code pick} is null. Defaults to false so every PRO caller is unchanged.
- * @returns {Array} card descriptors for the matrix and the window popup
+ * @returns {Array} card descriptors for the matrix and the deleted window popup
  */
 export function buildWindowCards(
   upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates, reachById,
@@ -851,11 +850,6 @@ export function buildWindowCards(
     const scoped = scopedWindows?.get(`${date}:${targetType}`) ?? null;
     const verdict = scoped ? (scoped.displayVerdict || 'AWAITING') : servedVerdict;
 
-    // The attribute rows — the tide row, and whatever channel joins it next. Since M2 no topic is
-    // promoted out of the badge list into a row: the popup states each topic once, with its facts,
-    // so `windowFirstRows.js` builds one channel and this list has no second half to reconcile.
-    const rows = buildWindowRows(win);
-
     // Derived from the SAME event summary the window projection was, so the strip's top card and
     // the header's `best N★` read one population — see `buildWindowSpots` for the two filters
     // that keep them in step. The gate runs after, so `reachTotal` is the set the lens chose from
@@ -873,7 +867,7 @@ export function buildWindowCards(
     const spots = gateSpotsByRating(reached, minRating);
     // ⚠️ The pool a Lite reader's counts, spread, thin-sample line, best place and tide fit read is the places
     // INSIDE their sub-regions (S5b-1, B2): a gated place is in neither half of any count. `allSpots`, `reached`
-    // and `spots` keep the gated places (the popup lists them after the reader's own; the Map and the eclipse
+    // and `spots` keep the gated places (the deleted popup lists them after the reader's own; the Map and the eclipse
     // race read them), so only the pool is filtered. With nothing gated `placesOf` hands `reached` back untouched,
     // so a Pro, Admin or flag-off card's `pool` is the very array it always was.
     const pool = placesOf(reached);
@@ -979,7 +973,7 @@ export function buildWindowCards(
       // inferred tier, as it always has). UNRATED keeps the server's tier — an ineligible region is
       // floored LOW there, and a field drawn for a window nothing has called should be the hazy one,
       // not the horizon's MEDIUM — while the BADGE decay and `ProvisionalMark` stay gated on
-      // `CONFIDENCE_VERDICTS` at their own mounts (the popup's badge, the grid cell, the since-deleted `VerdictPill`),
+      // `CONFIDENCE_VERDICTS` at their own mounts (the deleted popup's badge, the grid cell, the since-deleted `VerdictPill`),
       // so "Too few rated" is never also a faded or marked word: it already says the provisional thing.
       confidence: HAZE_VERDICTS.has(verdict)
         ? (scoped ? (scoped.confidence ?? null) : servedConfidenceOf(scopedRegion, win))
@@ -1010,7 +1004,7 @@ export function buildWindowCards(
        * reach), so a reader with no home postcode has every gate open and {@code pool === allSpots}
        * whatever the tier says. Every surface that then prints "within reach" is naming a filter
        * that never ran — §6 clause 7's own sentence, "no count describes a set that was never
-       * filtered". M5 fixed that in the popup's footer and an adversarial review found the same
+       * filtered". M5 fixed that in the deleted popup's footer and an adversarial review found the same
        * claim still standing on five other surfaces, so the answer is computed ONCE here and folded
        * outward like everything else on this descriptor.
        *
@@ -1094,14 +1088,8 @@ export function buildWindowCards(
       reachedTotal: pool.length,
       // The header's claim, or null when the word "reach" would over-claim — see the module comment.
       withinReachCount: withinReachCount(placesOf(spots), limitMinutes, minRating),
-      // What the card draws in place of its strip, or null when it draws a strip — or when the
-      // window had no spots at all, which is a card the lens never touched and must not carry a
-      // line about it.
-      rows,
-      // The raw served `BriefingWindowTide`, carried alongside `rows` above rather than only
-      // inside it — `rows` is `buildWindowRows(win)`'s PRESENTATION form (segments/tones for the
-      // Plan tab's tide fact row), and the Map tab's tide strip (tide-window-plan.md T6) needs the
-      // object itself: its curve, positions and extremes, none of which `rows` carries forward.
+      // The raw served `BriefingWindowTide`, which the Map tab's tide strip (tide-window-plan.md T6) needs whole:
+      // its curve, positions and extremes.
       // Without this, `WindowFirstMapPane`'s `heat.windows` mapper (built from `buildHeatStripCards`,
       // itself folded from THIS card) has no `tide` field to copy onto the EV row `mapEvents.js`
       // reads from — `MapView`'s tide strip would receive a served, correct `window.tide` from
@@ -1110,18 +1098,14 @@ export function buildWindowCards(
       // hand-built `served` object that already had `.tide`, so the gap in this real pipeline never
       // surfaced until the strip was actually rendered against a live payload.
       tide: win?.tide ?? null,
-      // ⚠️ ONE badge list now, and the before/after pair is gone with the surface that needed it.
-      // Through M1 there was also a `badges` holding the post-promotion remainder — what the card
-      // header drew after `buildWindowRows` had turned some of them into snow attribute rows. The
-      // header and the promotion both died at M2 (the popup's topic rows state every topic once,
-      // facts included), so the remainder had no reader, and a second badge list nothing renders is
-      // how two surfaces come to disagree about which topics a window has.
+      // ⚠️ ONE badge list: a second list nothing renders is how two surfaces come to disagree about which topics a
+      // window has.
       //
       // ⚠️ `topRarityRank` — the payload's own `min(rarityRank)` for the window — was carried here
       // beside it and went at M5 with the promoted strip, its only consumer. The backend field
       // itself was removed in the dead-code sweep phase D (nothing read it), so there is no
       // window-level minimum to read. Every surface that orders topics today
-      // (`windowFirstTopics.windowTopics`, `windowFirstRows.buildWindowRows`) ranks the BADGES on
+      // (`windowFirstTopics.windowTopics`) ranks the BADGES on
       // their own `rarityRank`, and a window-level minimum kept alive beside them would be a second
       // answer waiting to disagree with the first.
       allBadges: win?.badges || [],

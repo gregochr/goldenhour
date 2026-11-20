@@ -176,7 +176,7 @@
 
   /* The home marker on the Plan heat field (thumbnail dot + border, and at G3 the reach ring
      stroke at 40% alpha) — field-geography plan §2.2. `static`, not the plain block above: its only
-     consumers are handwritten `.wf-hm-mk`/`.wf-rings` rules below, and a plain-block token with no
+     consumers are handwritten `.wf-hm-mk`/the deleted `.wf-rings` rules below, and a plain-block token with no
      scanned Tailwind reference prunes to the empty string with nothing failing (the
      `--color-plex-panel` incident this file already records at the top of this block). Deliberately
      a VALUE-ALIAS of `--color-topic-sun-moon` / `--color-close-to-home` — same hex, distinct
@@ -383,7 +383,7 @@
    ⚠️ AND A DESCENDANT CAN CANCEL AN ANCESTOR'S INSET, which is the failure mode this block's
    "everything in normal flow is inset without knowing about it" premise does not survive on its
    own. `[data-testid="window-sheet"]` in the phone block below was `padding: 0` — deliberately, to
-   drop the popup's frame — and being unlayered, 0,1,0 and thousands of lines further down, it beat
+   drop the deleted popup's frame — and being unlayered, 0,1,0 and thousands of lines further down, it beat
    `.app-safe-modal` outright and cancelled the safe padding on the one device class that has an
    unsafe zone. Anything that zeroes or replaces a padding this block set has to re-state the
    insets. The same goes for a `max-height` that reconstructs the gutter arithmetically: five sites
@@ -393,7 +393,7 @@
    Two things deliberately NOT here. The map tab's phone chrome (the bottom bar and the lifted
    stack above it) is `position: absolute` inside the map frame, and that frame is inside the root's
    padding — the whole tuned cascade in the phone block below moves up with it and needs no term of
-   its own. And `.wf-peek` is `position: fixed` but JS-placed against an
+   its own. And the deleted `.wf-peek` is `position: fixed` but JS-placed against an
    anchor that is itself already inset, clamping to `window.innerHeight`; it can graze an unsafe
    zone only at the very edge of its travel, and the fix for that is a JS one against the same
    values rather than a rule here. */
@@ -474,7 +474,7 @@
 
   /* Themed scrollbars (owner, 2026-11-13: the default grey bars clashed with the warm dark palette).
      Layered in `base` so the hidden-scrollbar scrollers' own unlayered rules (`.wf-tabs`,
-     `.wf-spots`, `.wf-sheet-seg`) still win. `scrollbar-color` inherits, `scrollbar-width` does not. */
+     the deleted `.wf-spots`, `.wf-sheet-seg`) still win. `scrollbar-color` inherits, `scrollbar-width` does not. */
   :root {
     scrollbar-color: var(--color-plex-text-faint) transparent;
   }
@@ -704,19 +704,6 @@
   color: #F2E7D3 !important;
 }
 
-@keyframes wf-peek-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes wf-peek-rise {
-  from { transform: translateY(-6px); }
-  to { transform: translateY(0); }
-}
-@keyframes wf-peek-drop {
-  from { transform: translateY(6px); }
-  to { transform: translateY(0); }
-}
-
 /* ── Window-first shell chrome: masthead, tick line, tab bar, pane ──
    (The rail footer was the third of these until M3 deleted it; its `.railfoot` geometry went with
    it and `.wf-tick` below is where its origin control now lives.)
@@ -858,12 +845,12 @@
      was rejected: it makes a context at the band's natural `z-auto` position, which is BELOW
      `.wf-lens` (20), so the health panel would paint under the very bar it drops across. 45 is the
      design's own number and still the right one — it must beat the pane and lose to `Modal`
-     (Tailwind `z-50`) and `.wf-peek` (60). Against `.wf-lens` it is moot either
+     (Tailwind `z-50`) and the deleted `.wf-peek` (60). Against `.wf-lens` it is moot either
      way: the two cannot co-occupy a scroll position, because the bar reaches `top: 0` only once this
      band's wrapper is wholly above the viewport.
 
      THE LADDER, for whoever adds the next rung: the masthead band 45, `Modal` (Tailwind `z-50`),
-     `.wf-peek` 60, the guide's stacked dialog `.wf-guide-layer` 70 (G2, `docs/engineering/
+     the deleted `.wf-peek` 60, the guide's stacked dialog `.wf-guide-layer` 70 (G2, `docs/engineering/
      user-guide-plan.md`: above both so it can sit over a Modal or the peek, and below the
      health panel, `BottomSheet`'s scrim and sheet at 9999 / 10000, which the guide's phone and
      tablet presentation IS). The docked guide column is in normal flow beside the shell and
@@ -1641,7 +1628,7 @@
    lens 20 > tiles 15 > rails 14 > every z-auto stacking context inside the strip (a hovered
    card's transform, the always-on `.wf-hc-away` opacity context) > the pick legend, which is
    correctly UNDER a pinned layer since it is absolute and z-auto inside its own card. Dialogs
-   (z-50) and `.wf-peek` (60) stay above all of it. ⚠️ 15/14 is a DELIBERATE
+   (z-50) and the deleted `.wf-peek` (60) stay above all of it. ⚠️ 15/14 is a DELIBERATE
    deviation from the design bundle's 22/20: the bundle's lens bar is z-30, this app's is z-20, so
    the bundle's own numbers would paint the tiles OVER the lens bar as they slide under it — only the
    ordering is normative, not the literals. */
@@ -2147,20 +2134,6 @@ div.wf-hc:where([data-control]).vp:hover {
   background: linear-gradient(rgba(200, 69, 47, 0.14), rgba(200, 69, 47, 0.14)),
     var(--color-plex-surface);
 }
-/* The open row's card. `.on` rather than `[data-open]` alone so the selector reads as the design's
-   does; the attribute is carried too, and is what the tests assert against. Last of the tint rules
-   and it wins over all of them — an open card is a state the reader chose, and it must not be
-   readable as a fourth grade. Same gradient form, for the `background: inherit` reason above.
-
-   ⚠️ BACKGROUND ONLY. The open state's BORDER lives at the foot of this block, after the pick rules,
-   because `.wf-hc.best` is later in the file at equal specificity and would otherwise take the
-   border back on exactly the card most likely to be both picked and open. Nothing after this point
-   sets a card background, so this half needs no such move. */
-.wf-hc.on,
-div.wf-hc:where([data-control]).on:hover {
-  background: linear-gradient(rgba(201, 162, 75, 0.11), rgba(201, 162, 75, 0.11)),
-    var(--color-plex-panel);
-}
 /* An away window is a read-out, not a control: no hover, no pointer, and the whole cell sits back
    so the eye runs past it to the days that were forecast.
 
@@ -2397,7 +2370,7 @@ button.wf-wlane:focus-visible {
 }
 /* ── Thumbnail geography: the home marker + area names overlay ─────────────────────────────────
    Decorative duplication of what the card already states accessibly (plan §2.2's own note), so the
-   whole layer is `aria-hidden` — the precedent is the popup's own `.wf-mlab`. `.wf-hc-cv`'s
+   whole layer is `aria-hidden` — the precedent is the deleted popup's own `.wf-mlab`. `.wf-hc-cv`'s
    `overflow: hidden` clips a label's text-shadow and the marker's glow at the well's edge (the
    390px horizontal-scroll defence above is load-bearing and stays); the 1px placement inset keeps
    the text itself inside, and that clip is accepted, not a bug. */
@@ -2479,9 +2452,6 @@ button.wf-wlane:focus-visible {
   letter-spacing: -0.01em;
   color: var(--color-plex-text-secondary);
   font-variant-numeric: tabular-nums;
-}
-.wf-hc.on .wf-hc-t {
-  color: var(--color-plex-text);
 }
 /* The row labels — SPREAD, and BEST when there is no rating to put in that slot. */
 .wf-hc-k {
@@ -3053,7 +3023,7 @@ button.wf-wlane:focus-visible {
    the pick legend can ride the border, and these labels are `nowrap` — so a long one ("Snow, mist &
    frost" is ~139px at this size) would spill out of a ~137px card at 640px, or a ~161px paired
    card on a 390px phone, straight across its neighbour. The row wraps BETWEEN chips already; this is
-   the single-chip case, and an ellipsis is the honest truncation because the popup's topic rows
+   the single-chip case, and an ellipsis is the honest truncation because the deleted popup's topic rows
    (M2) carry the full name and the detail. */
 .wf-hc-tw {
   font-family: var(--font-mono);
@@ -3215,8 +3185,8 @@ button.wf-wlane:focus-visible {
    the owner chose the handoff.
 
    ⚠️ What it COSTS, stated rather than left to be found:
-   · BEST BET used to match PIXEL FOR PIXEL across four surfaces — this legend, the popup's pick
-     badge (`.wf-wsh-pick`), the retired pick dialog's kind label and the Map medallion all read
+   · BEST BET used to match PIXEL FOR PIXEL across four surfaces — this legend, the deleted popup's pick
+     badge (the retired pick badge), the retired pick dialog's kind label and the Map medallion all read
      `#A8C795`. This moves the legend alone, so BEST now differs from the other three. The handoff
      does the same (its popup badge is `#A8C795`), so this reproduces the design rather than
      drifting from it — but it breaks a match the code had.
@@ -3255,18 +3225,6 @@ div.wf-hc:where([data-control]).best:hover {
 .wf-hc.also,
 div.wf-hc:where([data-control]).also:hover {
   border-color: rgba(138, 174, 114, 0.5);
-}
-/* ⚠️ AFTER the pick rules, and it has to be. The open state is a state the READER chose and must win
-   over the forecast's recommendation — but `.wf-hc.on` sits with the tint rules two hundred lines
-   up, where at equal specificity the later `.wf-hc.best` took the border back. The background half
-   of `.on` is fine up there (nothing later sets a card background); only the border needed moving,
-   so the border lives here beside the rules it has to beat and the note above it says why. */
-.wf-hc.on,
-div.wf-hc:where([data-control]).on:hover,
-div.wf-hc:where([data-control]).best.on:hover,
-div.wf-hc:where([data-control]).also.on:hover {
-  border-color: rgba(201, 162, 75, 0.62);
-  box-shadow: none;
 }
 .wf-hstrip-foot {
   display: flex;
@@ -3405,61 +3363,6 @@ div.wf-hc:where([data-control]).also.on:hover {
 }
 /* ── The open row's field map, region rail and region band (heat-field plan §4.4) ──────────── */
 
-.wf-rowmap {
-  margin: 0 14px 11px;
-}
-/* ⚠️ `line-height: 0` is load-bearing and is the bundle README's own gotcha. A canvas is an inline
-   replaced element, so its line box leaves a 4–5px gap under it that no padding rule explains and
-   that shows as a seam of panel colour inside the border. Killing the line height removes it.
-
-   The cost is that the absolutely-positioned labels inside INHERIT the zero — see `.wf-mlab span`,
-   which puts a real line height back. The two rules are a pair; moving one without the other paints
-   the selected region's plate 6px tall behind 9.5px of text, which reads as a strike-through. */
-.wf-mapbox {
-  position: relative;
-  line-height: 0;
-  border: 1px solid var(--color-plex-border);
-  border-radius: 9px;
-  overflow: hidden;
-}
-.wf-mapbox canvas {
-  display: block;
-  width: 100%;
-  height: auto;
-  cursor: pointer;
-  /* The kernel's own sea colour, so an unpainted map is the same ground as a painted one — the
-     thumbnails' rule, and the same token. */
-  background: var(--color-heat-sea);
-}
-/* ── Reach rings + home marker (field-geography plan §3) ────────────────────────────────────
-   A SIBLING of `.wf-mlab`, deliberately, not a child: `.wf-mlab span` below applies a universal
-   centre-translate, and mounting `placeWithNudges`' top-left boxes inside it would centre-shift
-   every one of them by half its own size and put a dark plate on the marker's inner spans. DOM
-   order after the canvas and before `.wf-mlab`/`.wf-mchips`, so rings paint over the field but
-   under every label — see the component's own note at the JSX for why "first child of the map
-   box" would put them under the paint instead. */
-.wf-mgeo {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.wf-rings {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-/* `color-mix` against the token rather than a hardcoded `rgba(201,162,75,.4)` literal — the same
-   pattern `--color-close-to-home`'s own border-color rule already uses two blocks up — so
-   `--color-home`'s own comment ("ring stroke at 40% alpha") names a real consumer rather than a
-   duplicated hex the token could drift out of sync with. */
-.wf-rings circle {
-  fill: none;
-  stroke: color-mix(in srgb, var(--color-home) 40%, transparent);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
-}
 .wf-ringlb {
   position: absolute;
   font-family: var(--font-mono);
@@ -3472,270 +3375,7 @@ div.wf-hc:where([data-control]).also.on:hover {
   white-space: nowrap;
   line-height: 1.35;
 }
-/* Popup home marker: `.wf-hm`/`.wf-hm-mk`/`.wf-hm-lb` are the thumbnail's own classes (plan §2.2),
-   reused rather than duplicated — these two rules are the only thing that differs, one size up. */
-.wf-mgeo .wf-hm-mk {
-  width: 12px;
-  height: 12px;
-  border-width: 2px;
-}
-.wf-mgeo .wf-hm-lb {
-  font-size: 9px;
-}
-.wf-mlab {
-  position: absolute;
-  inset: 0;
-  /* The labels are annotations on a picture, and the picture is what takes the click. Without this
-     a pointer landing on a label would be answered against the label rather than the canvas, so the
-     one place a reader is most likely to aim — the region's own name — would be the one place
-     selecting it did not work. */
-  pointer-events: none;
-}
-/* ⚠️ EVERY label carries the plate, not only the selected one, and that is a contrast fix rather
-   than a styling preference. The backdrop here is the heat field itself, which the kernel composites
-   at alpha 206 (238 focused) over the land plate — so bone type measures 1.84:1 against `#B0BE74`
-   (a 4★ region) and 2.29:1 against `#8AAE72`. Both are under even the 3:1 non-text floor, and the
-   failure is inverted against usefulness: a region's name goes least readable exactly on the nights
-   the field is telling you to go there. A text-shadow is not a contrast remedy — WCAG has no
-   technique for one and the ratio is computed against the backdrop regardless. Over the plate the
-   same type measures 12.2:1 whatever the field is doing beneath it. The shadow stays, for the
-   plate's own edge against a bright field.
 
-   ⚠️ There used to be a `[data-hot="true"]` arm here, ringing the SELECTED region's label. It went
-   at M2 with the label itself: the focused region's name is no longer drawn at all — the rail cell
-   reads pressed and the prose slot's heading names it, so the label was a third statement of one
-   fact standing in the space the location chips need. */
-.wf-mlab span {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  /* ⚠️ Explicit, against `.wf-mapbox`'s inherited zero — see the note there. */
-  line-height: 1.35;
-  color: var(--color-plex-text);
-  background: rgba(20, 15, 12, 0.85);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.8);
-  white-space: nowrap;
-  padding: 3px 5px;
-  border-radius: 5px;
-}
-/* Secondary, not the mock's dimmer bone: this is the only sentence saying the picture is
-   interactive, and the strip's beyond line records the same correction for the same reason. */
-.wf-mhint {
-  position: absolute;
-  left: 8px;
-  bottom: 7px;
-  /* Same rule as `.wf-mlab`, and it was missed once: this chip is an absolutely-positioned sibling
-     inside the clickable box, so without it the ~90×15px area that says "Select a region" is the
-     one place clicking does not select one. On the near-square phone frame the bottom-left of the
-     projection is inside the landmass, so a centroid can sit under it and be unreachable. */
-  pointer-events: none;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  line-height: 1.35;
-  color: var(--color-plex-text-secondary);
-  background: rgba(20, 15, 12, 0.8);
-  padding: 3px 6px;
-  border-radius: 5px;
-}
-/* The unscored chip, bottom-RIGHT so it cannot collide with the hint bottom-left. Same plate and
-   the same 9px mono as `.wf-mhint`, because the two are the same kind of thing — an annotation on
-   the picture — and a second chip style would read as a second kind of statement.
-
-   `pointer-events: none` for the reason recorded on `.wf-mhint`: it is an absolutely-positioned
-   sibling inside the clickable box, so without it the area under the chip is the one place a
-   pointer cannot select a region. */
-.wf-mnote {
-  position: absolute;
-  right: 8px;
-  bottom: 7px;
-  pointer-events: none;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  line-height: 1.35;
-  color: var(--color-plex-text-secondary);
-  background: rgba(20, 15, 12, 0.8);
-  padding: 3px 6px;
-  border-radius: 5px;
-}
-/* Door 1 — `◍ Open in map →`, top-right of the field (doors plan §3 D4, `Plan Tab with Heat
-   v5.html:371–373`). Top-right rather than alongside `.wf-mhint`'s bottom-left corner, because the
-   field's own click gesture (region pick) and its hint both live along the bottom — a door placed
-   there would read as part of that.
-
-   ⚠️ `line-height: 1.2` is explicit against `.wf-mapbox`'s inherited `0` — the same pairing
-   `.wf-mlab span`/`button.wf-mchip` document from the same cause; without it the plate paints a few
-   pixels tall behind the button's own text.
-
-   Seeded into the placement pass as a `target: true` obstacle, measured from the LIVE element —
-   see `WindowRowFieldMap.jsx`'s placement effect. The increment's own defect: its prototype drew
-   this button without seeding it, and it covered a chip's rating in 4 of 6 windows. */
-.wf-mopen {
-  position: absolute;
-  right: 7px;
-  top: 7px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  line-height: 1.2;
-  color: #EBD9A8;
-  background: rgba(20, 15, 12, 0.86);
-  border: 1px solid color-mix(in srgb, var(--color-home) 42%, transparent);
-  border-radius: 6px;
-  padding: 5px 8px;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-}
-.wf-mopen:hover {
-  background: color-mix(in srgb, var(--color-home) 22%, transparent);
-  border-color: color-mix(in srgb, var(--color-home) 70%, transparent);
-}
-/* Inset, not offset — the same reasoning `button.wf-mchip:focus-visible` states for the identical
-   shape: `.wf-mapbox` clips overflow (`overflow: hidden`, a 9px radius), and an outward ring here
-   would lose its outer stroke against the frame's top-right corner. */
-.wf-mopen:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: -2px;
-}
-@media (max-width: 639px) {
-  .wf-mopen {
-    padding: 7px 10px;
-    font-size: 10px;
-  }
-}
-
-.wf-rlab {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-plex-text-secondary);
-  margin: 0 14px 6px;
-}
-.wf-rrail {
-  display: grid;
-  /* `auto-fit` rather than a fixed count, so the rail survives a region list that grows — which is
-     exactly what P7's origin move and any catalogue expansion will do to it. */
-  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
-  gap: 6px;
-  margin: 0 14px 11px;
-}
-.wf-rr {
-  border: 1px solid var(--color-plex-border);
-  border-left: 2px solid var(--color-plex-border-light);
-  border-radius: 8px;
-  background: var(--color-plex-panel);
-  padding: 7px 9px 8px;
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-height: 56px;
-}
-.wf-rr:hover {
-  border-color: var(--color-plex-border-light);
-  background: var(--color-plex-surface);
-}
-/* 3:1 non-text minimum against the panel, which the hover tint alone does not meet — the same rule
-   `index.css` states for every other control on this arm. */
-.wf-rr:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-}
-/* 0.55, not 0.5 — measured 2.80:1 on the panel and 2.56:1 on the lead card's gold wash, both under
-   SC 1.4.11's 3:1, and this border is the ENTIRE visual selection signal for a region cell (its text
-   does not change on selection, unlike the All cell's "Show"/"Showing"). 0.55 clears it at 3.12:1
-   and is the value the region dots used for the same state before M2 deleted them. */
-.wf-rr.on {
-  background: rgba(201, 162, 75, 0.1);
-  border-color: rgba(201, 162, 75, 0.55);
-  /* ⚠️ A NON-COLOUR token for the selected state — SC 1.4.1 (Use of Color, Level A), which is a
-     different question from the 3:1 contrast reasoned about above (1.4.11 asks "is the indicator
-     visible", 1.4.1 asks "is colour the only channel"). The comment above says it itself: this
-     border was "the ENTIRE visual selection signal for a region cell", and only its HUE changes on
-     selection — invisible to deuteranopia and protanopia against bone-on-panel, and to anyone on a
-     poorly calibrated display. An inset bar rather than a wider border, because `border-left-width`
-     would shift the cell's content by 2px on every pick and the whole point of this surface is that
-     the furniture does not move. `.wf-rr.on` is (0,2,0) and the verdict stripes below are doubled to
-     beat it, so this rides `box-shadow` and leaves `border-left-color` to them. */
-  box-shadow: inset 3px 0 0 0 rgba(201, 162, 75, 0.55);
-}
-.wf-rr[data-verdict="WORTH_IT"] { border-left-color: var(--color-verdict-go); }
-.wf-rr[data-verdict="MAYBE"] { border-left-color: var(--color-verdict-marginal); }
-.wf-rr[data-verdict="STAND_DOWN"] { border-left-color: var(--color-verdict-standdown); }
-/* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — the rail cell keeps its plain border stripe, the same neutral an AWAITING cell wears. Stated rather than left as an
-   accident of the cascade; `test/unratedVerdictWords.test.jsx` pins that no rule matching UNRATED sets a
-   verdict hue and that every JS map keyed on verdicts carries an UNRATED entry. */
-/* Doubled specificity so it beats `.wf-rr:hover` and `.wf-rr.on`, both (0,2,0) and both later in
-   the file. Without it the All cell — which is `on` by DEFAULT — is the one rail cell whose left
-   stripe is a wash rather than its channel, and the only one that turns grey on hover. */
-.wf-rr.wf-rr-all { border-left-color: var(--color-close-to-home); }
-.wf-rr-n {
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-}
-/* ⚠️ The lifted `--color-badge-*` variants, never the `--color-verdict-*` fills. At 9.5px the fills
-   put "Poor" below AA on this panel — the identical measurement the heat strip's own verdict word
-   records, and the seventh time this file has made that correction. */
-.wf-rr-v {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  color: var(--color-plex-text-secondary);
-}
-.wf-rr[data-verdict="WORTH_IT"] .wf-rr-v { color: var(--color-badge-go); }
-.wf-rr[data-verdict="MAYBE"] .wf-rr-v { color: var(--color-badge-maybe); }
-.wf-rr[data-verdict="STAND_DOWN"] .wf-rr-v { color: var(--color-badge-poor); }
-/* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — `.wf-rr-v`'s base ink is already the neutral secondary one. Stated rather than left as an
-   accident of the cascade; `test/unratedVerdictWords.test.jsx` pins that no rule matching UNRATED sets a
-   verdict hue and that every JS map keyed on verdicts carries an UNRATED entry. */
-.wf-rr-all .wf-rr-v { color: var(--color-close-to-home); }
-.wf-rr-m {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--color-plex-text-secondary);
-  margin-top: auto;
-}
-/* A meta line can be a sentence ("31 in your sub-regions · 232 outside"): on a shaped rail it wraps rather than
-   widening its cell. Scoped by the rail's attribute so every other rail's layout is untouched. */
-.wf-rrail[data-shaped="true"] .wf-rr-m {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-/* A region outside the reader's sub-regions (S5b-1): its verdict stays, its meta says where it is, in the grey of a
-   thing that is not the reader's. The stripe and verdict word are untouched. */
-.wf-rr[data-outside="true"] .wf-rr-m {
-  color: var(--color-plex-text-secondary);
-  font-style: italic;
-}
-
-@media (max-width: 639px) {
-  .wf-rowmap,
-  .wf-rrail { margin: 0 12px 10px; }
-  .wf-rlab { margin: 0 12px 6px; }
-  /* The All cell spans the row on a phone, and its meta moves onto the same line so the spanning
-     cell does not cost a whole extra row of height.
-
-     ⚠️ The "two up" half of the design's phone rail is NOT here, and must not come back here. A
-     `.wf-rrail { grid-template-columns: 1fr 1fr }` sat on this line and never once won: the rail is
-     only ever mounted inside the popup, where `.wf-wsh .wf-rrail` (0,2,0) out-specifies it. It lives
-     in the popup's own phone block, beside `.wf-wsh-grid`. */
-  .wf-rr-all {
-    grid-column: 1 / -1;
-    min-height: 46px;
-    flex-direction: row;
-    align-items: center;
-    gap: 9px;
-    flex-wrap: wrap;
-  }
-  .wf-rr-all .wf-rr-m { margin-top: 0; margin-left: auto; }
-}
 @media (max-width: 639px) {
   /* ── The phone transpose (plan-matrix §6 M1 task 5) ──────────────────────────────────────────
      The SAME markup, flowed instead of placed: two columns, the day heading spanning the row above
@@ -3860,16 +3500,6 @@ div.wf-hc:where([data-control]).also.on:hover {
   animation: popup-refresh 300ms ease-out;
 }
 
-/* Score badge fade-in on briefing drill-down */
-@keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.animate-fade-in {
-  animation: fade-in 300ms ease-out;
-}
-
 /* Native date inputs — make the calendar picker indicator visible on the dark theme
    and let the whole field act as a calendar trigger (paired with showPicker on click). */
 .date-field::-webkit-calendar-picker-indicator {
@@ -3880,35 +3510,6 @@ div.wf-hc:where([data-control]).also.on:hover {
 
 .date-field::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
-}
-
-/* ── The pick dialog's controls ──
-   Tailwind v4's Preflight no longer sets `button { cursor: pointer }` and nothing else here
-   restores it — the rule this file already states 480 lines up. */
-.window-pick-action,
-.window-pick-close {
-  cursor: pointer;
-  transition: filter 0.14s ease, color 0.14s ease;
-}
-.window-pick-action:focus-visible,
-.window-pick-close:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-  border-radius: 999px;
-}
-.window-pick-action,
-.window-pick-close {
-  color: var(--color-tide);
-}
-.window-pick-close {
-  color: var(--color-plex-text-muted);
-}
-.window-pick-action:hover,
-.window-pick-close:hover {
-  color: var(--color-plex-text);
-}
-.window-pick-action:focus-visible {
-  border-radius: 3px;
 }
 
 /* ── Window-first lens bar ──
@@ -4829,7 +4430,6 @@ div.wf-hc:where([data-control]).also.on:hover {
   box-sizing: border-box;
   cursor: pointer;
 }
-.wf-tl-collapsed-open { cursor: pointer; }
 .wf-tl-days { display: flex; gap: 4px; min-width: 0; }
 .wf-tl-none {
   font-size: 9.5px;
@@ -6812,7 +6412,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-map-tab .wf-win-verdict--scoped { min-width: max-content; }
 }
 
-
 /* ⚠️ Below 390px the medallion goes entirely — glyph included — because the day label starts to
    clip otherwise, and the design's priority order is explicit that the medallion yields first ("the
    day label never truncates … the medallion words and the region yield instead"). A pick is a
@@ -8043,7 +7642,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    about their host's coordinate system, so the SVG-projected popup and this Leaflet-projected tab
    can share one vocabulary for "what a home marker/ring label looks like". Only the location chip
    and the region name are new: the chip's ink rule differs from `WindowRowFieldMap`'s own
-   `.wf-mchip-r` (ramp colour as ink there, `--ink` here — see the note on `.wf-maplab-chip-r`
+   the deleted `.wf-mchip-r` (ramp colour as ink there, `--ink` here — see the note on `.wf-maplab-chip-r`
    below), so it earns its own class rather than risking two ink rules on one selector. */
 .wf-maplab-layer {
   position: absolute;
@@ -8051,7 +7650,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   top: 0;
   /* The layer is an annotation on the map; the canvas and the chrome beneath it take the click.
      Only `.wf-maplab-chip` (a real `<button>`) re-enables it, below — the same
-     `.wf-mchips`/`button.wf-mchip` split `WindowRowFieldMap` already established, and for the
+     the deleted `.wf-mchips`/`button.wf-mchip` split `WindowRowFieldMap` already established, and for the
      identical reason: a decorative span that swallowed a click would make the ground beneath the
      region name the one place selecting it does not work. */
   pointer-events: none;
@@ -8147,7 +7746,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   /* AFTER `font`, not before — the CSS-wide `font` shorthand resets every longhand it does not
      name, `line-height` among them, to whatever this element would otherwise inherit. Inside the
      label pane that is not an issue (no ancestor sets `line-height: 0`), but the order is kept
-     matching `.wf-mchip`'s own documented trap so the two rules never drift into looking
+     matching the deleted `.wf-mchip`'s own documented trap so the two rules never drift into looking
      coincidentally safe for different reasons. */
   line-height: 1.35;
   text-align: left;
@@ -8293,7 +7892,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    the bundle's OWN "no ramp colour as text, anywhere" rule two sections later. A star numeral is
    TEXT, and the ramp's mid-peaked luminance makes 1★ and 5★ fail contrast from OPPOSITE ends on
    this near-black plate — exactly the inversion the rest of the app's `readableInkOn` exists to
-   avoid. `WindowRowFieldMap`'s OWN `.wf-mchip-r` uses ramp ink instead, and that is a DELIBERATE,
+   avoid. the deleted `WindowRowFieldMap`'s OWN `.wf-mchip-r` uses ramp ink instead, and that is a DELIBERATE,
    documented exception scoped to that surface alone (its own comment: "safe only because the
    plate behind it is near-black" — a claim never re-verified here); it is not a precedent to copy
    onto a new chip. */
@@ -10054,7 +9653,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    Started life as bundle rev 2's tide-chip tweak (a match-only, on-the-light row); T5 keeps that
    look for the match tier UNCHANGED (the numbers below are already `--color-tide`'s own RGB, not
    the design bundle's, so there is nothing to re-derive) and adds a miss tier. Lifted from
-   `.wf-frow` (border/background/kicker-ink triple) rather than the design bundle's `.ctide` values
+   the deleted `.wf-frow` (border/background/kicker-ink triple) rather than the design bundle's `.ctide` values
    verbatim — no `.ctide` rule exists anywhere in this file, and the flat `wf-tide-fit-<part>`
    naming follows this app's own convention (§1 #9's Tokens table). Omitted entirely by the
    component itself when there is no served fact to state — never a "no tide alignment" line.
@@ -10146,7 +9745,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 /* The denial — design spec §4's `var(--ink-3)` italic. ⚠️ NOT `--color-plex-text-muted`: this file
    has already made this exact correction for small type at this size (its own repeated note, e.g.
-   the callout/sheet secondary-ink corrections beside `.wf-frow`/`.wf-loc-*`) — `.42` measures
+   the callout/sheet secondary-ink corrections beside the deleted `.wf-frow`/`.wf-loc-*`) — `.42` measures
    ≈3.5:1 on both this block's hosts, under AA's 4.5:1 floor for text this size. Secondary ink
    keeps the denial visibly quieter than the jump beside it (`--color-tide`) without failing. */
 .wf-tide-fit-denial {
@@ -10444,7 +10043,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 
    P11 was the phase this warning named, and it did not fire then: the rating floor and the type
    control went into the drill-down sheet rather than onto this bar (plan §5f), so the bar stayed
-   one control on one line. P11 adds one focusable to the pane, `.wf-film-all`, which takes the same
+   one control on one line. P11 adds one focusable to the pane, the deleted `.wf-film-all`, which takes the same
    reservation; the sheet's own controls need none, since it is a modal and nothing scrolls it under
    the bar.
 
@@ -10491,13 +10090,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-hc,
 .wf-tab,
 .wf-spot,
-.wf-film-btn,
-.wf-film-all,
-.wf-clash-act,
-/* P3's rail cells. They now sit inside the window popup, which is a fixed overlay the sticky bar
-   does not overlap — so the reservation is inert there rather than wrong, and it is kept because
-   `.wf-rr` is one class and the popup is not the only thing that could ever mount it. */
-.wf-rr {
+.wf-clash-act {
   /* ⚠️ Plus `--safe-t`. `useLensReserve` publishes the bar's measured HEIGHT plus its focus ring;
      it does not know what line the bar rests on. `scroll-margin-top` is measured from the
      scrollport edge, which `viewport-fit=cover` moves up by the inset — so without this term a
@@ -10505,8 +10098,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      Focus Not Obscured (Minimum) and the precise defect this reservation exists to prevent. */
   scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--safe-t));
 }
-/* The app's own phone boundary, as `.wf-spots` states it — 639px, not the handoff's 620px, because
-   a second breakpoint 19px away would be one more thing to keep in step with `.wf-spots`, the
+/* The app's own phone boundary, as the deleted `.wf-spots` states it — 639px, not the handoff's 620px, because
+   a second breakpoint 19px away would be one more thing to keep in step with the deleted `.wf-spots`, the
    sheet and `useIsMobile`, which the bar's own captions now switch on.
 
    ⚠️ THE PHONE BAR NO LONGER SCROLLS, AND MUST NOT BE MADE TO AGAIN. P14 made `nowrap` +
@@ -10565,64 +10158,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      base `min-height: 24px` sits in the lens-bar block and this block must win). */
 }
 
-/* ── Window-first attribute rows: the tide the light falls on, the snow underneath it ──
-   The design's `.frow` is `auto auto 1fr auto`; the fourth column is its action link, and it is
-   not built — see `WindowAttributeRow.jsx` for why both of the design's labels fail a rule this
-   project already holds. So tide is `auto auto 1fr` and snow, which has no chart, is `auto 1fr`. */
-.wf-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  margin: 0 14px 11px;
-}
-/* Flex rather than the design's `grid-template-columns`, and that is a correctness fix, not a
-   preference. The chart column is conditional twice over — a window with no drawable curve, and
-   every window on a phone — so a fixed three-column template would leave the facts sitting in the
-   middle `auto` track with the `1fr` empty beside them whenever the chart was absent. Flex sizes
-   from the children that are actually there, and lands on the same picture when all three are. */
-.wf-frow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 7px 11px;
-  border-radius: 8px;
-  /* The left edge is the channel at full strength and the rest of the frame a wash of it, so the
-     row is identifiable from the corner of the eye without competing with the verdict badge. */
-  border: 1px solid rgba(111, 168, 176, 0.28);
-  border-left: 2px solid var(--color-tide);
-  background: rgba(111, 168, 176, 0.055);
-}
-/* ⚠️ THERE IS NO `.wf-frow-<channel>` RULE, and the base above carries the tide look directly.
-   `.wf-frow-snow` lived here until M5 swept it: the snow row promotion died at M2 (§7's ledger lists
-   the class among what went with it) and `buildWindowRows` has hard-coded `channel: 'tide'` ever
-   since, so nothing had emitted the class for three phases.
-
-   `WindowAttributeRow` still interpolates `wf-frow-${row.channel}`, which therefore names a class no
-   rule defines. That is harmless today and is a trap for the next channel: when the surge or
-   clearance row `windowFirstRows.js` promises arrives, it will render in the TIDE colours — a colour
-   naming the wrong claim, which is the failure `.wf-hc-tw`'s own comment warns about. Whoever adds
-   it should lift the three values above into a `.wf-frow-tide` rule at the same time. */
-.wf-frow-k {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  /* The badge-text variants, not the channel hues: at 10px the full-strength channel colour does
-     not carry. Each is measured on the row it actually renders on — the two fills are mutually
-     exclusive, so quoting one surface for both would record a pairing that never appears. Tide ink
-     on the tide fill: 9.27:1, and 8.39:1 over the lead card's gold wash. Snow ink on the snow fill
-     (below): 10.99:1, and 9.92:1 on the lead card. */
-  color: var(--color-badge-tide);
-}
-
-/* The chart's box is fixed at exactly its viewBox, so nothing scales and the window mark stays a
-   circle — `WindowTideSparkline` carries the whole argument. `overflow: visible` is what lets the
-   dashed "when" rule overshoot the top edge. */
-.wf-mini { width: 104px; flex: none; }
-.wf-mini svg { display: block; width: 104px; height: 24px; overflow: visible; }
-
 .wf-facts {
   display: flex;
   flex-wrap: wrap;
@@ -10649,106 +10184,11 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   font-weight: 600;
 }
 @media (max-width: 639px) {
-  .wf-rows { margin: 0 12px 10px; }
-  /* Stacked and chartless, exactly as the design's phone rules do it: at this width the row has
-     nothing left to give the trace, and the facts already say everything it shows. */
-  .wf-frow {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    padding: 8px 10px;
-  }
-  .wf-mini { display: none; }
   .wf-facts { gap: 3px 12px; }
   /* The row's least-critical chip drops here, the same treatment the now-deleted
      `.hot-topic-facts .opt` used to get (P6, `docs/engineering/coming-up-plan.md` D7) and for the
      same reason — the line stays to what the window is actually about. */
   .wf-facts .opt { display: none; }
-}
-
-/* ── Window-first spot film strip ──
-   Geometry is the spec's: snaps `proximity` (not `mandatory`), sizes 3.5 across, and drops to a
-   72% card on phone. */
-.wf-strip {
-  position: relative;
-  /* 10px against the spec's 14, and the missing 4 is on the scroller below. `overflow-x: auto`
-     computes `overflow-y` to auto as well, so the scroller clips a focused card's 2px ring at 2px
-     offset on every side; it needs 4px of its own padding to keep it. The 4px cannot be bought with
-     `padding: 4px; margin: -4px` on this scroller the way a plain filmstrip would: the card basis
-     is a PERCENTAGE of the scroller's content box, and a negative margin would leave
-     `calc((100% - 24px)/3.5)` resolving against a box 8px narrower than the one the spec sized
-     against. Moving the 4px out of the wrapper's inset instead restores the spec's content box
-     exactly — 10 + 4 = 14. */
-  padding: 0 10px;
-}
-/* Insets track the WRAPPER's padding, not the spec's 14: the scroller clips at its padding box,
-   which now sits 10px in, so a fade at 14px would leave a 4px unfaded sliver at each end. */
-.wf-strip.more::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 10px;
-  bottom: 11px;
-  width: 56px;
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent, var(--color-plex-panel) 78%);
-}
-.wf-strip.back::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 10px;
-  bottom: 11px;
-  width: 40px;
-  z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(270deg, transparent, var(--color-plex-panel) 78%);
-}
-/* The lead card's gold wash is `rgba(201,162,75,.06)` fading out by 55% of the card's height, and
-   the strip straddles that mark — so the backdrop under the fade is NOT the plain panel. Composited
-   at the strip's top the wash lands on rgb(35,27,20), which is the spec's own `#221b15` to within
-   a unit; a fade to `--color-plex-panel` here leaves a visible dark band across a tinted card. */
-.wf-strip[data-lead='true'].more::after {
-  background: linear-gradient(90deg, transparent, #221B15 78%);
-}
-.wf-strip[data-lead='true'].back::before {
-  background: linear-gradient(270deg, transparent, #221B15 78%);
-}
-
-.wf-spots {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  scroll-snap-type: x proximity;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  /* 8px of top room, not the 4px the ring alone needs: 2px outline + 2px offset = 4, plus the 2px
-     `.wf-spot:hover` lift, plus 2px of slack so the next change to either is not a silent regression.
-     At 4px the ring sat exactly flush on the padding-box clip at rest and 2px OUTSIDE it while
-     lifted — the whole top stroke and both top corners gone. Reachable by mouse alone, because
-     closing a dialog opened from a card restores focus to the card the pointer is still resting on, so hover
-     and focus-visible are live at once.
-     TOP ONLY — the card basis is a percentage of the WIDTH, so the horizontal 4px must stay 4px or
-     `calc((100% - 24px)/3.5)` stops resolving against the spec's content box; and nothing ever
-     moves the card down, so the spec's bottom value stands.
-     `scroll-padding` keeps a snapped card from landing under its own left gutter. */
-  padding: 8px 4px 11px;
-  scroll-padding: 4px;
-}
-.wf-spots::-webkit-scrollbar { display: none; }
-.wf-spots > .wf-spot {
-  flex: 0 0 calc((100% - 24px) / 3.5);
-  scroll-snap-align: start;
-}
-/* The app's own phone boundary (`useIsMobile`), expressed in CSS so the sizing has one source of
-   truth rather than a JS breakpoint agreeing with a media query. The 640–899px band keeps 3.5
-   across and is tight; widening it is the responsive pass's call, not a number to invent here. */
-@media (max-width: 639px) {
-  .wf-strip { padding: 0 8px; }
-  .wf-strip.more::after { right: 8px; bottom: 10px; }
-  .wf-strip.back::before { left: 8px; bottom: 10px; }
-  .wf-spots { padding: 8px 4px 10px; }
-  .wf-spots > .wf-spot { flex: 0 0 72%; }
 }
 
 .wf-spot {
@@ -10807,73 +10247,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   z-index: 3;
 }
 
-/* The spot peek (P10'). Portalled to <body> by the component, so `fixed` here is about coordinates
-   rather than about escaping anything — the portal is what escapes `.wf-spots`' two-axis clipping,
-   the window card's INLINE `overflow: hidden`, and `.wf-spot:hover`'s transform, which would
-   otherwise re-base a fixed descendant onto the very button the panel hangs off.
-
-   z-index 60 clears everything on the Plan screen: the sticky lens bar is 20, a focused
-   spot card 3, the strip's edge fades 2. (The retired `MapOverlay` sat above it at 200, on purpose.)
-
-   Width is mirrored by PEEK_WIDTH in `windowSpotPeek.js`; keep the two in step.
-
-   Deliberately NO max-height, and this is the rule most at risk of being silently re-broken: a
-   panel capped at 260px with overflow hidden would cut its second score bar in half. */
-.wf-peek {
-  position: fixed;
-  z-index: 60;
-  width: 280px;
-  padding: 11px 13px 12px;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 10px;
-  background: var(--color-plex-surface-light);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
-  text-align: left;
-  cursor: pointer;
-  /* The pointer MUST be able to reach it: the panel sits 10px below the card, and travel across
-     that gap has to keep it open (the card's mouseleave starts a grace the panel's mouseenter
-     cancels). It also carries the click through to the map. */
-  pointer-events: auto;
-  animation:
-    wf-peek-fade 0.16s ease,
-    wf-peek-rise 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-/* Flipped above the card when there is no room below — the rise reverses with it. */
-.wf-peek[data-placement='above'] {
-  animation-name: wf-peek-fade, wf-peek-drop;
-}
-/* Arrow tethering the panel to the card centre. Same fill and border as the shell, so it reads as
-   one shape; --wf-peek-arrow-left is set inline from the card's centre, already clamped. */
-.wf-peek::after {
-  content: '';
-  position: absolute;
-  left: var(--wf-peek-arrow-left, 24px);
-  width: 11px;
-  height: 11px;
-  transform: rotate(45deg);
-  background: var(--color-plex-surface-light);
-}
-.wf-peek[data-placement='below']::after {
-  top: -6px;
-  border-left: 1px solid var(--color-plex-border-light);
-  border-top: 1px solid var(--color-plex-border-light);
-}
-.wf-peek[data-placement='above']::after {
-  bottom: -6px;
-  border-right: 1px solid var(--color-plex-border-light);
-  border-bottom: 1px solid var(--color-plex-border-light);
-}
-/* The drive chip on the peek's first line. `nowrap` because "1 hr 59 mins" otherwise breaks across
-   two lines inside a 280px panel and drags the score block down with it. */
-.wf-peek-chip {
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--color-plex-border-light);
-  color: var(--color-plex-text-secondary);
-  white-space: nowrap;
-}
 /* Score track. The fill is a continuous solid colour sampled from the ramp
    (heat-scale-unification-plan.md Stage 5b) and a panel-coloured span masks the unfilled tail from
    the right — the same technique `ScoreBar`'s popup-mode markup uses, so the two surfaces show one
@@ -10893,77 +10266,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   right: 0;
   height: 100%;
   background: var(--color-plex-surface-light);
-}
-
-.wf-wfoot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 14px;
-  border-top: 1px solid var(--color-plex-border);
-  background: rgba(0, 0, 0, 0.16);
-  font-size: 10.5px;
-  flex-wrap: wrap;
-}
-.wf-film {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-/* Pointer-only, as the spec draws them: a touch user swipes, and on the tightest screen the arrows
-   would duplicate that in the space the count needs. Every spot stays reachable either way — the
-   cards are buttons, so tabbing scrolls the strip natively. */
-.wf-film-btn { display: none; }
-@media (hover: hover) and (pointer: fine) {
-  .wf-film-btn {
-    display: block;
-    width: 24px;
-    height: 22px;
-    border: 1px solid var(--color-plex-border);
-    background: var(--color-plex-panel);
-    color: var(--color-plex-text-secondary);
-    border-radius: 6px;
-    font-size: 11px;
-    line-height: 1;
-    cursor: pointer;
-  }
-}
-@media (max-width: 639px) {
-  .wf-film-btn { display: none; }
-}
-.wf-film-btn:hover:not(:disabled) {
-  border-color: var(--color-plex-border-light);
-  color: var(--color-plex-text);
-}
-.wf-film-btn:disabled {
-  opacity: 0.32;
-  cursor: default;
-}
-.wf-film-btn:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-}
-/* The drill-down's trigger, and the ONLY thing on this footer that is not a fact — so it takes the
-   teal actionable accent `.wf-lens-reset` already established for this arm (`--color-badge-tide`,
-   measured 9.68:1 there; this footer's `rgba(0,0,0,0.16)` over `--color-plex-panel` is a darker
-   backdrop still, so the ratio only rises). Unlike `.wf-film-btn` it is NOT pointer-gated: the
-   arrows duplicate a swipe, this opens a surface that has no other route. */
-.wf-film-all {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-badge-tide);
-  background: none;
-  border: none;
-  padding: 0;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.wf-film-all:hover { text-decoration: underline; }
-.wf-film-all:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-  border-radius: 4px;
 }
 
 /* ── Window-first drill-down sheet ──
@@ -11166,7 +10468,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-plex-text-secondary);
 }
 /* 639px, not the mock's 620: this arm already states 639 as its single breakpoint — it is
-   `useIsMobile`'s own boundary, expressed in CSS by `.wf-spots` and `.wf-lens` so the sizing has one
+   `useIsMobile`'s own boundary, expressed in CSS by the deleted `.wf-spots` and `.wf-lens` so the sizing has one
    source of truth rather than a JS query agreeing with a media rule. A second number 19px away
    would be one more thing to keep in step for no gain. Two columns rather than one, because a
    single column in an 880px dialog is a list pretending to be a grid; P14 owns anything below. */
@@ -11191,7 +10493,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 @media (prefers-reduced-motion: reduce) {
   .wf-spot { transition: none; }
   .wf-spot:hover { transform: none; }
-  .wf-peek { animation: none; }
 }
 
 /* ── Window-first "Coming up" pane ──
@@ -12760,7 +12061,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 
    9.5px rather than the design's 9, matching `.wf-loc-out`'s badge — that is the precedent, and a
    second number half a pixel away would be one more to keep in step. (It is NOT the arm's smallest
-   mono size: `.wf-loc-dow`, `.wf-loc-tag`, `.wf-loc-car` and `.wf-mhint` are all 9px.)
+   mono size: `.wf-loc-dow`, `.wf-loc-tag`, `.wf-loc-car` and the deleted `.wf-mhint` are all 9px.)
    `text-transform` rather than uppercase text, so the DOM string and the accessible reading stay
    sentence case. Measured: `--color-plex-text-secondary` over the 6% gold wash on
    `--color-plex-panel` gives 6.49:1 (6.33 is that same ink over `--color-plex-surface`, which is
@@ -13066,9 +12367,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 /* Overlay convergence C2 — the forecast detail the retired overlay popup showed, below a window row's prose:
    conditions badges, wind and comfort rows, the generated-at footer. The sheet's own vocabulary
-   (mono, 10.5px, `--color-plex-text-secondary` — `.wf-loc-light`'s measured ink), never the popup's
+   (mono, 10.5px, `--color-plex-text-secondary` — `.wf-loc-light`'s measured ink), never the deleted popup's
    inline pills. `.wf-loc-why` carries no bottom margin, so the block owns the gap above itself.
-   The badge tones are the popup's own hues, as borders and a faint wash with the INK left at the
+   The badge tones are the deleted popup's own hues, as borders and a faint wash with the INK left at the
    secondary token: a tone is a colour on the edge, never the only carrier of the fact — the text is
    the whole message, so no tone has to clear 4.5:1 on its own. */
 .wf-loc-facts {
@@ -13135,7 +12436,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   padding-top: 6px;
   border-top: 1px solid var(--color-plex-border);
   font-size: 10px;
-  /* The popup's footer used the MUTED token; at 10px mono it is 3.53:1 over the surface, under AA. */
+  /* The deleted popup's footer used the MUTED token; at 10px mono it is 3.53:1 over the surface, under AA. */
   color: var(--color-plex-text-secondary);
 }
 /* Borrowed prose names its owner. A REGION's sky gloss shown under a location's name is labelled
@@ -13190,7 +12491,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 /* ── The conflict action button (plan-matrix §6 M2.6; lens-verdict-line-plan.md) ──────────────
    The callout card this section used to style (`.wf-clash` and its headline, body and action row)
    is gone: the plan-level conflict is the lens bar's verdict line now (`.wf-lens-verdict-act`,
-   in the lens-bar block), and the window popup's "see all" action (the retired window popup) still
+   in the lens-bar block), and the deleted window popup's "see all" action (the retired window popup) still
    shares this button's look. Teal is this arm's actionable accent, measured at 9.68:1. */
 .wf-clash-act {
   font-family: var(--font-mono);
@@ -13222,258 +12523,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-plex-text);
 }
 
-/* ── Location chips on the field (plan-matrix §6 M2.3) ────────────────────────────────────────
-   The layer that turns the field from areas into places. `pointer-events: none` on the container
-   AND on every chip: the canvas beneath takes the click, and a chip that swallowed one would make
-   the spot a reader is most likely to aim at the one place selecting a region does not work — the
-   trap `.wf-mhint` records. It becomes interactive at M4, when clicking one opens the location
-   sheet, and its `title` arrives with that click rather than before it. */
-.wf-mchips {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-/* ⚠️ Since M4 a chip is a `<button>` where the caller passes `onOpenLocation` and a `<span>` where
-   it does not, and this one rule has to dress both — hence the resets below, inert on the span and
-   load-bearing on the button. One rule rather than two, because the greedy placer measures the
-   chip off-screen and then commits the box it measured: a width that differed between the two
-   passes is the one thing that placement cannot survive.
-
-   ⚠️ `font: inherit` comes BEFORE `line-height`, and the order is the whole point. `font` is a
-   shorthand and the CSS-wide keyword sets EVERY longhand, `line-height` among them — written after,
-   it resolves the chip's line-height to `.wf-mapbox`'s inherited `0` and the plate paints 9px tall
-   behind 9px of text, which is precisely the failure the `line-height` below exists to prevent (and
-   which `.wf-mlab span` documents from the same cause). Two review lenses caught this independently
-   in one commit; jsdom cannot see it, because `css: false`. */
-.wf-mchip {
-  position: absolute;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font: inherit;
-  text-align: left;
-  /* ⚠️ Against `.wf-mapbox`'s inherited `line-height: 0` — the same pairing `.wf-mlab span`
-     documents. Without it the chip's plate paints a few pixels tall behind 9px of text. Keep it
-     AFTER `font`; see the note above. */
-  line-height: 1.35;
-  white-space: nowrap;
-  padding: 2px 5px;
-  border: 0;
-  border-radius: 5px;
-  background: rgba(14, 11, 9, 0.84);
-  box-shadow: inset 0 0 0 1px var(--color-plex-border-light);
-}
-/* ⚠️ `pointer-events` is on the BUTTON alone, against `.wf-mchips`' `none`. Put it on `.wf-mchip`
-   and the inert span takes the pointer too — swallowing the region click on the canvas beneath it
-   and doing nothing with it, which is the exact `.wf-mhint` trap the layer was written to avoid and
-   which `WindowRowFieldMap`'s chip block still promises it avoids. The wrapper stays inert either
-   way, so a click BETWEEN chips always reaches the canvas and selects a region.
-
-   ⚠️ WCAG 2.5.8 (target size) is met through the SPACING exception since M5, and this paragraph used
-   to say Equivalent — read the new one, because the old rationale sends you to the wrong lever. At
-   9px × 1.35 + 4 the chip is ~16px tall, so it is an undersized target either way and only an
-   exception can carry it. M4 rested on **Equivalent** (every chipped place is also a full-size
-   `WindowSpotCard` in the same dialog) and named one gap; M5 measured that gap rather than arguing
-   about it, and it was real — with a region focused the ranked strip filters to that region while
-   the chips only re-order, so **two of six chips named places with no card in the dialog at all**
-   and the exception simply did not apply to them.
-
-   So the case is **Spacing** now, which depends on nothing but geometry and cannot be broken by what
-   another component happens to be showing: `MIN_TARGET_SEPARATION_PX` (24) in `WindowRowFieldMap`
-   keeps 24px between chip CENTRES, which is exactly what the criterion asks. ⚠️ It is a second,
-   differently shaped test BESIDE `BOX_GAP` rather than a bigger `BOX_GAP`, and it applies between
-   chips only — this rule's own `pointer-events: none` siblings are not targets. Sizing the plate to
-   24px instead stays rejected: it is a map annotation, and a 50% taller plate drops chips the placer
-   can fit. Measured cost of the separation rule on the seeded roster: nothing — one pair moved, five
-   chips still drawn. */
-button.wf-mchip {
-  pointer-events: auto;
-  cursor: pointer;
-}
-/* Inset, not offset. `.wf-mapbox` IS clipped — `overflow: hidden` with a 9px radius — and the placer
-   permits a chip `EDGE_GAP` (2px) from the frame edge, so an outward 2px ring at a 2px offset would
-   lose its outer stroke on any edge-placed chip. `.wf-loc-head:focus-visible` states the identical
-   reasoning for the identical shape. (An earlier cut of this comment claimed `.wf-mapbox` has no
-   `overflow: hidden`; it does, at index.css's `.wf-mapbox` rule.) */
-button.wf-mchip:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: -2px;
-}
-/* The plate lifts rather than the chip moving: a chip is absolutely placed by a measured greedy
-   pass, so any transform on hover would slide it off the point it names. */
-button.wf-mchip:hover {
-  background: rgba(14, 11, 9, 0.94);
-  box-shadow: inset 0 0 0 1px var(--color-close-to-home);
-}
-/* The 5px square that sits ON the projected point — the anchor the placement offset is measured
-   from, so its size and `CHIP_OFFSET` in `WindowRowFieldMap.jsx` are a pair. */
-.wf-mchip-m {
-  width: 5px;
-  height: 5px;
-  background: var(--color-plex-text);
-  flex: none;
-}
-.wf-mchip-n {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--color-plex-text);
-}
-/* The rating, behind a hairline divider — the ramp colour as INK here rather than as a fill,
-   which is safe only because the plate behind it is near-black: the same stop measured 2.9:1 on
-   the card's own surface, which is why the card uses `spotBadgeStyle` instead. */
-.wf-mchip-r {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  font-style: normal;
-  padding-left: 5px;
-  border-left: 1px solid var(--color-plex-border);
-}
-/* ⚠️ A FLIPPED chip mirrors its content, and without this rule it points at the wrong place. The
-   placer flips a chip whose name will not fit to the right of its point (`WindowRowFieldMap`'s
-   `data-flip`), putting the box's RIGHT edge at the anchor — so the 5px marker must move to the
-   right end to stay on the projected point. The bundle does this with `.loc.flip
-   {flex-direction:row-reverse}` (`docs/design/field-geography/Plan Tab with Heat v4.html`), and the
-   port shipped without it: the marker stayed at the left end, one chip-width west of the location
-   it names — far enough to drag a Teesside chip onto the Lake District's heat. jsdom pinned the
-   flip DECISION but runs `css: false`, so only `mapChipFlipCascade.test.jsx`'s sliced-stylesheet
-   pass can see this rule; the placer measures the chip before it decides to flip, so the two
-   states must keep an identical total width — which mirroring does, and any asymmetric padding
-   would not. */
-.wf-mchip[data-flip='true'] {
-  flex-direction: row-reverse;
-}
-/* The divider mirrors with the content: the rating now sits at the LEFT end, so its hairline goes
-   on its right — between it and the name, where it has always been. Padding swaps side-for-side to
-   keep the measured width byte-identical between the two states (see the note above). */
-.wf-mchip[data-flip='true'] .wf-mchip-r {
-  padding-left: 0;
-  padding-right: 5px;
-  border-left: 0;
-  border-right: 1px solid var(--color-plex-border);
-}
-
-/* ── The window popup (plan-matrix §6 M2.1) ───────────────────────────────────────────────────
-   `Modal` centres its children in a fixed, padded overlay; this card takes the width and pins
-   itself to the top of it, because a dialog this tall would otherwise jump vertically as its
-   content changes with the window being stepped through. */
-.wf-wsh {
-  position: relative;
-  align-self: flex-start;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 780px;
-  /* ⚠️ `- 32px` is `Modal`'s own gutter counted twice, and `--safe-v` is the rest of it. Without
-     that term this cap reconstructs a 16px inset the modal no longer necessarily has, consumes the
-     whole safe-area padding and leaves the panel's foot exactly where it was. */
-  max-height: calc(100dvh - 32px - var(--safe-v));
-  overflow: hidden;
-  background: var(--color-plex-panel);
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 13px;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.72);
-}
-.wf-wsh-h {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 12px 15px;
-  border-bottom: 1px solid var(--color-plex-border);
-  background:
-    linear-gradient(180deg, rgba(201, 162, 75, 0.07), transparent),
-    var(--color-plex-surface);
-}
-.wf-wsh-date {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: none;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 7px;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 4px 8px 5px;
-}
-/* ⚠️ SECONDARY, not muted. Muted bone at 9px on this tile's `rgba(0,0,0,.2)` over the header's gold
-   wash measures 3.51:1 — under AA, and the correction this file has now made nine times. Secondary
-   clears it, and it is the one word naming the day of the window on screen. */
-.wf-wsh-dow {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-plex-text-secondary);
-}
-.wf-wsh-dn {
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-.wf-wsh-t {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.wf-wsh-l1 {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.wf-wsh-ttl {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-.wf-wsh-time {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-plex-text-secondary);
-}
-.wf-wsh-vnote {
-  font-size: 10px;
-  white-space: nowrap;
-  color: var(--color-plex-text-secondary);
-}
-.wf-wsh-bdg {
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-/* The pick is a control (it opens the pick dialog); the topic pills are not. */
-.wf-wsh-pick {
-  cursor: pointer;
-  font-weight: 600;
-  border: 1px solid rgba(138, 174, 114, 0.5);
-  background: rgba(138, 174, 114, 0.14);
-  color: var(--color-badge-go);
-  transition: filter 0.14s ease;
-}
-.wf-wsh-pick.also {
-  border-color: rgba(124, 141, 214, 0.5);
-  background: rgba(124, 141, 214, 0.14);
-  color: var(--color-badge-also);
-}
-.wf-wsh-pick:hover { filter: brightness(1.14); }
-.wf-wsh-pick:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-}
-/* ⚠️ The reduced-motion arm the pick controls have always needed. It existed as a block naming
-   `.window-card-pick` alongside `.window-pick-action`/`.window-pick-close`, and deleting the card
-   took the whole block — leaving two surviving classes animating a `filter` with no opt-out, and
-   this new one making three. */
-@media (prefers-reduced-motion: reduce) {
-  .wf-wsh-pick,
-  .window-pick-action,
-  .window-pick-close { transition: none; }
-}
 /* The scored-locations toast's phone fade (map-mobile-sheet-plan.md §3 M1 task 2) — its
    `transition: opacity .5s` only ever exists inside the `@media (max-width: 639px)` block above
    (there is no desktop transition to drop), so a reader on a narrow viewport who has asked for
@@ -13481,463 +12530,6 @@ button.wf-mchip:hover {
    "keep the state change, drop the animation" rule this file applies everywhere else. */
 @media (prefers-reduced-motion: reduce) {
   .wf-map-tab .wf-map-scored-legend { transition: none; }
-}
-/* The topic pills take the channel as INK on the neutral badge, which is the matrix card's own
-   treatment for the same words — a filled chip per channel here would put five fills in a header
-   that already carries two. */
-.wf-wsh-tpb {
-  border: 1px solid var(--color-plex-border-light);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--color-plex-text-secondary);
-}
-/* INK, so the `--color-badge-*` lifted variants are the right family here — the same table the
-   matrix card's own topic words use, so a topic reads in one colour on the card and in the header
-   of the popup that card opens. */
-.wf-wsh-tpb[data-channel="eclipse"] { color: var(--color-badge-eclipse); }
-.wf-wsh-tpb[data-channel="tide"] { color: var(--color-badge-tide); }
-.wf-wsh-tpb[data-channel="nlc"] { color: var(--color-badge-nlc); }
-.wf-wsh-tpb[data-channel="aurora"] { color: var(--color-badge-go); }
-.wf-wsh-tpb[data-channel="snow"] { color: var(--color-badge-snow); }
-.wf-wsh-l2 {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 10px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-wsh-conf {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-/* ⚠️ The base rule and the two tone rules are a SPECIFICITY CONTEST, not a list. `.wf-wsh-l2 b` is
-   (0,1,1) and sets plain ink; the tone rules are (0,2,1) and must beat it, or every movement mark
-   in this header renders as ordinary type and a falling window looks exactly like a rising one —
-   colour being the only channel the glyph does not already carry. `movementToneCascade.test.jsx`
-   slices these rules out of this file and asserts which one wins. A measured zero deliberately
-   takes NO tone rule: "did not move" is the absence of a direction, and tinting it either way
-   would assert one. */
-.wf-wsh-l2 b {
-  color: var(--color-plex-text);
-  font-weight: 600;
-}
-.wf-wsh-l2 b[data-tone="up"] { color: var(--color-badge-go); }
-.wf-wsh-l2 b[data-tone="down"] { color: var(--color-badge-poor); }
-.wf-wsh-nav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-}
-.wf-wsh-navb {
-  min-width: 30px;
-  min-height: 30px;
-  border: 1px solid var(--color-plex-border);
-  border-radius: 7px;
-  background: var(--color-plex-panel);
-  color: var(--color-plex-text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-}
-.wf-wsh-navb:hover {
-  color: var(--color-plex-text);
-  border-color: var(--color-plex-border-light);
-}
-.wf-wsh-navb:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-}
-.wf-wsh-of {
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-  font-variant-numeric: tabular-nums;
-  padding: 0 2px;
-}
-.wf-wsh-x { font-size: 10px; padding: 0 9px; } /* 9px matches .wf-sheet-x so the two dialogs' close buttons read alike */
-/* The scrolling half. The header and the nav stay put, so stepping windows never scrolls the
-   reader away from the control they are pressing. */
-.wf-wsh-b {
-  overflow-y: auto;
-  padding: 11px 15px 13px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-/* Two columns from tablet up: the field left, the region cards and the prose right. The field's
-   own aspect band (0.88–1.34) is chosen for this column, not for a full-width row. */
-/* One column by default and TWO only when there is a field to put in the left one — a catalogue
-   that has not arrived (or a session with no roster) would otherwise leave a 39% column empty
-   beside the words. See the retired window popup's own note on why the popup opens either way. */
-.wf-wsh-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0 14px;
-  align-items: start;
-}
-.wf-wsh-grid[data-field="true"] {
-  grid-template-columns: minmax(280px, 39%) 1fr;
-}
-.wf-wsh-side {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-/* The transplanted pieces lose the open row's 14px side margins: inside the dialog the body
-   already owns the inset, and a second one would indent them from their own column. */
-.wf-wsh .wf-rowmap,
-.wf-wsh .wf-rrail,
-.wf-wsh .wf-rows { margin: 0; }
-/* The strip pads rather than margins (see `.wf-strip`), and its 10px is the fade geometry — so it
-   is deliberately left alone here; the dialog's body inset simply sits outside it. */
-.wf-wsh .wf-rlab { margin: 0 0 5px; }
-/* ⚠️ 128px, and NOT the prototype's 112px — kept on purpose (2026-09-14, owner decision). The
-   prototype's rule for a rail inside the popup's side column is `.wside .rrail` at 112px, and since
-   the rail only ever renders there, that is the value on its screen; the README's 128px is the bare
-   `.rrail` rule it loses to. It was audited as drift and measured before being changed — and it is
-   not drift anyone can see:
-
-     with the field map     128px  3 × 143px   112px  3 × 143px   (identical — the popup is capped
-                                                                   at 780px, so the rail is 442px)
-     without it             128px  5 × 145px   112px  6 × 120px   (every card's `best 5★ · 10 in
-                                                                   reach` wraps to two lines, cards
-                                                                   grow from 63–76px to 90px)
-
-   The prototype only ever draws the popup WITH its map, so its 112px was designed for the case where
-   it changes nothing. This codebase also has the case the prototype never drew — the rail spanning
-   the full width while the heat catalogue is loading or has failed — and that is the only place the
-   value shows, and there 112px breaks every card's figure across two lines. So the rule keeps the
-   value that renders the designed layout identically and the undesigned one correctly. The phone
-   (two up) and iPad (130px) tiers override this rule in their own blocks, so it governs desktop
-   alone. Recorded in `docs/design/plan-matrix/README.md` beside the region-card spec. */
-.wf-wsh .wf-rrail { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
-/* The quiet sentence that stands in for the ranked strip when this window's pool is empty. Not
-   the page-level conflict's amber: this states a fact about one window, and the plan as a whole may
-   be perfectly full. */
-.wf-wsh-quiet {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  border: 1px dashed var(--color-plex-border-light);
-  border-radius: 9px;
-  padding: 12px;
-  font-size: 11px;
-  line-height: 1.7;
-  color: var(--color-plex-text-secondary);
-}
-
-/* ── The prose slot (plan-matrix §6 M2.2, A21) ────────────────────────────────────────────────
-   ⚠️ `min-height` is the whole point of this element and must not be removed: picking a region
-   swaps the words and repaints the field, and if the box changed height the tide row and the ranked
-   locations below would move on every pick and every clear. Unconstrained on a phone, where a fixed
-   box would be a hole in a single column. */
-.wf-prose {
-  min-height: 124px;
-  border: 1px solid var(--color-plex-border);
-  border-left: 2px solid var(--color-plex-border-light);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.022);
-  padding: 9px 12px 10px;
-}
-/* A region the reader holds no pick in (S5b-1): the S4 line, its one action and the region's door under the prose. */
-.wf-prose-outside {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 8px;
-}
-.wf-prose[data-verdict="WORTH_IT"] { border-left-color: var(--color-verdict-go); }
-.wf-prose[data-verdict="MAYBE"] { border-left-color: var(--color-verdict-marginal); }
-.wf-prose[data-verdict="STAND_DOWN"] { border-left-color: var(--color-verdict-standdown); }
-/* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — the prose slot keeps its neutral border-left. Stated rather than left as an
-   accident of the cascade; `test/unratedVerdictWords.test.jsx` pins that no rule matching UNRATED sets a
-   verdict hue and that every JS map keyed on verdicts carries an UNRATED entry. */
-.wf-prose-h {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 9px;
-  margin-bottom: 5px;
-}
-.wf-prose-n {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.wf-prose-k {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-plex-text-secondary);
-}
-/* The same contest as `.wf-wsh-l2 b` above, on the prose slot's own header — see its note. */
-.wf-prose-k b {
-  color: var(--color-plex-text);
-  font-weight: 600;
-}
-.wf-prose-k b[data-tone="up"] { color: var(--color-badge-go); }
-.wf-prose-k b[data-tone="down"] { color: var(--color-badge-poor); }
-.wf-prose-p {
-  font-family: var(--font-serif);
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--color-plex-text-secondary);
-  max-width: 74ch;
-}
-.wf-prose-quiet { font-style: italic; }
-
-/* ── Topic rows in the popup (plan-matrix §6 M2.4) ────────────────────────────────────────────
-   One row per topic on this window, in the channel's own colour on the left border. The scope note
-   is pushed right by `margin-left: auto` rather than by a grid track, because it is present only
-   for region-scoped topics and an empty track would leave a hole on every whole-sky row. */
-.wf-trows {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.wf-trow {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 10px;
-  border: 1px solid var(--color-plex-border);
-  border-left: 2px solid var(--trow-accent, var(--color-plex-border-light));
-  border-radius: 8px;
-  padding: 7px 11px;
-}
-/* A Coming up lane's tap-through (hot-topics-by-day-plan C1): the row the reader tapped is outlined
-   in its topic colour for 1.6 s. The animation ENDS at zero width, in every mode including forced
-   colours, so the attribute can stay on the row while the shell holds the emphasis without leaving a
-   permanent ring. */
-.wf-trow[data-emphasis='true'] {
-  outline: 2px solid var(--c);
-  outline-offset: -2px;
-  animation: wf-trow-emphasis 1.6s ease-out forwards;
-}
-@keyframes wf-trow-emphasis {
-  0%, 70% { outline-width: 2px; }
-  100% { outline-width: 0; }
-}
-/* ⚠️ The CHANNEL tokens on the stripe, never the `--color-badge-*` family: `@theme static`'s own
-   note says "never use a `--color-badge-*` as a fill or a border". ⚠️ The matrix card's own topic
-   chips (`.wf-hc-tw`) are NOT a witness for that, and an earlier draft of this comment cited them:
-   they set `--color-badge-*` as INK, which is the legal use. Since the promoted strip went at M5
-   this block is the only place in the arm that draws a channel as an ACCENT, so the rule is written
-   out here rather than cross-referenced to a deleted selector.
-
-   One custom property per channel and one declaration that uses it — adding a channel is then one
-   line here rather than one in each of the blocks this arm now has. (The promoted strip was a third
-   such block and stated the same rule at length; it went at M5 with the strip itself, so the
-   reasoning is written out here instead of cross-referenced to a deleted selector.)
-
-   Aurora has no channel token of its own and takes the LITERAL of the verdict green rather than
-   `--color-verdict-go` itself: verdict colours are semantic, and mixing the verdict and badge
-   families is the thing the §6 sweep's last fix removed. */
-.wf-trow[data-channel="eclipse"] { --trow-accent: var(--color-eclipse); }
-.wf-trow[data-channel="tide"] { --trow-accent: var(--color-tide); }
-.wf-trow[data-channel="nlc"] { --trow-accent: var(--color-nlc); }
-.wf-trow[data-channel="aurora"] { --trow-accent: #8aae72; }
-.wf-trow[data-channel="snow"] { --trow-accent: var(--color-snow); }
-.wf-trow-n {
-  font-size: 12px;
-  font-weight: 600;
-}
-.wf-trow-i { flex: none; }
-.wf-trow-d {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-  min-width: 0;
-}
-.wf-trow-f {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-trow-f [data-tone="strong"] {
-  color: var(--color-plex-text);
-  font-weight: 600;
-}
-.wf-trow-f .opt { display: none; }
-@media (min-width: 900px) {
-  /* The optional fact is context rather than the headline, so it appears only where there is room
-     for it — the attribute row's own rule for the same class of fact. */
-  .wf-trow-f .opt { display: inline; }
-}
-.wf-trow-s {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--color-plex-text-secondary);
-  white-space: nowrap;
-}
-/* ⚠️ The safety note takes the full row and the primary ink, and NOTHING dims it. It is the "do
-   not look at the sun without a filter" class of warning, and it is the one string on this surface
-   that a confidence treatment, a scope count or a truncation may never touch. */
-.wf-trow-warn {
-  flex-basis: 100%;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  line-height: 1.45;
-  color: var(--color-plex-text);
-}
-
-/* ── The dawn/dusk race (lunar-eclipse-plan.md §2.7) ──────────────────────────────────────────
-   The one genuinely new component the lunar eclipse work adds — a horizontal timeline of the
-   moon racing the light to the horizon, for one location. Mounted by the retired window popup between
-   the topic rows and the tide row, only with a LUNAR_ECLIPSE row present and a served `race`.
-
-   The track (`.wf-race-track` and everything inside it) is `aria-hidden` — see `DawnRace.jsx`'s
-   own note on why the track is decoration and `.wf-race-sentence` is the whole accessible answer,
-   rendered VISIBLY rather than screen-reader-only, because it is short and the track beside it
-   says nothing a reader could otherwise use (the tide-run chart's own rule, CLAUDE.md).
-
-   Colours are the design bundle's own literals for this one feature (`--eclp`/`#D79AA0` is
-   already `--color-badge-eclipse`; the golden-hour amber and the rose umbra/hatch tints have no
-   existing token and are not given one here — a single-consumer literal, same practice
-   `MastheadLight.jsx`'s own `GOLDEN` constant documents for the identical amber). */
-.wf-race {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.wf-race-h {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-plex-text-secondary);
-}
-.wf-race-cap {
-  letter-spacing: 0;
-  text-transform: none;
-  font-weight: 400;
-  /* ⚠️ No extra `opacity` here — accessibility review found it stacking multiplicatively on top
-     of `--color-plex-text-secondary`'s own 0.66 alpha (inherited from `.wf-race-h`), landing at
-     ≈4.43:1 against the panel: just under the 4.5:1 AA floor for this 9px text. The inherited
-     token's own alpha already reads as secondary/quiet against the primary title beside it,
-     which is the only distinction this line needs. */
-}
-.wf-race-track {
-  position: relative;
-  height: 46px;
-  border-radius: 7px;
-  overflow: hidden;
-  border: 1px solid var(--color-plex-border);
-}
-.wf-race-tick {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border-left: 1px dashed rgba(242, 231, 211, 0.25);
-}
-.wf-race-tick-label {
-  position: absolute;
-  top: 4px;
-  left: 5px;
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(242, 231, 211, 0.55);
-  white-space: nowrap;
-}
-.wf-race-umbra {
-  position: absolute;
-  bottom: 6px;
-  height: 9px;
-  border-radius: 5px 0 0 5px;
-  background: repeating-linear-gradient(90deg, rgba(196, 120, 127, 0.85) 0 6px, rgba(196, 120, 127, 0.65) 6px 7px);
-}
-.wf-race-hatch {
-  position: absolute;
-  bottom: 6px;
-  height: 9px;
-  background: repeating-linear-gradient(135deg, rgba(242, 231, 211, 0.1) 0 3px, transparent 3px 6px);
-}
-.wf-race-mark {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 0;
-  border-left: 1.5px solid var(--color-badge-eclipse);
-}
-/* The golden-hour amber, a literal for the reason `MastheadLight.jsx`'s own `GOLDEN` constant
-   states — no token names it for a purpose other than a verdict or a rule stop, and this is
-   neither. */
-.wf-race-mark[data-role="raceEvent"] { border-left-color: #E0A542; }
-.wf-race-mark[data-role="horizon"] { border-left-color: var(--color-plex-text); }
-.wf-race-mark::after {
-  content: '';
-  position: absolute;
-  bottom: 3px;
-  left: -4.5px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--color-badge-eclipse);
-  box-shadow: 0 0 0 2px rgba(14, 11, 9, 0.7);
-}
-.wf-race-mark[data-role="raceEvent"]::after { background: #E0A542; }
-/* The horizon transition (moonset/moonrise) draws a SQUARE dot, not a circle — the design's own
-   distinction between "an instant" and "the moment it leaves/enters view". */
-.wf-race-mark[data-role="horizon"]::after { background: var(--color-plex-text); border-radius: 2px; }
-.wf-race-labels {
-  position: relative;
-  height: 28px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-race-label {
-  position: absolute;
-  top: 2px;
-  transform: translateX(-50%);
-  white-space: nowrap;
-  text-align: center;
-  line-height: 1.3;
-}
-.wf-race-label b {
-  display: block;
-  color: var(--color-plex-text);
-  font-weight: 600;
-  font-size: 10.5px;
-}
-.wf-race-label[data-role="maximum"] b { color: var(--color-badge-eclipse); }
-.wf-race-legend {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-plex-text-secondary);
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.wf-race-legend-item { display: inline-flex; align-items: center; gap: 5px; }
-.wf-race-legend-umbra,
-.wf-race-legend-hatch {
-  display: inline-block;
-  width: 14px;
-  height: 7px;
-  border-radius: 2px;
-}
-.wf-race-legend-umbra { background: rgba(196, 120, 127, 0.8); }
-.wf-race-legend-hatch {
-  background: repeating-linear-gradient(135deg, rgba(242, 231, 211, 0.25) 0 2px, transparent 2px 4px);
-}
-.wf-race-sentence {
-  font-family: var(--font-serif);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--color-plex-text-secondary);
-  max-width: 74ch;
 }
 
 /* The per-location eclipse line (lunar-eclipse-plan.md §3 L7) — ONE shared component
@@ -13960,38 +12552,7 @@ button.wf-mchip:hover {
   margin-bottom: 5px;
 }
 
-/* Phone (< 560px, the design's own breakpoint): hide the track-start and race-event labels and
-   every phase-tick — plan §2.7's exact list. */
-@media (max-width: 559px) {
-  .wf-race-tick { display: none; }
-  .wf-race-label[data-hide-phone="true"] { display: none; }
-}
-
 @media (max-width: 639px) {
-  /* ⚠️ ONE column below 639px, and 639 rather than the design's 767 for a reason that is not
-     taste: the map's phone aspect band (0.5–0.95) is chosen by `useIsMobile`, whose boundary is
-     639px, and so is the chip cap. Collapsing the grid at 767 left the 640–767px band drawing a
-     full-width map at the DESKTOP portrait floor of 0.88 — a ~600px-tall picture filling the first
-     screen of the dialog — under a Javadoc that justifies that floor by a two-column body. One
-     breakpoint, one set of dials. */
-  .wf-wsh-grid,
-  .wf-wsh-grid[data-field="true"] { grid-template-columns: 1fr; gap: 10px; }
-  /* ⚠️ The region rail's phone columns — "two up", per the design — written at THIS specificity, in
-     THIS block. The phone rule beside `.wf-rrail` used to say `1fr 1fr` and never won: it was
-     0,1,0, and `.wf-wsh .wf-rrail { minmax(128px) }` above is 0,2,0 and unscoped, so inside the
-     dialog — the only place the rail is mounted — the desktop auto-fit beat it on every phone.
-     Measured in the popup's real chain (modal root, `.wf-wsh-b`'s 12px padding, `.wf-wsh-side`):
-     2 columns at 375, 390 and 414px — correct only by accident, because the rail is too narrow for
-     a third 128px track — then 3 from 430px (an iPhone Pro Max) and 4 from ~600px to the 639px edge.
-     ⚠️ This comment's first draft said "3 columns at 390px", measured in a probe box forced to
-     398px wide; on a real 390px phone the bug does not show. The prototype had the matching rule all
-     along (`.wrap.mob .wside .rrail`); the port kept only its unscoped twin. Equal specificity and
-     later source order is what makes this one win.
-
-     The phone MARGIN rules beside `.wf-rrail` stay dead, and on purpose — see
-     `.wf-wsh .wf-rrail { margin: 0 }`: inside the dialog the body owns the inset, and reviving
-     them would indent the rail twice. Only the columns were an accident. */
-  .wf-wsh .wf-rrail { grid-template-columns: 1fr 1fr; }
   /* ⚠️ Targeted by test id, because `Modal`'s own root is where the gutter lives
      (`.app-safe-modal`) and it takes no class from its caller. A phone popup that is full-screen
      apart from a 16px frame reads as a card floating over a page the reader cannot use — the frame
@@ -14001,7 +12562,7 @@ button.wf-mchip:hover {
      `padding: 0` any more. It was, and being unlayered, 0,1,0 and ~7400 lines below
      `.app-safe-modal`, it won on source order and cancelled the modal's safe-area padding outright
      — on a phone, which is the only device class that has an unsafe zone, for the Plan tab's one
-     popup, whose `.wf-wsh` is `height: 100dvh`. Its footer sat under the home indicator and the
+     popup, whose full-height card was `height: 100dvh`. Its footer sat under the home indicator and the
      feature was a no-op exactly where it was needed. Found by adversarial review; measured in
      Chromium at 390×844 with a 34px bottom inset before and after.
 
@@ -14010,27 +12571,6 @@ button.wf-mchip:hover {
   [data-testid="window-sheet"] {
     padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
   }
-  /* Full screen, as the design has it. */
-  .wf-wsh {
-    max-width: none;
-    /* 100% of the popup's own content box, not of the viewport. The two were the same thing while
-       the rule above was `padding: 0`; now that it carries the insets, `100dvh` would overrun the
-       padded box by exactly the inset and put this element's foot back under the home indicator,
-       which is the defect the padding was added to fix. */
-    max-height: 100%;
-    height: 100%;
-    border: none;
-    border-radius: 0;
-  }
-  /* The nav takes its own full-width row above the title, and its buttons grow to the 38px the
-     design specifies — SC 2.5.8's target floor with room to spare. */
-  .wf-wsh-h { flex-wrap: wrap; }
-  .wf-wsh-nav { order: -1; width: 100%; }
-  .wf-wsh-navb { min-width: 38px; min-height: 38px; }
-  .wf-wsh-x { margin-left: auto; }
-  .wf-prose { min-height: 0; }
-  .wf-wsh-b { padding: 10px 12px 12px; }
-  .wf-wsh-h { padding: 10px 12px; }
 }
 
 /* ==============================================================================================
@@ -14053,7 +12593,7 @@ button.wf-mchip:hover {
      and `.wside .rrail` at 130px — and `regionRail()` is only ever called inside `.wside`, so the
      more specific 130px is the one on screen. 150px is the rule that loses.
    · The spot strip is `(100% - 16px) / 2.6`, not the desktop's `(100% - 24px)`: 2.6 cards show two
-     gaps where 3.5 show three. `.wf-spots`'s own note deferred exactly this ("widening it is the
+     gaps where 3.5 show three. The deleted `.wf-spots`'s own note deferred exactly this ("widening it is the
      responsive pass's call") — this is that pass.
 
    ⚠️ ONE DELIBERATE DEPARTURE. The prototype pads the masthead `13px 20px 0` on iPad — a 20px inset
@@ -14075,16 +12615,16 @@ button.wf-mchip:hover {
      iPad was right only by inheriting it. The desktop was fixed to 16px on 2026-09-14, and this
      block now holds iPad at 12px explicitly (the `.wf-tick-times` rule below) instead of by
      accident.
-   · The body gutter, the lens bar's padding and the popup's two-column body are the same on iPad
+   · The body gutter, the lens bar's padding and the deleted popup's two-column body are the same on iPad
      and desktop in the spec, and already correct.
-   · The popup's width: the spec's `calc(100% - 28px)` is 14px a side, and the popup's inset comes
-     from the SHARED `Modal`'s 16px gutter, not from `.wf-wsh`. What the rule actually changes on an
+   · The deleted popup's width: the spec's `calc(100% - 28px)` is 14px a side, and the deleted popup's inset comes
+     from the SHARED `Modal`'s 16px gutter, not from the retired popup's own card. What the rule actually changes on an
      834px iPad is the 780px cap, which would otherwise engage — so it is raised, and the last 2px a
      side is left to `Modal`, which every dialog in the app shares.
 
    ⚠️ RAISED TO 806px, NOT LIFTED. The first cut set `max-width: none`, and measured in a real
-   `Modal` the popup then filled the viewport: 968px at 1000, 991px at 1023 — and then 780px at 1024,
-   where the desktop cap returns. Widening the window by one pixel shrank the popup by 211px. The
+   `Modal` the deleted popup then filled the viewport: 968px at 1000, 991px at 1023 — and then 780px at 1024,
+   where the desktop cap returns. Widening the window by one pixel shrank the deleted popup by 211px. The
    spec never drew an iPad popup wider than its own 834px frame allows (834 - 28 = 806), so that is
    the cap: 802px at 834 (the Modal gutter takes the other 4px), 806px from ~838 up, and a 26px step
    to 780 at the desktop edge instead of 211. The spec's value is kept where it was designed, and
@@ -14092,19 +12632,6 @@ button.wf-mchip:hover {
 @media (min-width: 640px) and (max-width: 1023px) {
   .wf-mast { padding: 13px var(--wf-gutter) 0; }
   .wf-tick-times { gap: 12px; }
-  .wf-wsh { max-width: 806px; }
-  .wf-wsh .wf-rrail { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
-  .wf-rr-all {
-    grid-column: 1 / -1;
-    min-height: 46px;
-    flex-direction: row;
-    align-items: center;
-    gap: 9px;
-    flex-wrap: wrap;
-  }
-  .wf-rr-all .wf-rr-m { margin-top: 0; margin-left: auto; }
-  .wf-prose { min-height: 112px; }
-  .wf-spots > .wf-spot { flex: 0 0 calc((100% - 16px) / 2.6); }
 }
 
 /* ── Aurora alert banner (docs/engineering/aurora-banner-plan.md B1) ──
@@ -16076,12 +14603,11 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 }
 
 /* The highlight on the Plan card Ask's selected pick lands on (the spec's `border rgba(201,162,75,.7)`,
-   `bg rgba(201,162,75,.08)`). The open card's own look is a gold border at .62 and a .11 wash, so the gold
-   alone would read as "the open one": this carries a SECOND pixel of the same gold (inset, so it moves
-   nothing — the pick card's own selected rule does the same) AND the pick's rank circle, which is what
-   names it. The class is doubled so the rule is (0,3,1) at rest and (0,4,1) on hover: that ties the most
-   specific competitor, `div.wf-hc:where([data-control]).best.on:hover`, and wins it by coming later — so the highlight
-   survives a card that is also a pick or also open, and the two attributes then sit on one card. */
+   `bg rgba(201,162,75,.08)`): a gold border and wash, plus a SECOND pixel of the same gold (inset, so it moves
+   nothing — the pick card's own selected rule does the same) AND the pick's rank circle, which is what names it.
+   The class is doubled so the rule is (0,3,1) at rest and (0,4,1) on hover: that beats the most specific
+   competitor, `div.wf-hc:where([data-control]).best:hover` (0,3,1), and wins ties by coming later — so the highlight
+   survives a card that is also a pick, and the two attributes then sit on one card. */
 div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true'],
 div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
   border-color: rgba(201, 162, 75, .7);
@@ -16267,8 +14793,6 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
 .wf-fav-mark { color: var(--color-plex-gold); margin-right: 3px; font-size: 0.9em; }
 .wf-callout-head .wf-fav { padding: 2px 6px; font-size: 10px; }
 .wf-fav-section { margin: 0 0 10px; }
-/* The popup rail's Your places group is a labelled section whose cells still lay out as grid items. */
-.wf-fav-group { display: contents; }
 /* The Coming up watchlist sits inside the pane's card, so it takes the card's own inset. */
 .wf-cu > .wf-fav-section { padding: 10px 14px 2px; margin: 0; }
 .wf-fav-section-h {

@@ -89,7 +89,7 @@ export function handoverPhase(t) {
  * @param {boolean} [props.reachMeasured] whether a real drive time gates this reader's reach lens
  *   (§5.2's honesty rule) — the toggle states the ring tiers as a DISTANCE by default and only
  *   upgrades to durations once a measured drive exists, the same rule `MapLabels`' own ring labels
- *   and `WindowRowFieldMap`'s ring labels already apply.
+ *   and the since-deleted `WindowRowFieldMap`'s ring labels already apply.
  */
 export default function MapLegendPanel({
   open, onOpenChange, handoverFraction, ringsEnabled, onToggleRings,

@@ -1,5 +1,7 @@
 # Doors from Plan to Map — implementation plan
 
+> **Superseded in part (2026-11-20):** the Plan window popup, pick dialog and `door1-obstacles.spec.js` this plan describes were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card now opens the Map. Read this file as history for those parts.
+
 **Source**: the design increment vendored at `docs/design/map-tab-v2/INCREMENT_plan_to_map_doors.md`
 (the spec) and `CLAUDE_CODE_PROMPT_doors.md` (the designer's working order), against bundle rev 3 of
 `plan-tab-v5.js` / `map-tab-v2.js` (the prototypes — vendored verbatim beside them; the doors live at

@@ -8,7 +8,6 @@ import {
   browseSpots,
   hasRatings,
   ratingFloorById,
-  sheetOffersMore,
   spotTypes,
   typeOptionsFor,
 } from '../utils/windowSpotBrowse.js';
@@ -352,47 +351,6 @@ describe('windowSpotBrowse', () => {
 
     it('is plural at zero', () => {
       expect(browseCountLine(0, 0)).toBe('0 spots');
-    });
-  });
-
-  describe('sheetOffersMore — the trigger appears only where the sheet can differ', () => {
-    const card = (allSpots, drawn = allSpots) => ({ allSpots, spots: drawn });
-
-    it('is false for a window with no spots at all', () => {
-      expect(sheetOffersMore(card([]), TYPES)).toBe(false);
-      expect(sheetOffersMore(undefined, TYPES)).toBe(false);
-    });
-
-    it('is true when the reach lens withheld some, on that branch alone', () => {
-      // Both unrated, both untyped and only two of them, so the other three clauses are all false
-      // and the reach one is the only thing that can carry it.
-      const a = spot({ key: 'a', locationName: 'Druridge', rating: null });
-      const b = spot({ key: 'b', locationName: 'Cresswell', rating: null });
-      expect(sheetOffersMore(card([a, b], [a, b]), new Map())).toBe(false);
-      expect(sheetOffersMore(card([a, b], [a]), new Map())).toBe(true);
-    });
-
-    it('is true when there are more spots than the strip shows at once', () => {
-      const four = [1, 2, 3, 4].map((n) => spot({ key: `k${n}`, locationName: `L${n}`, rating: null }));
-      expect(sheetOffersMore(card(four), new Map())).toBe(true);
-    });
-
-    it('is true when something is rated, because the floor can act', () => {
-      expect(sheetOffersMore(card([COAST]), new Map())).toBe(true);
-    });
-
-    it('is true when two types are present, because the type control can act', () => {
-      const a = spot({ key: 'a', locationName: 'Bamburgh Beach', rating: null });
-      const b = spot({ key: 'b', locationName: 'High Force', rating: null });
-      expect(sheetOffersMore(card([a, b]), TYPES)).toBe(true);
-    });
-
-    it('is FALSE for three unrated single-type spots the lens never touched', () => {
-      // The one state where a dialog would open onto exactly what the reader is already looking at.
-      const three = ['Simonside', 'Wastwater', 'Nowhere'].map((locationName, i) => spot({
-        key: `k${i}`, locationName, rating: null,
-      }));
-      expect(sheetOffersMore(card(three), TYPES)).toBe(false);
     });
   });
 });

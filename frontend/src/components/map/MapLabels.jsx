@@ -154,7 +154,7 @@ const LEAFLET_CORNER_SELECTOR = '.leaflet-bottom.leaflet-right';
 /**
  * A ring wider than this multiple of the frame's larger side is entirely off-frame — skip its
  * label along with its circle. {@code MapHeatLayer}'s own constant of the same name and value
- * (itself matching {@code WindowRowFieldMap}'s); not exported from `utils/reachRings.js` because
+ * (itself matching the since-deleted {@code WindowRowFieldMap}'s); not exported from `utils/reachRings.js` because
  * it is a per-host DISPLAY concern, not a fact about the tiers — see that module's own note.
  */
 const RING_OFFFRAME_FACTOR = 1.15;
@@ -229,7 +229,7 @@ function forcedDot(x, y, frameWidth, frameHeight) {
  * pane is translated during a drag, and {@code L.DomUtil.setPosition} on this layer's own root
  * cancels that translation every paint, exactly like {@code MapHeatLayer}'s canvas.
  *
- * <h2>Two-pass measure-then-place, the {@code WindowRowFieldMap} pattern generalised</h2>
+ * <h2>Two-pass measure-then-place, the since-deleted {@code WindowRowFieldMap} pattern generalised</h2>
  *
  * <p>A label's box depends on its own rendered text (a font that may not have loaded, a name of
  * unknown length), so it cannot be computed before the browser lays it out. Every candidate is
@@ -237,7 +237,7 @@ function forcedDot(x, y, frameWidth, frameHeight) {
  * {@code offsetWidth}/{@code offsetHeight} off refs, runs {@code utils/mapLabels.placeLabelPass}
  * (the Map tab's own ladder, `labelPlacement.js`'s {@code MAP_NUDGES}/{@code mapDxOffsets}), and
  * commits the result to state — which is what the SECOND render actually positions. This is a
- * LAYOUT effect rather than a passive one for the same reason {@code WindowRowFieldMap}'s is: an
+ * LAYOUT effect rather than a passive one for the same reason the since-deleted {@code WindowRowFieldMap}'s is: an
  * ordinary effect would let the off-screen pass paint first, and every label would visibly fly in
  * from {@code left:-9999px} on every repaint.
  *
@@ -266,7 +266,7 @@ function forcedDot(x, y, frameWidth, frameHeight) {
  *   canvas circles and their labels can never disagree about being on or off
  * @param {boolean}  [props.reachMeasured] whether a real drive time gates this screen's reach lens
  *   — ring labels state a duration only when true, a plain distance otherwise (§5.2's honesty
- *   rule, the same one `WindowRowFieldMap`'s own ring labels apply)
+ *   rule, the same one the since-deleted `WindowRowFieldMap`'s own ring labels apply)
  * @param {?string}  [props.selectedName] the selected location's name — always chipped
  * @param {?Function} [props.onSelect] called with a location's name on chip click — the caller
  *   wires this to `selectMapLocation` (selection, which opens the callout)
@@ -410,7 +410,7 @@ export default function MapLabels({
     const ringsActive = Boolean(home) && rings;
     // Measured at HOME's own latitude (`pxPerKmAtHome`), never the viewport centre's — the SAME
     // fix `MapHeatLayer`'s canvas rings apply, so a ring's LABEL never drifts off its own circle
-    // as the reader pans. The two skip rules below are `WindowRowFieldMap`'s own: illegibly small
+    // as the reader pans. The two skip rules below are the since-deleted `WindowRowFieldMap`'s own: illegibly small
     // (the shared `RING_MIN_PX` floor) or entirely off-frame (`RING_OFFFRAME_FACTOR`, a per-host
     // display constant — see that constant's own note on why it is not exported alongside the
     // floor). A ring MapHeatLayer skips drawing must not still carry a label with nothing to sit
@@ -584,7 +584,7 @@ export default function MapLabels({
 
   /**
    * The measure-then-place pass (see the class doc). Keyed on the `frame` OBJECT's identity, the
-   * same guard `WindowRowFieldMap` uses: a repaint that produced an identical-looking frame still
+   * same guard the since-deleted `WindowRowFieldMap` uses: a repaint that produced an identical-looking frame still
    * gets a fresh object, so this always re-measures after a real paint and never after a render
    * the frame itself did not cause (e.g. a hover-only state update).
    */
@@ -728,7 +728,7 @@ export default function MapLabels({
       }
     }
     // A setState in an effect, and it is the case the rule's own escape hatch is for — the same
-    // one `WindowRowFieldMap`'s identical measure-then-place effect documents: this is a
+    // one the since-deleted `WindowRowFieldMap`'s identical measure-then-place effect documents: this is a
     // MEASUREMENT. A label's box is its text in a font the browser may still be swapping, so it
     // cannot be computed from props — the DOM has to be laid out and read first. The write is
     // idempotent and bounded by the guard above (once per genuinely new `frame`), and it is a

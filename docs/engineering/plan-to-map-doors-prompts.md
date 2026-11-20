@@ -1,5 +1,7 @@
 # Doors from Plan to Map — kickoff prompts for the implementing sessions
 
+> **Superseded in part (2026-11-20):** the Plan window popup, pick dialog and `door1-obstacles.spec.js` this plan describes were deleted by `glance-to-map-plan.md` (G2b/G2c); a Glance card now opens the Map. Read this file as history for those parts.
+
 Paste one prompt into a **fresh Claude Code session (Sonnet)**, in order. Each phase lands as its own
 reviewed commit and PR before the next session starts — the plan's **§0 Status block and Phase log
 are the source of truth between sessions**, updated in the same commit as each phase, so a new

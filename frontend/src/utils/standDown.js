@@ -22,7 +22,7 @@
  * when `briefingScore?.rating ?? forecast?.rating` would come back null and something triaged it.
  * The invariant is what keeps the marker, its popup and the map's quality filter from disagreeing;
  * an asymmetric rule would fix one direction of disagreement and leave the mirror image, which is
- * how the popup came to say "Stand-down" over a scored marker.
+ * how the deleted popup came to say "Stand-down" over a scored marker.
  *
  * @param {object|null|undefined} briefingScore - briefing evaluation score for the slot.
  * @param {object|null|undefined} forecast - forecast row for the slot.
