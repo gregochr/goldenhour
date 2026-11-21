@@ -70,8 +70,13 @@ final class AskWarningGuard {
                     + "|\\b(?:aurora|geomagnetic)\\s+alerts?\\b|\\balert\\s+(?:level|state|status)\\b",
             FLAGS);
 
-    /** Any level word at all, to check a sentence that mentions a warning names no level that was not shown. */
-    private static final Pattern LEVEL_WORD = Pattern.compile("\\b(yellow|amber|red)\\b", FLAGS);
+    /**
+     * Any level word at all, to check a sentence that mentions a warning names no level that was not shown. The
+     * colour score is called "Red Sky" ("Red Sky 72", "Red Sky score", "Red Sky and Golden Hour"), and that "Red" is
+     * a name, not a warning level, so it is skipped; any other "red" (a "red sky later", a "Red warning") still counts.
+     */
+    private static final Pattern LEVEL_WORD = Pattern.compile(
+            "\\b(yellow|amber|red)\\b(?!\\s+sky\\s+(?:\\d|score|potential|and\\s+golden\\b))", FLAGS);
 
     /** A negator: no, not, none, nothing, any contraction (isn't, aren't, doesn't, with a straight or curly mark). */
     private static final String NEGATOR = "(?:\\b(?:no|not|none|nothing)\\b|\\b\\w+n['\u2019]t\\b"

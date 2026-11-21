@@ -306,6 +306,26 @@ class AskWarningGuardTest {
     }
 
     @Test
+    @DisplayName("the colour score's name is not a warning level: 'Red Sky 72' beside a shown Amber warning is kept")
+    void theRedSkyScoreNameIsNotAWarningLevel() {
+        String sentence = "The Met Office has an Amber warning of snow; Red Sky 72, Golden Hour 60.";
+
+        Result result = validate(sentence, snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().summary()).isEqualTo(sentence);
+        assertThat(result.answer().warnings()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a real Red warning is still caught when the same sentence also carries a Red Sky score")
+    void aRealRedWarningNextToTheScoreIsStillRemoved() {
+        Result result = validate("Whitby looks good. The Met Office has a Red warning of snow; Red Sky 72.",
+                snapshot(served(AMBER_SNOW)), shown("W1"));
+
+        assertThat(result.answer().summary()).isEqualTo("Whitby looks good.");
+    }
+
+    @Test
     @DisplayName("the card follows the retained claim, not the whole summary: an unrelated 'red sky' does not hide it")
     void aColourSentenceDoesNotHideASupportedClaim() {
         Result result = validate("The Met Office has an Amber warning of snow. A red sky is possible at sunset.",

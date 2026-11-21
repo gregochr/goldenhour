@@ -59,13 +59,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * committed through {@link JdbcTemplate} is visible to the next read, and so that the two-thread cases can
  * hold a row lock in one thread while another waits.
  *
- * <p>The class has its own in-memory database with a 60 s {@code LOCK_TIMEOUT}. H2's default is 2 s, and the
+ * <p>The class has its own in-memory database with a 20 s {@code LOCK_TIMEOUT}. H2's default is 2 s, and the
  * two-thread cases hold a row lock while another thread waits for it: on a starved machine (a second Maven
  * run, a busy CI core) the holder's commit alone can take longer than 2 s, and the waiter then fails with
  * {@code CannotAcquireLockException} although nothing is wrong. Each case also waits for its worker threads to
  * finish before the cleanup runs, so a slow holder cannot leave a lock that fails the next test's setup.
  */
-@DataJpaTest(properties = "spring.datasource.url=jdbc:h2:mem:token-issuer-test;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=60000")
+@DataJpaTest(properties = "spring.datasource.url=jdbc:h2:mem:token-issuer-test;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=20000")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({TokenIssuer.class, CredentialChangeWriter.class, TokenIssuerTest.Config.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -540,11 +540,16 @@ class TokenIssuerTest {
         }
     }
 
-    /** Stops the workers and waits for them, so no transaction is still holding a lock when cleanup runs. */
+    /**
+     * Stops the workers and waits for them, so no transaction is still holding a lock when cleanup runs. It never
+     * asserts: this runs in a {@code finally}, and an assertion here would replace the failure that got us there.
+     * A worker still stuck after the wait is reported on stderr instead.
+     */
     private static void stop(ExecutorService executor) throws InterruptedException {
         executor.shutdownNow();
-        assertThat(executor.awaitTermination(60, TimeUnit.SECONDS))
-                .as("the worker threads finished, so no row lock leaks into the cleanup").isTrue();
+        if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+            System.err.println("TokenIssuerTest: a worker thread did not finish; its lock may leak into cleanup");
+        }
     }
 
     private static void sleep(long millis) {
