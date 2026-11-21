@@ -5,7 +5,7 @@ vi.mock('../api/axiosClient.js', () => ({
 }));
 
 import apiClient from '../api/axiosClient.js';
-import { getAvailableModels, setActiveModel, setExtendedThinking } from '../api/modelsApi.js';
+import { getAvailableModels, setActiveModel } from '../api/modelsApi.js';
 
 describe('modelsApi', () => {
   let errorSpy;
@@ -28,17 +28,9 @@ describe('modelsApi', () => {
     expect(apiClient.put).toHaveBeenCalledWith('/api/models/active', { runType: 'BATCH_NEAR_TERM', model: 'SONNET_55' });
   });
 
-  it('setExtendedThinking PUTs runType and the flag, false included', async () => {
-    apiClient.put.mockResolvedValue({ data: { extendedThinking: false } });
-    expect(await setExtendedThinking('AURORA_EVALUATION', false)).toEqual({ extendedThinking: false });
-    expect(apiClient.put).toHaveBeenCalledWith('/api/models/extended-thinking',
-      { runType: 'AURORA_EVALUATION', enabled: false });
-  });
-
   it.each([
     ['getAvailableModels', () => getAvailableModels(), 'get', 'Failed to fetch available models:'],
     ['setActiveModel', () => setActiveModel('X', 'Y'), 'put', 'Failed to set active model:'],
-    ['setExtendedThinking', () => setExtendedThinking('X', true), 'put', 'Failed to set extended thinking:'],
   ])('%s logs and rethrows the original error', async (_n, call, verb, message) => {
     const err = new Error('boom');
     apiClient[verb].mockRejectedValue(err);

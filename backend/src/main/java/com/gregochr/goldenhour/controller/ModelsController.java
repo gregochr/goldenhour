@@ -31,7 +31,7 @@ public class ModelsController {
     private final RunCostProfileService runCostProfileService;
 
     /**
-     * Get available evaluation models, per-run-type active models, extended-thinking flags, and the
+     * Get available evaluation models, per-run-type active models, and the
      * measured cost of each Run Config tab (ADMIN only).
      *
      * <p>{@code allowedByRunType} lists the models of a run type whose choice is narrower than
@@ -41,7 +41,7 @@ public class ModelsController {
      * {@code tokenRates} is the configured price of each selectable model; {@code gbpPerUsd} is the
      * newest rate recorded on a job run and is omitted when none exists.
      *
-     * @return response containing available models, configs, extended-thinking config and costs
+     * @return response containing available models, configs and costs
      */
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -53,7 +53,6 @@ public class ModelsController {
         body.put("available", availableWithVersions);
         body.put("allowedByRunType", allowedByRunType());
         body.put("configs", modelSelectionService.getAllConfigs());
-        body.put("extendedThinkingConfigs", modelSelectionService.getAllExtendedThinkingConfigs());
         body.put("costProfiles", runCostProfileService.costProfiles());
         body.put("tokenRates", runCostProfileService.tokenRates());
         runCostProfileService.gbpPerUsd().ifPresent(rate -> body.put("gbpPerUsd", rate));
@@ -107,27 +106,5 @@ public class ModelsController {
         }
         EvaluationModel active = modelSelectionService.setActiveModel(runType, model);
         return ResponseEntity.ok(Map.of("runType", runType, "active", active));
-    }
-
-    /**
-     * Enable or disable extended thinking for a specific run type (ADMIN only).
-     *
-     * <p>Extended thinking adds a {@code ThinkingConfigAdaptive} block to the Claude API call,
-     * allowing Claude to reason internally before responding. No longer surfaced in the UI
-     * (its only user, the Briefing tab, went with the best-bet advisor); silently ignored for
-     * HAIKU (which does not support extended thinking).
-     *
-     * @param request body containing {@code "runType"} and {@code "enabled"} (boolean) fields
-     * @return response containing the updated {@code runType} and {@code extendedThinking} state
-     */
-    @PutMapping("/extended-thinking")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> setExtendedThinking(
-            @RequestBody Map<String, Object> request) {
-        String runTypeName = (String) request.get("runType");
-        boolean enabled = Boolean.TRUE.equals(request.get("enabled"));
-        RunType runType = RunType.valueOf(runTypeName.toUpperCase());
-        boolean result = modelSelectionService.setExtendedThinking(runType, enabled);
-        return ResponseEntity.ok(Map.of("runType", runType, "extendedThinking", result));
     }
 }

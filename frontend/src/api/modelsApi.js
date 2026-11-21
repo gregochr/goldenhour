@@ -1,8 +1,8 @@
 import apiClient from './axiosClient.js';
 
 /**
- * Fetch the Model Config data: the selectable models, the active model per run type, the
- * extended-thinking flags, and the measured cost of each tab (admin only).
+ * Fetch the Model Config data: the selectable models, the active model per run type, and the
+ * measured cost of each tab (admin only).
  *
  * `costProfiles` is keyed by run type and is empty when the figures could not be computed;
  * `allowedByRunType` lists the models of a run type whose choice is narrower than `available` (the two
@@ -12,7 +12,6 @@ import apiClient from './axiosClient.js';
  * @returns {Promise<{
  *   available: Array<{name: string, version: string}>,
  *   configs: Object<string, string>,
- *   extendedThinkingConfigs: Object<string, boolean>,
  *   costProfiles: Object<string, {windowDays: number, runsPerDay: number, callsPerRun: number,
  *     measured: Object<string, {calls: number, usdPerCall: number, usdPerDay: number}>,
  *     estimates: Object<string, {calls: number, usdPerCall: number, usdPerDay: number}>}>,
@@ -44,23 +43,6 @@ export async function setActiveModel(runType, model) {
     return response.data;
   } catch (error) {
     console.error('Failed to set active model:', error);
-    throw error;
-  }
-}
-
-/**
- * Enable or disable extended thinking for a specific run type (admin only).
- *
- * @param {string} runType - run type (e.g. AURORA_EVALUATION)
- * @param {boolean} enabled - whether to enable extended thinking
- * @returns {Promise<{runType: string, extendedThinking: boolean}>} the updated config
- */
-export async function setExtendedThinking(runType, enabled) {
-  try {
-    const response = await apiClient.put('/api/models/extended-thinking', { runType, enabled });
-    return response.data;
-  } catch (error) {
-    console.error('Failed to set extended thinking:', error);
     throw error;
   }
 }

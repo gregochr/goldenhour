@@ -73,7 +73,7 @@ import java.util.function.Consumer;
  *
  * <p><b>Cycle parameterisation.</b> The strategy + policy are the ONLY
  * difference between cycles. Everything else — submit, wait-for-batches,
- * briefing, pick persistence, complete — is shared single code path. The
+ * briefing, complete — is shared single code path. The
  * intraday refresh is a different {@link CycleType} + different strategy +
  * different policy and reuses this sequencer end-to-end.
  *
@@ -220,7 +220,6 @@ public class PipelineOrchestrator {
      * @param safetyTimeout                   safety backstop for the wait phase
      * @param dynamicSchedulerService         scheduler the orchestrator registers itself with;
      *                                        tests may pass {@code null} to skip registration
-     *                                        tests may pass {@code null} to skip persistence
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED;
      *                                        tests may pass {@code null} to skip alerting

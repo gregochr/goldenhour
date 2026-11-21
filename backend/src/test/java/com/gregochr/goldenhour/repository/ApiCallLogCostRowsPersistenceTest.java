@@ -113,7 +113,6 @@ class ApiCallLogCostRowsPersistenceTest {
 
         assertThat(rows).singleElement().satisfies(r -> {
             assertThat(r.runType()).isEqualTo(RunType.BRIEFING);
-            assertThat(r.requestUrl()).isEqualTo("briefing-best-bet");
             assertThat(r.pipelineRunId()).isNull();
         });
     }

@@ -3,7 +3,7 @@ package com.gregochr.goldenhour.model;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * Confidence level for a best-bet photography recommendation.
+ * Confidence level for a photography recommendation.
  */
 public enum Confidence {
 

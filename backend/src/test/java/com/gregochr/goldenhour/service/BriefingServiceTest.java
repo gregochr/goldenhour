@@ -688,31 +688,10 @@ class BriefingServiceTest {
             return restored;
         }
 
-        private void stubSolarTimes(LocationEntity loc) {
-            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
-            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
-        }
-
-        private void assertServed(DailyBriefingResponse response) {
+        private void assertServed(DailyBriefingResponse response, boolean expectedStale) {
             assertThat(response).isNotNull();
-            assertThat(response.headline()).isNotNull();
-        }
-
-        @Test
-        @DisplayName("a rebuilt briefing is served")
-        void rebuiltBriefing_isServed() {
-            LocationEntity loc = location("Durham", null);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(jobRunService.startRun(RunType.BRIEFING, false, null))
-                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
-            stubSolarTimes(loc);
-
-            briefingService.refreshBriefing();
-
-            assertServed(briefingService.getCachedBriefing());
-            assertServed(briefingService.getCachedBriefingForApi());
+            assertThat(response.headline()).isEqualTo("Stored headline");
+            assertThat(response.stale()).isEqualTo(expectedStale);
         }
 
         @Test
@@ -720,8 +699,8 @@ class BriefingServiceTest {
         void storedSuccessWithPicks_isServed() throws Exception {
             BriefingService restored = restoredFrom(legacyPayload("SUCCESS_WITH_PICKS"));
 
-            assertServed(restored.getCachedBriefing());
-            assertServed(restored.getCachedBriefingForApi());
+            assertServed(restored.getCachedBriefing(), false);
+            assertServed(restored.getCachedBriefingForApi(), false);
         }
 
         @Test
@@ -729,8 +708,8 @@ class BriefingServiceTest {
         void storedFailed_isServed() throws Exception {
             BriefingService restored = restoredFrom(legacyPayload("FAILED"));
 
-            assertServed(restored.getCachedBriefing());
-            assertServed(restored.getCachedBriefingForApi());
+            assertServed(restored.getCachedBriefing(), false);
+            assertServed(restored.getCachedBriefingForApi(), false);
         }
 
         @Test
@@ -747,8 +726,7 @@ class BriefingServiceTest {
             restored.refreshBriefing();
 
             DailyBriefingResponse stale = restored.getCachedBriefing();
-            assertThat(stale.stale()).isTrue();
-            assertServed(stale);
+            assertServed(stale, true);
         }
     }
 

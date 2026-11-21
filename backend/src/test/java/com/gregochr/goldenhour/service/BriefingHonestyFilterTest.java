@@ -553,6 +553,14 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
+    @DisplayName("A disposition lookup with no clock cannot fold a reason, so the blanked region reads 'Not scored'")
+    void lookupWithoutClock_readsNotScored() {
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"));
+
+        assertNotScoredWording(firstRegion(BriefingHonestyFilter.apply(in, 0.5, Map.of(), null)));
+    }
+
+    @Test
     @DisplayName("Whatever the reason the slots are emptied")
     void everyReasonStaysBlanked() {
         List<DailyBriefingResponse> outs = List.of(

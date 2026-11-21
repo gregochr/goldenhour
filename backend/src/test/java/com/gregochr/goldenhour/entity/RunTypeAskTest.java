@@ -31,6 +31,5 @@ class RunTypeAskTest {
         ModelSelectionService service = new ModelSelectionService(mock(ModelSelectionRepository.class));
 
         assertThat(service.getAllConfigs()).containsKeys(RunType.ASK, RunType.ASK_READY);
-        assertThat(service.getAllExtendedThinkingConfigs()).containsKeys(RunType.ASK, RunType.ASK_READY);
     }
 }
