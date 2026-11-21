@@ -17,7 +17,7 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * Stores the active evaluation model and extended-thinking flag for a specific run type.
+ * Stores the active evaluation model for a specific run type.
  * One row per configurable run type (see {@code ModelSelectionService}).
  */
 @Entity
@@ -45,9 +45,9 @@ public class ModelSelectionEntity {
     private RunType runType;
 
     /**
-     * Whether extended thinking is enabled for this run type.
-     * No longer surfaced in the UI (its only user was the retired best-bet advisor).
-     * Silently ignored if the active model does not support extended thinking (e.g. HAIKU).
+     * Retained column, read and written by nothing: the only code that honoured it was the retired best-bet
+     * advisor, and its endpoint and service methods were deleted. The column goes with the best-bet retirement's
+     * schema phase (R2b).
      */
     @Builder.Default
     @Column(name = "extended_thinking", nullable = false)

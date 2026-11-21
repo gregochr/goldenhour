@@ -143,7 +143,7 @@ public interface ApiCallLogRepository extends JpaRepository<ApiCallLogEntity, Lo
      * @return one {@link ApiCallCostRow} per call
      */
     @Query("SELECT new com.gregochr.goldenhour.model.ApiCallCostRow("
-            + "j.runType, j.startedAt, a.requestUrl, a.customId, a.isBatch, a.succeeded, "
+            + "j.runType, j.startedAt, a.customId, a.isBatch, a.succeeded, "
             + "a.evaluationModel, a.targetDate, a.inputTokens, a.outputTokens, "
             + "a.cacheCreationInputTokens, a.cacheReadInputTokens, a.costMicroDollars, "
             + "a.jobRunId, b.pipelineRunId, p.triggerTime) "

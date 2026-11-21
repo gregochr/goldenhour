@@ -331,8 +331,11 @@ The owner decided to stop the Claude Best bet advisor call (`BriefingBestBetAdvi
 model per the `BRIEFING_BEST_BET` `model_selection` row) and delete its code and admin surfaces. The call only wrote
 `DailyBriefingResponse.bestBets`, which no reader screen renders: the Best bet and Also good a reader sees are chosen
 by `PlanWindowProjector` from the ratings and worded by the region gloss. **Saving: about $2.8 per 30 days. This is
-the 2026-11-01 baseline figure, an estimate, not measured after the change.** After the deploy there are no more
-`briefing-best-bet` rows in `api_call_log`; check with `measured-costs.sql`.
+a measured 30-day production figure from the 2026-11-01 baseline, probably understated because the advisor's input
+later grew 15-30% when the Plan tab went to 8 events; it is not measured after the change.** The advisor logged under
+the BRIEFING job run (no job run was ever typed `BRIEFING_BEST_BET`) with `api_call_log.request_url =
+'briefing-best-bet'`. After the deploy there should be no new such rows; check with the per-day `request_url` query
+at the foot of `cost-queries/measured-costs.sql`.
 
 - **Rejected, same decision: trim the gloss to four days (drop the fifth date).** The fifth date's gloss is what
   gives T+3 a pick overnight, so trimming it would remove a reader-facing pick to save a few cents.

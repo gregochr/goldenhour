@@ -13,7 +13,6 @@ import java.time.LocalDateTime;
  *
  * @param runType            the owning job run's type
  * @param jobRunStartedAt    the owning job run's start (naive UTC)
- * @param requestUrl         the logged request label (for example {@code briefing-best-bet})
  * @param customId           the Anthropic batch custom id, or null for a synchronous call
  * @param isBatch            whether the call went through the Batch API
  * @param succeeded          whether the call produced a usable result
@@ -33,7 +32,6 @@ import java.time.LocalDateTime;
 public record ApiCallCostRow(
         RunType runType,
         LocalDateTime jobRunStartedAt,
-        String requestUrl,
         String customId,
         Boolean isBatch,
         Boolean succeeded,
@@ -53,7 +51,6 @@ public record ApiCallCostRow(
      *
      * @param runType             the owning job run's type
      * @param jobRunStartedAt     the owning job run's start (naive UTC)
-     * @param requestUrl          the logged request label
      * @param customId            the batch custom id, or null
      * @param isBatch             whether the call went through the Batch API
      * @param succeeded           whether the call succeeded
@@ -67,11 +64,11 @@ public record ApiCallCostRow(
      * @param jobRunId            owning job run id
      * @param pipelineRunId       pipeline cycle id, or null
      */
-    public ApiCallCostRow(RunType runType, LocalDateTime jobRunStartedAt, String requestUrl, String customId,
+    public ApiCallCostRow(RunType runType, LocalDateTime jobRunStartedAt, String customId,
             Boolean isBatch, Boolean succeeded, EvaluationModel evaluationModel, LocalDate targetDate,
             Long inputTokens, Long outputTokens, Long cacheCreationTokens, Long cacheReadTokens,
             Long costMicroDollars, Long jobRunId, Long pipelineRunId) {
-        this(runType, jobRunStartedAt, requestUrl, customId, isBatch, succeeded, evaluationModel, targetDate,
+        this(runType, jobRunStartedAt, customId, isBatch, succeeded, evaluationModel, targetDate,
                 inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, costMicroDollars, jobRunId,
                 pipelineRunId, null);
     }

@@ -52,8 +52,8 @@ agent proves they read a removed field.
   until R2b, or (b) changes the field to a `String` mapped to the same column with no enum. Choose (a):
   smallest, zero schema risk; `BestBetStatus` is deleted in R2b with the column. Say so in the Javadoc.
   Likewise `LocalH2EnumWidener` / `LocalH2OldSchemaFixtures` references stay until R2b.
-- **`RunType` is `@Enumerated(STRING)` on stored rows** (`model_selection`, `pipeline_run.run_type`,
-  `job_run`). A stored `BRIEFING_BEST_BET` row makes loading fail. R2a must therefore **not** delete the enum
+- **`RunType` is `@Enumerated(STRING)` on stored rows** (`model_selection` and
+  `job_run` only; `pipeline_run` has no run-type column). A stored `BRIEFING_BEST_BET` row makes loading fail. R2a must therefore **not** delete the enum
   value unless every persisting entity is proven not to hold it. Default: **keep `RunType.BRIEFING_BEST_BET`
   in R2a** (mark `@Deprecated` with a Javadoc naming R2b) and delete it in R2b together with a migration
   that deletes the `model_selection` / historical rows. The guard in `ModelsController` stays. This overrides

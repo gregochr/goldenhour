@@ -108,8 +108,9 @@ public record DailyBriefingResponse(
      * serve steps publish them through {@link #withMovement}, {@link #withBigSeas}, {@link #withPickScope} and
      * {@link #withBriefingVersion}.
      *
-     * <p>Deliberately no overload shares an arity with a form that carried the retired best-bet components
-     * (10 to 13), so a caller still passing those fails to compile rather than silently re-binding.
+     * <p>Deliberately no overload has an arity of 10, 11 or 12, so a caller still passing one of the retired
+     * best-bet forms of those lengths fails to compile rather than silently re-binding. The canonical
+     * constructor (13 components) is the only one that can share an arity with an old form.
      *
      * @param generatedAt      UTC generation timestamp
      * @param headline         one-line summary

@@ -83,7 +83,6 @@ class ApiCallLogCostProfileIntegrationTest extends IntegrationTestBase {
         assertThat(batchRow.cacheCreationTokens()).isEqualTo(5_000L);
         ApiCallCostRow syncRow = rows.stream().filter(r -> r.customId() == null).findFirst().orElseThrow();
         assertThat(syncRow.runType()).isEqualTo(RunType.BRIEFING);
-        assertThat(syncRow.requestUrl()).isEqualTo("briefing-best-bet");
         assertThat(syncRow.pipelineRunId()).isNull();
     }
 

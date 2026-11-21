@@ -100,14 +100,14 @@ class RunCostProfileServiceTest {
         }
     }
 
-    private static ApiCallCostRow syncCall(long jobRunId, String url, boolean ok, long cost) {
-        return new ApiCallCostRow(RunType.AURORA_EVALUATION, LocalDateTime.of(2026, 10, 30, 6, 0), url, null, false, ok,
+    private static ApiCallCostRow syncCall(long jobRunId, boolean ok, long cost) {
+        return new ApiCallCostRow(RunType.AURORA_EVALUATION, LocalDateTime.of(2026, 10, 30, 6, 0), null, false, ok,
                 EvaluationModel.SONNET, null, 9_500L, 726L, 0L, 0L, cost, jobRunId, null);
     }
 
     private static ApiCallCostRow batch(String customId, LocalDateTime jobStarted, LocalDate target,
             EvaluationModel model, Long pipelineRunId, boolean ok, long cost) {
-        return new ApiCallCostRow(RunType.SCHEDULED_BATCH, jobStarted, null, customId, true, ok, model, target,
+        return new ApiCallCostRow(RunType.SCHEDULED_BATCH, jobStarted, customId, true, ok, model, target,
                 1_000L, 200L, 5_000L, 0L, cost, 500L + (pipelineRunId == null ? 0 : pipelineRunId), pipelineRunId);
     }
 
@@ -128,7 +128,7 @@ class RunCostProfileServiceTest {
     @Test
     @DisplayName("the retired best-bet advisor's old rows belong to no tab, so they never reach a profile")
     void retiredBestBetRowsBelongToNoTab() {
-        rows(new ApiCallCostRow(RunType.BRIEFING, LocalDateTime.of(2026, 10, 30, 6, 0), "briefing-best-bet", null,
+        rows(new ApiCallCostRow(RunType.BRIEFING, LocalDateTime.of(2026, 10, 30, 6, 0), null,
                 false, true, EvaluationModel.SONNET, null, 9_500L, 726L, 0L, 0L, 39_000L, 1L, null));
 
         Map<String, RunCostProfile> profiles = service.costProfiles();
@@ -140,8 +140,8 @@ class RunCostProfileServiceTest {
     @Test
     @DisplayName("failed calls are left out of the per-call average and of the per-day basis")
     void failedCallsLeftOut() {
-        rows(syncCall(1, "aurora-evaluation", true, 40_000),
-                syncCall(2, "aurora-evaluation", false, 20_000));
+        rows(syncCall(1, true, 40_000),
+                syncCall(2, false, 20_000));
 
         RunCostProfile.ModelCost m = service.costProfiles().get("AURORA_EVALUATION").measured().get("SONNET");
 
@@ -172,17 +172,16 @@ class RunCostProfileServiceTest {
 
     private static ApiCallCostRow modelRow(EvaluationModel model, long jobRunId) {
         return new ApiCallCostRow(RunType.AURORA_EVALUATION, LocalDateTime.of(2026, 10, 10, 6, 0),
-                "aurora-evaluation",
                 null, false, true, model, null, 9_500L, 726L, 0L, 0L, 40_000L, jobRunId, null);
     }
 
     @Test
     @DisplayName("Ask's calls are measured on their own tabs: the day's ASK run and a precompute's ASK_READY run")
     void askTabsMeasureTheirOwnRuns() {
-        ApiCallCostRow typed = new ApiCallCostRow(RunType.ASK, LocalDateTime.of(2026, 10, 10, 6, 0), "ask-typed",
+        ApiCallCostRow typed = new ApiCallCostRow(RunType.ASK, LocalDateTime.of(2026, 10, 10, 6, 0),
                 null, false, true, EvaluationModel.HAIKU, null, 9_500L, 726L, 0L, 0L, 10_000L, 31L, null);
         ApiCallCostRow ready = new ApiCallCostRow(RunType.ASK_READY, LocalDateTime.of(2026, 10, 10, 7, 0),
-                "ask-ready", null, false, true, EvaluationModel.HAIKU_55, null, 9_500L, 726L, 0L, 0L, 3_000L,
+                null, false, true, EvaluationModel.HAIKU_55, null, 9_500L, 726L, 0L, 0L, 3_000L,
                 32L, null);
 
         rows(typed, ready);
@@ -200,9 +199,9 @@ class RunCostProfileServiceTest {
     @DisplayName("aurora sums synchronous AURORA_EVALUATION rows and au- batch rows")
     void auroraSumsSyncAndBatch() {
         ApiCallCostRow sync = new ApiCallCostRow(RunType.AURORA_EVALUATION, LocalDateTime.of(2026, 10, 30, 21, 0),
-                null, null, false, true, EvaluationModel.SONNET, null, 12_000L, 27_000L, 0L, 0L, 440_000L, 7L, null);
+                null, false, true, EvaluationModel.SONNET, null, 12_000L, 27_000L, 0L, 0L, 440_000L, 7L, null);
         ApiCallCostRow viaBatch = new ApiCallCostRow(RunType.SCHEDULED_BATCH,
-                LocalDateTime.of(2026, 10, 31, 21, 0), null, "au-2026-10-31", true, true,
+                LocalDateTime.of(2026, 10, 31, 21, 0), "au-2026-10-31", true, true,
                 EvaluationModel.SONNET, null, 12_000L, 27_000L, 0L, 0L, 220_000L, 8L, 99L);
 
         rows(sync, viaBatch);
@@ -254,7 +253,7 @@ class RunCostProfileServiceTest {
         ApiCallCostRow first = batch("fc-1-2026-10-30-SUNRISE", started, target, EvaluationModel.HAIKU, 10L,
                 true, 2_000);
         // same pipeline cycle, but a different (retry) job run
-        ApiCallCostRow retry = new ApiCallCostRow(RunType.SCHEDULED_BATCH, started.plusHours(1), null,
+        ApiCallCostRow retry = new ApiCallCostRow(RunType.SCHEDULED_BATCH, started.plusHours(1),
                 "fc-2-2026-10-30-SUNRISE", true, true, EvaluationModel.HAIKU, target, 1_000L, 200L, 5_000L, 0L,
                 2_000L, 777L, 10L);
         rows(first, retry);
@@ -289,7 +288,7 @@ class RunCostProfileServiceTest {
     @Test
     @DisplayName("an unrelated synchronous row belongs to no tab")
     void unrelatedSyncRowIgnored() {
-        rows(new ApiCallCostRow(RunType.BRIEFING, LocalDateTime.of(2026, 10, 30, 2, 0), null, null, false, true,
+        rows(new ApiCallCostRow(RunType.BRIEFING, LocalDateTime.of(2026, 10, 30, 2, 0), null, false, true,
                 EvaluationModel.HAIKU, LocalDate.of(2026, 10, 30), 1L, 1L, 0L, 0L, 5L, 3L, null));
 
         service.costProfiles().values().forEach(p -> assertThat(p.measured()).isEmpty());
@@ -298,7 +297,7 @@ class RunCostProfileServiceTest {
     @Test
     @DisplayName("models that did not run get an estimate priced through CostCalculator on the average mix")
     void estimatesPriceTheAverageTokenMix() {
-        rows(syncCall(1, "aurora-evaluation", true, 39_000));
+        rows(syncCall(1, true, 39_000));
 
         RunCostProfile p = service.costProfiles().get("AURORA_EVALUATION");
 
@@ -334,7 +333,7 @@ class RunCostProfileServiceTest {
         LocalDateTime started = LocalDateTime.of(2026, 10, 30, 2, 0);
         List<ApiCallCostRow> list = new ArrayList<>();
         for (int i = 0; i < 4; i++) {
-            list.add(new ApiCallCostRow(RunType.SCHEDULED_BATCH, started, null, "fc-" + i + "-x", true, true, model,
+            list.add(new ApiCallCostRow(RunType.SCHEDULED_BATCH, started, "fc-" + i + "-x", true, true, model,
                     LocalDate.of(2026, 10, 30), mix.inputTokens(), mix.outputTokens(),
                     mix.cacheCreationInputTokens(), mix.cacheReadInputTokens(), cost, 500L, 10L));
         }
@@ -364,7 +363,7 @@ class RunCostProfileServiceTest {
     @Test
     @DisplayName("a tab whose only rows failed has no figures")
     void onlyFailedRowsGiveNoFigures() {
-        rows(syncCall(1, "aurora-evaluation", false, 0));
+        rows(syncCall(1, false, 0));
 
         RunCostProfile p = service.costProfiles().get("AURORA_EVALUATION");
 
@@ -466,7 +465,7 @@ class RunCostProfileServiceTest {
     void failedReadIsNotMemoised() {
         when(apiCallLogRepository.findCostRowsSince(WINDOW_START))
                 .thenThrow(new IllegalStateException("db down"))
-                .thenReturn(List.of(syncCall(1, "aurora-evaluation", true, 40_000)));
+                .thenReturn(List.of(syncCall(1, true, 40_000)));
 
         assertThat(service.costProfiles()).isEmpty();
         assertThat(service.costProfiles().get("AURORA_EVALUATION").measured()).containsKey("SONNET");
@@ -493,7 +492,7 @@ class RunCostProfileServiceTest {
         // cycle triggered 22:00 BST on 14 Jul; its retry job run started 00:30 BST on 15 Jul
         LocalDateTime retryStarted = LocalDateTime.of(2026, 7, 14, 23, 30);
         Instant cycleTrigger = Instant.parse("2026-07-14T21:00:00Z");
-        ApiCallCostRow row = new ApiCallCostRow(RunType.SCHEDULED_BATCH, retryStarted, null,
+        ApiCallCostRow row = new ApiCallCostRow(RunType.SCHEDULED_BATCH, retryStarted,
                 "fc-1-2026-07-16-SUNSET", true, true, EvaluationModel.SONNET, LocalDate.of(2026, 7, 16), 1_000L,
                 200L, 5_000L, 0L, 2_000L, 777L, 10L, cycleTrigger);
         when(apiCallLogRepository.findCostRowsSince(LocalDateTime.of(2026, 6, 20, 23, 0)))
