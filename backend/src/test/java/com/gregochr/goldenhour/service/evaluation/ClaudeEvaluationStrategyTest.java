@@ -605,7 +605,7 @@ class ClaudeEvaluationStrategyTest {
                 .asTextBlockParams().get(0).text();
         assertThat(systemPrompt).isNotBlank();
 
-        assertThat(detail.promptSent()).contains("Fiery Sky Potential");
+        assertThat(detail.promptSent()).contains("Red Sky Potential");
         assertThat(detail.promptSent()).contains("Golden Hour Potential");
         assertThat(detail.promptSent()).contains("Durham UK");
     }
