@@ -2,7 +2,8 @@ package com.gregochr.goldenhour.model;
 
 /**
  * Explicit outcome discriminator for a best-bet advisor run. The advisor was retired 2026-11-21: no code sets it
- * any more and it is always null on the wire; the type stays until the follow-up removal.
+ * any more and it is no longer on the wire. The type stays only for {@code PipelineRunEntity.bestBetStatus}, whose
+ * {@code @Enumerated(STRING)} column is dropped (with this enum) by the R2b migration.
  *
  *
  * <p>The API must tell the UI <em>what happened</em>, not leave it to infer intent from an

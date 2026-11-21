@@ -129,7 +129,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET, List.of(region),
                 List.of(slot(UNPICKED_ID, "Unregioned spot")), EVENT, window);
         return new DailyBriefingResponse(LocalDateTime.of(2999, 3, 25, 9, 0), "headline",
-                List.of(new BriefingDay(DAY, List.of(summary))), List.of(), null, null, false, "Opus",
+                List.of(new BriefingDay(DAY, List.of(summary))), null, null, false,
                 List.of(bluebellTopic()), List.of());
     }
 
@@ -389,7 +389,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .withWindow(new BriefingWindow(tomorrow.atTime(18, 30), DisplayVerdict.WORTH_IT, 4,
                         Confidence.HIGH, null, List.of(), null));
         return new DailyBriefingResponse(today().atTime(9, 0), "headline",
-                List.of(new BriefingDay(tomorrow, List.of(sunset))), List.of(), null, null, false, "Opus",
+                List.of(new BriefingDay(tomorrow, List.of(sunset))), null, null, false,
                 List.of(), List.of());
     }
 

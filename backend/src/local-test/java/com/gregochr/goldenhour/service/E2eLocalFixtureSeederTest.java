@@ -305,8 +305,7 @@ class E2eLocalFixtureSeederTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of(), null,
                 window);
         return new DailyBriefingResponse(LocalDateTime.now(CLOCK), "h", List.of(new BriefingDay(TODAY,
-                List.of(summary))), List.of(), null, null, false, null, List.of(), List.of(),
-                null);
+                List.of(summary))), null, null, false, List.of(), List.of());
     }
 
     private E2eLocalFixtureSeeder seeder(DataSource ds, String... profiles) {

@@ -58,8 +58,8 @@ class BriefingReachStampsWireContractTest extends AbstractControllerTest {
                 12.0, 10.0, 1.0, 1, null, null, DisplayVerdict.WORTH_IT, 1);
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 10, 1), List.of(
                 new BriefingEventSummary(TargetType.SUNRISE, List.of(region), List.of())));
-        return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 1, 0, 0), "h", List.of(day), List.of(), null,
-                null, false, "Opus", List.of(), List.of()).withBriefingVersion(version);
+        return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 1, 0, 0), "h", List.of(day), null,
+                null, false, List.of(), List.of()).withBriefingVersion(version);
     }
 
     private String served(BriefingSlot slot) throws Exception {

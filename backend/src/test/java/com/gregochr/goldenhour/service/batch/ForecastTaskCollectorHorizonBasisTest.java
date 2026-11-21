@@ -290,8 +290,8 @@ class ForecastTaskCollectorHorizonBasisTest {
                 null, null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(region), List.of());
-        return new DailyBriefingResponse(null, null, List.of(new BriefingDay(date, List.of(eventSummary))),
-                null, null, null, false, null, List.of(), List.of());
+        return new DailyBriefingResponse(null, null, List.of(new BriefingDay(date, List.of(eventSummary))), null, null,
+        false, List.of(), List.of());
     }
 
     private ForecastPreEvalResult sunsetPreEval(LocationEntity loc, LocalDate date, int daysAhead) {

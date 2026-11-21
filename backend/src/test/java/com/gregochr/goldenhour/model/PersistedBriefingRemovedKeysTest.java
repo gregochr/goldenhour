@@ -70,6 +70,42 @@ class PersistedBriefingRemovedKeysTest {
     }
 
     @Test
+    @DisplayName("a pre-R2a payload carrying the retired best-bet keys (a populated pick list included) "
+            + "loads through AppConfig.objectMapper()")
+    void preR2aPayloadWithBestBetKeys_loads() throws Exception {
+        ObjectMapper mapper = new AppConfig().objectMapper();
+        ObjectNode root = (ObjectNode) mapper.readTree(mapper.writeValueAsString(briefing()));
+
+        // The four DailyBriefingResponse components the Best bet advisor retirement (R2a) removed.
+        ObjectNode pick = root.putArray("bestBets").addObject();
+        pick.put("rank", 1);
+        pick.put("headline", "Go east");
+        pick.put("detail", "Clear run to the coast");
+        pick.put("event", "2026-10-11_sunrise");
+        pick.put("region", "North East");
+        pick.put("confidence", "HIGH");
+        pick.put("nearestDriveMinutes", 45);
+        pick.put("dayName", "Sunday");
+        pick.put("eventType", "SUNRISE");
+        pick.put("eventTime", "06:41");
+        pick.putArray("differsBy").add("DATE");
+        root.put("bestBetModel", "Opus");
+        root.put("bestBetStatus", "FAILED");
+        root.put("bestBetsWithdrawn", true);
+
+        DailyBriefingResponse loaded = mapper.readValue(root.toString(), DailyBriefingResponse.class);
+
+        assertThat(loaded.headline()).isEqualTo("h");
+        assertThat(loaded.days()).hasSize(1);
+        assertThat(loaded.hotTopics()).hasSize(1);
+        JsonNode reserialised = mapper.readTree(mapper.writeValueAsString(loaded));
+        assertThat(reserialised.has("bestBets")).isFalse();
+        assertThat(reserialised.has("bestBetModel")).isFalse();
+        assertThat(reserialised.has("bestBetStatus")).isFalse();
+        assertThat(reserialised.has("bestBetsWithdrawn")).isFalse();
+    }
+
+    @Test
     @DisplayName("the warning overlay never reaches the stored payload, and a payload carrying it still loads")
     void warningOverlayIsOmittedWhenNullAndTolerated() throws Exception {
         ObjectMapper mapper = new AppConfig().objectMapper();
@@ -125,7 +161,6 @@ class PersistedBriefingRemovedKeysTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
                 List.of(region), List.of(), null, window);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
-                List.of(new BriefingDay(DAY, List.of(summary))),
-                List.of(), null, null, false, null, List.of(king), List.of());
+                List.of(new BriefingDay(DAY, List.of(summary))), null, null, false, List.of(king), List.of());
     }
 }

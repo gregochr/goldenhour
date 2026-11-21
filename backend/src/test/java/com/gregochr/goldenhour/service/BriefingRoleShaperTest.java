@@ -5,15 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
-import com.gregochr.goldenhour.model.BestBet;
-import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.BriefingWindowTide;
-import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationTideFact;
@@ -74,8 +71,8 @@ class BriefingRoleShaperTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
                 List.of(region), List.of(unregioned), AT, window);
         return new DailyBriefingResponse(AT, "h",
-                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))), null, null, false, List.of(),
+                List.of());
     }
 
     private static BriefingWindow fullWindow() {
@@ -157,8 +154,8 @@ class BriefingRoleShaperTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(),
                 List.of(standdown), AT, null);
         DailyBriefingResponse in = new DailyBriefingResponse(AT, "h",
-                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))), null, null, false, List.of(),
+                List.of());
 
         BriefingSlot lite = summaryOf(shaper.forLite(in)).unregioned().get(0);
 
@@ -214,8 +211,8 @@ class BriefingRoleShaperTest {
     @Test
     @DisplayName("A null briefing and a briefing with no days pass through")
     void forLite_nullAndEmptyDays() {
-        DailyBriefingResponse empty = new DailyBriefingResponse(AT, "h", List.of(), List.of(), null,
-                null, false, null, List.of(), List.of());
+        DailyBriefingResponse empty = new DailyBriefingResponse(AT, "h", List.of(), null,
+                null, false, List.of(), List.of());
 
         assertThat(shaper.forLite(null)).isNull();
         assertThat(shaper.forLite(empty).days()).isEmpty();
@@ -224,13 +221,6 @@ class BriefingRoleShaperTest {
     private static BriefingWindow.Pick pick() {
         return new BriefingWindow.Pick(BriefingWindow.PickKind.BEST, "North East", "Go east", null,
                 4.25, "Bamburgh", 7L);
-    }
-
-    private static DailyBriefingResponse withPicks(DailyBriefingResponse base) {
-        BestBet bet = new BestBet(1, "Go east", "Clear", "Sunrise", "North East", Confidence.HIGH,
-                null, "Friday", "SUNRISE", "06:00", null, null);
-        return base.withBestBets(List.of(bet), true).withBestBetModel("Opus")
-                .withBestBetStatus(BestBetStatus.SUCCESS_WITH_PICKS);
     }
 
     @Test
@@ -247,30 +237,12 @@ class BriefingRoleShaperTest {
     }
 
     @Test
-    @DisplayName("LITE: bestBets is empty (not absent), and the model, status and withdrawn flag are null")
-    void forLite_stripsBestBetsModelStatusAndWithdrawn() {
-        DailyBriefingResponse full = withPicks(response(fullWindow().withPick(pick())));
-
-        DailyBriefingResponse lite = shaper.forLite(full);
-
-        assertThat(lite.bestBets()).isNotNull().isEmpty();
-        assertThat(lite.bestBetModel()).isNull();
-        assertThat(lite.bestBetStatus()).isNull();
-        assertThat(lite.bestBetsWithdrawn()).isNull();
-        assertThat(lite.headline()).isEqualTo("h");
-    }
-
-    @Test
     @DisplayName("PRO is unchanged: the input keeps its picks, and forLite never mutates it")
     void forLite_doesNotMutateInput() {
-        DailyBriefingResponse full = withPicks(response(fullWindow().withPick(pick())));
+        DailyBriefingResponse full = response(fullWindow().withPick(pick()));
 
         shaper.forLite(full);
 
-        assertThat(full.bestBets()).hasSize(1);
-        assertThat(full.bestBetModel()).isEqualTo("Opus");
-        assertThat(full.bestBetStatus()).isEqualTo(BestBetStatus.SUCCESS_WITH_PICKS);
-        assertThat(full.bestBetsWithdrawn()).isTrue();
         assertThat(summaryOf(full).window().pick()).isEqualTo(pick());
     }
 
@@ -290,7 +262,6 @@ class BriefingRoleShaperTest {
     @Test
     @DisplayName("Every DailyBriefingResponse component is classified kept or stripped")
     void everyDailyBriefingResponseComponentIsClassified() {
-        Set<String> stripped = Set.of("bestBets", "bestBetModel", "bestBetStatus", "bestBetsWithdrawn");
         Set<String> rebuiltViaDays = Set.of("days", "hotTopics", "bigSeas");
         Set<String> kept = Set.of("generatedAt", "headline", "auroraTonight", "auroraTomorrow",
                 "stale", "seasonalFeatures",
@@ -298,7 +269,7 @@ class BriefingRoleShaperTest {
 
         assertThat(componentNames(DailyBriefingResponse.class))
                 .as("a new component must be classified here and handled in forLite()")
-                .containsExactlyInAnyOrderElementsOf(union(union(stripped, rebuiltViaDays), kept));
+                .containsExactlyInAnyOrderElementsOf(union(rebuiltViaDays, kept));
     }
 
     @Test
@@ -367,8 +338,8 @@ class BriefingRoleShaperTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
                 List.of(region), List.of(unregioned), AT, null);
         return new DailyBriefingResponse(AT, "h",
-                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))), null, null, false, List.of(),
+                List.of());
     }
 
     @Test

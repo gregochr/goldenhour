@@ -2,7 +2,6 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -96,8 +95,8 @@ class BriefingHonestyFilterTest {
         DailyBriefingResponse response = new DailyBriefingResponse(
                 LocalDateTime.now(), "headline",
                 List.of(new BriefingDay(TODAY, List.of(new BriefingEventSummary(
-                        TargetType.SUNRISE, List.of(zeroCov), List.of(), eventTime, null)))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                        TargetType.SUNRISE, List.of(zeroCov), List.of(), eventTime, null)))), null, null, false,
+                        List.of(), List.of());
 
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
 
@@ -153,8 +152,7 @@ class BriefingHonestyFilterTest {
                 LocalDateTime.now(), "headline",
                 List.of(new BriefingDay(TODAY, List.of(
                         new BriefingEventSummary(TargetType.SUNSET,
-                                List.of(zero, covered), List.of())))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                                List.of(zero, covered), List.of())))), null, null, false, List.of(), List.of());
 
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
         List<BriefingRegion> regions = out.days().get(0).eventSummaries().get(0).regions();
@@ -302,8 +300,7 @@ class BriefingHonestyFilterTest {
                         new BriefingDay(TODAY.plusDays(1), List.of(
                                 new BriefingEventSummary(TargetType.SUNSET, List.of(r), List.of())
                         ))
-                ),
-                List.of(), null, null, false, null, List.of(), List.of());
+                ), null, null, false, List.of(), List.of());
 
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
 
@@ -319,34 +316,15 @@ class BriefingHonestyFilterTest {
     void topLevelFields_arePreserved() {
         LocalDateTime when = LocalDateTime.of(2026, 5, 23, 6, 0);
         DailyBriefingResponse response = new DailyBriefingResponse(
-                when, "best day this week", List.of(), List.of(), null, null,
-                true, "Opus", List.of(), List.of("BLUEBELL"));
+                when, "best day this week", List.of(), null, null,
+                true, List.of(), List.of("BLUEBELL"));
 
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
 
         assertThat(out.generatedAt()).isEqualTo(when);
         assertThat(out.headline()).isEqualTo("best day this week");
         assertThat(out.stale()).isTrue();
-        assertThat(out.bestBetModel()).isEqualTo("Opus");
         assertThat(out.seasonalFeatures()).containsExactly("BLUEBELL");
-    }
-
-    // ── The retired Best bet list ─────────────────────────────────────────────
-
-    @Test
-    @DisplayName("The filter no longer withdraws Best Bets: the list passes through untouched "
-            + "(BriefingService empties it on restore and on every build)")
-    void bestBetListIsLeftAlone() {
-        DailyBriefingResponse in = responseWith(TargetType.SUNSET,
-                zeroCoverageRegion("Northumberland"),
-                List.of(bet(1, "Northumberland", "2026-05-23_sunset")));
-
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(in, 0.5);
-
-        assertThat(firstRegion(out).slots()).isEmpty();
-        assertThat(out.bestBets()).isEqualTo(in.bestBets());
-        assertThat(out.bestBetsWithdrawn()).isNull();
-        assertThat(out.bestBetStatus()).isEqualTo(in.bestBetStatus());
     }
 
     // ── Wording by coverage reason ────────────────────────────────────────────
@@ -370,8 +348,7 @@ class BriefingHonestyFilterTest {
     private static DailyBriefingResponse blanked(DispositionCategory category, boolean cycleEnded,
             Clock clock) {
         return BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
-                        List.of(bet(1, "Northumberland", "2026-05-23_sunset"))),
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland")),
                 0.5, latestForAll(category, cycleEnded), clock);
     }
 
@@ -442,7 +419,7 @@ class BriefingHonestyFilterTest {
 
     private static BriefingRegion blankedWithVisibility(int lowVisibilityCount) {
         return firstRegion(BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of()),
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland")),
                 0.5, triagedWithVisibility(lowVisibilityCount), T_PLUS_0));
     }
 
@@ -487,7 +464,7 @@ class BriefingHonestyFilterTest {
                 DisplayVerdict.WORTH_IT, 0, four);
 
         BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, region, List.of()), 0.5, latest, T_PLUS_0));
+                responseWith(TargetType.SUNSET, region), 0.5, latest, T_PLUS_0));
 
         assertStandDownWording(out);
     }
@@ -513,7 +490,7 @@ class BriefingHonestyFilterTest {
                 DisplayVerdict.WORTH_IT, 0, five);
 
         BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, region, List.of()), 0.5, latest, T_PLUS_0));
+                responseWith(TargetType.SUNSET, region), 0.5, latest, T_PLUS_0));
 
         // Triage 3 beats stability 2, so the fold is STOOD_DOWN; 2 of 3 triaged are visibility.
         assertThat(out.verdictLabel()).isEqualTo("Fog forecast");
@@ -532,7 +509,7 @@ class BriefingHonestyFilterTest {
         }
 
         BriefingRegion r = firstRegion(BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of()),
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland")),
                 0.5, latest, T_PLUS_0));
 
         assertThat(r.verdictLabel()).isEqualTo("Not forecast");
@@ -566,7 +543,7 @@ class BriefingHonestyFilterTest {
             + "lookup or an unsettled record read AWAITING 'Not scored'")
     void aRegionWhoseRecordIsIncompleteNeverReadsStandDown() {
         DailyBriefingResponse in = responseWith(TargetType.SUNSET,
-                zeroCoverageRegion("Northumberland"), List.of());
+                zeroCoverageRegion("Northumberland"));
 
         assertNotScoredWording(firstRegion(BriefingHonestyFilter.apply(in, 0.5)));
         assertNotScoredWording(firstRegion(
@@ -597,7 +574,7 @@ class BriefingHonestyFilterTest {
         // The shape a zero-coverage region now arrives in: weather GO, nothing rated -> UNRATED.
         BriefingRegion unratedIn = regionWith("Northumberland", Verdict.GO, "Clear at 0 of 3",
                 DisplayVerdict.UNRATED, 0, threeSampleSlots());
-        DailyBriefingResponse in = responseWith(TargetType.SUNSET, unratedIn, List.of());
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, unratedIn);
 
         Map<DispositionCategory, Clock> awaiting = new java.util.LinkedHashMap<>();
         awaiting.put(DispositionCategory.SKIPPED_TRAVEL_DAY, T_PLUS_0);
@@ -633,7 +610,7 @@ class BriefingHonestyFilterTest {
                 .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.NOT_ATTEMPTED);
         assertThat(firstRegion(blanked(DispositionCategory.SUBMISSION_FAILED, false, T_PLUS_0)).coverageReason())
                 .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.FAILED);
-        DailyBriefingResponse in = responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of());
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"));
         assertThat(firstRegion(BriefingHonestyFilter.apply(in, 0.5)).coverageReason())
                 .as("no lookup is UNKNOWN, worded AWAITING and never mistaken for a stand-down")
                 .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.UNKNOWN);
@@ -646,10 +623,10 @@ class BriefingHonestyFilterTest {
     void aRegionNotBlankedCarriesNoCoverageReason() {
         DailyBriefingResponse scored = responseWith(TargetType.SUNSET,
                 regionWith("Northumberland", Verdict.GO, "Clear at 10 of 10", DisplayVerdict.WORTH_IT, 10,
-                        goSlots(10)), List.of());
+                        goSlots(10)));
         DailyBriefingResponse light = responseWith(TargetType.SUNSET,
                 regionWith("Northumberland", Verdict.GO, "Clear at 1 of 10", DisplayVerdict.WORTH_IT, 1,
-                        goSlots(10)), List.of());
+                        goSlots(10)));
 
         assertThat(firstRegion(BriefingHonestyFilter.apply(scored, 0.5)).coverageReason()).isNull();
         BriefingRegion thin = firstRegion(BriefingHonestyFilter.apply(light, 0.5));
@@ -663,7 +640,7 @@ class BriefingHonestyFilterTest {
         BriefingRegion rich = zeroCoverageRegion("Northumberland")
                 .withConfidence(Confidence.HIGH).withMeanRating(4.0).withBestRating(5)
                 .withMeanRatingDelta(0.5).withSampleSufficient(true).withForcedSample(true);
-        DailyBriefingResponse in = responseWith(TargetType.SUNSET, rich, List.of());
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, rich);
 
         Map<DispositionCategory, Clock> scenarios = new java.util.LinkedHashMap<>();
         scenarios.put(DispositionCategory.SKIPPED_TRAVEL_DAY, T_PLUS_0);
@@ -701,7 +678,7 @@ class BriefingHonestyFilterTest {
         mixed.add(canopySlot("Delamere Wood", Verdict.GO));
         BriefingRegion region = regionWith("Northumberland", Verdict.GO, "Clear at 0 of 4",
                 DisplayVerdict.WORTH_IT, 0, mixed);
-        DailyBriefingResponse in = responseWith(TargetType.SUNSET, region, List.of());
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, region);
 
         BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(in, 0.5,
                 latestForAll(DispositionCategory.SKIPPED_STABILITY, false), T_PLUS_0));
@@ -718,18 +695,12 @@ class BriefingHonestyFilterTest {
                 DisplayVerdict.WORTH_IT, 0, threeSampleSlots());
     }
 
-    private static BestBet bet(int rank, String region, String event) {
-        return new BestBet(rank, "Headline", "Detail", event, region,
-                Confidence.HIGH, 45, "Today", "sunset", "21:07");
-    }
-
-    private static DailyBriefingResponse responseWith(TargetType target, BriefingRegion region,
-            List<BestBet> bets) {
+    private static DailyBriefingResponse responseWith(TargetType target, BriefingRegion region) {
         return new DailyBriefingResponse(
                 LocalDateTime.now(), "headline",
                 List.of(new BriefingDay(TODAY, List.of(
-                        new BriefingEventSummary(target, List.of(region), List.of())))),
-                bets, null, null, false, null, List.of(), List.of());
+                        new BriefingEventSummary(target, List.of(region), List.of())))), null, null, false, List.of(),
+                        List.of());
     }
 
     private static BriefingRegion regionWith(String name, Verdict verdict, String summary,
@@ -747,8 +718,8 @@ class BriefingHonestyFilterTest {
         return new DailyBriefingResponse(
                 LocalDateTime.now(), "headline",
                 List.of(new BriefingDay(TODAY, List.of(
-                        new BriefingEventSummary(target, List.of(region), List.of())))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                        new BriefingEventSummary(target, List.of(region), List.of())))), null, null, false, List.of(),
+                        List.of());
     }
 
     private static BriefingRegion firstRegion(DailyBriefingResponse r) {

@@ -94,7 +94,7 @@ class BriefingControllerTest extends AbstractControllerTest {
                 new BriefingEventSummary(TargetType.SUNRISE, List.of(region), List.of())));
         when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
                 LocalDateTime.of(2026, 10, 13, 14, 0), "Headline",
-                List.of(day), List.of(), null, null, false, "Opus", List.of(), List.of()));
+                List.of(day), null, null, false, List.of(), List.of()));
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
@@ -187,49 +187,39 @@ class BriefingControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("GET /api/briefing — bestBets field is present even when empty")
-    void getBriefing_bestBetsAlwaysPresent() throws Exception {
-        // Verifies that @JsonInclude(ALWAYS) on bestBets means the field is never silently
-        // omitted from the HTTP response body, even when the list is empty.
+    @DisplayName("GET /api/briefing — the retired best-bet keys are not on the wire")
+    void getBriefing_retiredBestBetKeysAbsent() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildSampleBriefing());
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bestBets").isArray())
-                .andExpect(jsonPath("$.bestBets.length()").value(0));
+                .andExpect(jsonPath("$.bestBets").doesNotExist())
+                .andExpect(jsonPath("$.bestBetModel").doesNotExist())
+                .andExpect(jsonPath("$.bestBetStatus").doesNotExist())
+                .andExpect(jsonPath("$.bestBetsWithdrawn").doesNotExist());
     }
 
     @Test
     @WithMockUser(roles = {"LITE_USER"})
-    @DisplayName("GET /api/briefing — a LITE reader gets bestBets present and empty, and no model, "
-            + "status or withdrawn flag, even when the briefing lists a best bet")
-    void getBriefing_liteBestBetsEmptyButPresent() throws Exception {
+    @DisplayName("GET /api/briefing — a LITE reader gets no window pick, "
+            + "but keeps the rating")
+    void getBriefing_liteGetsNoWindowPick() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildPickBriefing());
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bestBets").isArray())
-                .andExpect(jsonPath("$.bestBets.length()").value(0))
-                .andExpect(jsonPath("$.bestBetModel").doesNotExist())
-                .andExpect(jsonPath("$.bestBetStatus").doesNotExist())
-                .andExpect(jsonPath("$.bestBetsWithdrawn").doesNotExist())
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick").doesNotExist())
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.bestRating").value(4));
     }
 
     @Test
     @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("GET /api/briefing — a PRO reader keeps the window pick, the best bets, the model "
-            + "and the status")
+    @DisplayName("GET /api/briefing — a PRO reader keeps the window pick")
     void getBriefing_proKeepsPicks() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildPickBriefing());
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bestBets.length()").value(1))
-                .andExpect(jsonPath("$.bestBetModel").value("Opus"))
-                .andExpect(jsonPath("$.bestBetStatus").value("SUCCESS_WITH_PICKS"))
-                .andExpect(jsonPath("$.bestBetsWithdrawn").value(true))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.kind").value("BEST"))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.locationName")
                         .value("Keswick"));
@@ -237,13 +227,12 @@ class BriefingControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("GET /api/briefing — an ADMIN keeps the window pick and the best bets")
+    @DisplayName("GET /api/briefing — an ADMIN keeps the window pick")
     void getBriefing_adminKeepsPicks() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(buildPickBriefing());
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bestBets.length()").value(1))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.kind").value("BEST"));
     }
 
@@ -255,7 +244,6 @@ class BriefingControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bestBets.length()").value(0))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick").doesNotExist());
     }
 
@@ -337,8 +325,8 @@ class BriefingControllerTest extends AbstractControllerTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
                 List.of(region), List.of(), null, window);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
-                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))), null, null, false, List.of(),
+                List.of());
     }
 
     @Test
@@ -461,8 +449,7 @@ class BriefingControllerTest extends AbstractControllerTest {
                         true)),
                 0, false, null, null);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
-                List.of(new BriefingDay(day, List.of(summary))),
-                List.of(), null, null, false, null, List.of(king), List.of())
+                List.of(new BriefingDay(day, List.of(summary))), null, null, false, List.of(king), List.of())
                 .withBigSeas(List.of(seas));
     }
 
@@ -765,11 +752,10 @@ class BriefingControllerTest extends AbstractControllerTest {
         return new DailyBriefingResponse(
                 DIGEST_DAY_ONE.atTime(9, 0), "headline",
                 List.of(new BriefingDay(DIGEST_DAY_ONE, List.of(sunset)),
-                        new BriefingDay(DIGEST_DAY_TWO, List.of(sunrise))),
-                List.of(), null, null, false, "Opus", List.of(), List.of());
+                        new BriefingDay(DIGEST_DAY_TWO, List.of(sunrise))), null, null, false, List.of(), List.of());
     }
 
-    /** A briefing whose one window carries a BEST pick and which lists one best bet. */
+    /** A briefing whose one window carries a BEST pick. */
     private static DailyBriefingResponse buildPickBriefing() {
         BriefingWindow.Pick pick = new BriefingWindow.Pick(BriefingWindow.PickKind.BEST,
                 "Lake District", "A long clear run to the west", null, 4.25, "Keswick", 7L);
@@ -777,14 +763,10 @@ class BriefingControllerTest extends AbstractControllerTest {
                 TargetType.SUNSET, List.of(), List.of())
                 .withWindow(new BriefingWindow(LocalDateTime.of(2026, 3, 25, 18, 30),
                         DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null));
-        com.gregochr.goldenhour.model.BestBet bet = new com.gregochr.goldenhour.model.BestBet(1,
-                "Go west", "Clear", "Wed sunset", "Lake District", Confidence.HIGH, null,
-                "Wednesday", "SUNSET", "18:30", null, null);
         return new DailyBriefingResponse(
                 LocalDateTime.of(2026, 3, 25, 14, 0), "h",
-                List.of(new BriefingDay(LocalDate.of(2026, 3, 25), List.of(sunset))),
-                List.of(bet), null, null, false, "Opus", List.of(), List.of(),
-                com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS, true);
+                List.of(new BriefingDay(LocalDate.of(2026, 3, 25), List.of(sunset))), null, null, false, List.of(),
+                List.of());
     }
 
     private static DailyBriefingResponse buildSampleBriefing() {
@@ -820,7 +802,7 @@ class BriefingControllerTest extends AbstractControllerTest {
         return new DailyBriefingResponse(
                 LocalDateTime.of(2026, 3, 25, 14, 0),
                 "Today sunset looks promising in Lake District",
-                List.of(day), List.of(), null, null, false, "Opus", List.of(), List.of());
+                List.of(day), null, null, false, List.of(), List.of());
     }
 
     private static DailyBriefingResponse buildHonestyFilteredBriefing() {
@@ -846,6 +828,6 @@ class BriefingControllerTest extends AbstractControllerTest {
         return new DailyBriefingResponse(
                 LocalDateTime.of(2026, 5, 21, 14, 0),
                 "Sunset window looks promising in the Lake District",
-                List.of(day), List.of(), null, null, false, "Opus", List.of(), List.of());
+                List.of(day), null, null, false, List.of(), List.of());
     }
 }

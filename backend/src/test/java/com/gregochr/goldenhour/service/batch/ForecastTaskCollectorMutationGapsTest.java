@@ -941,7 +941,7 @@ class ForecastTaskCollectorMutationGapsTest {
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(region), List.of()))));
         }
         when(briefingService.getCachedBriefing()).thenReturn(new DailyBriefingResponse(
-                null, null, days, null, null, null, false, null, List.of(), List.of()));
+                null, null, days, null, null, false, List.of(), List.of()));
         when(locationService.findAllEnabled()).thenReturn(enabledLocations);
         Map<String, WeatherExtractionResult> weather = new HashMap<>();
         for (LocationEntity l : prefetched) {

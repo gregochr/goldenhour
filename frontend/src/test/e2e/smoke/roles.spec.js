@@ -257,7 +257,6 @@ test.describe('LITE reader', () => {
     expect(liteSlots.filter((s) => s.fierySkyPotential != null || s.goldenHourPotential != null || s.claudeSummary),
       'no scores or summaries on a LITE slot').toEqual([]);
     expect(windowsOf(lite.briefing).filter((w) => w.pick), 'no window pick for LITE').toEqual([]);
-    expect(lite.briefing.bestBets, 'no best bets for LITE').toEqual([]);
     expect(windowsOf(pro.briefing).filter((w) => w.pick).length, 'PRO has window picks').toBeGreaterThan(0);
     expect(slotsOf(pro.briefing).every((s) => !s.gated && s.fierySkyPotential != null && s.claudeSummary)).toBe(true);
     expect(pro.briefing.allowedLocationIds, 'PRO is not shaped by picks').toBeUndefined();

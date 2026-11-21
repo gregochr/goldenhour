@@ -12,7 +12,6 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.BigSeasDay;
 import com.gregochr.goldenhour.model.BriefingDay;
-import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
@@ -606,8 +605,8 @@ class BriefingServiceTest {
             DailyBriefingResponse persisted = new DailyBriefingResponse(
                     LocalDateTime.of(BST_DAY, LocalTime.NOON), "headline",
                     List.of(new BriefingDay(BST_DAY, List.of(
-                            new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())))),
-                    List.of(), null, null, false, null, List.of(), List.of());
+                            new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())))), null, null,
+                            false, List.of(), List.of());
             ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
             DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
             entity.setId(1);
@@ -645,28 +644,33 @@ class BriefingServiceTest {
     }
 
     @Nested
-    @DisplayName("The retired Best bet advisor (bestBets stays empty from startup and from every build)")
-    class RetiredBestBetAdvisor {
+    @DisplayName("A briefing persisted before the Best bet advisor was retired (its keys are ignored)")
+    class LegacyBestBetPayload {
 
         private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
 
-        private BestBet storedPick() {
-            return new BestBet(1, "Old pick", "From before the retirement.", "2026-06-14_sunset",
-                    "Northumberland", Confidence.HIGH, null, "Tomorrow", "sunset", null);
-        }
-
-        private DailyBriefingResponse storedWith(com.gregochr.goldenhour.model.BestBetStatus status) {
-            return new DailyBriefingResponse(
-                    LocalDateTime.now(ZoneOffset.UTC), "Stored headline", List.of(), List.of(storedPick()),
-                    null, null, false, "Opus", List.of(), List.of(), status);
+        /** A payload as the pre-retirement build wrote it: the four retired keys, a populated pick list. */
+        private String legacyPayload(String status) throws Exception {
+            DailyBriefingResponse current = new DailyBriefingResponse(
+                    LocalDateTime.now(ZoneOffset.UTC), "Stored headline", List.of(),
+                    null, null, false, List.of(), List.of());
+            com.fasterxml.jackson.databind.node.ObjectNode root =
+                    (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(
+                            mapper.writeValueAsString(current));
+            root.putArray("bestBets").addObject().put("rank", 1).put("headline", "Old pick")
+                    .put("region", "Northumberland");
+            root.put("bestBetModel", "Opus");
+            root.put("bestBetStatus", status);
+            root.put("bestBetsWithdrawn", true);
+            return root.toString();
         }
 
         /** A service whose startup restore reads the given payload from the cache table. */
-        private BriefingService restoredFrom(DailyBriefingResponse persisted) throws Exception {
+        private BriefingService restoredFrom(String payload) throws Exception {
             DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
             entity.setId(1);
-            entity.setGeneratedAt(persisted.generatedAt());
-            entity.setPayload(mapper.writeValueAsString(persisted));
+            entity.setGeneratedAt(LocalDateTime.now(ZoneOffset.UTC));
+            entity.setPayload(payload);
             when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
             BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
@@ -691,16 +695,14 @@ class BriefingServiceTest {
                     .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
         }
 
-        private void assertNoPicks(DailyBriefingResponse response) {
+        private void assertServed(DailyBriefingResponse response) {
             assertThat(response).isNotNull();
-            assertThat(response.bestBets()).isEmpty();
-            assertThat(response.bestBetModel()).isNull();
-            assertThat(response.bestBetStatus()).isNull();
+            assertThat(response.headline()).isNotNull();
         }
 
         @Test
-        @DisplayName("a rebuilt briefing carries no picks, no model and no status")
-        void rebuiltBriefing_carriesNoPicks() {
+        @DisplayName("a rebuilt briefing is served")
+        void rebuiltBriefing_isServed() {
             LocationEntity loc = location("Durham", null);
             when(locationService.findAllEnabled()).thenReturn(List.of(loc));
             when(jobRunService.startRun(RunType.BRIEFING, false, null))
@@ -709,35 +711,32 @@ class BriefingServiceTest {
 
             briefingService.refreshBriefing();
 
-            assertNoPicks(briefingService.getCachedBriefing());
-            assertNoPicks(briefingService.getCachedBriefingForApi());
+            assertServed(briefingService.getCachedBriefing());
+            assertServed(briefingService.getCachedBriefingForApi());
         }
 
         @Test
-        @DisplayName("a stored SUCCESS_WITH_PICKS payload restored at startup serves no picks")
-        void storedSuccessWithPicks_servesNoPicks() throws Exception {
-            BriefingService restored = restoredFrom(
-                    storedWith(com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS));
+        @DisplayName("a stored SUCCESS_WITH_PICKS payload restored at startup is served")
+        void storedSuccessWithPicks_isServed() throws Exception {
+            BriefingService restored = restoredFrom(legacyPayload("SUCCESS_WITH_PICKS"));
 
-            assertNoPicks(restored.getCachedBriefing());
-            assertNoPicks(restored.getCachedBriefingForApi());
+            assertServed(restored.getCachedBriefing());
+            assertServed(restored.getCachedBriefingForApi());
         }
 
         @Test
-        @DisplayName("a stored FAILED payload restored at startup serves no picks and resurrects none")
-        void storedFailed_servesNoPicksAndResurrectsNone() throws Exception {
-            BriefingService restored = restoredFrom(
-                    storedWith(com.gregochr.goldenhour.model.BestBetStatus.FAILED));
+        @DisplayName("a stored FAILED payload restored at startup is served")
+        void storedFailed_isServed() throws Exception {
+            BriefingService restored = restoredFrom(legacyPayload("FAILED"));
 
-            assertNoPicks(restored.getCachedBriefing());
-            assertNoPicks(restored.getCachedBriefingForApi());
+            assertServed(restored.getCachedBriefing());
+            assertServed(restored.getCachedBriefingForApi());
         }
 
         @Test
-        @DisplayName("last-known-good restored from a stored payload with picks is served stale without them")
-        void lastKnownGoodRestoredWithPicks_isServedStaleWithoutThem() throws Exception {
-            BriefingService restored = restoredFrom(
-                    storedWith(com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS));
+        @DisplayName("last-known-good restored from a legacy payload is served stale")
+        void lastKnownGoodRestoredFromLegacyPayload_isServedStale() throws Exception {
+            BriefingService restored = restoredFrom(legacyPayload("SUCCESS_WITH_PICKS"));
             LocationEntity loc = location("Durham", null);
             when(locationService.findAllEnabled()).thenReturn(List.of(loc));
             when(jobRunService.startRun(RunType.BRIEFING, false, null))
@@ -749,7 +748,7 @@ class BriefingServiceTest {
 
             DailyBriefingResponse stale = restored.getCachedBriefing();
             assertThat(stale.stale()).isTrue();
-            assertNoPicks(stale);
+            assertServed(stale);
         }
     }
 
@@ -959,8 +958,8 @@ class BriefingServiceTest {
     void loadPersistedBriefing_restoresCache() throws Exception {
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         DailyBriefingResponse persisted = new DailyBriefingResponse(
-                LocalDateTime.now(ZoneOffset.UTC), "Test headline", List.of(), List.of(),
-                null, null, false, "Opus", List.of(), List.of());
+                LocalDateTime.now(ZoneOffset.UTC), "Test headline", List.of(),
+                null, null, false, List.of(), List.of());
         DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
         entity.setId(1);
         entity.setGeneratedAt(persisted.generatedAt());
@@ -1561,8 +1560,8 @@ class BriefingServiceTest {
         void loadPersistedBriefing_setsLastKnownGood_usedOnBelowThresholdRefresh() throws Exception {
             ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
             DailyBriefingResponse persisted = new DailyBriefingResponse(
-                    LocalDateTime.now(ZoneOffset.UTC), "Loaded headline", List.of(), List.of(),
-                    null, null, false, "Haiku", List.of(), List.of());
+                    LocalDateTime.now(ZoneOffset.UTC), "Loaded headline", List.of(),
+                    null, null, false, List.of(), List.of());
             DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
             entity.setId(1);
             entity.setGeneratedAt(persisted.generatedAt());
@@ -1826,7 +1825,7 @@ class BriefingServiceTest {
         }
 
         /**
-         * Non-hot-topic fields (headline, days, bestBets etc.) must be preserved
+         * Non-hot-topic fields (headline, days etc.) must be preserved
          * when the hot topic overlay creates a new response.
          */
         @Test
@@ -1850,9 +1849,7 @@ class BriefingServiceTest {
             assertThat(overlaid.generatedAt()).isEqualTo(original.generatedAt());
             assertThat(overlaid.headline()).isEqualTo(original.headline());
             assertThat(overlaid.days()).isEqualTo(original.days());
-            assertThat(overlaid.bestBets()).isEqualTo(original.bestBets());
             assertThat(overlaid.stale()).isEqualTo(original.stale());
-            assertThat(overlaid.bestBetModel()).isEqualTo(original.bestBetModel());
             assertThat(overlaid.seasonalFeatures()).isEqualTo(original.seasonalFeatures());
         }
 

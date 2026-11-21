@@ -106,8 +106,8 @@ class WarningOverlayTest {
         }
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, regions, List.of(), EVENT, window);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
-                List.of(new com.gregochr.goldenhour.model.BriefingDay(DAY, List.of(summary))), List.of(), null, null,
-                false, null, List.of(), List.of());
+                List.of(new com.gregochr.goldenhour.model.BriefingDay(DAY, List.of(summary))), null, null,
+                false, List.of(), List.of());
     }
 
     private static BriefingWindow window(LocalDateTime eventTime) {
@@ -169,8 +169,8 @@ class WarningOverlayTest {
         BriefingEventSummary timeless = new BriefingEventSummary(TargetType.SUNRISE, List.of(), List.of(), null,
                 window(null));
         DailyBriefingResponse noTime = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
-                List.of(new com.gregochr.goldenhour.model.BriefingDay(DAY, List.of(timeless))), List.of(), null, null,
-                false, null, List.of(), List.of());
+                List.of(new com.gregochr.goldenhour.model.BriefingDay(DAY, List.of(timeless))), null, null,
+                false, List.of(), List.of());
         assertThat(overlay.overlay(noTime)).isSameAs(noTime);
     }
 
@@ -180,8 +180,8 @@ class WarningOverlayTest {
         stubWorld(warning("W1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", false));
         BriefingEventSummary bare = new BriefingEventSummary(TargetType.SUNRISE, List.of(), List.of(), EVENT, null);
         DailyBriefingResponse in = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
-                List.of(new com.gregochr.goldenhour.model.BriefingDay(DAY, List.of(bare))), List.of(), null, null,
-                false, null, List.of(), List.of());
+                List.of(new com.gregochr.goldenhour.model.BriefingDay(DAY, List.of(bare))), null, null,
+                false, List.of(), List.of());
 
         assertThat(overlay.overlay(in)).isSameAs(in);
     }

@@ -20,7 +20,9 @@ public enum RunType {
     /** Daily briefing — zero-Claude-cost weather pre-flight check. */
     BRIEFING,
 
-    /** Retired best-bet advisor (2026-11-21): kept only for historical rows until the follow-up migration. */
+    /** Retired best-bet advisor (2026-11-21): kept only because stored
+     * {@code model_selection} / {@code pipeline_run} / {@code job_run} rows may still hold it; deleted in R2b
+     * (docs/engineering/best-bet-advisor-retirement-r2a-plan.md) together with the migration that clears them. */
     BRIEFING_BEST_BET,
 
     /** Briefing region gloss — per-region Claude-generated one-line commentary. */

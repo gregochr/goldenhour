@@ -138,8 +138,8 @@ class LitePickShaperTest {
             BriefingWindow window, List<HotTopic> topics) {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, regions, unregioned, AT,
                 window);
-        return new DailyBriefingResponse(AT, "headline", List.of(new BriefingDay(DAY, List.of(summary))),
-                List.of(), null, null, false, null, topics, List.of());
+        return new DailyBriefingResponse(AT, "headline", List.of(new BriefingDay(DAY, List.of(summary))), null, null,
+        false, topics, List.of());
     }
 
     private static BriefingEventSummary eventOf(DailyBriefingResponse response) {
@@ -892,9 +892,8 @@ class LitePickShaperTest {
     void completeness_briefingTree() {
         assertThat(names(DailyBriefingResponse.class)).containsExactlyInAnyOrderElementsOf(union(
                 Set.of("days", "hotTopics", "allowedLocationIds"),
-                Set.of("generatedAt", "headline", "bestBets", "auroraTonight", "auroraTomorrow", "stale",
-                        "bestBetModel", "seasonalFeatures",
-                        "bestBetStatus", "bestBetsWithdrawn", "renderedEvents", "previousGeneratedAt",
+                Set.of("generatedAt", "headline", "auroraTonight", "auroraTomorrow", "stale",
+                        "seasonalFeatures", "renderedEvents", "previousGeneratedAt",
                         "bigSeas", "briefingVersion")));
         assertThat(names(BriefingDay.class)).containsExactlyInAnyOrderElementsOf(
                 Set.of("eventSummaries", "date", "peak"));

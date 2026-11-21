@@ -123,8 +123,8 @@ class BriefingServiceOverlayAndFlightTest {
     }
 
     private static DailyBriefingResponse briefing(String headline, List<HotTopic> topics, List<BriefingDay> days) {
-        return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 28, 9, 0), headline, days,
-                List.of(), null, null, false, "Opus", topics, List.of());
+        return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 28, 9, 0), headline, days, null, null, false,
+        topics, List.of());
     }
 
     private void persisted(DailyBriefingResponse response) throws Exception {

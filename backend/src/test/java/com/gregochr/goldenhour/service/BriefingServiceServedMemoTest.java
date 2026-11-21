@@ -248,15 +248,21 @@ class BriefingServiceServedMemoTest {
     @DisplayName("role shaping stays per request: a Lite and a Pro request within 30 s are shaped differently "
             + "from the one memoised result")
     void roleShapingStaysPerRequest() {
-        com.gregochr.goldenhour.model.BestBet bet = new com.gregochr.goldenhour.model.BestBet(1,
-                "Go west", "Clear", "Wed sunset", "Lake District",
-                com.gregochr.goldenhour.model.Confidence.HIGH, null, "Wednesday", "SUNSET", "18:30",
-                null, null);
+        com.gregochr.goldenhour.model.BriefingWindow.Pick pick = new com.gregochr.goldenhour.model.BriefingWindow.Pick(
+                com.gregochr.goldenhour.model.BriefingWindow.PickKind.BEST, "Lake District", "A clear run west",
+                null, 4.25, "Keswick", 7L);
+        com.gregochr.goldenhour.model.BriefingEventSummary sunset =
+                new com.gregochr.goldenhour.model.BriefingEventSummary(
+                        com.gregochr.goldenhour.entity.TargetType.SUNSET, List.of(), List.of())
+                .withWindow(new com.gregochr.goldenhour.model.BriefingWindow(LocalDateTime.of(2026, 10, 28, 18, 30),
+                        com.gregochr.goldenhour.model.DisplayVerdict.WORTH_IT, 4,
+                        com.gregochr.goldenhour.model.Confidence.HIGH, pick, List.of(), null));
         when(assembler.assembleForPlan(currentSnapshot(), eq(COVERAGE))).thenAnswer(inv -> {
             assemblies.incrementAndGet();
-            return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 28, 9, 0), "h", List.of(),
-                    List.of(bet), null, null, false, "Opus", List.of(), List.of(),
-                    com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS, true);
+            return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 28, 9, 0), "h",
+                    List.of(new com.gregochr.goldenhour.model.BriefingDay(
+                            java.time.LocalDate.of(2026, 10, 28), List.of(sunset))),
+                    null, null, false, List.of(), List.of());
         });
         assemblies.set(0); // re-stubbing above ran the previous stub's answer once
         LitePickShaper litePickShaper = mock(LitePickShaper.class);
@@ -274,8 +280,8 @@ class BriefingServiceServedMemoTest {
         DailyBriefingResponse pro = controller.getBriefing(proAuth).getBody();
 
         assertThat(assemblies).hasValue(1);
-        assertThat(lite.bestBets()).isEmpty();
-        assertThat(pro.bestBets()).hasSize(1);
+        assertThat(lite.days().get(0).eventSummaries().get(0).window().pick()).isNull();
+        assertThat(pro.days().get(0).eventSummaries().get(0).window().pick()).isEqualTo(pick);
     }
 
     private static org.springframework.security.core.Authentication auth(String role) {
@@ -397,8 +403,8 @@ class BriefingServiceServedMemoTest {
     }
 
     private static DailyBriefingResponse briefing(String headline) {
-        return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 28, 9, 0), headline, List.of(),
-                List.of(), null, null, false, "Opus", List.of(), List.of());
+        return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 28, 9, 0), headline, List.of(), null, null, false,
+        List.of(), List.of());
     }
 
     private BriefingService newService() {

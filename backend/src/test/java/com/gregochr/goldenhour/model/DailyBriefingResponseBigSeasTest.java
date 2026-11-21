@@ -20,21 +20,21 @@ class DailyBriefingResponseBigSeasTest {
             false, null, null);
 
     private static DailyBriefingResponse withBigSeas() {
-        return new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h", List.of(), List.of(),
-                null, null, false, null, List.of(), List.of(), null, null, null, null, List.of(DAY));
+        return new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h", List.of(),
+                null, null, false, List.of(), List.of(), null, null, List.of(DAY), null, null);
     }
 
     @Test
-    @DisplayName("every shorter constructor, including the 16-argument one, leaves bigSeas null")
+    @DisplayName("every shorter constructor leaves bigSeas null")
     void constructorsDefaultToNull() {
-        DailyBriefingResponse sixteen = new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h",
-                List.of(), List.of(), null, null, false, null, List.of(), List.of(), null, null, null,
-                null);
-        DailyBriefingResponse twelve = new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h",
-                List.of(), List.of(), null, null, false, null, List.of(), List.of());
+        DailyBriefingResponse canonical = new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h",
+                List.of(), null, null, false, List.of(), List.of(), null,
+                null, null, null, null);
+        DailyBriefingResponse eightArg = new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h",
+                List.of(), null, null, false, List.of(), List.of());
 
-        assertThat(sixteen.bigSeas()).isNull();
-        assertThat(twelve.bigSeas()).isNull();
+        assertThat(canonical.bigSeas()).isNull();
+        assertThat(eightArg.bigSeas()).isNull();
     }
 
     @Test
@@ -47,7 +47,6 @@ class DailyBriefingResponseBigSeasTest {
         assertThat(base.withMovement(List.of(), LocalDateTime.of(2026, 12, 9, 6, 0)).bigSeas())
                 .isEqualTo(expected);
         assertThat(base.withPlan(List.of(), List.of()).bigSeas()).isEqualTo(expected);
-        assertThat(base.withBestBets(List.of(), null).bigSeas()).isEqualTo(expected);
         assertThat(base.withLiveOverlays(null, null, List.of()).bigSeas()).isEqualTo(expected);
     }
 
@@ -55,8 +54,8 @@ class DailyBriefingResponseBigSeasTest {
     @DisplayName("withBigSeas replaces only bigSeas and can clear it")
     void withBigSeasReplacesOnlyThatField() {
         DailyBriefingResponse base = new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "headline",
-                List.of(), List.of(), null, null, true, "Opus", List.of(), List.of("X"), null, true,
-                List.of(), LocalDateTime.of(2026, 12, 9, 6, 0));
+                List.of(), null, null, true, List.of(), List.of("X"),
+                List.of(), LocalDateTime.of(2026, 12, 9, 6, 0), null, null, null);
 
         DailyBriefingResponse attached = base.withBigSeas(List.of(DAY));
 

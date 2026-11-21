@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Guards the briefing records' {@code with*} copy methods against silently dropping a component.
  *
  * <p>These records grew new components one at a time ({@code renderedEvents},
- * {@code previousGeneratedAt}, {@code bestBetsWithdrawn}, {@code solarEventTime}...), and every
+ * {@code previousGeneratedAt}, {@code bigSeas}, {@code solarEventTime}...), and every
  * positional rebuild that predated a component dropped it without a compile error. This test
  * fills <em>every</em> component of a record with a distinct sentinel, calls each wither by
  * reflection, and asserts that every component the wither does not name survives and every one it
@@ -72,13 +72,10 @@ class RecordWitherPreservationTest {
             Wither.of(DailyBriefingResponse.class, "withDays", "days"),
             Wither.of(DailyBriefingResponse.class, "withMovement", "days", "previousGeneratedAt"),
             Wither.of(DailyBriefingResponse.class, "withPlan", "days", "renderedEvents"),
-            Wither.of(DailyBriefingResponse.class, "withBestBets", "bestBets", "bestBetsWithdrawn"),
             Wither.of(DailyBriefingResponse.class, "withLiveOverlays",
                     "auroraTonight", "auroraTomorrow", "hotTopics"),
             Wither.of(DailyBriefingResponse.class, "withBigSeas", "bigSeas"),
             Wither.of(DailyBriefingResponse.class, "withPickScope", "hotTopics", "allowedLocationIds"),
-            Wither.of(DailyBriefingResponse.class, "withBestBetModel", "bestBetModel"),
-            Wither.of(DailyBriefingResponse.class, "withBestBetStatus", "bestBetStatus"),
             Wither.of(DailyBriefingResponse.class, "withBriefingVersion", "briefingVersion"),
             Wither.of(BriefingRegion.class, "withMeanRating", "meanRating"),
             Wither.of(BriefingRegion.class, "withBestRating", "bestRating"),

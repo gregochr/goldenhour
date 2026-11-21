@@ -171,8 +171,8 @@ class CollectForecastTasksCachedGateTest {
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(eventSummary));
         return new DailyBriefingResponse(
-                LocalDateTime.now(), null, List.of(day), List.of(),
-                null, null, false, null, List.of(), List.of());
+                LocalDateTime.now(), null, List.of(day),
+                null, null, false, List.of(), List.of());
     }
 
     /**

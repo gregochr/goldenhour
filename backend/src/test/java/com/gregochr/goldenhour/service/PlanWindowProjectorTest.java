@@ -2060,8 +2060,7 @@ class PlanWindowProjectorTest {
 
     private static DailyBriefingResponse response(List<BriefingDay> days, List<HotTopic> topics) {
         return new DailyBriefingResponse(
-                LocalDateTime.of(TODAY, LocalTime.NOON), "headline", days,
-                List.of(), null, null, false, null, topics, List.of());
+                LocalDateTime.of(TODAY, LocalTime.NOON), "headline", days, null, null, false, topics, List.of());
     }
 
     private static List<BriefingDay> twoWindowDay() {
