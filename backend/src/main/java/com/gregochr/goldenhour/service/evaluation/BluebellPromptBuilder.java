@@ -17,7 +17,7 @@ import java.util.Map;
  *
  * <p><b>Why standalone.</b> Pass 3 of the forecast-score re-architecture extracts bluebell from
  * the standard prompt (where it moonlighted as a rating-boost rule) into its own prompt and a
- * {@code BluebellVisitor}. The sky rubric (directional cloud, aerosol, fiery-sky canvas) is
+ * {@code BluebellVisitor}. The sky rubric (directional cloud, aerosol, red-sky canvas) is
  * irrelevant to whether a bluebell wood photographs well, so this builder shares none of it; it
  * asks a single focused question and returns a 1–5 bluebell rating plus a one-sentence summary.
  *

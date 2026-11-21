@@ -20,7 +20,7 @@ vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole 
 /**
  * The scores lock (docs/engineering/pro-features-gate-plan.md §5.1, S1).
  *
- * <p><b>What breaks if these fail:</b> a Lite reader's page is handed a Fiery Sky / Golden Hour score
+ * <p><b>What breaks if these fail:</b> a Lite reader's page is handed a Red Sky / Golden Hour score
  * or a per-location sentence by one of the context's published forms (the score rows, the name-keyed
  * map, the briefing slots), or a Pro reader's briefing is re-copied on every render so every memo chain
  * downstream re-runs.

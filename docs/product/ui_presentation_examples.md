@@ -9,7 +9,7 @@ Five levels of information density, from the casual glance to the weather nerd.
 ```
 SUNSET TODAY — DURHAM
 ━━━━━━━━━━━━━━━━━━━━
-🔥  Fiery Sky: 78%
+🔥  Red Sky: 78%
 🌅  Golden Hour: 82%
 
 "Moderate dust haze, clear horizon, mid-level cloud canvas. Worth going out."
@@ -29,7 +29,7 @@ SUNSET TODAY — DURHAM
 ```
 SUNSET TODAY — DURHAM
 ━━━━━━━━━━━━━━━━━━━━
-🔥  Fiery Sky: 78%
+🔥  Red Sky: 78%
 
 Three Key Factors
 ─────────────────

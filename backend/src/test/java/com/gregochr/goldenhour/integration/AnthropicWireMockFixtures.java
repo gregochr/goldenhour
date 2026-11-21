@@ -157,7 +157,7 @@ public final class AnthropicWireMockFixtures {
      *
      * @param customId   the request's custom ID (e.g. {@code fc-42-2026-04-26-SUNRISE})
      * @param rating     1-5 rating
-     * @param fierySky   0-100 fiery sky score
+     * @param fierySky   0-100 red sky score
      * @param goldenHour 0-100 golden hour score
      * @return a BatchResultFixture with succeeded result and the supplied scores
      */
@@ -174,7 +174,7 @@ public final class AnthropicWireMockFixtures {
      *
      * @param customId   the request's custom ID
      * @param rating     1-5 rating
-     * @param fierySky   0-100 fiery sky score
+     * @param fierySky   0-100 red sky score
      * @param goldenHour 0-100 golden hour score
      * @param summary    the assistant's one-sentence summary text
      * @param modelId    the model ID to embed (e.g. {@code claude-haiku-4-5-20251001})

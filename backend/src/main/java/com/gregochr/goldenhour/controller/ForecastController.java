@@ -61,7 +61,7 @@ import java.util.stream.Collectors;
  *
  * <p>Exposes endpoints to retrieve stored forecasts
  * and trigger the tide refresh and backfill. GET endpoints return {@link ForecastEvaluationDto}
- * with role-based shaping (LITE users receive neither the Fiery Sky and Golden Hour scores nor the
+ * with role-based shaping (LITE users receive neither the Red Sky and Golden Hour scores nor the
  * per-location written why; PRO/ADMIN receive the enhanced directional scores and prose).
  */
 @RestController

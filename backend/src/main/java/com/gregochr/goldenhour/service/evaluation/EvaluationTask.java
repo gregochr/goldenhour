@@ -106,7 +106,7 @@ public sealed interface EvaluationTask
          * {@link #SKY} prompt. Open-fell sites in season produce one task of each kind.
          */
         public enum PromptKind {
-            /** The standard colour (fiery-sky / golden-hour) evaluation. */
+            /** The standard colour (red-sky / golden-hour) evaluation. */
             SKY,
             /** The dedicated bluebell-conditions evaluation. */
             BLUEBELL,

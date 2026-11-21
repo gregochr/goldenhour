@@ -35,7 +35,7 @@ import java.util.List;
  * @param solarEventTime the solar event instant (hourly slot key + auto-selection)
  * @param azimuthDeg solar azimuth for the selected-marker line
  * @param rating 1–5 star rating (map rating filter + label chips)
- * @param fierySkyPotential role-selected Fiery Sky score
+ * @param fierySkyPotential role-selected Red Sky score
  * @param goldenHourPotential role-selected Golden Hour score
  * @param triageReason stand-down reason, or {@code null} when Claude evaluated the slot
  * @param summary the Claude "why" text — populated only for sparse rows (rich rows fetch it lazily)
@@ -91,7 +91,7 @@ public record ForecastListDto(
      * @param solarEventTime                  the solar event instant
      * @param azimuthDeg                      solar azimuth
      * @param rating                          the star rating
-     * @param fierySkyPotential               Fiery Sky score
+     * @param fierySkyPotential               Red Sky score
      * @param goldenHourPotential             Golden Hour score
      * @param triageReason                    stand-down reason or null
      * @param summary                         the sparse-row summary or null
@@ -131,7 +131,7 @@ public record ForecastListDto(
      * @param solarEventTime the solar event instant
      * @param azimuthDeg solar azimuth
      * @param rating 1-5 star rating
-     * @param fierySkyPotential role-selected Fiery Sky score
+     * @param fierySkyPotential role-selected Red Sky score
      * @param goldenHourPotential role-selected Golden Hour score
      * @param triageReason stand-down reason, or null
      * @param summary the Claude "why" text (sparse rows only)

@@ -226,7 +226,7 @@ test.describe('LITE reader', () => {
       briefing: await servedAs(page, 'pro', '/api/briefing'),
     };
 
-    // The Fiery Sky and Golden Hour scores and the written why: absent for LITE on every path, present for PRO.
+    // The Red Sky and Golden Hour scores and the written why: absent for LITE on every path, present for PRO.
     for (const [path, rows] of [['/api/forecast', lite.forecast], ['/api/briefing/evaluate/scores', lite.scores]]) {
       expect(rows.length, path).toBeGreaterThan(0);
       expect(rows.filter((r) => r.fierySkyPotential != null || r.goldenHourPotential != null), path).toEqual([]);

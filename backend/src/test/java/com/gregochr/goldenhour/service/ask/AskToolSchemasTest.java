@@ -101,12 +101,12 @@ class AskToolSchemasTest {
     }
 
     @Test
-    @DisplayName("rank_spots' description names Fiery Sky and Golden Hour for a typed conversation; the user-less "
+    @DisplayName("rank_spots' description names Red Sky and Golden Hour for a typed conversation; the user-less "
             + "text is the unchanged original")
     void rankSpotsDescriptionNamesTheLightFiguresOnlyWithAUser() {
         String base = "The spots worth going to, best first: only places rated 3 stars or better, never a wood. "
                 + "Every pick in your answer must be a locationId and windowId this tool returned.";
-        String typedText = base + " Each spot also has its Fiery Sky and Golden Hour (0-100).";
+        String typedText = base + " Each spot also has its Red Sky and Golden Hour (0-100).";
 
         assertThat(tool(AskToolSchemas.tools(true), AskToolSchemas.RANK_SPOTS).description().orElseThrow())
                 .isEqualTo(typedText);

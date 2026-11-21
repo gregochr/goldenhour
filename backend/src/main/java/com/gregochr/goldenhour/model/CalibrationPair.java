@@ -24,10 +24,10 @@ import java.time.LocalDateTime;
  * @param forecastRunAt       when the evaluation was produced, used to pick the latest per slot
  * @param evaluationModel     the model that produced the evaluation, or {@code null}
  * @param predictedRating     the forecast 1–5 star rating
- * @param predictedFierySky   the forecast fiery-sky score (0–100), or {@code null}
+ * @param predictedFierySky   the forecast red-sky score (0–100), or {@code null}
  * @param predictedGoldenHour the forecast golden-hour score (0–100), or {@code null}
  * @param actualRating        the recorded 1–5 star rating
- * @param actualFierySky      the recorded fiery-sky score (0–100), or {@code null}
+ * @param actualFierySky      the recorded red-sky score (0–100), or {@code null}
  * @param actualGoldenHour    the recorded golden-hour score (0–100), or {@code null}
  * @param wentOut             whether the photographer travelled to the location, or {@code null}
  * @param outcomeKey          which outcome this pair scores: {@code "rating:" + userId} for a
@@ -77,10 +77,10 @@ public record CalibrationPair(
      * @param forecastRunAt       when the evaluation was produced
      * @param evaluationModel     the model that produced the evaluation, or {@code null}
      * @param predictedRating     the forecast 1-5 star rating
-     * @param predictedFierySky   the forecast fiery-sky score, or {@code null}
+     * @param predictedFierySky   the forecast red-sky score, or {@code null}
      * @param predictedGoldenHour the forecast golden-hour score, or {@code null}
      * @param actualRating        the recorded 1-5 star rating
-     * @param actualFierySky      the recorded fiery-sky score, or {@code null}
+     * @param actualFierySky      the recorded red-sky score, or {@code null}
      * @param actualGoldenHour    the recorded golden-hour score, or {@code null}
      * @param wentOut             whether the photographer travelled, or {@code null}
      * @param outcomeKey          which outcome this pair scores
@@ -108,7 +108,7 @@ public record CalibrationPair(
      * @param forecastRunAt       the resolved forecast row's run time
      * @param evaluationModel     the resolved forecast row's model, or {@code null}
      * @param predictedRating     the star the reader saw, captured when they rated
-     * @param predictedFierySky   the resolved row's fiery-sky score, or {@code null}
+     * @param predictedFierySky   the resolved row's red-sky score, or {@code null}
      * @param predictedGoldenHour the resolved row's golden-hour score, or {@code null}
      * @param actualRating        the reader's 1-5 star rating
      * @param userId              the rating reader's id
@@ -127,7 +127,7 @@ public record CalibrationPair(
     /**
      * Builds a pair from a reader's {@code outcome_rating} — the projection
      * {@code ForecastEvaluationRepository#findCalibrationPairsFromRatings} selects. That record
-     * has no fiery-sky or golden-hour score and no trip flag, so those stay {@code null}
+     * has no red-sky or golden-hour score and no trip flag, so those stay {@code null}
      * ({@code wentOut} in particular, so no reader infers a trip).
      *
      * @param locationName        the location this slot belongs to
@@ -137,7 +137,7 @@ public record CalibrationPair(
      * @param forecastRunAt       the resolved forecast row's run time
      * @param evaluationModel     the resolved forecast row's model, or {@code null}
      * @param predictedRating     the star the reader saw, captured when they rated
-     * @param predictedFierySky   the resolved row's fiery-sky score, or {@code null}
+     * @param predictedFierySky   the resolved row's red-sky score, or {@code null}
      * @param predictedGoldenHour the resolved row's golden-hour score, or {@code null}
      * @param actualRating        the reader's 1–5 star rating
      * @param userId              the rating reader's id

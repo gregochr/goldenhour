@@ -128,7 +128,7 @@ describe('LocationFourDaySheet — a reader without the scores', () => {
     expect(screen.getByRole('button', { name: 'Scores and the why Pro' })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('wf-scores-upsell-trigger'));
     const popover = screen.getByTestId('wf-scores-upsell-popover');
-    expect(popover).toHaveTextContent('Fiery Sky and Golden Hour scores');
+    expect(popover).toHaveTextContent('Red Sky and Golden Hour scores');
     expect(screen.queryByRole('link')).toBeNull();
     expect(screen.getByTestId('wf-scores-upsell-door').textContent.toLowerCase()).not.toContain('upgrade');
   });

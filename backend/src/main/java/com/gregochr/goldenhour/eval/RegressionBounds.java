@@ -16,8 +16,8 @@ package com.gregochr.goldenhour.eval;
  * side is not bounded.
  *
  * @param rating    the acceptable star rating
- * @param fieryMin  inclusive lower bound on Fiery Sky potential, or {@code null} for none
- * @param fieryMax  inclusive upper bound on Fiery Sky potential, or {@code null} for none
+ * @param fieryMin  inclusive lower bound on Red Sky potential, or {@code null} for none
+ * @param fieryMax  inclusive upper bound on Red Sky potential, or {@code null} for none
  * @param goldenMin inclusive lower bound on Golden Hour potential, or {@code null} for none
  * @param goldenMax inclusive upper bound on Golden Hour potential, or {@code null} for none
  */

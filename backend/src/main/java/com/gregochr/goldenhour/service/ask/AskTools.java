@@ -504,7 +504,7 @@ public class AskTools {
      * @param headline      the served headline, at most {@value AskTools#HEADLINE_CAP} characters, or null
      * @param pick          BEST or ALSO when this is the window's forecast-wide pick, else null
      * @param driveMinutes  minutes from the asker's home; present only when a drive limit was given
-     * @param fierySky      the slot's served Fiery Sky potential out of 100; present only in a typed
+     * @param fierySky      the slot's served Red Sky potential out of 100; present only in a typed
      *                      conversation (never the Ready precompute) and only when the slot has one
      * @param goldenHour    the slot's served Golden Hour potential out of 100; same presence rule as
      *                      {@code fierySky}
@@ -534,7 +534,7 @@ public class AskTools {
          * @param headline      the served headline
          * @param pick          BEST or ALSO, else null
          * @param driveMinutes  minutes from home, or null
-         * @param fierySky      Fiery Sky out of 100, or null
+         * @param fierySky      Red Sky out of 100, or null
          * @param goldenHour    Golden Hour out of 100, or null
          */
         public SpotInfo(long locationId, String name, String region, String windowId,
@@ -826,7 +826,7 @@ public class AskTools {
      *
      * @param summary    the sky prose, quote-safe and at most {@value AskTools#SUMMARY_CAP} characters, or null
      * @param skyRating  the sky's own score before the tide is combined in, or null
-     * @param fierySky   the Fiery Sky potential out of 100, or null
+     * @param fierySky   the Red Sky potential out of 100, or null
      * @param goldenHour the Golden Hour potential out of 100, or null
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -101,7 +101,7 @@ function without(obj, keys) {
 }
 
 /**
- * The score rows a Lite reader is served: rating, verdict, triage and light times kept, the Fiery Sky /
+ * The score rows a Lite reader is served: rating, verdict, triage and light times kept, the Red Sky /
  * Golden Hour potentials and the written why removed (pro-features-gate-plan.md §5.1).
  */
 function stripScoreRows(rows) {
@@ -783,7 +783,7 @@ export function WindowFirstBriefingProvider({
   // The Map's tide curve and per-location tide match are Pro (docs/engineering/tide-pro-gate-plan.md §3).
   // Same derivation as the drive filter: the role stops here, a boolean goes down.
   const tideLocked = !isPro;
-  // Fiery Sky / Golden Hour scores and the per-location written why are Pro (docs/engineering/
+  // Red Sky / Golden Hour scores and the per-location written why are Pro (docs/engineering/
   // pro-features-gate-plan.md §3, §5). Same shape as the tide lock: a boolean goes down, the role stops here.
   const scoresLocked = !isPro;
   // Best bets (`window.pick`) are Pro (plan §3, §7). Same shape: a boolean goes down, the role stops here.

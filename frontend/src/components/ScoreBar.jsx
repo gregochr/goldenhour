@@ -4,7 +4,7 @@ import { rampHex, starFromScore } from '../utils/scoreRamp.js';
 
 
 /**
- * The Fiery Sky / Golden Hour score bar — a label, a number, and a filled track — used on both the
+ * The Red Sky / Golden Hour score bar — a label, a number, and a filled track — used on both the
  * Plan pane and the map popup.
  *
  * <p>Merges what were two components (heat-scale-unification-plan.md, Stage 5b): the Plan pane's

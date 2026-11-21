@@ -51,7 +51,7 @@ import java.util.List;
  *                            render identically. Never present without {@link #claudeRating}: the
  *                            sky component cannot score without the sky evaluation the combined
  *                            rating is itself built from
- * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+ * @param fierySkyPotential   cached Claude red sky score 0-100, or null
  * @param goldenHourPotential cached Claude golden hour score 0-100, or null
  * @param claudeSummary       cached Claude prose summary, or null
  * @param displayVerdict      unified colour/label signal; never null, recomputed whenever
@@ -155,7 +155,7 @@ public record BriefingSlot(
      * @param flags               human-readable flag strings
      * @param claudeRating        cached Claude 1-5 star rating, or null
      * @param skyRating           the sky visitor's own component score, or null
-     * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+     * @param fierySkyPotential   cached Claude red sky score 0-100, or null
      * @param goldenHourPotential cached Claude golden hour score 0-100, or null
      * @param claudeSummary       cached Claude prose summary, or null
      * @param displayVerdict      unified colour/label signal
@@ -192,7 +192,7 @@ public record BriefingSlot(
      * @param flags               human-readable flag strings
      * @param claudeRating        cached Claude 1-5 star rating, or null
      * @param skyRating           the sky visitor's own component score, or null
-     * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+     * @param fierySkyPotential   cached Claude red sky score 0-100, or null
      * @param goldenHourPotential cached Claude golden hour score 0-100, or null
      * @param claudeSummary       cached Claude prose summary, or null
      * @param displayVerdict      unified colour/label signal
@@ -232,7 +232,7 @@ public record BriefingSlot(
      * @param flags               human-readable flag strings
      * @param claudeRating        cached Claude 1-5 star rating, or null
      * @param skyRating           the sky visitor's own component score, or null
-     * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+     * @param fierySkyPotential   cached Claude red sky score 0-100, or null
      * @param goldenHourPotential cached Claude golden hour score 0-100, or null
      * @param claudeSummary       cached Claude prose summary, or null
      * @param displayVerdict      unified colour/label signal
@@ -270,7 +270,7 @@ public record BriefingSlot(
      * @param flags               human-readable flag strings
      * @param claudeRating        cached Claude 1-5 star rating, or null
      * @param skyRating           the sky visitor's own component score, or null
-     * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+     * @param fierySkyPotential   cached Claude red sky score 0-100, or null
      * @param goldenHourPotential cached Claude golden hour score 0-100, or null
      * @param claudeSummary       cached Claude prose summary, or null
      * @param displayVerdict      unified colour/label signal
@@ -341,7 +341,7 @@ public record BriefingSlot(
     }
 
     /**
-     * Returns a copy of this slot as a LITE reader may see it: the Fiery Sky and Golden Hour
+     * Returns a copy of this slot as a LITE reader may see it: the Red Sky and Golden Hour
      * potentials and the per-location written why ({@link #claudeSummary} and
      * {@link #claudeHeadline}) are null, every other component unchanged.
      *
@@ -539,7 +539,7 @@ public record BriefingSlot(
      * component unknown). The {@code displayVerdict} is recomputed from the new rating.
      *
      * @param rating      Claude 1-5 star rating
-     * @param fierySky    fiery sky potential 0-100
+     * @param fierySky    red sky potential 0-100
      * @param goldenHour  golden hour potential 0-100
      * @param summary     Claude prose summary
      * @return new slot with Claude fields set, headline and {@link #skyRating} left null
@@ -555,7 +555,7 @@ public record BriefingSlot(
      * rating.
      *
      * @param rating      Claude 1-5 star rating
-     * @param fierySky    fiery sky potential 0-100
+     * @param fierySky    red sky potential 0-100
      * @param goldenHour  golden hour potential 0-100
      * @param summary     Claude prose summary
      * @param headline    4-9 word Claude-authored card header, or null when omitted
@@ -574,7 +574,7 @@ public record BriefingSlot(
      *
      * @param rating      Claude 1-5 star rating — the served, combined figure
      * @param skyRating   the sky visitor's own component score, or null when unknown
-     * @param fierySky    fiery sky potential 0-100
+     * @param fierySky    red sky potential 0-100
      * @param goldenHour  golden hour potential 0-100
      * @param summary     Claude prose summary
      * @param headline    4-9 word Claude-authored card header, or null when omitted

@@ -408,7 +408,7 @@ public class LocationEntity {
         // location under a canopy has no sky to forecast. #347 added
         // WOODLAND here, which silently undid V132: those woods had been removed from the sky lane
         // by losing LANDSCAPE, and this put them straight back, so every engine would have sent
-        // them to the fiery-sky prompt on clear mornings. That is the opposite of what #347's own
+        // them to the red-sky prompt on clear mornings. That is the opposite of what #347's own
         // commit message claimed ("deliberately no rating and no model call").
         //
         // Woods reach the BRIEFING through a different predicate — BriefingService.isColourLocation
