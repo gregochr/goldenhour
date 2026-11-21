@@ -17,7 +17,7 @@ import { ANY_RATING_ID, LENS_RATING_FLOORS, ratingFloorById } from './ratingLens
  * the whole plan rather than one window".
  *
  * <p>The per-<em>window</em> half of that job did not disappear with the ladder — it moved into the
- * popup's quiet sentence, which is the only place a single window (or a region focus inside one) can
+ * per-card quiet sentence, which is the only place a single window (or a region focus inside one) can
  * be empty while the plan as a whole is not. The two replacements land together, which is what makes
  * the deletion safe: neither alone covers what the ladder covered.
  *
@@ -180,7 +180,7 @@ export function buildPlanConflict({
    * tier (plan §2.5), so the tier gated nothing and naming it in the line describes an act that did
    * not happen. The reach BRANCH cannot be reached in that state — an ungated pool is never empty —
    * but the floor-shut branch can, and it must not say "in reach" then. Asked of the whole scope
-   * rather than of any one card's drawn set, for the reason the retired window popup records.
+   * rather than of any one card's drawn set, for the reason `reachLens.js` records.
    */
   const reachMeasured = measuredArg ?? scope.some((spot) => spot?.driveMinutes != null);
   const tierLabel = (REACH_TIERS.find((tier) => tier.id === tierId)?.label ?? null);

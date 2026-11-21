@@ -107,7 +107,7 @@ export function WarningAdviceLink() {
  * attribution with its Met Office link (and the stale admission) that the licence requires wherever a warning shows.
  * It takes the warnings themselves, never a window card, so the Map's expanded warning (glance-to-map-plan.md G1,
  * which has the polled list and no card) and Coming up's warning entries draw one body and can never word a warning
- * differently. (The window popup's card-adapter row, once the other half of this, was deleted in G2c.)
+ * differently.
  *
  * @param {object} props
  * @param {object[]} props.warnings the served warnings to show in full, in the style guide's order

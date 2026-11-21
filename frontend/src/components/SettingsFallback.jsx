@@ -6,7 +6,7 @@ import useBackLayer from '../hooks/useBackLayer.js';
  * Stand-in for the settings dialog while its chunk loads. It is a dialog on purpose: the shell's
  * foreign-dialog checks and the Map's Escape and outside-press rules all look for
  * `[role="dialog"][aria-modal="true"]`, so a bare null fallback would leave a window in which a Plan
- * popup or search could open over settings (a third stacked modal), Ask would not refuse, and the Map
+ * sheet or search could open over settings (a third stacked modal), Ask would not refuse, and the Map
  * would close its callout. It must NOT take focus: the real dialog's `useDialogFocus` records the
  * opener when it mounts.
  *

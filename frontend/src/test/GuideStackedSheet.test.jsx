@@ -9,7 +9,7 @@ import { GUIDE_ORIGIN } from '../utils/guide.js';
 import { installViewport, resetViewport } from './askViewport.js';
 
 /**
- * G3 review 1: the four-day sheet over the window popup is already two layers deep, but the popup is stacked
+ * G3 review 1: the four-day sheet over another stacked dialog is already two layers deep, but that dialog is stacked
  * (inert, no aria-modal), so a count of aria-modal dialogs alone saw one. What breaks if this fails: the guide
  * opens as a third layer, or closes the reader's sheet to make room.
  */
@@ -25,14 +25,14 @@ const ROWS = [{
 beforeEach(() => installViewport(1280));
 afterEach(() => { resetViewport(); vi.restoreAllMocks(); });
 
-describe('the guide over a sheet that is itself over the window popup', () => {
+describe('the guide over a sheet that is itself over another stacked dialog', () => {
   it('opens the full page in a new tab and mounts no third layer, leaving both open', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     const onClose = vi.fn();
     render(
       <GuideProvider activeTab="plan">
-        {/* The window popup under the sheet: stacked, so inert with no aria-modal. */}
-        <div role="dialog" aria-label="Window popup" inert data-testid="popup" />
+        {/* A stacked dialog under the sheet: stacked, so inert with no aria-modal. */}
+        <div role="dialog" aria-label="Stacked dialog" inert data-testid="popup" />
         <LocationFourDaySheet
           spot={SPOT}
           windows={WINDOWS}

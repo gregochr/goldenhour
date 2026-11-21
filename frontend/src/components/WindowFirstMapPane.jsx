@@ -303,8 +303,7 @@ export default function WindowFirstMapPane({
   const paneVisible = panelShown && pageInFront && !foreignModalOverPane;
   /**
    * Warms the four-day sheet's lazy chunk, the Map-tab twin of `WindowFirstShell`'s own
-   * {@code warmStackedChunks} (which the PLAN routes get for free, since every one of them is
-   * reachable only from an already-open window popup).
+   * {@code warmStackedChunks} (which the PLAN routes get for free, since the sheet is opened from the shell).
    *
    * <p>⚠️ <b>Not a performance nicety — it closes a window in which `Esc` deselects.</b> The
    * callout's `Four days here ›` mounts `LocationFourDaySheet` behind `&lt;Suspense fallback={null}&gt;`,
@@ -516,8 +515,8 @@ export default function WindowFirstMapPane({
   );
   /**
    * The map callout's per-location eclipse sight (L7, `docs/engineering/lunar-eclipse-plan.md`
-   * §3 L7) — the SAME `buildEclipseIndex` join the deleted Plan-tab popup's the since-deleted `DawnRace` already reads
-   * (`WindowFirstShell.jsx`'s own `eclipseIndex`), over the SAME {@code briefing.days}, so the map
+   * §3 L7) — the SAME `buildEclipseIndex` join the Plan tab's four-day sheet builds (`WindowFirstShell.jsx`'s
+   * `sheetEclipseIndex`), over the SAME {@code briefing.days}, so the map
    * and the Plan tab can never disagree about one location's own moon geometry for one window.
    */
   const eclipseIndex = useMemo(

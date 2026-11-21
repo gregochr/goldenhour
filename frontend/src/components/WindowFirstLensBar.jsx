@@ -73,8 +73,7 @@ LensSegment.propTypes = {
 /**
  * A verdict string with its two decorations marked up for assistive tech: each {@code N★} keeps the
  * glyph for the eye ({@code aria-hidden}) and speaks "stars" (NVDA does not read U+2605, so
- * "best is 3★" would announce as "best is 3" — the number stripped of its unit; the same pattern as
- * the retired window popup's best-in-reach header), and each {@code " · "} separator is hidden so
+ * "best is 3★" would announce as "best is 3" — the number stripped of its unit; the same pattern as other star readouts), and each {@code " · "} separator is hidden so
  * it is not read as "middle dot". Keys are the match offsets, which are stable for one string.
  */
 function MarkedText({ text }) {

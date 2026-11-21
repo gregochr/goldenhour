@@ -46,7 +46,7 @@ const LAYER_SELECTOR = '[role="dialog"]';
  *   <li>{@code 'docked'} — desktop and wide ({@code useAskSurface()} is {@code 'desktop'} or
  *       {@code 'wide'}) with no {@code aria-modal} layer in the document. The SHELL draws it, in the Ask
  *       dock's slot, because it needs the docked row; this provider only holds the state.
- *   <li>{@code 'dialog'} — desktop and wide with one modal layer up (Settings, the deleted popup, a sheet): a
+ *   <li>{@code 'dialog'} — desktop and wide with one modal layer up (Settings, a sheet): a
  *       right-hand panel over a scrim, drawn here.
  *   <li>{@code 'sheet'} — phone and tablet: a tall {@code BottomSheet}, drawn here.
  * </ol>
@@ -55,7 +55,7 @@ const LAYER_SELECTOR = '[role="dialog"]';
  * or STACKED (inert, or inside an inert ancestor: the shell's lower layers give up {@code aria-modal} but are
  * still layers). An upsell popover is a non-modal, non-inert dialog and is not counted. Fewer than two: open
  * over them. Two or more: the reader's layers are left alone (never closed for the guide) and the full guide page
- * opens in a new tab, at the section, so a third layer is never stacked. (G2 counted only {@code aria-modal} layers, so it never saw a stacked popup under a sheet.)
+ * opens in a new tab, at the section, so a third layer is never stacked.
  *
  * <p><b>The stacked protocol.</b> {@code guideModal} is true for presentations 2 and 3. Every layer that
  * can sit under the guide reads it and, while it is true, passes {@code stacked} to its {@code Modal}

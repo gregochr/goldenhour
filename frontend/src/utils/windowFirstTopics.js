@@ -5,7 +5,7 @@ import { windowKey } from './windowKeys.js';
  *
  * <h2>Two rules, one util (plan-matrix §4 A8)</h2>
  *
- * <p>The v3 card names every topic landing on its night, and the M2 popup adds each topic's
+ * <p>The v3 card names every topic landing on its night, and the topic rows add each topic's
  * science note and scope line. Both need the same two things, so both read this module — a second
  * copy of either rule is how one surface silently disagrees with the other.
  *
@@ -61,8 +61,8 @@ import { windowKey } from './windowKeys.js';
  * real and accepted: an account with drive times can see one topic fewer than an account without
  * them, because an unmeasured region is kept (that is {@code areaRegions}' documented degrade).
  *
- * <p><b>A dropped topic is silent this phase.</b> A8's scope note — "<n> region(s) in scope" — is a
- * popup element and arrives with M2, and the Hot Topics door below the matrix renders
+ * <p><b>A dropped topic is silent this phase.</b> A8's scope note — "<n> region(s) in scope" — arrives
+ * with M2, and the Hot Topics door below the matrix renders
  * {@code briefing.hotTopics} unfiltered, so a topic the card dropped is still listed there. That
  * divergence is the design's own ("Topics re-filter, so the topic list changes without any
  * per-region table") — the door answers "what is happening" and the card answers "what is happening
@@ -262,15 +262,15 @@ function topicForBadge(badge, candidates) {
  * The scope rule, once (Rule 2 above): whether a topic survives the region intersection, and the
  * count and names that survived it.
  *
- * <p>⚠️ <b>The NAMES as well as the count, and they are the same array.</b> The popup's scope note
+ * <p>⚠️ <b>The NAMES as well as the count, and they are the same array.</b> The scope note
  * states the count and offers the list as its tooltip; publishing the un-intersected
  * {@code topic.regions} there put a nine-region list under a label reading "1 region in scope" —
  * the intersection stated in the text and the roster stated in the tooltip, from one element. One
  * filter, one answer, and the caller cannot re-derive it differently because it is handed both.
  *
  * @param {?object} topic the joined {@code HotTopic}, or null when the join found none (kept)
- * @param {?string} type  the type to test for the whole-sky exemption — the badge's own for the
- *                        popup, the topic's for a direct caller
+ * @param {?string} type  the type to test for the whole-sky exemption — the badge's own for a
+ *                        badge row, the topic's for a direct caller
  * @param {Set<string>} scope the scope names; empty means "not known yet" and nothing is filtered
  * @returns {{keep: boolean, regionsInScope: ?number, scopedRegions: string[]}} the verdict
  */
@@ -295,7 +295,7 @@ function scopeVerdict(topic, type, scope) {
  *
  * <p>⚠️ <b>Its first DIRECT caller arrives with the Map chips (phase M1).</b> Nothing in C1 calls it
  * outside this module's own tests: the shell's tap-through check ("is the tapped topic in the
- * popup?") goes through {@link windowTopics}, which shares the one {@code scopeVerdict} underneath,
+ * window's topics?") goes through {@link windowTopics}, which shares the one {@code scopeVerdict} underneath,
  * so both routes still answer from one rule.
  *
  * <p>Exempt by type through {@link isWholeSkyTopic} (fail-open); an empty {@code regions} is kept;
@@ -315,7 +315,7 @@ export function topicInScope(topic, scopeNames) {
  *
  * <p>A badge with no matching topic is <b>kept</b> and carries {@code topic: null}: the backend put
  * it on this window, and the client has no scope information to judge it by, so dropping it would
- * be a filter applied on the strength of a missing join. The M2 popup renders such a row from the
+ * be a filter applied on the strength of a missing join. A topic row renders such a badge from the
  * badge's own fields with no science note.
  *
  * <p>An empty {@code scopeNames} means the scope is not known yet — the locations payload has not
