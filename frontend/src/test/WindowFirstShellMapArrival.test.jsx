@@ -222,6 +222,22 @@ describe('Find opens the Map on a window', () => {
     expect(selected().id).toBe('window-first-tab-plan');
   });
 
+  it('a Find pick carries the same door a card or lane does: the event trigger, the lens and the outlier marks', async () => {
+    const { onOpenMapTab } = mount();
+    await screen.findByTestId('wf-heat-card-button');
+    await openFind();
+
+    await act(async () => { seen.search.onPickWindow(KEY); seen.search.onClose(); });
+
+    const door = onOpenMapTab.mock.calls[0][0];
+    expect(door).toMatchObject({
+      kind: 'event', date: TODAY, eventType: 'SUNSET', from: 'plan', inPlace: false, limitMinutes: 45,
+    });
+    expect(door).toHaveProperty('outlierKeys');
+    expect(door).not.toHaveProperty('targetType');
+    expect(door).not.toHaveProperty('topicType');
+  });
+
   it('from Coming up: Back returns to Coming up', async () => {
     const { arriveOnMap } = mount();
     await screen.findByTestId('wf-heat-card-button');

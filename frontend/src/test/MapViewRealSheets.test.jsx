@@ -46,4 +46,19 @@ describe('the phone warning sheet, real BottomSheet', () => {
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-win'));
     expect(screen.getByTestId('wf-map-peek-list')).toHaveTextContent('See all 3 spots');
   });
+
+  it.each([
+    ['Regions', 'wf-map-peek-lay-regions', 'wf-jump-menu'],
+    ['Filters', 'wf-map-peek-lay-filters', 'wf-filters-panel'],
+  ])('closes the %s sheet when the pane hides, and it does not return with the pane (review H1)', async (_name, row, sheet) => {
+    const view = await renderMap();
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    fireEvent.click(screen.getByTestId(row));
+    expect(screen.getByTestId('bottom-sheet-root')).toContainElement(screen.getByTestId(sheet));
+    await view.again({ panelShown: false });
+    expect(screen.queryByTestId(sheet)).toBeNull();
+    expect(screen.queryByTestId('bottom-sheet-root')).toBeNull();
+    await view.again({ panelShown: true });
+    expect(screen.queryByTestId(sheet)).toBeNull();
+  });
 });

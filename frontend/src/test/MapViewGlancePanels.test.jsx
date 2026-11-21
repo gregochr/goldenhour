@@ -264,6 +264,18 @@ describe('a panel cannot outlive the Map pane (glance-to-map review H1)', () => 
     expect(screen.queryByTestId('map-best-bet-body')).toBeNull();
   });
 
+  it.each([
+    ['Regions', 'wf-jump-chip', 'wf-jump-menu'],
+    ['Filters', 'wf-filters-chip', 'wf-filters-panel'],
+  ])('off a phone the %s menu is left exactly as it was when the pane hides', async (_name, chip, menu) => {
+    const view = await renderMap();
+    fireEvent.click(screen.getByTestId(chip));
+    expect(screen.getByTestId(menu)).toBeInTheDocument();
+    await view.again({ panelShown: false });
+    await view.again({ panelShown: true });
+    expect(screen.getByTestId(menu)).toBeInTheDocument();
+  });
+
   it('off a phone the warning panel is left exactly as it was (desktop and tablet unchanged)', async () => {
     const view = await renderMap();
     fireEvent.click(screen.getByTestId('map-warning-toggle'));

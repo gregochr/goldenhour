@@ -565,7 +565,7 @@ export function MapPeekWindowsSection({
       {/* "See all N" (glance-to-map-plan.md G1): the ranked spot list for the window on screen, the phone's door to the
           button the desktop Map carries beside Regions. A row in this section, never a fifth peek button. Hosted by the
           shell in a bottom sheet. Withheld where no card exists (the caller passes null). */}
-      {listDoor && listDoor.count > 0 && (
+      {listDoor && (
         <button
           type="button"
           data-testid="wf-map-peek-list"
@@ -574,7 +574,9 @@ export function MapPeekWindowsSection({
           onClick={listDoor.onOpen}
         >
           <span aria-hidden="true">&#9776; </span>
-          {`See all ${listDoor.count} ${listDoor.count === 1 ? 'spot' : 'spots'}`}
+          {listDoor.count > 0
+            ? `See all ${listDoor.count} ${listDoor.count === 1 ? 'spot' : 'spots'}`
+            : 'Open the list'}
         </button>
       )}
       {/* The Lite aurora door (aurora-pro-door-plan.md §2.2): after the list and its drilldown row, before the

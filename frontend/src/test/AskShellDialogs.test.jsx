@@ -1,11 +1,14 @@
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
+import React from 'react';
 import {
-  cleanup, fireEvent, screen,
+  act, cleanup, fireEvent, screen,
 } from '@testing-library/react';
+import * as guideContext from '../context/GuideContext.jsx';
+import { useMapList } from '../context/MapListContext.jsx';
 import { resetViewport } from './askViewport.js';
-import { matrixCtx, renderAskShell } from './askShellHarness.jsx';
+import { matrixCtx, renderAskShell, TODAY } from './askShellHarness.jsx';
 import {
   NOW, readyResponse, settings, WHITBY,
 } from './askFixtures.js';
@@ -151,5 +154,92 @@ describe('with Ask\'s sheet open, nothing else can open', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Coming up' }));
     expect(askDialog()).toBeNull();
     expect(modalCount()).toBe(0);
+  });
+});
+
+/* The Map List's depth cap, in both directions (glance-to-map-plan.md G1; review finding M2). Tablet width, where Ask has an entry on the Map. */
+const LIST_KEY = `${TODAY}:SUNSET`;
+
+/** The Map pane stand-in: it holds the shell's List door and presses it, reporting the answer. */
+function MapProbe({ report }) {
+  const door = useMapList();
+  return (
+    <div className="wf-map-tab" data-testid="map-probe">
+      <button
+        type="button"
+        data-testid="probe-open"
+        onClick={() => report(door?.openList({
+          key: LIST_KEY, spotKeys: new Set(['#1']), floorId: 'any', tierId: 'any', onPick: vi.fn(),
+        }))}
+      >
+        open
+      </button>
+    </div>
+  );
+}
+
+const mountOnMap = () => {
+  const report = vi.fn();
+  renderAskShell({
+    width: 800,
+    props: { mapPane: <MapProbe report={report} />, initialTab: 'map' },
+  });
+  return report;
+};
+const pressList = () => act(async () => { fireEvent.click(screen.getByTestId('probe-open')); });
+
+describe('the Map List and the depth cap', () => {
+  it('is refused over Ask\'s sheet, which stays open', async () => {
+    const report = mountOnMap();
+    fireEvent.click(await screen.findByTestId('ask-field'));
+    await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
+    await pressList();
+    expect(report).toHaveBeenCalledWith(false);
+    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Ask PhotoCast' })).toBeInTheDocument();
+  });
+
+  it('is refused over search, which stays open', async () => {
+    const report = mountOnMap();
+    await screen.findByTestId('ask-field');
+    fireEvent.click(screen.getByTestId('window-first-search'));
+    expect(await screen.findByTestId('plan-search-panel')).toBeInTheDocument();
+    await pressList();
+    expect(report).toHaveBeenCalledWith(false);
+    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
+    expect(screen.getByTestId('plan-search-panel')).toBeInTheDocument();
+  });
+
+  it('is refused over a modal guide', async () => {
+    vi.spyOn(guideContext, 'useGuide').mockReturnValue({
+      open: true,
+      presentation: 'sheet',
+      page: 'map',
+      hash: '',
+      nonce: 0,
+      focusKey: 0,
+      tracked: null,
+      guideModal: true,
+      lastClose: { seq: 0, restoreFocus: true, doorInDock: false },
+      openGuide: vi.fn(),
+      closeGuide: vi.fn(),
+      trackGuide: vi.fn(),
+    });
+    const report = mountOnMap();
+    await screen.findByTestId('ask-field');
+    await pressList();
+    expect(report).toHaveBeenCalledWith(false);
+    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
+  });
+
+  it('opens when nothing else stands, and then disables Ask\'s entry until it closes', async () => {
+    const report = mountOnMap();
+    expect(await screen.findByTestId('ask-field')).toBeEnabled();
+    await pressList();
+    expect(report).toHaveBeenCalledWith(true);
+    expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
+    expect(screen.getByTestId('ask-field')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('window-spot-sheet-close'));
+    expect(screen.getByTestId('ask-field')).toBeEnabled();
   });
 });

@@ -2334,7 +2334,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * **A phone sheet cannot outlive the Map pane** (glance-to-map review H1). The warning, Regions and Filters sheets
    * portal to `document.body` whenever open, so hiding the pane (a tab switch, or Back out of an arrival) would
-   * leave them drawn over the next tab. Phone only: the desktop panels live inside the hidden pane.
+   * leave them drawn over the next tab. Phone only: the desktop panels live inside the hidden pane. The Best bet
+   * reason is cleared with them as a harmless extra close: it does not portal, so it is not part of that fix.
    */
   useEffect(() => {
     if (panelShown || !isMobile) return;
@@ -4076,7 +4077,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     && mapWarnings.some((w) => w.warningId === openWarningId);
   useEffect(() => {
     if (openWarningId == null || warningShown) return;
-    (async () => { setOpenWarningId(null); })();
+    void (async () => { setOpenWarningId(null); })();
   }, [openWarningId, warningShown]);
   const [yieldSeenRowId, setYieldSeenRowId] = useState(activeMapEventId);
   if (activeMapEventId !== yieldSeenRowId) {
@@ -4460,7 +4461,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (!loaded || !pending || pending.date !== loaded) return;
     state.pending = null;
     // The async wrapper is this file's own idiom for `react-hooks/set-state-in-effect`.
-    (async () => {
+    void (async () => {
       if ((activeMapEvent?.id ?? null) !== pending.fromId) return;
       const dayRows = mapEvents.filter((row) => row.kind === EVENT_KIND.SOLAR && row.date === loaded);
       const landing = dayRows.find((row) => row.eventType === 'SUNSET')

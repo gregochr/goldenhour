@@ -2496,7 +2496,7 @@ WindowFirstHeatStrip.propTypes = {
   onOpenComingUp: PropTypes.func,
   /** `({kind:'event', date, eventType, topicType})` — the Map door of a weather pill. Absent: no Map door. */
   onShowOnMap: PropTypes.func,
-  /** `(windowKey, topicType)` — opens that window's popup with the topic emphasised. */
+  /** `(windowKey, topicType)` — opens the Map on that window, with the topic selected when one is named. */
   onOpenLaneOnMap: PropTypes.func,
   /** True for a reader without best bets: draws the key row's one Pro door. */
   picksLocked: PropTypes.bool,
