@@ -49,7 +49,7 @@ describe('MapBestBetWhy', () => {
     const onToggle = vi.fn();
     render(<MapBestBetWhy pick={{ kind: 'also', headline: 'Fine too.' }} onToggle={onToggle} />);
     const pill = screen.getByTestId('map-best-bet-why');
-    expect(pill).toHaveTextContent('Also good · why');
+    expect(pill).toHaveTextContent('○ Also good · why');
     expect(pill).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(pill);
     expect(onToggle).toHaveBeenCalledWith(pill);
@@ -59,7 +59,7 @@ describe('MapBestBetWhy', () => {
   it('names its panel only while open', () => {
     render(<MapBestBetWhy pick={{ kind: 'best', headline: 'H' }} open onToggle={vi.fn()} />);
     expect(screen.getByTestId('map-best-bet-why')).toHaveAttribute('aria-controls', 'wf-map-best-bet-panel');
-    expect(screen.getByTestId('map-best-bet-why')).toHaveTextContent('Best bet · why');
+    expect(screen.getByTestId('map-best-bet-why')).toHaveTextContent('◎ Best bet · why');
   });
 
   it('the panel draws only the parts it was served', () => {

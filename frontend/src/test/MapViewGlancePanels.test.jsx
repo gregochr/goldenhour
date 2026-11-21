@@ -17,7 +17,7 @@ import {
 import { mapViewState } from './mapViewMocks.jsx';
 import { installGlanceHooks } from './mapViewGlanceHarness.jsx';
 import { windowKey } from '../utils/windowKeys.js';
-import { TODAY, PICK, CARD, cardsByKey } from './mapViewGlanceFixtures.js';
+import { TODAY, TOMORROW, PICK, CARD, cardsByKey } from './mapViewGlanceFixtures.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { METOFFICE_URL } from './warningsFixture.js';
 
@@ -238,5 +238,70 @@ describe('a Lite reader', () => {
     await renderMap({ windowCardsByKey: cardsByKey({ ...CARD, pick: null }) });
     expect(screen.queryByTestId('map-best-bet-why')).toBeNull();
     expect(screen.getByTestId('map-list-button')).toBeInTheDocument();
+  });
+});
+
+describe('a panel cannot outlive the Map pane (glance-to-map review H1)', () => {
+  it('on a phone, hiding the pane closes the warning sheet and it does not return with the pane', async () => {
+    mapViewState.isMobile = true;
+    const view = await renderMap();
+    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+    await view.again({ panelShown: false });
+    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    await view.again({ panelShown: true });
+    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    expect(screen.getByTestId('map-warning-toggle')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('on a phone, hiding the pane closes the Best bet reason too', async () => {
+    mapViewState.isMobile = true;
+    const view = await renderMap();
+    fireEvent.click(screen.getByTestId('map-best-bet-why'));
+    expect(screen.getByTestId('map-best-bet-body')).toBeInTheDocument();
+    await view.again({ panelShown: false });
+    await view.again({ panelShown: true });
+    expect(screen.queryByTestId('map-best-bet-body')).toBeNull();
+  });
+
+  it.each([
+    ['Regions', 'wf-jump-chip', 'wf-jump-menu'],
+    ['Filters', 'wf-filters-chip', 'wf-filters-panel'],
+  ])('off a phone the %s menu is left exactly as it was when the pane hides', async (_name, chip, menu) => {
+    const view = await renderMap();
+    fireEvent.click(screen.getByTestId(chip));
+    expect(screen.getByTestId(menu)).toBeInTheDocument();
+    await view.again({ panelShown: false });
+    await view.again({ panelShown: true });
+    expect(screen.getByTestId(menu)).toBeInTheDocument();
+  });
+
+  it('off a phone the warning panel is left exactly as it was (desktop and tablet unchanged)', async () => {
+    const view = await renderMap();
+    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    await view.again({ panelShown: false });
+    await view.again({ panelShown: true });
+    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+  });
+});
+
+describe('a warning the next poll withdraws (glance-to-map review L4)', () => {
+  it('leaves no stale layer for Escape to spend a press on, and does not reopen when it returns', async () => {
+    const view = await renderMap();
+    fireEvent.click(screen.getByTestId('map-list-button'));
+    await act(async () => { door.onOpenList.mock.calls[0][0].onPick({ locationId: 3, locationName: 'Wastwater' }); });
+    expect(await screen.findByTestId('probe-callout-name')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+    // The window moves to a day the warning is not in force: the panel goes, its id must not linger.
+    await view.again({ date: TOMORROW });
+    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    // One Escape takes the callout, not a phantom warning layer.
+    fireEvent.keyDown(screen.getByTestId('wf-map-pane'), { key: 'Escape' });
+    expect(screen.queryByTestId('probe-callout-name')).toBeNull();
+    // The warning returning with its window stays closed until pressed.
+    await view.again({ date: TODAY });
+    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    expect(screen.getByTestId('map-warning-toggle')).toHaveAttribute('aria-expanded', 'false');
   });
 });

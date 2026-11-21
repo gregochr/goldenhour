@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import MapInfoPanel from './MapInfoPanel.jsx';
+import { PICK_TEXT } from './WindowControl.jsx';
 
 /** The id the pill's {@code aria-controls} names, on {@link MapBestBetPanel}'s root. */
 export const MAP_BEST_BET_PANEL_ID = 'wf-map-best-bet-panel';
@@ -47,7 +48,7 @@ export default function MapBestBetWhy({ pick = null, open = false, onToggle }) {
           aria-controls={open ? MAP_BEST_BET_PANEL_ID : undefined}
           onClick={(event) => onToggle(event.currentTarget)}
         >
-          <span aria-hidden="true">&#9678; </span>
+          <span aria-hidden="true">{`${(PICK_TEXT[pick.kind] ?? PICK_TEXT.best).glyph} `}</span>
           {`${wordOf(pick)} · why`}
           <span aria-hidden="true" className="wf-win-caret">{open ? '▴' : '▾'}</span>
         </button>
