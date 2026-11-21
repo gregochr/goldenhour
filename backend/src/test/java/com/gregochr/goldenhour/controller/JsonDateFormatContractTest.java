@@ -155,7 +155,7 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 8, 28), List.of(eventSummary));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.of(2026, 8, 28, 0, 0), "Lunar eclipse before dawn",
-                List.of(day), List.of(), null, null, false, "Opus", List.of(), List.of());
+                List.of(day), null, null, false, List.of(), List.of());
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 
         String slotPath = "$.days[0].eventSummaries[0].regions[0].slots[0]";
@@ -185,7 +185,7 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
                 hw.plusDays(1).plusHours(1), null, null, null, 3.5, 90, 8.5, List.of(), 0, true,
                 LocalDateTime.of(2026, 12, 12, 8, 5), LocalDateTime.of(2026, 12, 12, 15, 40));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
-                LocalDateTime.of(2026, 12, 10, 6, 0), "Big seas", List.of(), List.of(), null, null, false, "Opus",
+                LocalDateTime.of(2026, 12, 10, 6, 0), "Big seas", List.of(), null, null, false,
                 List.of(), List.of()).withBigSeas(List.of(aligned, unaligned));
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 
@@ -219,7 +219,7 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
     @DisplayName("GET /api/briefing omits bigSeas entirely when there is none")
     void getBriefing_omitsBigSeasWhenNull() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
-                LocalDateTime.of(2026, 12, 10, 6, 0), "Calm", List.of(), List.of(), null, null, false, "Opus",
+                LocalDateTime.of(2026, 12, 10, 6, 0), "Calm", List.of(), null, null, false,
                 List.of(), List.of());
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 

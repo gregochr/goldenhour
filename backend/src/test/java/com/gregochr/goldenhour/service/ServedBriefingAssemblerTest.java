@@ -91,7 +91,7 @@ class ServedBriefingAssemblerTest {
 
     private static DailyBriefingResponse snapshot(BriefingEventSummary... summaries) {
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "headline",
-                List.of(day(D, summaries)), List.of(), null, null, false, null,
+                List.of(day(D, summaries)), null, null, false,
                 List.of(), List.of());
     }
 
@@ -139,8 +139,8 @@ class ServedBriefingAssemblerTest {
                 List.of(day(D, summary(TargetType.SUNRISE,
                                 List.of(region("Dales", 0, inland(1L, "Hawes"))), List.of())),
                         day(D.plusDays(4), summary(TargetType.SUNRISE,
-                                List.of(region("Dales", 0, inland(1L, "Hawes"))), List.of()))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                                List.of(region("Dales", 0, inland(1L, "Hawes"))), List.of()))), null, null, false,
+                                List.of(), List.of());
 
         DailyBriefingResponse served = bst.assembleForPlan(cached, 0.5);
 
@@ -268,7 +268,7 @@ class ServedBriefingAssemblerTest {
     @DisplayName("the slotless-days case: a day with no summaries yields no facts and no failure")
     void dayWithoutSummaries() {
         DailyBriefingResponse snap = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0),
-                "h", List.of(new BriefingDay(D, List.of())), List.of(), null, null, false, null, List.of(), List.of());
+                "h", List.of(new BriefingDay(D, List.of())), null, null, false, List.of(), List.of());
 
         assertThat(assembler.assembleForPlan(snap, 0.5).days()).hasSize(1);
     }
@@ -384,8 +384,8 @@ class ServedBriefingAssemblerTest {
         return assembler.assembleForPlan(new DailyBriefingResponse(
                 LocalDateTime.of(2026, 10, 8, 6, 0), "headline",
                 List.of(day(date, summary(TargetType.SUNRISE, List.of(region("North East", 0,
-                        inland(1L, "Durham"), inland(2L, "Hawes"))), List.of()))),
-                List.of(), null, null, false, null, List.of(), List.of()), 0.5);
+                        inland(1L, "Durham"), inland(2L, "Hawes"))), List.of()))), null, null, false, List.of(),
+                        List.of()), 0.5);
     }
 
     @Test
@@ -451,8 +451,7 @@ class ServedBriefingAssemblerTest {
                 List.of(day(date, summary(TargetType.SUNRISE, List.of(
                         region("Aaa Dales", 0, inland(3L, "Richmond"), inland(4L, "Askrigg")),
                         region("Zzz North East", 0, inland(1L, "Durham"), inland(2L, "Hawes"))),
-                        List.of()))),
-                List.of(), null, null, false, null, List.of(), List.of()), 0.5)
+                        List.of()))), null, null, false, List.of(), List.of()), 0.5)
                 .days().get(0).eventSummaries().get(0);
     }
 

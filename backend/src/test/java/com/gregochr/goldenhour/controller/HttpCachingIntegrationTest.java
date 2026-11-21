@@ -12,8 +12,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
-import com.gregochr.goldenhour.model.BestBet;
-import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingWindow;
@@ -552,49 +550,41 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                 LocalDateTime.of(2026, 7, 25, 4, 0),
                 "Worth a look at the coast tonight.",
                 List.of(),
-                List.of(),
                 null,
                 null,
                 false,
-                "SONNET",
                 List.of(),
-                List.of(),
-                null);
+                List.of());
     }
 
     @Test
     @WithMockUser(roles = {"LITE_USER"})
-    @DisplayName("GET /api/briefing: the best-bet picks are role-shaped, so a LITE GET with a PRO ETag gets "
+    @DisplayName("GET /api/briefing: the window picks are role-shaped, so a LITE GET with a PRO ETag gets "
             + "200 and the LITE body, and the reverse")
     void briefingPicksEtagDoesNotCrossRoles() throws Exception {
-        // The fixture really carries a window pick and a best bet, so the two roles' bodies differ.
+        // The fixture really carries a window pick, so the two roles' bodies differ.
         when(briefingService.getCachedBriefingForApi()).thenReturn(pickBriefingResponse());
 
         String liteEtag = mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick").doesNotExist())
-                .andExpect(jsonPath("$.bestBets").isEmpty())
-                .andExpect(jsonPath("$.bestBetModel").doesNotExist())
                 .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
         String proEtag = mockMvc.perform(get("/api/briefing").with(user("pro").roles("PRO_USER")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.kind").value("BEST"))
-                .andExpect(jsonPath("$.bestBets.length()").value(1))
                 .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
 
         assertThat(proEtag).as("a role-shaped body must hash differently").isNotEqualTo(liteEtag);
 
         mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, proEtag))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick").doesNotExist())
-                .andExpect(jsonPath("$.bestBets").isEmpty());
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick").doesNotExist());
         mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, liteEtag))
                 .andExpect(status().isNotModified());
         mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, liteEtag)
                         .with(user("pro").roles("PRO_USER")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.kind").value("BEST"))
-                .andExpect(jsonPath("$.bestBets.length()").value(1));
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].window.pick.kind").value("BEST"));
     }
 
     @Test
@@ -631,7 +621,7 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
     }
 
     /**
-     * A briefing whose one window carries a pick and which lists one best bet. The window is
+     * A briefing whose one window carries a pick. The window is
      * tomorrow's sunrise: inside the digest's whole-day horizon and never elapsed at any hour.
      */
     private static DailyBriefingResponse pickBriefingResponse() {
@@ -642,12 +632,8 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                 DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(),
                 List.of(), null, window);
-        BestBet bet = new BestBet(1, "Go east", "Clear", "Fri sunrise", "North East",
-                Confidence.HIGH, null, "Friday", "SUNRISE", "06:00", null, null);
         return new DailyBriefingResponse(tomorrow.minusDays(1).atTime(9, 0), "h",
-                List.of(new BriefingDay(tomorrow, List.of(summary))),
-                List.of(bet), null, null, false, "SONNET", List.of(), List.of(),
-                BestBetStatus.SUCCESS_WITH_PICKS);
+                List.of(new BriefingDay(tomorrow, List.of(summary))), null, null, false, List.of(), List.of());
     }
 
     private static DailyBriefingResponse tideBriefingResponse() {
@@ -663,8 +649,8 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(),
                 List.of(), null, window);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 7, 25, 4, 0), "h",
-                List.of(new BriefingDay(LocalDate.of(2026, 7, 26), List.of(summary))),
-                List.of(), null, null, false, "SONNET", List.of(), List.of());
+                List.of(new BriefingDay(LocalDate.of(2026, 7, 26), List.of(summary))), null, null, false, List.of(),
+                List.of());
     }
 
     private static LocationEntity loc(Long id, String name) {

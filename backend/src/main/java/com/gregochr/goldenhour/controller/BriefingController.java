@@ -70,9 +70,8 @@ public class BriefingController {
      * the digest and Ask keep the full data. A role variant is not personal data: the body depends
      * on the role alone, and the ETag is hashed from the body, so the two variants never share one.
      *
-     * <p>The best-bet picks are Pro too (docs/engineering/pro-features-gate-plan.md §8): LITE gets
-     * every {@code window.pick} removed, {@code bestBets} empty and {@code bestBetModel},
-     * {@code bestBetStatus} and {@code bestBetsWithdrawn} null.
+     * <p>The window picks are Pro too (docs/engineering/pro-features-gate-plan.md §8): LITE gets
+     * every {@code window.pick} removed.
      *
      * <p>The tide at the light is Pro and Admin too (docs/engineering/tide-light-pro-plan.md): LITE
      * gets the spring and king topics without their alignment sentence, run row, resolved light and
@@ -109,7 +108,7 @@ public class BriefingController {
      *
      * <p>The same forecast {@link #getBriefing(Authentication)} serves, with the tree removed — for clients that
      * cannot afford to walk it. Bearer with no role gate, by inheritance from {@code /api/**} →
-     * {@code .authenticated()}, but <b>role-shaped</b> like the briefing: the best-bet picks are Pro
+     * {@code .authenticated()}, but <b>role-shaped</b> like the briefing: the window picks are Pro
      * (docs/engineering/pro-features-gate-plan.md §8), so a reader who is not positively PRO_USER
      * or ADMIN gets each window without its {@code pick}, {@code headline}, {@code regionName},
      * {@code locationName} and {@code locationId}, which are the pick's. The check is fail-closed.

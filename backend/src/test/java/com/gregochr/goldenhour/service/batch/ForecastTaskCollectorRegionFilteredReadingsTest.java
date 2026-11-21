@@ -153,8 +153,8 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(eventSummary));
-        return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, null, List.of(), List.of());
+        return new DailyBriefingResponse(null, null, List.of(day), null, null,
+                false, List.of(), List.of());
     }
 
     @BeforeEach

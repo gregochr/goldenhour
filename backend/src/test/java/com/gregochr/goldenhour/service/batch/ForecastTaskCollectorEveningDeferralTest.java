@@ -421,8 +421,7 @@ class ForecastTaskCollectorEveningDeferralTest {
                 null, null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(type, List.of(region), List.of());
         return new DailyBriefingResponse(null, null,
-                List.of(new BriefingDay(date, List.of(eventSummary))),
-                null, null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(date, List.of(eventSummary))), null, null, false, List.of(), List.of());
     }
 
     private ForecastPreEvalResult preEval(LocationEntity loc, LocalDate date, TargetType type,

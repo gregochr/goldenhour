@@ -56,8 +56,8 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
                 List.of(), null, window(null));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.of(2026, 10, 8, 6, 0), "h",
-                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(withFacts, without))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(withFacts, without))), null, null, false,
+                List.of(), List.of());
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 
         String facts = "$.days[0].eventSummaries[0].window.tideFacts";
@@ -113,8 +113,8 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
                 List.of(region), List.of(slot), null, window(List.of(fact)));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.of(2026, 10, 8, 6, 0), "h",
-                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))), null, null, false, List.of(),
+                List.of());
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 
         String es = "$.days[0].eventSummaries[0]";
@@ -142,8 +142,8 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
                 window(List.of(full)));
         when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
                 LocalDateTime.of(2026, 10, 8, 6, 0), "h",
-                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, null, List.of(), List.of()));
+                List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))), null, null, false, List.of(),
+                List.of()));
     }
 
     @Test

@@ -607,8 +607,8 @@ public record BriefingRegion(
     }
 
     /**
-     * Whether this region's ratings are trusted enough to set its own verdict, crown a pick, be
-     * named in {@code bestBets}, or outrank another region on their raw averages — the verdict-
+     * Whether this region's ratings are trusted enough to set its own verdict, crown a pick, or
+     * outrank another region on their raw averages — the verdict-
      * minimum-sample rule ({@code VerdictSampleGate}) plus its force-evaluation exemption, both
      * already resolved onto the region by {@code BriefingRegionEvaluationRollup} at enrichment
      * time.
@@ -632,8 +632,7 @@ public record BriefingRegion(
     }
 
     /**
-     * Whether this region may be named a pick: BEST BET or ALSO GOOD on the Plan tab, an entry in
-     * {@code DailyBriefingResponse.bestBets} or {@code pipeline_run_pick}, or an Ask pick. Owner
+     * Whether this region may be named a pick: BEST BET or ALSO GOOD on the Plan tab, or an Ask pick. Owner
      * decision, 2026-10-22: a pick is a recommendation to drive somewhere, and a handful of
      * force-evaluated ratings in a large region is too thin a basis for one, so unlike {@link
      * #verdictEligible()} this does NOT count the {@link #forcedSample} exemption — a sufficient

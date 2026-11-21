@@ -186,7 +186,7 @@ class AreaOutlookServiceTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of(),
                 LocalDateTime.of(2019, 3, 12, 16, 0), null);
         return new DailyBriefingResponse(LocalDateTime.of(2019, 3, 12, 9, 0), "headline",
-                List.of(new BriefingDay(TODAY, List.of(summary))), List.of(), null, null, false, "Opus", List.of(),
+                List.of(new BriefingDay(TODAY, List.of(summary))), null, null, false, List.of(),
                 List.of());
     }
 

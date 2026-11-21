@@ -262,8 +262,8 @@ final class AskFixtures {
     /** A served briefing with an explicit {@code renderedEvents}, which may be null or empty. */
     static DailyBriefingResponse briefing(List<BriefingDay> days, List<HotTopic> topics,
             List<PlanRenderedEvent> rendered) {
-        return new DailyBriefingResponse(GENERATED_AT, "headline", days, List.of(), null, null,
-                false, "Haiku", topics, List.of(), null, null, rendered);
+        return new DailyBriefingResponse(GENERATED_AT, "headline", days, null, null,
+                false, topics, List.of(), rendered);
     }
 
     static HotTopic topic(String type, String label, String detail, LocalDate date,

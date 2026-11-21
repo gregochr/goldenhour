@@ -71,8 +71,8 @@ class LitePickShaperBranchTest {
 
     private static DailyBriefingResponse briefing(List<HotTopic> topics) {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(), List.of(), AT, null);
-        return new DailyBriefingResponse(AT, "headline", List.of(new BriefingDay(DAY, List.of(summary))),
-                List.of(), null, null, false, null, topics, List.of());
+        return new DailyBriefingResponse(AT, "headline", List.of(new BriefingDay(DAY, List.of(summary))), null, null,
+        false, topics, List.of());
     }
 
     @Test

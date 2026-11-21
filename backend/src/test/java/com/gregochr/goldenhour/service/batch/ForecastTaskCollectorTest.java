@@ -1700,8 +1700,8 @@ class ForecastTaskCollectorTest {
         BriefingDay today = new BriefingDay(TODAY, List.of(todaySummary));
 
         DailyBriefingResponse briefing = new DailyBriefingResponse(
-                null, null, List.of(pastDay, today), null, null, null,
-                false, null, List.of(), List.of());
+                null, null, List.of(pastDay, today), null, null,
+                false, List.of(), List.of());
 
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(locationService.findAllEnabled()).thenReturn(List.of(goLoc));
@@ -1824,8 +1824,8 @@ class ForecastTaskCollectorTest {
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 targetType, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(eventSummary));
-        return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, null, List.of(), List.of());
+        return new DailyBriefingResponse(null, null, List.of(day), null, null,
+                false, List.of(), List.of());
     }
 
     /**
@@ -1844,8 +1844,8 @@ class ForecastTaskCollectorTest {
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(eventSummary));
-        return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, null, List.of(), List.of());
+        return new DailyBriefingResponse(null, null, List.of(day), null, null,
+                false, List.of(), List.of());
     }
 
     private LocationEntity buildInlandLocation(String name, double lat, double lon) {

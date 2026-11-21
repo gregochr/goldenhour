@@ -102,7 +102,7 @@ class WindowTideFactsPayloadTest {
             days.add(new BriefingDay(START.plusDays(d), summaries));
         }
         DailyBriefingResponse raw = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0),
-                "headline", days, List.of(), null, null, false, null, List.of(),
+                "headline", days, null, null, false, List.of(),
                 List.of());
         Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> facts = withFacts
                 ? WindowTideFactProjector.project(days) : Map.of();

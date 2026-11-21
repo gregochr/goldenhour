@@ -25,8 +25,7 @@ final class ReviewedTypes {
     static Map<String, Set<String>> table() {
         return Map.ofEntries(
         entry("DailyBriefingResponse", Set.of(
-                "allowedLocationIds", "auroraTomorrow", "auroraTonight", "bestBetModel", "bestBetStatus",
-                "bestBets", "bestBetsWithdrawn", "bigSeas", "days", "generatedAt",
+                "allowedLocationIds", "auroraTomorrow", "auroraTonight", "bigSeas", "days", "generatedAt",
                 "headline", "hotTopics", "previousGeneratedAt", "renderedEvents",
                 "seasonalFeatures", "stale", "briefingVersion")),
         entry("BriefingDay", Set.of(
@@ -96,9 +95,6 @@ final class ReviewedTypes {
                 "events", "regions", "verdict")),
         entry("BriefingDayPeak$PeakRegion", Set.of(
                 "displayVerdict", "regionName", "targetType")),
-        entry("BestBet", Set.of(
-                "confidence", "dayName", "detail", "differsBy", "event", "eventTime", "eventType", "headline",
-                "nearestDriveMinutes", "rank", "region", "relationship")),
         entry("AuroraTonightSummary", Set.of(
                 "alertLevel", "clearLocationCount", "kp", "moonAboveHorizon", "moonIlluminationPct",
                 "moonPhase", "moonRiseTime", "moonSetTime", "regions", "solarWindSpeedKmPerSec",

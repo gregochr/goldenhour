@@ -93,7 +93,7 @@ class LitePickSentinelTest {
         BriefingEventSummary sunrise = new BriefingEventSummary(TargetType.SUNRISE, List.of(region),
                 List.of(slot(UNPICKED_ID, "Unregioned spot", "U_UNREG")), EVENT, null);
         return new DailyBriefingResponse(LocalDateTime.of(2999, 3, 24, 9, 0), "headline",
-                List.of(new BriefingDay(DAY, List.of(sunrise))), List.of(), null, null, false, "Opus",
+                List.of(new BriefingDay(DAY, List.of(sunrise))), null, null, false,
                 List.of(bluebell()), List.of());
     }
 
