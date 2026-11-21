@@ -30,9 +30,8 @@ import java.util.Set;
  * king window badges' light-bearing detail and clock, and (via {@link HotTopic#forLite()}) the
  * spring and king hot topics' alignment sentence, run row, resolved light and aligned counts, and
  * the big-seas gap and aligned flags. Every topic, size fact and clock stays (the two-question
- * rule). The best-bet picks are Pro too
- * (docs/engineering/pro-features-gate-plan.md §8): {@link #forLite} also removes each window's
- * pick, empties {@code bestBets} and nulls the best-bet model, status and withdrawn flag.
+ * rule). The window picks are Pro too
+ * (docs/engineering/pro-features-gate-plan.md §8): {@link #forLite} also removes each window's pick.
  *
  * <p>Rebuilds only through the records' own withers and canonical constructors, so a component
  * added later is never defaulted away silently. Never used on {@code getCachedBriefingForApi}'s
@@ -60,16 +59,11 @@ public class BriefingRoleShaper {
         List<HotTopic> liteTopics = response.hotTopics().stream().map(HotTopic::forLite).toList();
         List<BriefingDay> days = response.days().stream()
                 .map(day -> liteDay(day, liteTopics)).toList();
-        // The best-bet picks are Pro (pro-features-gate-plan.md §8). bestBets stays present and
-        // empty; bestBetsWithdrawn is null so LITE is never told a pick was withdrawn.
         List<BigSeasDay> bigSeas = response.bigSeas() == null ? null
                 : response.bigSeas().stream().map(BigSeasDay::forLite).toList();
         return response.withDays(days)
                 .withLiveOverlays(response.auroraTonight(), response.auroraTomorrow(), liteTopics)
-                .withBigSeas(bigSeas)
-                .withBestBets(List.of(), null)
-                .withBestBetModel(null)
-                .withBestBetStatus(null);
+                .withBigSeas(bigSeas);
     }
 
     private static BriefingDay liteDay(BriefingDay day, List<HotTopic> liteTopics) {

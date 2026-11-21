@@ -253,7 +253,7 @@ class ForecastTaskCollectorForceEvalTest {
                         TargetType.SUNSET, List.of(
                                 region("Inland Region", goSlot(inland.getName(), false)),
                                 region("Coastal Region", goSlot(coastal.getName(), true))),
-                        List.of())))), null, null, null, false, null,
+                        List.of())))), null, null, false,
                 List.of(), List.of());
         stubBriefing(briefing);
         when(locationService.findAllEnabled()).thenReturn(List.of(inland, coastal));
@@ -350,8 +350,8 @@ class ForecastTaskCollectorForceEvalTest {
             BriefingRegion... regions) {
         BriefingDay day = new BriefingDay(date, List.of(
                 new BriefingEventSummary(targetType, List.of(regions), List.of())));
-        return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, null, List.of(), List.of());
+        return new DailyBriefingResponse(null, null, List.of(day), null, null,
+                false, List.of(), List.of());
     }
 
     private BriefingRegion region(String name, BriefingSlot... slots) {

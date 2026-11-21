@@ -138,8 +138,7 @@ class ServedBriefingAssemblerWarningGoldenTest {
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "headline",
                 List.of(day(D,
                         timed(TargetType.SUNRISE, region("Dales", 0, hawes)),
-                        timed(TargetType.SUNSET, region("Dales", 1, rated)))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                        timed(TargetType.SUNSET, region("Dales", 1, rated)))), null, null, false, List.of(), List.of());
     }
 
     /** The response with every warning field removed: what the overlay-off path would have served. */

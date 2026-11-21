@@ -280,14 +280,11 @@ public class BriefingService {
     void loadPersistedBriefing() {
         briefingCacheRepository.findById(1).ifPresent(entity -> {
             try {
-                // The Best bet advisor is retired: a briefing persisted before the retirement may
-                // still carry its picks, model and FAILED status. Neutralise them on restore so
-                // "bestBets is empty" holds from startup, in the cache and in last-known-good.
+                // A briefing persisted before the Best bet advisor was retired may still carry its
+                // bestBets, bestBetModel, bestBetStatus and bestBetsWithdrawn keys; the record ignores
+                // unknown properties, so they are dropped here (PersistedBriefingRemovedKeysTest).
                 DailyBriefingResponse persisted = objectMapper.readValue(
-                        entity.getPayload(), DailyBriefingResponse.class)
-                        .withBestBets(List.of(), null)
-                        .withBestBetModel(null)
-                        .withBestBetStatus(null);
+                        entity.getPayload(), DailyBriefingResponse.class);
                 cache.set(persisted);
                 lastKnownGood.set(persisted);
                 LOG.info("Loaded persisted briefing from DB (generated {})", entity.getGeneratedAt());
@@ -762,10 +759,9 @@ public class BriefingService {
 
         if (aboveThreshold) {
             DailyBriefingResponse response = new DailyBriefingResponse(
-                    LocalDateTime.now(clock), headline, days, List.of(),
-                    auroraTonight, auroraTomorrow, false, null, hotTopics,
-                    seasonalFeatures,
-                    null);
+                    LocalDateTime.now(clock), headline, days,
+                    auroraTonight, auroraTomorrow, false, hotTopics,
+                    seasonalFeatures);
             cache.set(response);
             lastKnownGood.set(response);
             persistBriefing(response);
@@ -778,19 +774,17 @@ public class BriefingService {
             DailyBriefingResponse lkg = lastKnownGood.get();
             if (lkg != null) {
                 DailyBriefingResponse staleResponse = new DailyBriefingResponse(
-                        lkg.generatedAt(), lkg.headline(), lkg.days(), List.of(),
-                        auroraTonight, auroraTomorrow, true, null, hotTopics, seasonalFeatures,
-                        null);
+                        lkg.generatedAt(), lkg.headline(), lkg.days(),
+                        auroraTonight, auroraTomorrow, true, hotTopics, seasonalFeatures);
                 cache.set(staleResponse);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below 50% threshold, "
                         + "serving stale=true (LKG from {}), circuit={}, duration={}ms",
                         succeeded, total, failed, lkg.generatedAt(), circuit, totalMs);
             } else {
                 DailyBriefingResponse response = new DailyBriefingResponse(
-                        LocalDateTime.now(clock), headline, days, List.of(),
-                        auroraTonight, auroraTomorrow, false, null, hotTopics,
-                        seasonalFeatures,
-                        null);
+                        LocalDateTime.now(clock), headline, days,
+                        auroraTonight, auroraTomorrow, false, hotTopics,
+                        seasonalFeatures);
                 cache.set(response);
                 // Snapshotted like the healthy branch, and deliberately: this partial response IS
                 // what gets served, so it is what the next run's movement must be measured

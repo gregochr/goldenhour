@@ -37,8 +37,8 @@ class WindowTideFactsCacheJsonTest {
                 DisplayVerdict.WORTH_IT, 1, null, null);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(
-                        new BriefingEventSummary(TargetType.SUNRISE, List.of(region), List.of())))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                        new BriefingEventSummary(TargetType.SUNRISE, List.of(region), List.of())))), null, null, false,
+                        List.of(), List.of());
     }
 
     @Test

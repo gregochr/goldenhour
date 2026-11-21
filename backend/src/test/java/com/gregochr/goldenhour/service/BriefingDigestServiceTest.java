@@ -264,8 +264,8 @@ class BriefingDigestServiceTest {
                 LocalDateTime.of(2026, 6, 10, 9, 0), "headline",
                 List.of(day(utcDay, summary(TargetType.SUNSET, timeless)),
                         day(utcDay.plusDays(5), summary(TargetType.SUNSET, timeless)),
-                        day(utcDay.plusDays(4), summary(TargetType.SUNSET, timeless))),
-                List.of(), null, null, false, "Opus", List.of(), List.of()));
+                        day(utcDay.plusDays(4), summary(TargetType.SUNSET, timeless))), null, null, false, List.of(),
+                        List.of()));
 
         // UK today is 2026-06-11: the 10th is behind it, the 14th is T+3, the 15th is T+4.
         assertThat(service.digest(BriefingDigestService.DEFAULT_LIMIT).windows())
@@ -325,8 +325,8 @@ class BriefingDigestServiceTest {
     private void stubBriefing(BriefingDay... days) {
         when(freshness.now()).thenReturn(NOW);
         when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
-                LocalDateTime.of(2026, 3, 25, 9, 0), "headline", List.of(days), List.of(),
-                null, null, false, "Opus", List.of(), List.of()));
+                LocalDateTime.of(2026, 3, 25, 9, 0), "headline", List.of(days),
+                null, null, false, List.of(), List.of()));
     }
 
     private static BriefingDay dayBoth(LocalDate date) {

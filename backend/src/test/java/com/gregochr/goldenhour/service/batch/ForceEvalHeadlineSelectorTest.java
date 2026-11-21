@@ -60,8 +60,8 @@ class ForceEvalHeadlineSelectorTest {
     }
 
     private static DailyBriefingResponse briefing(BriefingDay... days) {
-        return new DailyBriefingResponse(null, null, List.of(days), null, null, null,
-                false, null, List.of(), List.of());
+        return new DailyBriefingResponse(null, null, List.of(days), null, null,
+                false, List.of(), List.of());
     }
 
     private static String key(String name, int daysAhead, TargetType type) {

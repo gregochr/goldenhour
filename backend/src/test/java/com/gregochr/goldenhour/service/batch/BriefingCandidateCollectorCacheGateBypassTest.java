@@ -76,8 +76,8 @@ class BriefingCandidateCollectorCacheGateBypassTest {
         BriefingEventSummary summary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
         return new DailyBriefingResponse(LocalDateTime.now(), null,
-                List.of(new BriefingDay(TOMORROW, List.of(summary))), List.of(),
-                null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(TOMORROW, List.of(summary))),
+                null, null, false, List.of(), List.of());
     }
 
     private static CandidateCollectionStrategy acceptAll(boolean bypass) {

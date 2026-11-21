@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.model;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.config.AppConfig;
 import com.gregochr.goldenhour.entity.LunarTideType;
@@ -21,9 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Jackson serialisation tests for {@link DailyBriefingResponse}.
  *
- * <p>Verifies that {@code bestBets} is always present in the serialised JSON, including
- * when a global {@code NON_EMPTY} inclusion policy is in effect — as may be configured
- * in production via {@code spring.jackson.default-property-inclusion}.
+ * <p>Pins the wire shape: the retired best-bet keys are absent from the serialised JSON, and a payload
+ * persisted before they were removed still deserialises.
  */
 class DailyBriefingResponseJsonTest {
 
@@ -87,81 +87,47 @@ class DailyBriefingResponseJsonTest {
         assertThat(node.has("locationId")).isFalse();
     }
 
-    // ── bestBets always serialised ────────────────────────────────────────────
+    // ── the retired best-bet keys ─────────────────────────────────────────────
 
     @Test
-    @DisplayName("empty bestBets is present in JSON with default ObjectMapper")
-    void serialize_emptyBestBets_defaultMapper_fieldPresent() throws Exception {
+    @DisplayName("the retired best-bet keys are not serialised, even under a global NON_EMPTY policy")
+    void serialize_retiredBestBetKeys_absent() throws Exception {
+        ObjectMapper nonEmptyMapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .setDefaultPropertyInclusion(JsonInclude.Include.NON_EMPTY);
+
+        JsonNode node = nonEmptyMapper.readTree(nonEmptyMapper.writeValueAsString(minimalResponse()));
+        ObjectMapper defaultMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        JsonNode plain = defaultMapper.readTree(defaultMapper.writeValueAsString(minimalResponse()));
+
+        for (String key : List.of("bestBets", "bestBetModel", "bestBetStatus", "bestBetsWithdrawn")) {
+            assertThat(node.has(key)).as(key + " under NON_EMPTY").isFalse();
+            assertThat(plain.has(key)).as(key + " under the default mapper").isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("a payload persisted with the retired best-bet keys still deserialises")
+    void deserialize_legacyBestBetKeys_areIgnored() throws Exception {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        DailyBriefingResponse response = minimalResponse(List.of());
+        ObjectNode root = (ObjectNode) mapper.readTree(mapper.writeValueAsString(minimalResponse()));
+        root.putArray("bestBets").addObject().put("rank", 1).put("headline", "Old pick");
+        root.put("bestBetModel", "Opus");
+        root.put("bestBetStatus", "FAILED");
+        root.put("bestBetsWithdrawn", true);
 
-        JsonNode node = mapper.readTree(mapper.writeValueAsString(response));
+        DailyBriefingResponse restored = mapper.readValue(root.toString(), DailyBriefingResponse.class);
 
-        assertThat(node.has("bestBets")).isTrue();
-        assertThat(node.get("bestBets").isArray()).isTrue();
-        assertThat(node.get("bestBets").size()).isZero();
-    }
-
-    @Test
-    @DisplayName("empty bestBets is present in JSON even with global NON_EMPTY inclusion policy")
-    void serialize_emptyBestBets_globalNonEmptyPolicy_fieldStillPresent() throws Exception {
-        // This is the production risk: spring.jackson.default-property-inclusion=non_empty
-        // would strip all empty lists. @JsonInclude(ALWAYS) on bestBets must override that.
-        ObjectMapper nonEmptyMapper = new ObjectMapper()
-                .registerModule(new JavaTimeModule())
-                .setDefaultPropertyInclusion(JsonInclude.Include.NON_EMPTY);
-
-        DailyBriefingResponse response = minimalResponse(List.of());
-
-        JsonNode node = nonEmptyMapper.readTree(nonEmptyMapper.writeValueAsString(response));
-
-        assertThat(node.has("bestBets"))
-                .as("bestBets must be serialised even under NON_EMPTY global policy")
-                .isTrue();
-        assertThat(node.get("bestBets").isArray()).isTrue();
-        assertThat(node.get("bestBets").size()).isZero();
-    }
-
-    @Test
-    @DisplayName("populated bestBets is present in JSON with global NON_EMPTY inclusion policy")
-    void serialize_populatedBestBets_globalNonEmptyPolicy_fieldPresent() throws Exception {
-        ObjectMapper nonEmptyMapper = new ObjectMapper()
-                .registerModule(new JavaTimeModule())
-                .setDefaultPropertyInclusion(JsonInclude.Include.NON_EMPTY);
-
-        BestBet bet = new BestBet(1, "Head to the coast", "Clear skies until midnight.",
-                "2026-04-15_sunset", "Northumberland", Confidence.HIGH, 45,
-                "Today", "sunset", "20:48");
-        DailyBriefingResponse response = minimalResponse(List.of(bet));
-
-        JsonNode node = nonEmptyMapper.readTree(nonEmptyMapper.writeValueAsString(response));
-
-        assertThat(node.has("bestBets")).isTrue();
-        assertThat(node.get("bestBets").size()).isEqualTo(1);
-        assertThat(node.get("bestBets").get(0).get("headline").asText())
-                .isEqualTo("Head to the coast");
-        assertThat(node.get("bestBets").get(0).get("rank").asInt()).isEqualTo(1);
+        assertThat(restored.headline()).isEqualTo("Test headline");
     }
 
     // ── compact constructor null-safety ───────────────────────────────────────
 
     @Test
-    @DisplayName("null bestBets normalised to empty list by compact constructor")
-    void compactConstructor_nullBestBets_normalisedToEmptyList() {
-        DailyBriefingResponse response = new DailyBriefingResponse(
-                GENERATED_AT, "Test", List.of(),
-                null,  // null bestBets
-                null, null, false, null, List.of(), List.of());
-
-        assertThat(response.bestBets()).isNotNull().isEmpty();
-    }
-
-    @Test
     @DisplayName("null hotTopics normalised to empty list by compact constructor")
     void compactConstructor_nullHotTopics_normalisedToEmptyList() {
         DailyBriefingResponse response = new DailyBriefingResponse(
-                GENERATED_AT, "Test", List.of(),
-                List.of(), null, null, false, null,
+                GENERATED_AT, "Test", List.of(), null, null, false,
                 null,  // null hotTopics
                 List.of());
 
@@ -171,38 +137,6 @@ class DailyBriefingResponseJsonTest {
     // ── round-trip (serialize → deserialize) ────────────────────────────────
 
     @Test
-    @DisplayName("round-trip — empty bestBets deserialises to empty list, not null")
-    void roundTrip_emptyBestBets_deserialisesToEmptyList() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        DailyBriefingResponse original = minimalResponse(List.of());
-
-        String json = mapper.writeValueAsString(original);
-        DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
-
-        assertThat(restored.bestBets()).isNotNull().isEmpty();
-    }
-
-    @Test
-    @DisplayName("round-trip — populated bestBets deserialises with correct content")
-    void roundTrip_populatedBestBets_contentPreserved() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        BestBet bet = new BestBet(1, "Head to the coast", "Clear skies until midnight.",
-                "2026-04-15_sunset", "Northumberland", Confidence.HIGH, 45,
-                "Today", "sunset", "20:48");
-        DailyBriefingResponse original = minimalResponse(List.of(bet));
-
-        String json = mapper.writeValueAsString(original);
-        DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
-
-        assertThat(restored.bestBets()).hasSize(1);
-        assertThat(restored.bestBets().get(0).rank()).isEqualTo(1);
-        assertThat(restored.bestBets().get(0).headline()).isEqualTo("Head to the coast");
-        assertThat(restored.bestBets().get(0).region()).isEqualTo("Northumberland");
-        assertThat(restored.bestBets().get(0).confidence()).isEqualTo(Confidence.HIGH);
-        assertThat(restored.bestBets().get(0).nearestDriveMinutes()).isEqualTo(45);
-    }
-
-    @Test
     @DisplayName("round-trip — hotTopics deserialises with correct content")
     void roundTrip_hotTopics_contentPreserved() throws Exception {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
@@ -210,8 +144,8 @@ class DailyBriefingResponseJsonTest {
                 LocalDate.of(2026, 4, 20), 1, "BLUEBELL",
                 List.of("Northumberland"), "Peak bluebell season.", null);
         DailyBriefingResponse original = new DailyBriefingResponse(
-                GENERATED_AT, "Test", List.of(), List.of(), null, null,
-                false, null, List.of(topic), List.of());
+                GENERATED_AT, "Test", List.of(), null, null,
+                false, List.of(topic), List.of());
 
         String json = mapper.writeValueAsString(original);
         DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
@@ -226,8 +160,8 @@ class DailyBriefingResponseJsonTest {
     void roundTrip_nullSeasonalFeatures_normalisedToEmptyList() throws Exception {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         DailyBriefingResponse original = new DailyBriefingResponse(
-                GENERATED_AT, "Test", List.of(), List.of(), null, null,
-                false, null, List.of(),
+                GENERATED_AT, "Test", List.of(), null, null,
+                false, List.of(),
                 List.of("BLUEBELL", "AURORA"));
 
         String json = mapper.writeValueAsString(original);
@@ -240,8 +174,8 @@ class DailyBriefingResponseJsonTest {
     @DisplayName("compact constructor — null seasonalFeatures normalised to empty list")
     void compactConstructor_nullSeasonalFeatures_normalisedToEmptyList() {
         DailyBriefingResponse response = new DailyBriefingResponse(
-                GENERATED_AT, "Test", List.of(), List.of(), null, null,
-                false, null, List.of(),
+                GENERATED_AT, "Test", List.of(), null, null,
+                false, List.of(),
                 null);  // null seasonalFeatures
 
         assertThat(response.seasonalFeatures()).isNotNull().isEmpty();
@@ -252,71 +186,18 @@ class DailyBriefingResponseJsonTest {
     @Test
     @DisplayName("empty hotTopics is excluded under NON_EMPTY policy (no ALWAYS override on it)")
     void serialize_emptyHotTopics_globalNonEmptyPolicy_fieldAbsent() throws Exception {
-        // Confirms that @JsonInclude(ALWAYS) is specifically scoped to bestBets only.
-        // hotTopics has no such override, so it IS stripped under NON_EMPTY.
+        // hotTopics has no @JsonInclude(ALWAYS) override, so it IS stripped under NON_EMPTY.
         ObjectMapper nonEmptyMapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .setDefaultPropertyInclusion(JsonInclude.Include.NON_EMPTY);
 
-        DailyBriefingResponse response = minimalResponse(List.of());
+        DailyBriefingResponse response = minimalResponse();
 
         JsonNode node = nonEmptyMapper.readTree(nonEmptyMapper.writeValueAsString(response));
 
         assertThat(node.has("hotTopics"))
                 .as("hotTopics has no @JsonInclude(ALWAYS) — it should be absent under NON_EMPTY")
                 .isFalse();
-    }
-
-    // ── BestBet relationship/differsBy JSON serialization ──────────────────
-
-    @Test
-    @DisplayName("relationship omitted from JSON when null (convenience constructor)")
-    void serialize_nullRelationship_fieldOmitted() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        BestBet bet = new BestBet(1, "H", "D", "e", "r",
-                Confidence.HIGH, null, null, null, null);
-        String json = mapper.writeValueAsString(bet);
-        JsonNode node = mapper.readTree(json);
-        assertThat(node.has("relationship")).isFalse();
-    }
-
-    @Test
-    @DisplayName("differsBy omitted from JSON when empty (convenience constructor)")
-    void serialize_emptyDiffersBy_fieldOmitted() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        BestBet bet = new BestBet(1, "H", "D", "e", "r",
-                Confidence.HIGH, null, null, null, null);
-        String json = mapper.writeValueAsString(bet);
-        JsonNode node = mapper.readTree(json);
-        assertThat(node.has("differsBy")).isFalse();
-    }
-
-    @Test
-    @DisplayName("relationship present in JSON when SAME_SLOT")
-    void serialize_sameSlotRelationship_fieldPresent() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        BestBet bet = new BestBet(2, "H", "D", "e", "r",
-                Confidence.HIGH, null, null, null, null,
-                Relationship.SAME_SLOT, List.of());
-        String json = mapper.writeValueAsString(bet);
-        JsonNode node = mapper.readTree(json);
-        assertThat(node.get("relationship").asText()).isEqualTo("SAME_SLOT");
-    }
-
-    @Test
-    @DisplayName("relationship and differsBy both present when DIFFERENT_SLOT with values")
-    void serialize_differentSlotWithDiffersBy_bothPresent() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        BestBet bet = new BestBet(2, "H", "D", "e", "r",
-                Confidence.HIGH, null, null, null, null,
-                Relationship.DIFFERENT_SLOT,
-                List.of(DiffersBy.DATE, DiffersBy.EVENT));
-        String json = mapper.writeValueAsString(bet);
-        JsonNode node = mapper.readTree(json);
-        assertThat(node.get("relationship").asText()).isEqualTo("DIFFERENT_SLOT");
-        assertThat(node.get("differsBy")).hasSize(2);
-        assertThat(node.get("differsBy").get(0).asText()).isEqualTo("DATE");
-        assertThat(node.get("differsBy").get(1).asText()).isEqualTo("EVENT");
     }
 
     // ── map-tab tide-on-the-light fields (bundle rev 2) ─────────────────────────
@@ -742,8 +623,8 @@ class DailyBriefingResponseJsonTest {
         BriefingEventSummary summary =
                 new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of(), null, window);
         return new DailyBriefingResponse(GENERATED_AT, "Test",
-                List.of(new BriefingDay(LocalDate.of(2026, 4, 22), List.of(summary))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(LocalDate.of(2026, 4, 22), List.of(summary))), null, null, false, List.of(),
+                List.of());
     }
 
     private static JsonNode navigateToTide(JsonNode root) {
@@ -752,10 +633,9 @@ class DailyBriefingResponseJsonTest {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private static DailyBriefingResponse minimalResponse(List<BestBet> bestBets) {
+    private static DailyBriefingResponse minimalResponse() {
         return new DailyBriefingResponse(
-                GENERATED_AT, "Test headline", List.of(),
-                bestBets, null, null, false, null,
+                GENERATED_AT, "Test headline", List.of(), null, null, false,
                 List.of(), List.of());
     }
 
@@ -777,8 +657,8 @@ class DailyBriefingResponseJsonTest {
         BriefingEventSummary summary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(), List.of(slot), null, null);
         DailyBriefingResponse response = new DailyBriefingResponse(GENERATED_AT, "Test",
-                List.of(new BriefingDay(LocalDate.of(2026, 9, 19), List.of(summary))),
-                List.of(), null, null, false, null, List.of(), List.of());
+                List.of(new BriefingDay(LocalDate.of(2026, 9, 19), List.of(summary))), null, null, false, List.of(),
+                List.of());
         JsonNode root = mapper.readTree(mapper.writeValueAsString(response));
         ((com.fasterxml.jackson.databind.node.ObjectNode) root.get("days").get(0).get("eventSummaries")
                 .get(0).get("unregioned").get(0)).put("evaluationGate", "x");

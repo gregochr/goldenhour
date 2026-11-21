@@ -84,8 +84,8 @@ class TideLightLiteShapingTest {
         BriefingWindow window = new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 4, null, null, badges, null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(), List.of(),
                 AT, window);
-        return new DailyBriefingResponse(AT, "h", List.of(new BriefingDay(DAY, List.of(summary))),
-                List.of(), null, null, false, null, topics, List.of()).withBigSeas(bigSeas);
+        return new DailyBriefingResponse(AT, "h", List.of(new BriefingDay(DAY, List.of(summary))), null, null, false,
+        topics, List.of()).withBigSeas(bigSeas);
     }
 
     private static BriefingWindow windowOf(DailyBriefingResponse r) {

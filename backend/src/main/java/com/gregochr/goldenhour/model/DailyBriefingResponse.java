@@ -12,33 +12,12 @@ import java.util.List;
  * @param generatedAt        UTC timestamp when this briefing was generated
  * @param headline           one-line summary highlighting the best opportunities
  * @param days               per-day briefing data (today + tomorrow)
- * @param bestBets           always empty: the Claude best-bet advisor was retired 2026-11-21 (the field
- *                           stays until the follow-up removal so stored payloads still deserialise)
  * @param auroraTonight      tonight's aurora summary, or {@code null} when the state machine is idle
  * @param auroraTomorrow     tomorrow night's Kp forecast summary, or {@code null} if unavailable
  * @param stale              true when this is the last-known-good briefing, not freshly generated
- * @param bestBetModel       display name of the Claude model used for best-bet picks (e.g. "Opus")
  * @param hotTopics          seasonal and special-interest hot topics for the forecast window
  * @param seasonalFeatures   active seasonal feature keys (e.g. "BLUEBELL") — used by frontend
  *                           to conditionally render seasonal filter chips
- * @param bestBetStatus      explicit best-bet outcome so the UI distinguishes an honest empty
- *                           result from a failure; {@code null} on legacy payloads (frontend
- *                           then infers from {@code bestBets} length)
- * @param bestBetsWithdrawn  {@code true} when the honesty filter removed at least one pick at
- *                           serve time because it named a region the same response reports as
- *                           unevaluable. Serve-path only — never persisted, {@code null}
- *                           everywhere else, including on every stored payload.
- *
- *                           <p>It exists because a one-pick list is ambiguous and the UI resolves
- *                           the ambiguity in prose. The banner tells a reader "nothing else in
- *                           this window scored well enough to be worth a second trip — that's the
- *                           forecast, not a missing recommendation", which is true when the
- *                           advisor withheld a runner-up and false when one was withdrawn here.
- *                           {@code bestBetStatus} cannot carry this: it describes what this
- *                           cycle's <em>advisor</em> did, which is a different question. The two
- *                           are orthogonal — a withdrawal can accompany a successful advisor, and
- *                           equally a {@code FAILED} one whose stale fallback list is what got
- *                           withdrawn.
  * @param renderedEvents     the solar events the Plan tab draws, ordered and bounded to the whole days
  *                           today..T+3 ({@code PlanRenderLimits.withinHorizon}), with elapsed events
  *                           already dropped against a UTC instant. Serve-path only, published by
@@ -94,15 +73,11 @@ public record DailyBriefingResponse(
         LocalDateTime generatedAt,
         String headline,
         List<BriefingDay> days,
-        @JsonInclude(JsonInclude.Include.ALWAYS) List<BestBet> bestBets,
         AuroraTonightSummary auroraTonight,
         AuroraTomorrowSummary auroraTomorrow,
         boolean stale,
-        String bestBetModel,
         List<HotTopic> hotTopics,
         List<String> seasonalFeatures,
-        BestBetStatus bestBetStatus,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean bestBetsWithdrawn,
         @JsonInclude(JsonInclude.Include.NON_NULL) List<PlanRenderedEvent> renderedEvents,
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime previousGeneratedAt,
         @JsonInclude(JsonInclude.Include.NON_NULL) List<BigSeasDay> bigSeas,
@@ -120,7 +95,6 @@ public record DailyBriefingResponse(
      */
     public DailyBriefingResponse {
         days = List.copyOf(days);
-        bestBets = bestBets == null ? List.of() : List.copyOf(bestBets);
         hotTopics = hotTopics == null ? List.of() : List.copyOf(hotTopics);
         seasonalFeatures = seasonalFeatures == null ? List.of() : List.copyOf(seasonalFeatures);
         renderedEvents = renderedEvents == null ? null : List.copyOf(renderedEvents);
@@ -129,294 +103,79 @@ public record DailyBriefingResponse(
     }
 
     /**
-     * Sixteen-component form, defaulting {@code briefingVersion} to null. Retained so every call site that predates
-     * the field compiles unchanged; the withers thread the field through from {@code this}.
+     * Nine-component form: no producer of a response knows the serve-path-only fields, so they default to null
+     * ({@code previousGeneratedAt}, {@code bigSeas}, {@code allowedLocationIds}, {@code briefingVersion}). The
+     * serve steps publish them through {@link #withMovement}, {@link #withBigSeas}, {@link #withPickScope} and
+     * {@link #withBriefingVersion}.
      *
-     * @param generatedAt         UTC generation timestamp
-     * @param headline            one-line summary
-     * @param days                per-day briefing data
-     * @param bestBets            best-bet picks
-     * @param auroraTonight       tonight's aurora summary or null
-     * @param auroraTomorrow      tomorrow's aurora summary or null
-     * @param stale               last-known-good flag
-     * @param bestBetModel        best-bet model display name
-     * @param hotTopics           hot topics
-     * @param seasonalFeatures    active seasonal feature keys
-     * @param bestBetStatus       best-bet outcome
-     * @param bestBetsWithdrawn   whether the honesty filter withdrew a pick
-     * @param renderedEvents      the events the Plan tab draws
-     * @param previousGeneratedAt the prior build stamp the deltas are measured against
-     * @param bigSeas             the big-seas days
-     * @param allowedLocationIds  the reader's sub-region location ids, or null
+     * <p>Deliberately no overload shares an arity with a form that carried the retired best-bet components
+     * (10 to 13), so a caller still passing those fails to compile rather than silently re-binding.
+     *
+     * @param generatedAt      UTC generation timestamp
+     * @param headline         one-line summary
+     * @param days             per-day briefing data
+     * @param auroraTonight    tonight's aurora summary or null
+     * @param auroraTomorrow   tomorrow's aurora summary or null
+     * @param stale            last-known-good flag
+     * @param hotTopics        hot topics
+     * @param seasonalFeatures active seasonal feature keys
+     * @param renderedEvents   the events the Plan tab draws, or null
      */
     public DailyBriefingResponse(
             LocalDateTime generatedAt,
             String headline,
             List<BriefingDay> days,
-            List<BestBet> bestBets,
             AuroraTonightSummary auroraTonight,
             AuroraTomorrowSummary auroraTomorrow,
             boolean stale,
-            String bestBetModel,
             List<HotTopic> hotTopics,
             List<String> seasonalFeatures,
-            BestBetStatus bestBetStatus,
-            Boolean bestBetsWithdrawn,
-            List<PlanRenderedEvent> renderedEvents,
-            LocalDateTime previousGeneratedAt,
-            List<BigSeasDay> bigSeas,
-            List<Long> allowedLocationIds) {
-        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow, stale, bestBetModel, hotTopics,
-                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents, previousGeneratedAt, bigSeas,
-                allowedLocationIds, null);
-    }
-
-    /**
-     * Fifteen-component form, defaulting {@code allowedLocationIds} to null (an unshaped response).
-     * Retained so every call site that predates the field keeps compiling unchanged; the withers do not
-     * use it, they thread the field through from {@code this}.
-     *
-     * @param generatedAt         UTC generation timestamp
-     * @param headline            one-line summary
-     * @param days                per-day briefing data
-     * @param bestBets            best-bet picks
-     * @param auroraTonight       tonight's aurora summary or null
-     * @param auroraTomorrow      tomorrow's aurora summary or null
-     * @param stale               last-known-good flag
-     * @param bestBetModel        best-bet model display name
-     * @param hotTopics           hot topics
-     * @param seasonalFeatures    active seasonal feature keys
-     * @param bestBetStatus       best-bet outcome
-     * @param bestBetsWithdrawn   whether the honesty filter withdrew a pick
-     * @param renderedEvents      the events the Plan tab draws
-     * @param previousGeneratedAt the prior build stamp the deltas are measured against
-     * @param bigSeas             the big-seas days
-     */
-    public DailyBriefingResponse(
-            LocalDateTime generatedAt,
-            String headline,
-            List<BriefingDay> days,
-            List<BestBet> bestBets,
-            AuroraTonightSummary auroraTonight,
-            AuroraTomorrowSummary auroraTomorrow,
-            boolean stale,
-            String bestBetModel,
-            List<HotTopic> hotTopics,
-            List<String> seasonalFeatures,
-            BestBetStatus bestBetStatus,
-            Boolean bestBetsWithdrawn,
-            List<PlanRenderedEvent> renderedEvents,
-            LocalDateTime previousGeneratedAt,
-            List<BigSeasDay> bigSeas) {
-        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, bestBetModel, hotTopics,
-                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents,
-                previousGeneratedAt, bigSeas, null);
-    }
-
-    /**
-     * Fourteen-component form, defaulting {@code bigSeas} to null.
-     *
-     * <p>The previous canonical signature. No producer of a response knows the big-seas days: only
-     * the serve-time step does, and it publishes through {@link #withBigSeas}.
-     *
-     * @param generatedAt         UTC generation timestamp
-     * @param headline            one-line summary
-     * @param days                per-day briefing data
-     * @param bestBets            best-bet picks
-     * @param auroraTonight       tonight's aurora summary or null
-     * @param auroraTomorrow      tomorrow's aurora summary or null
-     * @param stale               last-known-good flag
-     * @param bestBetModel        best-bet model display name
-     * @param hotTopics           hot topics
-     * @param seasonalFeatures    active seasonal feature keys
-     * @param bestBetStatus       whether the advisor produced picks, found none, or failed
-     * @param bestBetsWithdrawn   whether the honesty filter withdrew a pick at serve time
-     * @param renderedEvents      the events the Plan tab draws, or null
-     * @param previousGeneratedAt the build the movement deltas were measured against, or null
-     */
-    public DailyBriefingResponse(
-            LocalDateTime generatedAt,
-            String headline,
-            List<BriefingDay> days,
-            List<BestBet> bestBets,
-            AuroraTonightSummary auroraTonight,
-            AuroraTomorrowSummary auroraTomorrow,
-            boolean stale,
-            String bestBetModel,
-            List<HotTopic> hotTopics,
-            List<String> seasonalFeatures,
-            BestBetStatus bestBetStatus,
-            Boolean bestBetsWithdrawn,
-            List<PlanRenderedEvent> renderedEvents,
-            LocalDateTime previousGeneratedAt) {
-        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, bestBetModel, hotTopics,
-                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents,
-                previousGeneratedAt, null);
-    }
-
-    /**
-     * Thirteen-component form, defaulting {@code previousGeneratedAt} to null.
-     *
-     * <p>The previous canonical signature. Retained for the same reason as the shorter forms: no
-     * producer of a response knows what the movement was measured against — only the serve-time
-     * movement step does, and it publishes through {@link #withMovement}.
-     *
-     * @param generatedAt         UTC generation timestamp
-     * @param headline            one-line summary
-     * @param days                per-day briefing data
-     * @param bestBets            best-bet picks
-     * @param auroraTonight       tonight's aurora summary or null
-     * @param auroraTomorrow      tomorrow's aurora summary or null
-     * @param stale               last-known-good flag
-     * @param bestBetModel        best-bet model display name
-     * @param hotTopics           hot topics
-     * @param seasonalFeatures    active seasonal feature keys
-     * @param bestBetStatus       whether the advisor produced picks, found none, or failed
-     * @param bestBetsWithdrawn   whether the honesty filter withdrew a pick at serve time
-     * @param renderedEvents      the events the Plan tab draws, or null
-     */
-    public DailyBriefingResponse(
-            LocalDateTime generatedAt,
-            String headline,
-            List<BriefingDay> days,
-            List<BestBet> bestBets,
-            AuroraTonightSummary auroraTonight,
-            AuroraTomorrowSummary auroraTomorrow,
-            boolean stale,
-            String bestBetModel,
-            List<HotTopic> hotTopics,
-            List<String> seasonalFeatures,
-            BestBetStatus bestBetStatus,
-            Boolean bestBetsWithdrawn,
             List<PlanRenderedEvent> renderedEvents) {
-        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, bestBetModel, hotTopics,
-                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents, null);
+        this(generatedAt, headline, days, auroraTonight, auroraTomorrow, stale, hotTopics, seasonalFeatures,
+                renderedEvents, null, null, null, null);
     }
 
     /**
-     * Twelve-component form, defaulting {@code renderedEvents} to null.
+     * Eight-component form, defaulting {@code renderedEvents} (and everything after it) to null. Used by call
+     * sites that build a response from scratch; anything copying or overlaying an existing response must use a
+     * wither so no component is silently dropped.
      *
-     * <p>Retained because every <em>producer</em> of a response legitimately has nothing to say
-     * about which events are rendered — only {@code PlanWindowProjector}, the outermost serve step,
-     * does, and it publishes through {@link #withPlan}. Same caveat as the shorter forms above: a
-     * copy that omits the field silently unpublishes the rendered list.
-     *
-     * @param generatedAt         UTC generation timestamp
-     * @param headline            one-line summary
-     * @param days                per-day briefing data
-     * @param bestBets            best-bet picks
-     * @param auroraTonight       tonight's aurora summary or null
-     * @param auroraTomorrow      tomorrow's aurora summary or null
-     * @param stale               last-known-good flag
-     * @param bestBetModel        best-bet model display name
-     * @param hotTopics           hot topics
-     * @param seasonalFeatures    active seasonal feature keys
-     * @param bestBetStatus       whether the advisor produced picks, found none, or failed
-     * @param bestBetsWithdrawn   whether the honesty filter withdrew a pick at serve time
+     * @param generatedAt      UTC generation timestamp
+     * @param headline         one-line summary
+     * @param days             per-day briefing data
+     * @param auroraTonight    tonight's aurora summary or null
+     * @param auroraTomorrow   tomorrow's aurora summary or null
+     * @param stale            last-known-good flag
+     * @param hotTopics        hot topics
+     * @param seasonalFeatures active seasonal feature keys
      */
     public DailyBriefingResponse(
             LocalDateTime generatedAt,
             String headline,
             List<BriefingDay> days,
-            List<BestBet> bestBets,
             AuroraTonightSummary auroraTonight,
             AuroraTomorrowSummary auroraTomorrow,
             boolean stale,
-            String bestBetModel,
-            List<HotTopic> hotTopics,
-            List<String> seasonalFeatures,
-            BestBetStatus bestBetStatus,
-            Boolean bestBetsWithdrawn) {
-        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, bestBetModel, hotTopics,
-                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, null, null);
-    }
-
-    /**
-     * Backward-compatible constructor without an explicit best-bet status (defaults to
-     * {@code null}). Lets existing call sites and persisted JSON payloads that predate the
-     * status contract continue to work unchanged; callers that know the outcome use the
-     * canonical constructor instead.
-     *
-     * @param generatedAt         UTC generation timestamp
-     * @param headline            one-line summary
-     * @param days                per-day briefing data
-     * <p><strong>Defaults {@code bestBetStatus} to {@code null} — do not use it to rebuild an
-     * existing response.</strong> This constructor is retained for the many call sites that
-     * legitimately build a response from scratch with no status yet; anything copying or
-     * overlaying an existing response must pass all 11 components (or use {@link #withDays}).
-     *
-     * @param bestBets            best-bet picks
-     * @param auroraTonight       tonight's aurora summary or null
-     * @param auroraTomorrow      tomorrow's aurora summary or null
-     * @param stale               last-known-good flag
-     * @param bestBetModel        best-bet model display name
-     * @param hotTopics           hot topics
-     * @param seasonalFeatures    active seasonal feature keys
-     */
-    public DailyBriefingResponse(
-            LocalDateTime generatedAt,
-            String headline,
-            List<BriefingDay> days,
-            List<BestBet> bestBets,
-            AuroraTonightSummary auroraTonight,
-            AuroraTomorrowSummary auroraTomorrow,
-            boolean stale,
-            String bestBetModel,
             List<HotTopic> hotTopics,
             List<String> seasonalFeatures) {
-        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, bestBetModel, hotTopics,
-                seasonalFeatures, null, null);
-    }
-
-    /**
-     * Eleven-component form, defaulting {@code bestBetsWithdrawn} to null.
-     *
-     * <p>Same caveat as the ten-component form above, for the same reason: a copy that omits
-     * the flag silently un-suppresses the "no also good" note. It is retained because every
-     * <em>producer</em> of a response legitimately has nothing to say about withdrawal — only
-     * {@link com.gregochr.goldenhour.service.BriefingHonestyFilter}, which performs it, does.
-     *
-     * @param bestBetStatus whether the advisor produced picks, found none, or failed
-     */
-    public DailyBriefingResponse(
-            LocalDateTime generatedAt,
-            String headline,
-            List<BriefingDay> days,
-            List<BestBet> bestBets,
-            AuroraTonightSummary auroraTonight,
-            AuroraTomorrowSummary auroraTomorrow,
-            boolean stale,
-            String bestBetModel,
-            List<HotTopic> hotTopics,
-            List<String> seasonalFeatures,
-            BestBetStatus bestBetStatus) {
-        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, bestBetModel, hotTopics,
-                seasonalFeatures, bestBetStatus, null);
+        this(generatedAt, headline, days, auroraTonight, auroraTomorrow, stale, hotTopics, seasonalFeatures, null);
     }
 
     /**
      * Returns a copy of this response with the day hierarchy replaced. All other fields
-     * (headline, best bets, aurora, hot topics, status flags) are preserved. Used by the
+     * (headline, aurora, hot topics, serve-path stamps) are preserved. Used by the
      * serve-time re-enrichment path to swap in regions with freshly re-derived verdicts.
      *
-     * <p>It must carry <b>every</b> component, {@code bestBetsWithdrawn} included. This method is
-     * how the outermost serve step ({@code PlanWindowProjector}) rebuilds the response, and the
-     * honesty filter has already run by then — dropping the flag here would silently restore the
-     * false "nothing else scored well enough" note it exists to suppress.
+     * <p>It must carry <b>every</b> component: this method is how the outermost serve step
+     * ({@code PlanWindowProjector}) rebuilds the response, so dropping one would silently unpublish it.
      *
      * @param newDays the replacement day hierarchy
      * @return a copy carrying {@code newDays}
      */
     public DailyBriefingResponse withDays(List<BriefingDay> newDays) {
-        return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
+        return new DailyBriefingResponse(generatedAt, headline, newDays,
                 auroraTonight, auroraTomorrow, stale,
-                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                hotTopics, seasonalFeatures,
                 renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds, briefingVersion);
     }
 
@@ -436,9 +195,9 @@ public record DailyBriefingResponse(
      */
     public DailyBriefingResponse withMovement(List<BriefingDay> newDays,
             LocalDateTime newPreviousGeneratedAt) {
-        return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
+        return new DailyBriefingResponse(generatedAt, headline, newDays,
                 auroraTonight, auroraTomorrow, stale,
-                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                hotTopics, seasonalFeatures,
                 renderedEvents, newPreviousGeneratedAt, bigSeas, allowedLocationIds, briefingVersion);
     }
 
@@ -456,32 +215,10 @@ public record DailyBriefingResponse(
      */
     public DailyBriefingResponse withPlan(List<BriefingDay> newDays,
             List<PlanRenderedEvent> newRenderedEvents) {
-        return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
+        return new DailyBriefingResponse(generatedAt, headline, newDays,
                 auroraTonight, auroraTomorrow, stale,
-                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                hotTopics, seasonalFeatures,
                 newRenderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds, briefingVersion);
-    }
-
-    /**
-     * Returns a copy carrying a replacement best-bet list and its withdrawal flag.
-     *
-     * <p>One method rather than two withers, for {@link #withPlan}'s reason: the two are one
-     * answer. {@code bestBetsWithdrawn} says whether the honesty filter removed a pick from the
-     * list it accompanies, so publishing a new list without stating the flag would let a caller
-     * leave the flag describing a list that is no longer there. Every other component, including
-     * {@code renderedEvents} and {@code previousGeneratedAt}, is preserved.
-     *
-     * @param newBestBets          the replacement picks
-     * @param newBestBetsWithdrawn {@code true} when a pick was withdrawn at serve time, otherwise
-     *                             null; pass {@code bestBetsWithdrawn()} to keep the existing flag
-     * @return a copy carrying both
-     */
-    public DailyBriefingResponse withBestBets(List<BestBet> newBestBets,
-            Boolean newBestBetsWithdrawn) {
-        return new DailyBriefingResponse(generatedAt, headline, days, newBestBets,
-                auroraTonight, auroraTomorrow, stale,
-                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, newBestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds, briefingVersion);
     }
 
     /**
@@ -498,9 +235,9 @@ public record DailyBriefingResponse(
      */
     public DailyBriefingResponse withLiveOverlays(AuroraTonightSummary newAuroraTonight,
             AuroraTomorrowSummary newAuroraTomorrow, List<HotTopic> newHotTopics) {
-        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
+        return new DailyBriefingResponse(generatedAt, headline, days,
                 newAuroraTonight, newAuroraTomorrow, stale,
-                bestBetModel, newHotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                newHotTopics, seasonalFeatures,
                 renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds, briefingVersion);
     }
 
@@ -511,37 +248,10 @@ public record DailyBriefingResponse(
      * @return a copy carrying {@code newBigSeas}
      */
     public DailyBriefingResponse withBigSeas(List<BigSeasDay> newBigSeas) {
-        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
+        return new DailyBriefingResponse(generatedAt, headline, days,
                 auroraTonight, auroraTomorrow, stale,
-                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                hotTopics, seasonalFeatures,
                 renderedEvents, previousGeneratedAt, newBigSeas, allowedLocationIds, briefingVersion);
-    }
-
-    /**
-     * Returns a copy carrying the given best-bet model display name. Every other component is
-     * preserved.
-     *
-     * @param newBestBetModel the model display name, or null for none
-     * @return a copy carrying {@code newBestBetModel}
-     */
-    public DailyBriefingResponse withBestBetModel(String newBestBetModel) {
-        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
-                auroraTonight, auroraTomorrow, stale,
-                newBestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds, briefingVersion);
-    }
-
-    /**
-     * Returns a copy carrying the given best-bet status. Every other component is preserved.
-     *
-     * @param newBestBetStatus the status, or null for none
-     * @return a copy carrying {@code newBestBetStatus}
-     */
-    public DailyBriefingResponse withBestBetStatus(BestBetStatus newBestBetStatus) {
-        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
-                auroraTonight, auroraTomorrow, stale,
-                bestBetModel, hotTopics, seasonalFeatures, newBestBetStatus, bestBetsWithdrawn,
-                renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds, briefingVersion);
     }
 
     /**
@@ -552,9 +262,9 @@ public record DailyBriefingResponse(
      * @return a copy with both replaced
      */
     public DailyBriefingResponse withPickScope(List<HotTopic> newHotTopics, List<Long> newAllowedLocationIds) {
-        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
+        return new DailyBriefingResponse(generatedAt, headline, days,
                 auroraTonight, auroraTomorrow, stale,
-                bestBetModel, newHotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                newHotTopics, seasonalFeatures,
                 renderedEvents, previousGeneratedAt, bigSeas, newAllowedLocationIds, briefingVersion);
     }
 
@@ -566,9 +276,9 @@ public record DailyBriefingResponse(
      * @return the copy
      */
     public DailyBriefingResponse withBriefingVersion(String newBriefingVersion) {
-        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
+        return new DailyBriefingResponse(generatedAt, headline, days,
                 auroraTonight, auroraTomorrow, stale,
-                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                hotTopics, seasonalFeatures,
                 renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds, newBriefingVersion);
     }
 }

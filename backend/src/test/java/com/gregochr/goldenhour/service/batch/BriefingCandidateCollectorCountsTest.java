@@ -111,8 +111,8 @@ class BriefingCandidateCollectorCountsTest {
     }
 
     private static DailyBriefingResponse briefing(BriefingDay... days) {
-        return new DailyBriefingResponse(LocalDateTime.now(), null, List.of(days), List.of(),
-                null, null, false, null, List.of(), List.of());
+        return new DailyBriefingResponse(LocalDateTime.now(), null, List.of(days),
+                null, null, false, List.of(), List.of());
     }
 
     private static CandidateCollectionStrategy acceptAll() {

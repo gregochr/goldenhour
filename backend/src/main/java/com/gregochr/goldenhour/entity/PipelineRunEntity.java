@@ -56,8 +56,9 @@ public class PipelineRunEntity {
     /**
      * The retired best-bet advisor's outcome for this cycle: {@code SUCCESS_WITH_PICKS},
      * {@code SUCCESS_NO_PICKS} (honest decline), or {@code FAILED}. Nothing writes or reads it
-     * any more (the advisor was retired 2026-11-21); the column stays until the follow-up
-     * migration drops it, and is null on every new run.
+     * any more (the advisor was retired 2026-11-21); the column and its {@code BestBetStatus}
+     * enum stay until the R2b migration drops the column (R2a removed only the wire fields), and it is null on
+     * every new run.
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "best_bet_status", length = 20)

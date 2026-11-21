@@ -74,8 +74,7 @@ class BriefingGlossReuseTest {
 
     private static DailyBriefingResponse responseOf(BriefingDay day) {
         return new DailyBriefingResponse(LocalDateTime.of(2026, 4, 10, 6, 0), "Headline",
-                List.of(day), List.of(), null, null, false, null, List.of(), List.of(),
-                null, null, null, null, null, null);
+                List.of(day), null, null, false, List.of(), List.of(), null, null, null, null, null);
     }
 
     @Test

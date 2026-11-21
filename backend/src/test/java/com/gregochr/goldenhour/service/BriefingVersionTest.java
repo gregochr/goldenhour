@@ -120,7 +120,7 @@ class BriefingVersionTest {
     @DisplayName("the assembler stamps it on the response, and every wither carries it through")
     void withBriefingVersionSurvivesTheWithers() {
         DailyBriefingResponse base = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 1, 0, 0), "h",
-                days(slot(4, false, false), "Fiery", "Northumberland"), List.of(), null, null, false, null,
+                days(slot(4, false, false), "Fiery", "Northumberland"), null, null, false,
                 List.of(), List.of(), null, null, null, null, null).withBriefingVersion("v-1");
 
         assertThat(base.briefingVersion()).isEqualTo("v-1");
