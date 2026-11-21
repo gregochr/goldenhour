@@ -44,15 +44,6 @@ public class ModelSelectionEntity {
     @Column(name = "run_type", nullable = false, length = 20)
     private RunType runType;
 
-    /**
-     * Retained column, read and written by nothing: the only code that honoured it was the retired best-bet
-     * advisor, and its endpoint and service methods were deleted. The column goes with the best-bet retirement's
-     * schema phase (R2b).
-     */
-    @Builder.Default
-    @Column(name = "extended_thinking", nullable = false)
-    private boolean extendedThinking = false;
-
     /** UTC timestamp when this selection was last updated. */
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;

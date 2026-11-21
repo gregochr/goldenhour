@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>The container field is deliberately <b>not</b> {@code static}: each test method here
  * drives Flyway (and the schema version) directly, so a shared container would leak one
  * method's post-migration state into the next — {@code dedupeStatement_isIdempotentOnceClean}
- * inserts {@code pipeline_run} id 1 and migrates to latest, and a shared container would then
+ * inserts {@code pipeline_run} id 1 and migrates to V148, and a shared container would then
  * make {@link #v148_dedupesPreexistingDuplicatesThenConstrains()}'s own id-1 insert collide
  * (or, run first, leave the schema already past V147, so the "seed pre-V148 duplicates" step
  * would be seeding against an already-unique-constrained table). A non-static
@@ -115,8 +115,8 @@ class PipelineRunPickDedupeMigrationTest {
                     + "VALUES (30, 2, 1, 'clean run, untouched', now())");
         }
 
-        // 3. Apply V148 (and nothing else — it is the latest migration in this worktree).
-        flywayTo(null).migrate();
+        // 3. Apply V148 and stop there: V227 later drops pipeline_run_pick.
+        flywayTo("148").migrate();
 
         // 4. Exactly one row per (pipeline_run_id, pick_rank) group remains, and it is the
         // highest-id (most-recently-written) row from each duplicate set.
@@ -178,7 +178,7 @@ class PipelineRunPickDedupeMigrationTest {
     @DisplayName("the dedupe statement is idempotent — re-running it once the table already "
             + "holds at most one row per (pipeline_run_id, pick_rank) deletes nothing")
     void dedupeStatement_isIdempotentOnceClean() throws SQLException {
-        flywayTo(null).migrate();
+        flywayTo("148").migrate();
 
         String dedupeSql = "DELETE FROM pipeline_run_pick p WHERE EXISTS ("
                 + "SELECT 1 FROM pipeline_run_pick newer "

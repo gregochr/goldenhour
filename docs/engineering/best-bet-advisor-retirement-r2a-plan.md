@@ -1,7 +1,7 @@
 # Best bet advisor retirement — R2a (code-only dead-field removal)
 
 Follows R1 (PR 1896, merged 2026-11-21), which stopped calling the advisor. R2a removes the now-dead
-wire fields and types. R2b (a later PR, the release after R1 has been deployed) is the migration that drops
+wire fields and types. R2b (split into R2b-1 and R2b-2: see `best-bet-advisor-retirement-r2b-plan.md`; a later PR, the release after R1 has been deployed) is the migration that drops
 `pipeline_run_pick` and `pipeline_run.best_bet_status`. **R2a must contain no migration and must not touch
 `PipelineRunEntity.bestBetStatus`'s column**: see "Why the split" below.
 
