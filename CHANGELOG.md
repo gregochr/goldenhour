@@ -5,6 +5,126 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.41.0] - 2026-11-21
+
+### Fixed — TokenIssuerTest no longer flakes when the machine is busy
+The two-thread cases hold a row lock while another thread waits, and H2's default 2 s lock timeout turned a slow commit under CPU contention into `CannotAcquireLockException` (then a duplicate `reader` insert in the next test). The class now has its own in-memory database with a 60 s lock timeout and waits for its worker threads before cleanup. Test-only; no production change.
+
+### Removed — the Claude Best bet advisor call and its admin surfaces
+
+The Best bet advisor no longer runs: a briefing build makes one fewer Claude call (about $2.8 per 30 days by the
+2026-11-01 estimate, not yet measured). Nothing a reader sees changes: the Best bet and Also good picks come from the
+ratings and the region gloss, not from the advisor, and `/api/briefing` no longer carries the `bestBets`,
+`bestBetModel`, `bestBetStatus` or `bestBetsWithdrawn` fields. A briefing stored before the change loads without its
+old picks, so no stale pick is served. Gone with it, for admins: the "vs this morning's nightly"
+pick comparison in the Runs cycle panel (and `comparison` in `GET /api/admin/pipeline-runs/{id}`), the
+`POST /api/admin/advisor-replay` endpoint, the Run Config "Briefing" tab with its Extended Thinking switch, the
+Briefing line in the cost profiles and `PUT /api/models/active` for `BRIEFING_BEST_BET` (now a 400), the
+`photocast.best-bet.*` configuration keys, and the `pipeline_run_pick` writes. The tables, the enum value and the
+response fields stay until a follow-up migration. The advisor's own prompt-regression test
+(`BestBetAuroraPromptRegressionTest`) is deleted with it, and the Sky prompt-regression job no longer runs it.
+
+### Chore — remove the dead best-bet fields from the briefing (Best bet advisor retirement, R2a)
+
+`GET /api/briefing` no longer carries `bestBets`, `bestBetModel`, `bestBetStatus` or `bestBetsWithdrawn`: since
+R1 they were always empty or null, and no client reads them. The `BestBet` record, the matching
+`DailyBriefingResponse` components, withers and constructor overloads, and the two R1 neutralisation steps (startup
+restore and the Lite role shaper) are deleted. A briefing persisted before this change still loads, because the
+record ignores unknown properties (pinned by `PersistedBriefingRemovedKeysTest`). Readers see no behaviour change.
+`RunType.BRIEFING_BEST_BET`, `BestBetStatus` and `pipeline_run.best_bet_status` stay until the R2b migration, which
+is a separate release (`docs/engineering/best-bet-advisor-retirement-r2a-plan.md`). No migration in this change.
+
+### Fixed — Ask's warning guard no longer drops "Red Sky 72"; review follow-ups to the Red Sky rename
+Ask now writes the colour score as "Red Sky N", and `AskWarningGuard` read that "Red" as a Red weather warning, removing a sentence that named a shown Amber warning and the score. The score name is now skipped; a real Red warning (or a "red sky later") is still caught. Also: the rename's changelog line corrected, one missed reference-doc string, a note in `architecture-decisions.md` that `fierySkyPotential` / `fiery_sky_*` / `FIERY_SKY` are historical names to keep, and `TokenIssuerTest`'s cleanup no longer hides the real failure (lock timeout 20 s, no assertion in `finally`).
+
+### Changed — "Fiery Sky" is now "Red Sky"
+The colour score is labelled **Red Sky** everywhere a reader sees it: the location sheet, the Pro upsell, Ask PhotoCast answers, the landing page, FAQ, user guide and README. The wire field (`fierySkyPotential`), database columns and the sky evaluation prompt are unchanged; Ask's own prompt and tool text now say Red Sky, and the weather-warning guard treats "Red Sky 72" as a score name, not a Red warning.
+
+### Changed — the sky evaluation prompt says "Red Sky", and the landing page drops "fiery"
+The sky evaluation prompt's four label sites (the score line, two criteria phrases and the user-message suffix) now say Red Sky Potential / red sky instead of Fiery Sky, so newly written Claude summaries match the label readers see. The JSON key Claude returns (`fiery_sky`), the wire field and the columns are unchanged. Stored summaries keep their old wording and age out. The landing page's "a fiery-sunrise morning" is now "a red-sky morning". Prompt golden masters re-pinned; one Sky prompt-regression run (Sonnet 5.5, k=1) passed all 10 fixtures in band.
+
+### Fix — mvn-retry no longer re-runs a real coverage, checkstyle or SpotBugs failure
+
+`scripts/mvn-retry.sh` now judges a build transient only from `[ERROR]` lines, so a recovered `[WARNING] Could not transfer metadata ... Connection reset` can no longer qualify a later jacoco, checkstyle or SpotBugs failure for up to three full `clean verify` runs. Those failures are also named as real failures.
+
+### Test — Map glance E2E smoke
+
+A new Playwright smoke spec, `map-glance.spec.js`, covers the Glance-to-Map doors on the seeded fixture: a Plan card opens the Map with its own window selected; the Map's List door opens the ranked list, Escape closes it, and a row opens that place's callout (never more than two dialogs deep); and the "Best bet · why" pill opens and closes its reason panel. The warning chips' Details toggle is not covered, because the seeded fixture carries no Met Office warning.
+
+### Fix — Glance-to-Map review fixes
+
+On a phone, pressing Back after opening the Map from an At a Glance card, a lane or Find no longer leaves a Map bottom sheet (a warning's full text, Regions or Filters) drawn over At a Glance: those panels now close when the Map is hidden. A Met Office warning that the next update withdraws no longer leaves a hidden panel that swallows an Escape press or reopens by itself when the warning returns. Picking a window in Find now opens the Map the same way a card or lane press does (framing, breadcrumb and the neighbour guard included), so with no Map to open it records nothing and a later Map press adds no Back step. On a phone the Map's "See all N spots" row reads "Open the list" (no count) when the rating floor leaves nothing to list, the "Also good · why" pill shows its own ○ mark (not the Best bet ◎), and the guide's List paragraph no longer claims its count matches the footer, since the footer counts drawn pins and the List applies a strict star floor. Worth knowing about the card arrival from the earlier Glance-to-Map change: opening the Map from a card carries the Plan's rating floor onto the Map and overwrites the Map minimum you had saved (the drive tier carries over too); the Back step is registered for lane arrivals as well as cards and Find. Tests now cover the List's depth cap in both directions (refused over Ask, search and the guide; Ask's entry disabled while the List is open).
+
+### Documentation — user guides describe the Map as the one place a sunrise or sunset opens
+
+The field guides and landing pages no longer describe the removed sunrise or sunset popup. At a Glance now says a card opens the Map with that window selected and Back returns, and the Map guide covers the List, Best bet · why, the full warning on a chip (Details) and the best-first Regions list. Weather warnings, Your places and Finding places point at the Map and Coming up instead of the popup. The unused popup screenshot is removed.
+
+### Chore — Glance-to-Map comment and doc scrub
+
+Comments and docs only, no behaviour change: removed narration of the deleted Plan window popup, corrected stale comments (`useDialogFocus`, `buildWindowCards` `@returns`, the sheet eclipse index, the map pane eclipse index), dropped a leftover `EMPTY_REGION_SERIES` doc block, and updated `plan-tab.md` and `roles-and-gating.md` to the current names.
+
+### Chore — Best bet advisor retirement: leftover extended-thinking, dead types and docs removed
+
+Admin-only wire change: `PUT /api/models/extended-thinking` is removed and `extendedThinkingConfigs` is dropped from
+`GET /api/models` (the advisor was the only caller that honoured the flag; the `model_selection.extended_thinking`
+column stays until the schema phase). Also removed: the unused `ModelSelectionService` extended-thinking methods and
+the front end's `setExtendedThinking`, `DiffersBy` and `Relationship`, and the unread `requestUrl` on
+`ApiCallCostRow`. `cost-queries/measured-costs.sql` gains a per-day query for the retired advisor's
+`briefing-best-bet` calls, and the cost ledger, Javadoc and plan notes that mis-described them are corrected. A test
+of the honesty filter's no-clock path is restored and the legacy-payload tests now assert the stored headline and
+stale flag.
+
+### Docs — the blind rating protocol no longer depends on the daily list
+
+The broken-low, far-shut and overhead-low-deck plans and the far-cloud P1 README now define protocol evidence as
+every admin rating at the owner's home locations (Copt Hill, Penshaw Monument, Angel of the North) from the start
+date, classed afterwards from stored forecasts. `bl_today.sql` is an optional reminder. The overhead-low-deck
+selection check compares each arm's rating share with the baseline instead of counting listed-but-unwatched slots.
+
+### Added — overhead-low-deck class on the blind daily protocol list
+
+`scripts/far-cloud-p1/bl_today.sql` now also lists OL slots (cone low under 20%, far 226 km low under 50%, overhead
+low 60% or more, canvas or not) beside BL, CL, FS and FO. OL is checked after BL and CL and before FS and FO, so a
+low-deck evening is never an FO control. The output stays blind (place, event, UK time, stars); the README's
+section 8d asks for every listed evening to be rated (`overhead-low-deck-plan.md` section 3 A2).
+
+### Added — the Map gains the spot list, the Best bet reason, the full warning and best-first Regions
+
+Four pieces the window popup alone carried now also live on the Map, ahead of the popup's retirement (glance-to-map-plan.md G1). A ☰ List button beside Regions (and, on a phone, a "See all N spots" row in the Windows section) opens the ranked spot list for the window on screen, on the Map's own rating floor and drive tier and over the same places the Map holds in scope, so its count matches the Map's; a row selects the place on the Map and closes the list, and a window with no card (past, travel day, night) says why it has none. A "◎ Best bet · why" pill under the window control expands the reason the Plan card names its pick, nothing when there is no pick. Each Met Office warning chip keeps its link and gains a separate "Details" button that opens the warning in full in a panel under the controls (a bottom sheet on a phone), with the attribution on screen either way. The Regions menu lists regions best first for a sunrise or sunset, with the verdict word and "k of m at 4★+" on a second line. No rating, verdict, pick or prompt changes; the window popup and every door onto it are unchanged.
+
+### Removed — the Plan window popup and the pick dialog are deleted
+
+Every door that used to open the Plan tab's window popup (a Glance card, a Find window pick, a Coming up lane's topic or warning) already opens the Map on that window, so the popup and the pick dialog it stacked were unreachable (glance-to-map-plan.md G2a). They are now deleted along with the shell state that existed only for them (the open-window key, the region focus and topic emphasis, the `‹ ›` and arrow-key stepping, the popup's back layers and the `legacyWindowPopup` test scaffold) and the components, hooks and helpers only they used (the region rail, prose slot, spot strip and peek, attribute and topic rows, row field map, tide sparkline, dawn/dusk race, movement mark, coarse-pointer hook, first-clause helper). The shell's `openOverPopup` and `stackedOverPopup` are renamed `openSheetLayer` and `stackedOverLayer` because the Map's spot list, the four-day sheet and the area sheet still use them. The matrix cell no longer carries an open-card mark (`data-open`, the `on` class). No rating, verdict, pick or prompt changes; orphaned exports, CSS and docs follow in G2c.
+
+### Changed — Glance-to-Map cleanup (G2c): what the window popup left behind is gone
+
+Frontend and docs only; no rating, verdict, Best bet choice or Claude prompt changes. Deleted the exports, modules, CSS
+rules, keyframes, tests and doc text that only the removed window popup and pick dialog used: the `buildWindowRows` chain
+and `card.rows`, `buildRegionRows`/`buildRegionSeries`, the provider's `regionPicks`/`regionSeries`/`scoreIndex`, the
+dawn-race model, `scaleRgbaAlpha`, `kmPerPx`, the orphaned `SortableHeader`, the popup's warning row (the shared
+`WindowWarningsBody` stays), `sheetSpotOf`/`sheetOffersMore`, the spot list's Plan-tab opening branches and 91 dead CSS
+classes. Stale comments and the Plan tab reference now describe the Map-first flow.
+
+### Changed — A Glance card opens the Map
+
+Tapping an At a Glance card, a days-ahead or warning lane, or a Find window pick now opens the Map tab with that sunrise or sunset selected (your drive tier and rating floor carry over). Back from a card or Find arrival returns to the tab you left. The window popup is no longer reachable and is removed in a following change.
+
+### Changed — CI retries Maven runs that fail on a transient repository transfer error
+
+`scripts/mvn-retry.sh` wraps the `./mvnw` calls in `ci.yml` (the backend build and the E2E smoke job's
+fixture-seeder, checkstyle and jar steps) and `a11y.yml`. When Maven fails and its log shows a
+transfer or resolution error caused by an HTTP 429 or 5xx, a timeout or a connection reset (as in PR
+1890, where Maven Central rate-limited a runner), it re-runs with a linear backoff, up to three
+attempts. A compilation error, a test failure, a 404 or any other failure is never re-run. Covered by
+`scripts/test/mvn-retry.test.sh`.
+
+### Added — far-shut and far-open classes on the daily protocol list
+
+`scripts/far-cloud-p1/bl_today.sql` now also lists FS (far-shut canvas: cone low under 20, a mid or high canvas of
+50% or more, far 226 km low at 80% or more) and FO (the far-open control: far low under 50%) slots beside BL and CL,
+with new `overhead_mid` and `overhead_high` columns. Read-only; the README's section 8d asks for every listed FS and
+FO evening to be rated, dull or not (`far-shut-canvas-plan.md` section 5 A2).
+
 ## [v2.40.1] - 2026-11-19
 
 ### Changed — Lite areas directory decision recorded
