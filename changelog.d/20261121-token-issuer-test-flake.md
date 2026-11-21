@@ -1,0 +1,2 @@
+### Fixed — TokenIssuerTest no longer flakes when the machine is busy
+The two-thread cases hold a row lock while another thread waits, and H2's default 2 s lock timeout turned a slow commit under CPU contention into `CannotAcquireLockException` (then a duplicate `reader` insert in the next test). The class now has its own in-memory database with a 60 s lock timeout and waits for its worker threads before cleanup. Test-only; no production change.
