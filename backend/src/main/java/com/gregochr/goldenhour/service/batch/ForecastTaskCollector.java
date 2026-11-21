@@ -443,7 +443,7 @@ public class ForecastTaskCollector {
                 // for a wood the honest answers are inverted, so letting it run produces exactly
                 // the wrong selection: a wood is triaged OUT on the misty overcast morning it
                 // wants, and passed THROUGH on the clear day it does not, where it would then be
-                // rated for fiery-sky potential it structurally cannot have.
+                // rated for red-sky potential it structurally cannot have.
                 //
                 // A canopy site now HAS a prompt of its own, so it is routed rather than
                 // dropped: the woodland lane out of bluebell season, the bluebell lane in it.

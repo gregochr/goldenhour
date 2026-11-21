@@ -618,7 +618,7 @@ describe('LocationFourDaySheet — the v3 anatomy (plan-matrix §6 M4.1)', () =>
 
 describe('LocationFourDaySheet — the score bars (location-sheet superset plan, Phase 1)', () => {
   /**
-   * The peek one layer up already shows Fiery Sky / Golden Hour bars for a spot; this sheet is the
+   * The peek one layer up already shows Red Sky / Golden Hour bars for a spot; this sheet is the
    * deeper drill-down and must show a SUPERSET of what the peek showed, never less — the plan's
    * whole ask. `LocationFourDaySheet.test.jsx`'s existing fixtures carried no scores before this
    * phase; `SCORES` above now does, for the same two rated windows the rest of this file exercises.
@@ -628,7 +628,7 @@ describe('LocationFourDaySheet — the score bars (location-sheet superset plan,
     const best = within(row('2026-08-15:SUNRISE'));
     const fiery = best.getByTestId('location-sheet-fiery');
     const golden = best.getByTestId('location-sheet-golden');
-    expect(fiery).toHaveTextContent('Fiery Sky');
+    expect(fiery).toHaveTextContent('Red Sky');
     expect(fiery).toHaveTextContent('88');
     expect(golden).toHaveTextContent('Golden Hour');
     expect(golden).toHaveTextContent('91');

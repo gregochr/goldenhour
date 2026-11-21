@@ -34,7 +34,7 @@ import java.util.Map;
  * Maps {@link ForecastEvaluationEntity} to {@link ForecastEvaluationDto} with role-based
  * shaping.
  *
- * <p>The Fiery Sky and Golden Hour scores and the per-location written why ({@code summary} and the
+ * <p>The Red Sky and Golden Hour scores and the per-location written why ({@code summary} and the
  * detail {@code headline}) are Pro features (docs/engineering/pro-features-gate-plan.md §6): LITE
  * users get them null, on rich rows, sparse cached-only rows and detail alike, while the star
  * rating is free. PRO and ADMIN users receive the enhanced (directional cloud) values. The

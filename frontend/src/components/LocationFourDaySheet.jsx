@@ -154,7 +154,7 @@ const DIM_AT_OR_BELOW = 2;
  *        exactly what it was
  * @param {boolean} [props.isPro] true for PRO and ADMIN readers (a boolean, never the role) — read
  *        only by the C2 forecast-detail block's gating, which mirrors the overlay popup's
- * @param {boolean} [props.scoresLocked] true when the reader does not have the Fiery Sky / Golden Hour
+ * @param {boolean} [props.scoresLocked] true when the reader does not have the Red Sky / Golden Hour
  *        scores and the written why (a boolean, never the role; pro-features-gate-plan.md §5). The score
  *        data is already absent from the rows; this drops the "Nothing written about this one yet." line
  *        (it would tell a locked reader the forecast has no prose) and draws one upsell door on a sky sheet
@@ -747,7 +747,7 @@ export default function LocationFourDaySheet({
                     <div data-testid="location-sheet-scores" className="wf-loc-scores">
                       {row.fierySky != null && (
                         <ScoreBar
-                          label="Fiery Sky"
+                          label="Red Sky"
                           score={row.fierySky}
                           metric="fiery"
                           testId="location-sheet-fiery"

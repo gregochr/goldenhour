@@ -286,7 +286,7 @@
   </div>
   <div class="section-body">
     <div class="section-content">
-      <p>PhotoCast is a photographer's forecast system. Its core value proposition: for each configured location, it fetches weather, aerosol, tidal, and solar geometry data, assembles a rich atmospheric snapshot, and asks Claude to score the sunrise/sunset colour potential on two axes (Fiery Sky 0&ndash;100, Golden Hour 0&ndash;100) plus a 1&ndash;5 star rating.</p>
+      <p>PhotoCast is a photographer's forecast system. Its core value proposition: for each configured location, it fetches weather, aerosol, tidal, and solar geometry data, assembles a rich atmospheric snapshot, and asks Claude to score the sunrise/sunset colour potential on two axes (Red Sky 0&ndash;100, Golden Hour 0&ndash;100) plus a 1&ndash;5 star rating.</p>
       <p>The system operates on four tiers of Claude usage:</p>
       <ul>
         <li><strong>Daily Briefing</strong> &mdash; zero-Claude-cost weather triage producing GO/MARGINAL/STANDDOWN verdicts per location, plus a single Haiku call for "best bet" recommendations and parallel Haiku calls for per-region glosses.</li>
@@ -633,7 +633,7 @@ Examples: "High cirrus canvas — good colour potential",
             <p>Role: "expert landscape photography advisor for sunrise/sunset evaluation". Key sections:</p>
             <ul>
               <li>Rating scale 1&ndash;5 (skip to spectacular)</li>
-              <li>Fiery Sky 0&ndash;100 (dramatic reds/oranges), Golden Hour 0&ndash;100 (light quality)</li>
+              <li>Red Sky 0&ndash;100 (dramatic reds/oranges), Golden Hour 0&ndash;100 (light quality)</li>
               <li>AOD + PM2.5 aerosol guidance (mineral dust vs smoke proxy)</li>
               <li>Directional cloud sampling interpretation (113 km solar/antisolar horizons)</li>
               <li>Strip vs blanket detection (226 km far-field)</li>

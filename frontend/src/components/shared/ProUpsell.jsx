@@ -10,7 +10,7 @@ import { GuideWhy } from '../guide/GuideLink.jsx';
  * (the App Store forbids pointing at a web purchase, and `/upgrade` is not a route).
  */
 export const SCORES_UPSELL_LABEL = 'Scores and the why';
-export const SCORES_UPSELL_HEADING = 'Fiery Sky and Golden Hour scores';
+export const SCORES_UPSELL_HEADING = 'Red Sky and Golden Hour scores';
 export const SCORES_UPSELL_BODY = 'See how strong the colour and the light should be at each location, with a note on why.';
 
 export const BEST_BETS_UPSELL_LABEL = 'Best bets';

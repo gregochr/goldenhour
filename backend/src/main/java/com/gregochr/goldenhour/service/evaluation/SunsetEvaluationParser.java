@@ -75,7 +75,7 @@ public class SunsetEvaluationParser {
     /** Extracts the integer rating from Claude's response. */
     static final Pattern RATING_PATTERN = Pattern.compile("\"rating\"\\s*:\\s*(\\d{1,2})");
 
-    /** Extracts the Fiery Sky Potential (0-100) from Claude's response. */
+    /** Extracts the Red Sky Potential (0-100) from Claude's response. */
     static final Pattern FIERY_SKY_PATTERN = Pattern.compile("\"fiery_sky\"\\s*:\\s*(\\d{1,3})");
 
     /** Extracts the Golden Hour Potential (0-100) from Claude's response. */

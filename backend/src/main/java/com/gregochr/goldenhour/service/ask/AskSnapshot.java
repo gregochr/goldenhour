@@ -437,7 +437,7 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      *                       but it is never offered as a pick
      * @param summary        the served evaluation's prose reason for the sky, or null (cleared on retraction)
      * @param skyRating      the sky's own component score, before the tide is combined in, or null
-     * @param fierySky       the served Fiery Sky potential out of 100, or null
+     * @param fierySky       the served Red Sky potential out of 100, or null
      * @param goldenHour     the served Golden Hour potential out of 100, or null
      * @param nearestTide    the served nearest high or low water and its offset from the light
      *                       ({@code LocationTideFact.nearestSolarOffsetPhrase}), or null; it is of
@@ -463,7 +463,7 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
          * @param neighbourOutlier true when the neighbour guard marked this slot
          * @param summary          the served prose reason, or null
          * @param skyRating        the sky's own component score, or null
-         * @param fierySky         the served Fiery Sky potential, or null
+         * @param fierySky         the served Red Sky potential, or null
          * @param goldenHour       the served Golden Hour potential, or null
          */
         public Slot(Long locationId, String name, Integer rating, DisplayVerdict verdict,

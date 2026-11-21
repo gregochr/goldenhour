@@ -48,7 +48,7 @@ export const DISPLAY_TYPES = ['LANDSCAPE', 'WILDLIFE', 'SEASCAPE', 'WOODLAND', '
  *
  * <p>Mirrors `LocationEntity.hasColourTypes()`. WOODLAND is deliberately ABSENT: a location under
  * a canopy has no sky to forecast. The backend records why — #347 added WOODLAND to that
- * predicate and silently undid V132, putting the woods straight back into the fiery-sky prompt on
+ * predicate and silently undid V132, putting the woods straight back into the red-sky prompt on
  * clear mornings.
  */
 export const SKY_SUBJECT_TYPES = ['LANDSCAPE', 'SEASCAPE', 'WATERFALL'];

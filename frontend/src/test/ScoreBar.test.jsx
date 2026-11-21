@@ -27,7 +27,7 @@ function toRgb(hex) {
 
 describe('ScoreBar — the fill', () => {
   it('is the ramp\'s colour for the score, not a hard-coded hex or a gradient', () => {
-    render(<ScoreBar label="Fiery Sky" score={68} metric="fiery" testId="bar" dense />);
+    render(<ScoreBar label="Red Sky" score={68} metric="fiery" testId="bar" dense />);
     const track = screen.getByTestId('bar').querySelector('.wf-peek-bar');
     expect(track.style.background).toBe(toRgb(rampHex(starFromScore(68, 'fiery'))));
   });
@@ -39,7 +39,7 @@ describe('ScoreBar — the fill', () => {
     // do at 50, both landing on 2.8★ — not a case this test should rely on).
     render(
       <>
-        <ScoreBar label="Fiery Sky" score={80} metric="fiery" testId="fiery-bar" dense />
+        <ScoreBar label="Red Sky" score={80} metric="fiery" testId="fiery-bar" dense />
         <ScoreBar label="Golden Hour" score={80} metric="golden" testId="golden-bar" dense />
       </>,
     );
@@ -51,7 +51,7 @@ describe('ScoreBar — the fill', () => {
   });
 
   it('clamps a value outside 0–100 before sampling the ramp, matching the track\'s own clamp', () => {
-    render(<ScoreBar label="Fiery Sky" score={140} metric="fiery" testId="bar" dense />);
+    render(<ScoreBar label="Red Sky" score={140} metric="fiery" testId="bar" dense />);
     const track = screen.getByTestId('bar').querySelector('.wf-peek-bar');
     expect(track.style.background).toBe(toRgb(rampHex(starFromScore(100, 'fiery'))));
   });
@@ -61,7 +61,7 @@ describe('ScoreBar — an invalid metric', () => {
   it('throws rather than rendering a plausible wrong colour', () => {
     // starFromScore's own guard (5a) — this pins that ScoreBar actually calls it with the caller's
     // metric rather than swallowing or defaulting it.
-    expect(() => render(<ScoreBar label="Fiery Sky" score={50} metric="bogus" testId="bar" dense />))
+    expect(() => render(<ScoreBar label="Red Sky" score={50} metric="bogus" testId="bar" dense />))
       .toThrow(/unknown metric/);
   });
 
@@ -69,19 +69,19 @@ describe('ScoreBar — an invalid metric', () => {
     // The metric validation must not be gated behind `score != null`: a typo'd metric on a slot that
     // has not been scored yet would otherwise pass silently and only surface once that same call
     // site later receives a real score, far from where the typo was introduced.
-    expect(() => render(<ScoreBar label="Fiery Sky" score={null} metric="bogus" testId="bar" />))
+    expect(() => render(<ScoreBar label="Red Sky" score={null} metric="bogus" testId="bar" />))
       .toThrow(/unknown metric/);
   });
 });
 
 describe('ScoreBar — the two null behaviours', () => {
   it('non-dense (popup) mode renders an em dash for a null score, not a vanished row', () => {
-    render(<ScoreBar label="Fiery Sky" score={null} metric="fiery" testId="bar" />);
+    render(<ScoreBar label="Red Sky" score={null} metric="fiery" testId="bar" />);
     expect(screen.getByTestId('bar')).toHaveTextContent('—');
   });
 
   it('non-dense mode masks the whole track for a null score (fully covered, not the fill colour)', () => {
-    render(<ScoreBar label="Fiery Sky" score={null} metric="fiery" testId="bar" />);
+    render(<ScoreBar label="Red Sky" score={null} metric="fiery" testId="bar" />);
     // The outermost measured child after the label row is the track; its masking span covers 100%.
     const track = screen.getByTestId('bar').lastChild;
     const mask = track.querySelector('div');
@@ -92,23 +92,23 @@ describe('ScoreBar — the two null behaviours', () => {
     // Plan callers wrap every ScoreBar in `score != null &&`, so this state is unreachable in
     // production — but the component itself must not be the thing that breaks if a caller ever
     // forgets the guard.
-    expect(() => render(<ScoreBar label="Fiery Sky" score={null} metric="fiery" testId="bar" dense />))
+    expect(() => render(<ScoreBar label="Red Sky" score={null} metric="fiery" testId="bar" dense />))
       .not.toThrow();
   });
 });
 
 describe('ScoreBar — dense vs popup markup', () => {
   it('dense mode renders the Plan pane\'s `.wf-peek-bar` markup with data-score and the rest-width contract', () => {
-    render(<ScoreBar label="Fiery Sky" score={68} metric="fiery" testId="bar" dense />);
+    render(<ScoreBar label="Red Sky" score={68} metric="fiery" testId="bar" dense />);
     const bar = screen.getByTestId('bar');
     expect(bar).toHaveAttribute('data-score', '68');
     expect(bar.querySelector('.wf-peek-bar-rest').style.width).toBe('32%');
-    expect(bar).toHaveTextContent('Fiery Sky');
+    expect(bar).toHaveTextContent('Red Sky');
     expect(bar).toHaveTextContent('68');
   });
 
   it('non-dense (popup) mode carries no data-score attribute and uses the 11px inline-style markup', () => {
-    render(<ScoreBar label="Fiery Sky" score={68} metric="fiery" testId="bar" />);
+    render(<ScoreBar label="Red Sky" score={68} metric="fiery" testId="bar" />);
     const bar = screen.getByTestId('bar');
     expect(bar).not.toHaveAttribute('data-score');
     expect(bar.querySelector('.wf-peek-bar')).toBeNull();
@@ -116,13 +116,13 @@ describe('ScoreBar — dense vs popup markup', () => {
 
   it('passes tooltip through only in popup mode\'s markup — Plan callers pass none and dense mode never renders it', () => {
     render(
-      <ScoreBar label="Fiery Sky" score={68} metric="fiery" testId="bar" tooltip={<span data-testid="tip">i</span>} />,
+      <ScoreBar label="Red Sky" score={68} metric="fiery" testId="bar" tooltip={<span data-testid="tip">i</span>} />,
     );
     expect(screen.getByTestId('tip')).toBeInTheDocument();
   });
 
   it('applies labelClassName only in dense mode', () => {
-    render(<ScoreBar label="Fiery Sky" score={68} metric="fiery" testId="bar" dense labelClassName="wf-loc-score-label" />);
+    render(<ScoreBar label="Red Sky" score={68} metric="fiery" testId="bar" dense labelClassName="wf-loc-score-label" />);
     const bar = screen.getByTestId('bar');
     expect(bar.querySelector('.wf-loc-score-label')).toBeInTheDocument();
   });
@@ -135,7 +135,7 @@ describe('ScoreBar — the number is deliberately NOT tinted', () => {
   // future "tint it to match the fill" cannot quietly come back — it reads as the obvious
   // improvement right up until you measure it.
   it('paints the number from a text token, never from the ramp', () => {
-    render(<ScoreBar label="Fiery Sky" score={95} metric="fiery" testId="t" />);
+    render(<ScoreBar label="Red Sky" score={95} metric="fiery" testId="t" />);
     const number = screen.getByTestId('t').querySelector('span[style*="font-weight"]');
     const colour = number.getAttribute('style') ?? '';
     expect(colour).toContain('--color-plex-text');
@@ -143,10 +143,10 @@ describe('ScoreBar — the number is deliberately NOT tinted', () => {
   });
 
   it('does not vary the number\'s colour with the score', () => {
-    const { unmount } = render(<ScoreBar label="Fiery Sky" score={5} metric="fiery" testId="lo" />);
+    const { unmount } = render(<ScoreBar label="Red Sky" score={5} metric="fiery" testId="lo" />);
     const lo = screen.getByTestId('lo').querySelector('span[style*="font-weight"]').getAttribute('style');
     unmount();
-    render(<ScoreBar label="Fiery Sky" score={95} metric="fiery" testId="hi" />);
+    render(<ScoreBar label="Red Sky" score={95} metric="fiery" testId="hi" />);
     const hi = screen.getByTestId('hi').querySelector('span[style*="font-weight"]').getAttribute('style');
     expect(lo).toBe(hi);
   });

@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
  * @param source              which data source provided this view
  * @param rating              1-5 star rating, or null if triaged/absent
  * @param summary             Claude's plain-English explanation, or null
- * @param fierySkyPotential   fiery sky score 0-100, or null
+ * @param fierySkyPotential   red sky score 0-100, or null
  * @param goldenHourPotential golden hour score 0-100, or null
  * @param triageReason        categorised stand-down reason, or null if scored
  * @param triageMessage       formatted stand-down explanation, or null if scored
@@ -85,7 +85,7 @@ public record LocationEvaluationView(
      * @param source              which data source provided this view
      * @param rating              1-5 star rating, or null
      * @param summary             Claude's plain-English explanation, or null
-     * @param fierySkyPotential   fiery sky score 0-100, or null
+     * @param fierySkyPotential   red sky score 0-100, or null
      * @param goldenHourPotential golden hour score 0-100, or null
      * @param triageReason        categorised stand-down reason, or null
      * @param triageMessage       formatted stand-down explanation, or null
@@ -134,7 +134,7 @@ public record LocationEvaluationView(
     }
 
     /**
-     * Returns a copy of this view as a LITE reader may see it: the Fiery Sky and Golden Hour
+     * Returns a copy of this view as a LITE reader may see it: the Red Sky and Golden Hour
      * potentials and the written {@link #summary} are null, and a {@link TriageReason#TIDE_MISALIGNED}
      * stand-down is served as {@link TriageReason#GENERIC} with no message (it states the water
      * against the light, a Pro fact); everything else (the star rating, the verdict, any other

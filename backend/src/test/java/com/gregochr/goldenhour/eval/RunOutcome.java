@@ -2,7 +2,7 @@ package com.gregochr.goldenhour.eval;
 
 /**
  * The judged result of one scorer run against one sky-rating fixture: the rating's direction against
- * the band, the Fiery Sky and Golden Hour directions against the fixture's {@link RegressionBounds}
+ * the band, the Red Sky and Golden Hour directions against the fixture's {@link RegressionBounds}
  * (where it has any), and whether the response was malformed (a null score).
  *
  * <p>A run passes only when every check holds. {@link MissDirection#IN_BAND} is used both for "within
@@ -10,7 +10,7 @@ package com.gregochr.goldenhour.eval;
  *
  * @param rating          the star rating returned, or {@code null} if the response was malformed
  * @param ratingDirection the rating against the band (and the bounds' rating band, where present)
- * @param fieryDirection  Fiery Sky potential against {@code fieryMin}/{@code fieryMax}
+ * @param fieryDirection  Red Sky potential against {@code fieryMin}/{@code fieryMax}
  * @param goldenDirection Golden Hour potential against {@code goldenMin}/{@code goldenMax}
  * @param malformed       true if the rating, either potential or the summary came back null
  */
@@ -39,7 +39,7 @@ public record RunOutcome(Integer rating, MissDirection ratingDirection, MissDire
     }
 
     /**
-     * @return true if the response was well-formed but Fiery Sky or Golden Hour broke a bound
+     * @return true if the response was well-formed but Red Sky or Golden Hour broke a bound
      */
     public boolean boundMissed() {
         return !malformed

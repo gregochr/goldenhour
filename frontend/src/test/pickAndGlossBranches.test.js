@@ -143,8 +143,8 @@ describe('regionGloss', () => {
   });
 
   it('ends a headline with a full stop unless it already has terminal punctuation', () => {
-    expect(glossLead('Fiery sky  ')).toBe('Fiery sky.');
-    expect(glossLead('Fiery sky!')).toBe('Fiery sky!');
+    expect(glossLead('Red Sky  ')).toBe('Red Sky.');
+    expect(glossLead('Red Sky!')).toBe('Red Sky!');
     expect(glossLead('Wait…')).toBe('Wait…');
     expect(glossLead('   ')).toBeNull();
     expect(glossLead(null)).toBeNull();

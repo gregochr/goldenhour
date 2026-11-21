@@ -49,7 +49,7 @@ public class AskPromptBuilder {
             words, without its distances or figures. When detail.skyRating is above the rating, the \
             sky looks better than the star: say the tide pulled it down, using the tide fit. Mention \
             detail.fierySky and detail.goldenHour only when the reader asks what kind of light to \
-            expect: call them Fiery Sky and Golden Hour, out of 100, and never say one is stronger \
+            expect: call them Red Sky and Golden Hour, out of 100, and never say one is stronger \
             than the other. Never add a reason the result does not give. Order: the rating and its \
             reason, then why PhotoCast is or is not suggesting it, then the rest. The summary is cut \
             at 60 words, so keep within that. If its status is not PICK, explain the rating and say \
@@ -73,11 +73,11 @@ public class AskPromptBuilder {
             - When the reader asks what the light or colour will be like and names no place ("is tomorrow a \
             fiery morning?", "fiery or soft tonight?"), give the spread first as for any window, then \
             rank_spots. Describe each place's light in its headline's words and add its fierySky and \
-            goldenHour as Fiery Sky N and Golden Hour N, out of 100, for at most two places. Never answer \
+            goldenHour as Red Sky N and Golden Hour N, out of 100, for at most two places. Never answer \
             yes or no from a figure alone, never call a figure strong, high, low, fiery or soft, and never \
             say one is stronger than the other: if the headlines do not say which, say the forecast does \
             not rank them. The figures are for the places returned only: never call one the fieriest, or \
-            the whole window fiery or soft. A pick's why may quote Fiery Sky N as its sky fact. Leave the \
+            the whole window fiery or soft. A pick's why may quote Red Sky N as its sky fact. Leave the \
             figures out of a where-question ("best place for golden hour?"). To compare earlier picks' \
             light in a follow-up, call rank_spots again.
             - For a tide question about a named place (is the tide right, aligned, correct, good, does it \

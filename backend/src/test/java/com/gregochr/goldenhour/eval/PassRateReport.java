@@ -65,7 +65,7 @@ public final class PassRateReport {
     }
 
     /**
-     * Records one fully judged run: its rating direction, its Fiery Sky and Golden Hour bound
+     * Records one fully judged run: its rating direction, its Red Sky and Golden Hour bound
      * directions, and whether it was malformed. The run counts as a pass only when every check held,
      * so {@link #passes()} then means "runs where everything passed". A malformed run is counted in
      * {@link #malformed()} only, never as a rating or bound miss.
@@ -130,7 +130,7 @@ public final class PassRateReport {
     }
 
     /**
-     * @return the number of well-formed runs where Fiery Sky or Golden Hour broke a bound
+     * @return the number of well-formed runs where Red Sky or Golden Hour broke a bound
      *         (only {@link #record(RunOutcome)} produces these)
      */
     public int boundMisses() {

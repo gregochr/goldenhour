@@ -257,7 +257,7 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      * bounds the event date, inclusive at both ends.
      *
      * <p>The projection uses the narrower {@code CalibrationPair} constructor rather than null
-     * literals: the record has no fiery-sky or golden-hour actual and no trip flag. It does carry the
+     * literals: the record has no red-sky or golden-hour actual and no trip flag. It does carry the
      * row's valley-mist band ({@code e.mistPotential}, the forecast Claude echoed) and the reader's
      * {@code seen} tag (V187), which the mist-prone bucket and its tag tally read.
      *

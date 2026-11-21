@@ -70,7 +70,7 @@ public class BriefingEvaluationController {
      * <p>Consumed by the Plan and Map tabs on mount so batch-scored locations render
      * their scores immediately.
      *
-     * <p>The Fiery Sky and Golden Hour scores and the per-location written why are Pro features
+     * <p>The Red Sky and Golden Hour scores and the per-location written why are Pro features
      * (docs/engineering/pro-features-gate-plan.md §6): a reader who is neither PRO_USER nor ADMIN
      * gets each row through {@link LocationEvaluationView#forLite()}. The check is fail-closed, and
      * the ETag is hashed from the body, so the two variants never share a validator.

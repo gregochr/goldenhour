@@ -12,7 +12,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 ## What it does
 
 - Evaluates sunrise and sunset colour potential for any number of locations, T through T+7
-- Two scores per event: **Fiery Sky Potential** (dramatic colour) and **Golden Hour Potential** (overall light quality), plus a 1-5 star rating
+- Two scores per event: **Red Sky Potential** (dramatic colour) and **Golden Hour Potential** (overall light quality), plus a 1-5 star rating
 - Claude generates a plain-English explanation of the key factors driving the score
 - Aerosol optical depth + PM2.5 proxy distinguishes warm dust from grey smoke — a competitive differentiator
 - Location types: **Landscape** (colour scores), **Wildlife** (hourly comfort timeline, no AI cost), **Seascape** (scores + tide alignment), **Waterfall** (colour + comfort)

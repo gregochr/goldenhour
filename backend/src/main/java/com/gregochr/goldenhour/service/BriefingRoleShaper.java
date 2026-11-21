@@ -20,7 +20,7 @@ import java.util.Set;
  * Shapes the served briefing for the reader's role at the HTTP edge.
  *
  * <p>The tide curve and the per-location tide match are Pro features
- * (docs/engineering/tide-pro-gate-plan.md §7), as are the Fiery Sky and Golden Hour scores and the
+ * (docs/engineering/tide-pro-gate-plan.md §7), as are the Red Sky and Golden Hour scores and the
  * per-location written why (docs/engineering/pro-features-gate-plan.md §6). {@link #forLite}
  * removes the tide data from the window tide block, the window's tide facts and the slot flags, and
  * the scores and the written why from every slot; every free fact stays (the star, the verdict, the

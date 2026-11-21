@@ -46,7 +46,7 @@ describe('ProUpsellDoor', () => {
     render(<Door />);
     open();
     const trigger = screen.getByTestId('d-trigger');
-    const dialog = screen.getByRole('dialog', { name: 'Fiery Sky and Golden Hour scores' });
+    const dialog = screen.getByRole('dialog', { name: 'Red Sky and Golden Hour scores' });
     expect(dialog).not.toHaveAttribute('aria-modal');
     expect(dialog).toHaveAccessibleDescription(SCORES_UPSELL_BODY);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');

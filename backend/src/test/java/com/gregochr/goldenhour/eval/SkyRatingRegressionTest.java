@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p><b>What one run checks.</b> The returned scores are not null (a null is a MALFORMED run, reported
  * rather than thrown); the star rating lies in the fixture's {@link SkyRatingEvalFixture#band()}; and,
  * where the fixture has {@link RegressionBounds}, the rating lies in the bounds' rating band (always
- * equal to the band, as {@code RegressionBoundsRegistryTest} guards) and Fiery Sky and Golden Hour lie
+ * equal to the band, as {@code RegressionBoundsRegistryTest} guards) and Red Sky and Golden Hour lie
  * within their min/max. A run is a pass only when every check holds.
  *
  * <p><b>Quick mode</b> ({@code k=1}, the default): all fixtures, every assertion hard, monitored
@@ -165,7 +165,7 @@ class SkyRatingRegressionTest {
 
     /**
      * Judges one scorer response against one fixture: a null score is MALFORMED; otherwise the rating
-     * is classified against the band (and the bounds' rating band), and Fiery Sky and Golden Hour
+     * is classified against the band (and the bounds' rating band), and Red Sky and Golden Hour
      * against the bounds' min/max where the fixture has any.
      *
      * @param fixture the fixture the response is for

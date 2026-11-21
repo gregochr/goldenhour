@@ -19,7 +19,7 @@
 | Feature | Alpenglow | SkyCandy | PhotoWeather | Golden Hour |
 |---------|-----------|----------|--------------|-------------|
 | Quality percentage | ✓ | ✓ | ✓ | ✓ |
-| Two separate metrics (Golden Hour vs Fiery Sky) | ✗ | ✗ | ✓ | Planned |
+| Two separate metrics (Golden Hour vs Red Sky) | ✗ | ✗ | ✓ | Planned |
 | AI-generated explanation | ✗ | ✗ | ✗ | ✓ (Claude) |
 | Aerosol optical depth | ✗ | ✗ | ✓ | ✓ (Open-Meteo CAMS) |
 | Aerosol type discrimination (dust vs smoke) | ✗ | ✗ | ✓ (satellite) | Partial (AOD + PM2.5 proxy) |
@@ -88,7 +88,7 @@
 - ✓ Multi-location support with map
 - ✓ Configurable alerts / notifications
 - ✓ Tide info for coastal locations
-- Planned: Two separate metrics (Fiery Sky + Golden Hour potential)
+- Planned: Two separate metrics (Red Sky + Golden Hour potential)
 - Planned: Improvement notifications
 
 ### Nice to Have (Differentiation, post-launch)

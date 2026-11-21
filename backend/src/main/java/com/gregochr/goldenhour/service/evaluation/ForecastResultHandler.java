@@ -104,7 +104,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * Distinct from the normal low-score "poor sky" wording — this is "evaluated but unscoreable".
      */
     public static final String SKY_NOT_FORECAST_SUMMARY =
-            "Claude did not forecast the fiery sky and golden hour for this location";
+            "Claude did not forecast the red sky and golden hour for this location";
 
     private final BriefingEvaluationService briefingEvaluationService;
     private final SunsetEvaluationParser parser;

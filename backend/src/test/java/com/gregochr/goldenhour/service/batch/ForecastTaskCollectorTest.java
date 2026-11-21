@@ -199,7 +199,7 @@ class ForecastTaskCollectorTest {
     // ── Out-of-season canopy sites (the triage fork) ──────────────────────────
     // The sky triage asks sky questions. For a wood the honest answers are inverted, so letting
     // it run selects exactly wrongly: triaged OUT on the misty overcast morning it wants, passed
-    // THROUGH on the clear day it does not — where it would then be rated for fiery-sky potential
+    // THROUGH on the clear day it does not — where it would then be rated for red-sky potential
     // it structurally cannot have. A canopy site therefore never enters the sky lane; since the
     // woodland prompt landed it goes to the WOODLAND bucket instead of nowhere.
 

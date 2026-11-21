@@ -136,16 +136,16 @@ class AskPromptBuilderTest {
                         + "distances or figures. When detail.skyRating is above the rating, the sky looks better "
                         + "than the star: say the tide pulled it down, using the tide fit. Mention "
                         + "detail.fierySky and detail.goldenHour only when the reader asks what kind of light to "
-                        + "expect: call them Fiery Sky and Golden Hour, out of 100, and never say one is "
+                        + "expect: call them Red Sky and Golden Hour, out of 100, and never say one is "
                         + "stronger than the other. Never add a reason the result does not give. Order: the "
                         + "rating and its reason, then why PhotoCast is or is not suggesting it, then the rest. "
                         + "The summary is cut at 60 words, so keep within that.");
-        assertThat(ready).doesNotContain("detail.summary").doesNotContain("Fiery Sky and Golden Hour");
+        assertThat(ready).doesNotContain("detail.summary").doesNotContain("Red Sky and Golden Hour");
     }
 
     @Test
     @DisplayName("a typed prompt, and a follow-up thread's, carries the light-character rule for questions that name "
-            + "no place; the Ready prompt carries no Fiery Sky or Golden Hour wording at all")
+            + "no place; the Ready prompt carries no Red Sky or Golden Hour wording at all")
     void typedPromptCarriesTheLightCharacterRule() {
         String typed = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
         String thread = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true, true));
@@ -153,17 +153,17 @@ class AskPromptBuilderTest {
         String bullet = "When the reader asks what the light or colour will be like and names no place (\"is "
                 + "tomorrow a fiery morning?\", \"fiery or soft tonight?\"), give the spread first as for any "
                 + "window, then rank_spots. Describe each place's light in its headline's words and add its "
-                + "fierySky and goldenHour as Fiery Sky N and Golden Hour N, out of 100, for at most two places. "
+                + "fierySky and goldenHour as Red Sky N and Golden Hour N, out of 100, for at most two places. "
                 + "Never answer yes or no from a figure alone, never call a figure strong, high, low, fiery or "
                 + "soft, and never say one is stronger than the other: if the headlines do not say which, say "
                 + "the forecast does not rank them. The figures are for the places returned only: never call one "
-                + "the fieriest, or the whole window fiery or soft. A pick's why may quote Fiery Sky N as its sky "
+                + "the fieriest, or the whole window fiery or soft. A pick's why may quote Red Sky N as its sky "
                 + "fact. Leave the figures out of a where-question (\"best place for golden hour?\"). To compare "
                 + "earlier picks' light in a follow-up, call rank_spots again.";
 
         assertThat(typed).contains(bullet);
         assertThat(thread).contains(bullet);
-        assertThat(ready).doesNotContain("fierySky").doesNotContain("Fiery Sky").doesNotContain("Golden Hour");
+        assertThat(ready).doesNotContain("fierySky").doesNotContain("Red Sky").doesNotContain("Golden Hour");
     }
 
     @Test

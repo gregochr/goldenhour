@@ -24,7 +24,7 @@ import java.time.Instant;
  *
  * @param locationName        the location that was evaluated
  * @param rating              1-5 star rating, or null for triage / failure
- * @param fierySkyPotential   fiery sky score 0-100, or null
+ * @param fierySkyPotential   red sky score 0-100, or null
  * @param goldenHourPotential golden hour score 0-100, or null
  * @param summary             Claude's plain-English explanation, or null
  * @param triageReason        categorised stand-down reason, or null if Claude-scored
@@ -192,7 +192,7 @@ public record BriefingEvaluationResult(
      *
      * @param locationName        the location that was evaluated
      * @param rating              1-5 star rating, or null
-     * @param fierySkyPotential   fiery sky score 0-100, or null
+     * @param fierySkyPotential   red sky score 0-100, or null
      * @param goldenHourPotential golden hour score 0-100, or null
      * @param summary             Claude's explanation, or null
      * @param triageReason        categorised stand-down reason, or null
@@ -216,7 +216,7 @@ public record BriefingEvaluationResult(
      *
      * @param locationName        the location that was evaluated
      * @param rating              1-5 star rating, or null
-     * @param fierySkyPotential   fiery sky score 0-100, or null
+     * @param fierySkyPotential   red sky score 0-100, or null
      * @param goldenHourPotential golden hour score 0-100, or null
      * @param summary             Claude's explanation, or null
      * @param triageReason        categorised stand-down reason, or null
@@ -242,7 +242,7 @@ public record BriefingEvaluationResult(
      *
      * @param locationName        the location that was evaluated
      * @param rating              1-5 star rating, or null
-     * @param fierySkyPotential   fiery sky score 0-100, or null
+     * @param fierySkyPotential   red sky score 0-100, or null
      * @param goldenHourPotential golden hour score 0-100, or null
      * @param summary             Claude's explanation, or null
      * @param triageReason        categorised stand-down reason, or null
@@ -283,7 +283,7 @@ public record BriefingEvaluationResult(
      *
      * @param locationName        the location
      * @param rating              1-5 rating
-     * @param fierySkyPotential   fiery sky score 0-100
+     * @param fierySkyPotential   red sky score 0-100
      * @param goldenHourPotential golden hour score 0-100
      * @param summary             Claude's explanation
      */
@@ -298,7 +298,7 @@ public record BriefingEvaluationResult(
      *
      * @param locationName        the location
      * @param rating              1-5 rating (typically null for triaged)
-     * @param fierySkyPotential   fiery sky score (typically null for triaged)
+     * @param fierySkyPotential   red sky score (typically null for triaged)
      * @param goldenHourPotential golden hour score (typically null for triaged)
      * @param summary             Claude's explanation (typically null for triaged)
      * @param triageReason        categorised stand-down reason

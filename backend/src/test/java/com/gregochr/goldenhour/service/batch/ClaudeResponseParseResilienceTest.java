@@ -133,7 +133,7 @@ class ClaudeResponseParseResilienceTest {
      * night by <em>this sentence alone</em> — there is no status column behind it.
      */
     private static final String SKY_NOT_FORECAST_SUMMARY =
-            "Claude did not forecast the fiery sky and golden hour for this location";
+            "Claude did not forecast the red sky and golden hour for this location";
 
     /** The SDK's own mapper — the one that deserialises real Anthropic batch results. */
     private static final JsonMapper SDK_MAPPER = ObjectMappers.jsonMapper();
@@ -185,7 +185,7 @@ class ClaudeResponseParseResilienceTest {
      * @param loggedSucceeded the {@code api_call_log.succeeded} value expected
      * @param loggedErrorType the {@code api_call_log.error_type} value expected (may be null)
      * @param rating          rating on the salvaged result, or null when none survives
-     * @param fierySky        fiery-sky score on the salvaged result, or null
+     * @param fierySky        red-sky score on the salvaged result, or null
      * @param summary         exact summary on the salvaged result, or null
      * @param headline        exact headline on the salvaged result, or null when the field is lost
      */

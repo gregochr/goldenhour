@@ -76,7 +76,7 @@ experienced what they'd lose.
 
 | Feature | Lite | Pro |
 |---------|------|-----|
-| Score (Fiery Sky %, Golden Hour %) | ✓ | ✓ |
+| Score (Red Sky %, Golden Hour %) | ✓ | ✓ |
 | One-line Claude summary | ✓ | ✓ |
 | "Why" explanation (3 key factors) | ✓ | ✓ |
 | Forecast horizon | 3 days | 7 days |

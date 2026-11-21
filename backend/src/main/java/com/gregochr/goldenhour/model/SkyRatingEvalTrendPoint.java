@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
  * @param expectedMin   the fixture's band floor (for the shaded band on the graph)
  * @param expectedMax   the fixture's band ceiling
  * @param avgRating     mean 1–5 rating across the run's N runs of this fixture
- * @param avgFierySky   mean 0–100 fiery-sky sub-score (finer drift signal than the rating)
+ * @param avgFierySky   mean 0–100 red-sky sub-score (finer drift signal than the rating)
  * @param avgGoldenHour mean 0–100 golden-hour sub-score
  * @param runs          how many runs of this fixture this point aggregates
  * @param passes        how many of those landed in band

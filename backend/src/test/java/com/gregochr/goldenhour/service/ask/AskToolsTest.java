@@ -1567,7 +1567,7 @@ class AskToolsTest {
     }
 
     @Test
-    @DisplayName("a typed rank_spots carries each slot's served Fiery Sky and Golden Hour")
+    @DisplayName("a typed rank_spots carries each slot's served Red Sky and Golden Hour")
     void rankSpots_typedCarriesBothScores() {
         List<SpotInfo> found = spots(tools(snapshotOfRegions(lightRegion(78, 60)), USER, TestScopes.of())
                 .rankSpots(rank(8)));

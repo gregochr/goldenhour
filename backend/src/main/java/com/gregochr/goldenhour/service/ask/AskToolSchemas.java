@@ -138,7 +138,7 @@ public final class AskToolSchemas {
         String base = "The spots worth going to, best first: only places rated 3 stars or better, never a "
                 + "wood. Every pick in your answer must be a locationId and windowId this "
                 + "tool returned.";
-        String lightFigures = " Each spot also has its Fiery Sky and Golden Hour (0-100).";
+        String lightFigures = " Each spot also has its Red Sky and Golden Hour (0-100).";
         return tool(RANK_SPOTS, withUser ? base + lightFigures : base, props, List.of());
     }
 

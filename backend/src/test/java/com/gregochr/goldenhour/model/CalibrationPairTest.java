@@ -24,7 +24,7 @@ class CalibrationPairTest {
     }
 
     @Test
-    @DisplayName("a rating pair is keyed on its reader and has no fiery-sky, golden-hour or trip actuals")
+    @DisplayName("a rating pair is keyed on its reader and has no red-sky, golden-hour or trip actuals")
     void ratingConstructor_keysOnReaderAndLeavesOtherActualsNull() {
         CalibrationPair pair = rating(11L);
 

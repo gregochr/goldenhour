@@ -145,7 +145,7 @@ final class AskFixtures {
                 headline, base.canopy(), null);
     }
 
-    /** The slot with the served Fiery Sky and Golden Hour potentials set, everything else as it was. */
+    /** The slot with the served Red Sky and Golden Hour potentials set, everything else as it was. */
     static BriefingSlot withPotentials(BriefingSlot base, Integer fiery, Integer golden) {
         return new BriefingSlot(base.locationId(), base.locationName(), base.solarEventTime(),
                 base.verdict(), base.weather(), base.tide(), base.flags(), base.claudeRating(), base.skyRating(),
