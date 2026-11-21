@@ -92,10 +92,10 @@ public class PromptBuilder {
             + "  Rating 5 requires: solar horizon low cloud <20%, mid cloud <50% at solar horizon, "
             + "AND cloud canvas (mid/high) on the antisolar side. If ANY of these is missing, cap "
             + "at 4. Thick mid cloud (>80%) at the solar horizon limits colour variety — cap at 4.\n"
-            + "  2. Fiery Sky Potential: 0\u2013100 (dramatic colour, vivid reds/oranges)\n"
+            + "  2. Red Sky Potential: 0\u2013100 (dramatic colour, vivid reds/oranges)\n"
             + "  3. Golden Hour Potential: 0\u2013100 (overall light quality, softness)\n\n"
-            + "Key criteria: clear horizon critical (high low cloud >70% = poor for fiery sky); "
-            + "mid/high cloud above clear horizon = ideal canvas for fiery sky; "
+            + "Key criteria: clear horizon critical (high low cloud >70% = poor for red sky); "
+            + "mid/high cloud above clear horizon = ideal canvas for red sky; "
             + "post-rain clearing often vivid; "
             + "high humidity (>80%) mutes colours.\n\n"
             + "AEROSOL & DUST GUIDANCE:\n"
@@ -336,7 +336,7 @@ public class PromptBuilder {
 
     /** Prompt suffix: requests all three metrics and a summary. */
     static final String PROMPT_SUFFIX =
-            "Rate 1-5, estimate Fiery Sky Potential (0-100) and Golden Hour Potential (0-100), "
+            "Rate 1-5, estimate Red Sky Potential (0-100) and Golden Hour Potential (0-100), "
             + "then summarise in exactly one sentence.";
 
     /** AOD threshold above which the dust context block is included. */

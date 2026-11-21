@@ -73,7 +73,7 @@ public class PromptBuilderTest {
 
         assertThat(suffix)
                 .contains("Rate 1-5")
-                .contains("Fiery Sky Potential")
+                .contains("Red Sky Potential")
                 .contains("Golden Hour Potential")
                 .contains("exactly one sentence");
     }
