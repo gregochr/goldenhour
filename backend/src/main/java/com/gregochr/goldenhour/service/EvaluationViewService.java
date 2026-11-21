@@ -306,12 +306,7 @@ public class EvaluationViewService {
      * fetch is the only added query, kept as its OWN small method (rather than folded into {@code
      * getScoresForEnrichmentBulk}'s existing loop) because the two questions have genuinely
      * different callers now: only the two production sites that hand a resolver pair to {@code
-     * BriefingRegionEvaluationRollup.enrich} need this one, while {@code
-     * BriefingRollupBuilder.loadLiveScores} (the best-bet advisor's OWN separate rollup, which never
-     * calls {@code BriefingRegionEvaluationRollup.enrich} at all) has no use for it and no longer
-     * pays for it — a query this cast was over-fetching before this fix, since it always fell
-     * through {@code getScoresForEnrichmentBulk}'s own {@code loadTriagedByBatch} call regardless of
-     * whether its caller read the marker.
+     * BriefingRegionEvaluationRollup.enrich} need this one.
      *
      * @param start first evaluation date to include (inclusive)
      * @param end   last evaluation date to include (inclusive)
@@ -981,13 +976,9 @@ public class EvaluationViewService {
      * several regions, dates or events — must load {@link #getLiveScoresForEnrichmentBulk} once
      * instead: this method's per-call cost ({@link #getScoresForEnrichment}'s own three queries:
      * the enabled roster, the latest forecast rows, the stability dispositions) is fine for a
-     * handful of calls and a real multiplication for dozens. {@code
-     * PipelineRunPickService.lookupAverageRating} is the sole remaining caller, at persist time,
-     * for at most the 1–2 picks one pipeline run produces — never a loop over a window, so the
-     * single-key cost here is the right shape for it. {@code BriefingRollupBuilder} used to be a
-     * second caller and is not any more (a Codex review of #940 caught it looping this method
-     * across every region and event in a rollup); it now reads {@link
-     * #getLiveScoresForEnrichmentBulk} once per build instead.
+     * handful of calls and a real multiplication for dozens (a Codex review of #940 caught a
+     * rollup looping this method across every region and event).
+     * The single-key form suits a caller that resolves one region at a time.
      *
      * @param regionName the region name
      * @param date       the forecast date
@@ -1159,20 +1150,17 @@ public class EvaluationViewService {
     }
 
     /**
-     * {@link #getScoresForEnrichmentBulk}, filtered so a caller covering a whole window — the
-     * best-bet advisor's rollup, in particular — can load that window with ONE bulk query set and
-     * still never receive a retraction marker, exactly as {@link #getLiveScoresForEnrichment}
-     * guarantees for a single region/date/event.
+     * {@link #getScoresForEnrichmentBulk}, filtered so a caller covering a whole window can load that
+     * window with ONE bulk query set and still never receive a retraction marker, exactly as
+     * {@link #getLiveScoresForEnrichment} guarantees for a single region/date/event.
      *
      * <p>⚠️ <b>This is the fix for a real query-count regression, not a convenience overload.</b>
-     * A caller that needs live scores for many region/date/event slots in one build — the
-     * best-bet advisor's rollup covers up to {@code MAX_VISIBLE_EVENTS} (8) events across every
-     * region, twice per slot (once to build the prompt, once to log coverage) — must call this
-     * ONCE for the whole window and read the result in memory, never
+     * A caller that needs live scores for many region/date/event slots in one build must call
+     * this ONCE for the whole window and read the result in memory, never
      * {@link #getLiveScoresForEnrichment} in a loop: each single-key call costs three queries
      * (the enabled roster, the latest forecast rows, the stability dispositions), so a loop over
      * even a modest region count turns a handful of DB round trips into dozens per rollup — the
-     * defect a Codex review of #940 caught in {@code BriefingRollupBuilder}. This method costs the
+     * defect a Codex review of #940 caught in a since-retired rollup. This method costs the
      * same small, constant number of queries as {@link #getScoresForEnrichmentBulk} regardless of
      * how many regions, dates or events the window covers.
      *

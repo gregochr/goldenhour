@@ -1,8 +1,6 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.BestBet;
-import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BigSeasDay;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
@@ -12,7 +10,6 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.repository.LocationPoint;
-import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
 import com.gregochr.goldenhour.service.warnings.WarningOverlay;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
@@ -33,7 +30,7 @@ import java.util.Set;
 
 /**
  * Owns the ordered, serve-time composition that turns a stored briefing snapshot into what a
- * client is served: re-enrichment, the best-bet fallback, the honesty filter, movement, the tide
+ * client is served: re-enrichment, the honesty filter, movement, the tide
  * rollup, and the window projection.
  *
  * <p>{@link BriefingService} keeps cache access and refresh (build-path) orchestration; this class
@@ -55,7 +52,6 @@ class ServedBriefingAssembler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ServedBriefingAssembler.class);
 
-    private final BestBetFallbackService bestBetFallbackService;
     private final BriefingRegionSnapshotService regionSnapshotService;
     private final WindowTideRollupBuilder windowTideRollupBuilder;
     private final EvaluationViewService evaluationViewService;
@@ -79,8 +75,7 @@ class ServedBriefingAssembler {
     private final WarningOverlay warningOverlay;
 
     @Autowired
-    ServedBriefingAssembler(BestBetFallbackService bestBetFallbackService,
-            BriefingRegionSnapshotService regionSnapshotService,
+    ServedBriefingAssembler(BriefingRegionSnapshotService regionSnapshotService,
             WindowTideRollupBuilder windowTideRollupBuilder,
             @Lazy EvaluationViewService evaluationViewService,
             Clock clock,
@@ -90,7 +85,6 @@ class ServedBriefingAssembler {
             NeighbourGuardLog neighbourGuardLog,
             BigSeasBuilder bigSeasBuilder,
             WarningOverlay warningOverlay) {
-        this.bestBetFallbackService = bestBetFallbackService;
         this.regionSnapshotService = regionSnapshotService;
         this.windowTideRollupBuilder = windowTideRollupBuilder;
         this.evaluationViewService = evaluationViewService;
@@ -107,7 +101,6 @@ class ServedBriefingAssembler {
      * The constructor every caller used before the weather-warning overlay existed: the overlay is off, so the served
      * briefing carries no {@code warningIds}.
      *
-     * @param bestBetFallbackService   the best-bet fallback
      * @param regionSnapshotService    the region snapshot reader
      * @param windowTideRollupBuilder  the window tide rollup
      * @param evaluationViewService    the evaluation view (lazy)
@@ -118,8 +111,7 @@ class ServedBriefingAssembler {
      * @param neighbourGuardLog        the neighbour guard log
      * @param bigSeasBuilder           the big-seas builder
      */
-    ServedBriefingAssembler(BestBetFallbackService bestBetFallbackService,
-            BriefingRegionSnapshotService regionSnapshotService,
+    ServedBriefingAssembler(BriefingRegionSnapshotService regionSnapshotService,
             WindowTideRollupBuilder windowTideRollupBuilder,
             EvaluationViewService evaluationViewService,
             Clock clock,
@@ -128,28 +120,28 @@ class ServedBriefingAssembler {
             NeighbourGuardProperties neighbourGuardProperties,
             NeighbourGuardLog neighbourGuardLog,
             BigSeasBuilder bigSeasBuilder) {
-        this(bestBetFallbackService, regionSnapshotService, windowTideRollupBuilder, evaluationViewService, clock,
+        this(regionSnapshotService, windowTideRollupBuilder, evaluationViewService, clock,
                 scoreEnricher, locationPointProvider, neighbourGuardProperties, neighbourGuardLog, bigSeasBuilder,
                 WarningOverlay.disabled());
     }
 
     /**
-     * Assembles the served briefing <b>without</b> the Plan-tab window projection: re-enrichment,
-     * the serve-time best-bet fallback, and the honesty filter, in that order. The first stage of
+     * Assembles the served briefing <b>without</b> the Plan-tab window projection: re-enrichment
+     * and the honesty filter, in that order. The first stage of
      * {@link #assembleForPlan}; package-private so a test can use it as the unstripped oracle for
      * the slot-tide strip. Nothing serves it on its own.
      *
      * @param snapshot         the cached briefing, or {@code null} if none has been built yet
      * @param minCoverageRatio the coverage threshold threaded to the honesty filter, where it no longer
      *                         has any effect; see {@link BriefingHonestyFilter#apply(DailyBriefingResponse, double)}
-     * @return the enriched, fallback-applied, honesty-filtered response, or {@code null} if
+     * @return the enriched, honesty-filtered response, or {@code null} if
      *         {@code snapshot} was {@code null}
      */
     DailyBriefingResponse assembleWithoutPlan(DailyBriefingResponse snapshot,
             double minCoverageRatio) {
         Reenriched reenriched = reEnrichVerdicts(snapshot);
         return BriefingHonestyFilter.apply(
-                applyBestBetFallback(reenriched.response()),
+                reenriched.response(),
                 minCoverageRatio,
                 reenriched.latestBySlot(),
                 clock);
@@ -171,16 +163,6 @@ class ServedBriefingAssembler {
         // past. Projected any earlier, a window would confidently describe a region the same
         // response reports as unevaluable. See PlanWindowProjector.
         //
-        // The honesty filter wraps the fallback rather than sitting inside it, so that EVERY pick
-        // on the way out has been checked against the regions blanked on this serve. With the
-        // order reversed, a fallback swapped in afterwards was the one list never checked — and it
-        // is the most likely to fail the check, being picks from an earlier forecast offered
-        // precisely because this one's advisor failed. The stale chip tells a reader the picks are
-        // old; it does not tell them the region behind one has no forecast at all.
-        //
-        // The fallback still runs on the ENRICHED response, so its FAILED test and the filter's
-        // coverage test both read current state. Nothing else about it is order-sensitive: it
-        // reads only bestBetStatus and passes the day hierarchy through untouched.
         // Movement is attached HERE and not inside assembleWithoutPlan: nothing renders a delta
         // except the Plan tab, and this is the Plan tab's payload.
         //
@@ -190,8 +172,8 @@ class ServedBriefingAssembler {
         // Per-location tide facts are projected from the RAW snapshot, before the honesty filter:
         // the filter empties a zero-coverage region's slots (the designed state of every window
         // Gate 4 does not score and of every travel day), and the tide facts come from stored
-        // tide tables, not from Claude. Slot tide is never touched by re-enrichment or the
-        // fallback, so the snapshot's tide is the served tide. Read-only on the snapshot.
+        // tide tables, not from Claude. Slot tide is never touched by re-enrichment,
+        // so the snapshot's tide is the served tide. Read-only on the snapshot.
         Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> tideFacts = snapshot == null
                 ? Map.of() : WindowTideFactProjector.project(snapshot.days());
         // The neighbour guard marks a slot rated far above its neighbours so the projector's topSlot
@@ -463,41 +445,5 @@ class ServedBriefingAssembler {
     /** A re-enriched response with the latest disposition per slot the filter words blanks by. */
     private record Reenriched(DailyBriefingResponse response,
             Map<String, EvaluationViewService.LatestDisposition> latestBySlot) {
-    }
-
-    /**
-     * Fail-safe best-bet fallback applied at serve time: when the served response's best-bet
-     * outcome is {@link BestBetStatus#FAILED} and a fresh-enough prior successful pick exists,
-     * substitute those picks (the frontend renders them with a stale chip, since the status
-     * stays {@code FAILED}). Re-evaluated on every request so freshness (event-not-passed, within
-     * the age ceiling) is always current — the fallback is never baked into the persisted cache.
-     *
-     * <p>No-op unless the status is {@code FAILED}: an honest {@code SUCCESS_NO_PICKS} keeps its
-     * empty state, and a {@code FAILED} with no fresh-enough prior pick falls through to the
-     * honest empty state rather than resurrecting a stale or passed pick.
-     *
-     * <p><b>Runs BEFORE {@link BriefingHonestyFilter}, and must stay there.</b> Picks substituted
-     * here are therefore still subject to withdrawal, which is the whole reason the filter wraps
-     * this method rather than sitting inside it: a stale list is the one most likely to name a
-     * region this serve cannot evaluate, being picks from an earlier forecast offered precisely
-     * because this cycle's advisor failed. Hoist the filter back inside and this list becomes the
-     * only one never coverage-checked — which is how a stale pick came to crown a blanked region.
-     * One test guards the ordering: {@code fallbackPickOnBlankedRegion_isWithdrawn}.
-     *
-     * @param response the re-enriched response, not yet honesty-filtered (may be null)
-     * @return the response, possibly decorated with fallback picks
-     */
-    private DailyBriefingResponse applyBestBetFallback(DailyBriefingResponse response) {
-        if (response == null || response.bestBetStatus() != BestBetStatus.FAILED) {
-            return response;
-        }
-        List<BestBet> fallback = bestBetFallbackService.findFreshFallback(response.days());
-        if (fallback.isEmpty()) {
-            return response;
-        }
-        // The withdrawal flag is carried, not cleared: this now runs BEFORE the honesty filter, so
-        // there is no withdrawal yet to describe — the filter sets the flag afterwards, against
-        // whichever list it ends up seeing, including this one.
-        return response.withBestBets(fallback, response.bestBetsWithdrawn());
     }
 }

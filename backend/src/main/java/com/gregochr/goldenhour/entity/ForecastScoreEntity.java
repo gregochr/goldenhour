@@ -59,7 +59,7 @@ public class ForecastScoreEntity {
 
     /**
      * Which score product this row is — the V107 lookup id. Stored as a
-     * plain column (house style, cf. {@code PipelineRunPickEntity}); use
+     * plain column (house style); use
      * {@link #getForecastType()}/{@link #setForecastType(ForecastType)} to
      * work in enum terms. (A converter mapping the enum directly makes
      * Hibernate emit a check constraint H2 cannot evaluate, which breaks

@@ -84,8 +84,6 @@ class PipelineOrchestratorFireLogTest {
     @Mock
     private ForecastBatchRepository forecastBatchRepository;
     @Mock
-    private PipelineRunPickService pipelineRunPickService;
-    @Mock
     private BatchRetryService batchRetryService;
     @Mock
     private AdminAlertService adminAlertService;
@@ -102,7 +100,7 @@ class PipelineOrchestratorFireLogTest {
                 solarTriggers, solarCatchUp, clock);
         PipelineOrchestrator orchestrator = new PipelineOrchestrator(pipelineRunService,
                 scheduledBatchEvaluationService, briefingService, forecastBatchRepository, clock,
-                queuedTail::add, Duration.ofMillis(1), Duration.ofHours(1), scheduler, pipelineRunPickService,
+                queuedTail::add, Duration.ofMillis(1), Duration.ofHours(1), scheduler,
                 batchRetryService, adminAlertService, locationFailureService);
         orchestrator.registerJobTarget();
     }

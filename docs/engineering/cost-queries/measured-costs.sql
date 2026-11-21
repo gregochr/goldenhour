@@ -4,6 +4,8 @@
 --   docker exec -i goldenhour-db psql -U goldenhour -d goldenhour < measured-costs.sql
 --
 -- Only Anthropic calls (cost_micro_dollars set) are counted; Open-Meteo and tide calls carry none.
+-- BRIEFING_BEST_BET is the retired best-bet advisor (2026-11-21): it still lists its older rows inside the
+-- 30-day window and should read zero for runs after the deploy. Run Config no longer profiles it.
 WITH calls AS (
     SELECT j.run_type, a.evaluation_model AS model, a.job_run_id, a.is_batch,
            a.cost_micro_dollars, a.input_tokens, a.output_tokens,

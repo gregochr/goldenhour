@@ -9,7 +9,7 @@ Almost everything on the popup already exists on the Map. These four don't, and 
 | From the popup | To the Map | Notes |
 |---|---|---|
 | **"See all N →" ranked list** (`WindowSpotSheet`, rating then drive) | a **☰ List** button in the Map's top-right group, opening the same sheet for the selected window | The only "best first, every spot" view. On a phone it's a bottom sheet; a row closes it and opens that place's callout. `WindowSpotSheet` and `WindowSpotCard` **stay**. |
-| **Best bet reason** (`WindowPickDialog`: the advisor's `headline` + `detail`) | a **◎ Best bet · why** pill in the window control (`WindowControl` / `MapWindowPanel`) that expands the reason in place | Today the reason is only readable in the popup (the Glance badge carries it as a `title` tooltip only). If the owner would rather drop it, see "Claude cost" below. |
+| **Best bet reason** (`WindowPickDialog`: the served pick's `headline` + `detail`, written by the region gloss) | a **◎ Best bet · why** pill in the window control (`WindowControl` / `MapWindowPanel`) that expands the reason in place | Today the reason is only readable in the popup (the Glance badge carries it as a `title` tooltip only). |
 | **The full warning** (`WindowWarningRow`: headline, what to expect, what to do, validity, link) | the Map's warning chip (`MapWarningChips`) **expands** to the same `WindowWarningRow` | `WindowWarningRow` survives (Coming up uses it). The chips stay a summary until pressed. |
 | **Regions best first** (the popup's tiles were sorted by verdict) | the Map's Regions menu (`RegionsJump`) lists regions best first, with the verdict word and "best 4★ · 21 in reach" | Keep `★ My places` and starred areas at the top, as built in F4. |
 
@@ -60,7 +60,7 @@ The popup opens from `WindowFirstHeatStrip` (cards), `WindowFirstShell` (Find's 
 - **Landing `index.html` and `faq.html`**: grep for "popup" and "tap a card"; fix any hit.
 
 ## Claude cost
-**Binning the popup saves no Claude spend.** The region write-up is the briefing gloss (~$4.3 per 30 days); it also feeds the Map's region panel and the callout fallback, so it stays. The Best bet advisor (~$2.8 per 30 days) chooses the Glance Best-bet card, so it stays. Its `headline`/`detail` reason moves to the Map. **Owner option:** if the reason isn't wanted on the Map, drop `detail` from the advisor's output schema to save its output tokens, a few tenths of a dollar a month. Record the decision in `claude-cost-ledger.md` either way.
+**Binning the popup saves no Claude spend.** The region write-up is the briefing gloss (~$4.3 per 30 days); it also feeds the Map's region panel and the callout fallback, so it stays, and the pick's `headline`/`detail` reason (the gloss's words) moves to the Map. **Update 2026-11-21:** the Best bet advisor (~$2.8 per 30 days) never chose the Glance card and has since been retired (`best-bet-advisor-retirement-plan.md`; `claude-cost-ledger.md`).
 
 ## Phases (one PR each)
 - **G1, Map gains the four pieces:** List, Best bet · why, the warning expand, Regions best-first. The popup still exists, so nothing is lost if G2 slips.
@@ -116,10 +116,10 @@ All 16 whole files confirmed orphaned once the popup goes. Wrong entries: `dawnR
 
 ## Claude cost (corrected; supersedes the handoff's section)
 - Binning the popup alone saves **$0**: the Map region panel and callout read the region gloss headline AND detail.
-- The Best-bet advisor does **not** choose the Glance card (`PlanWindowProjector.selectPicks` is deterministic); it writes `bestBets`, which no frontend surface reads. It feeds `pipeline_run_pick` (admin cycle comparison), the replay tool and honesty/fallback paths.
-- Follow-up PRs (separate from G1–G3): **(1) skip gloss for day 5**, which the briefing glosses (`BRIEFING_WINDOW_DAYS = 5`) but nothing renders (`PLAN_OWNED_DAYS = 4`): ~$0.4–0.9 per 30 days, no prompt change, guard the date rollover. **(2) Retire the advisor call**: ~$2.8 per 30 days, owner decision; first trace its aurora link (`AuroraRegionSelector`, `BestBetAuroraPromptRegressionTest`) and confirm the admin comparison is unused. Dropping only `detail` (~$0.3) is not recommended. Figures are estimates; confirm with `measured-costs.sql`. Record the decision in `claude-cost-ledger.md`.
+- The Best-bet advisor did **not** choose the Glance card (`PlanWindowProjector.selectPicks` is deterministic); it wrote `bestBets`, which no frontend surface reads, and fed `pipeline_run_pick` (admin cycle comparison), the replay tool and the fallback path. It was retired 2026-11-21 together with those admin surfaces.
+- Follow-up PRs (separate from G1–G3): **(1) skip gloss for day 5**: **REJECTED 2026-11-21.** The fifth date's gloss is what gives T+3 a pick overnight, so skipping it would remove a reader-facing pick to save ~$0.4–0.9 per 30 days. **(2) Retire the advisor call**: **DONE 2026-11-21** (`best-bet-advisor-retirement-plan.md`), ~$2.8 per 30 days, an estimate to confirm with `measured-costs.sql`; the decisions are in `claude-cost-ledger.md`.
 
 ## Owner decisions (2026-11-20)
 - **Back-to-Glance applies to Glance cards AND Find arrivals** (the shell's `mapArrivedFrom` Back layer is set by both doors).
 - Defaults taken for G2a (owner may overrule): the lane's `tapTopic`/`tapWarning` and any Coming-up entry that names a window open the Map on that window via the same `showOnMap` event door, with the same Back layer.
-- Claude-cost follow-ups (day-5 gloss trim first; advisor retirement after the aurora trace and owner confirmation) are separate PRs after G3.
+- Claude-cost follow-ups: the day-5 gloss trim was rejected and the advisor retired, both 2026-11-21 (`claude-cost-ledger.md`).

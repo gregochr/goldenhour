@@ -7,11 +7,7 @@ import {
   cycleMetaLine,
   elapsedText,
   totalRequests,
-  pickLine,
-  pickHeadline,
-  rankLabel,
   cycleName,
-  changedDimensionsText,
 } from '../utils/cycleView.js';
 
 describe('phase names', () => {
@@ -153,53 +149,6 @@ describe('totalRequests', () => {
   });
 });
 
-describe('pickLine / pickHeadline', () => {
-  it('reads "No pick" for a rank present on only one side', () => {
-    expect(pickLine(null)).toBe('No pick');
-  });
-
-  it('reads "Stay home" for a pick with no region', () => {
-    expect(pickLine({ region: null })).toBe('Stay home');
-  });
-
-  it('writes region, capitalised event, UK date and rating', () => {
-    expect(
-      pickLine({
-        region: 'Northumberland Coast', eventType: 'SUNSET', eventDate: '2026-10-31', claudeAverageRating: 4.2,
-      }),
-    ).toBe('Northumberland Coast · Sunset · Sat 31 Oct · ★4.2');
-  });
-
-  it('rounds the rating to one decimal and keeps a zero rating', () => {
-    expect(pickLine({ region: 'Lakes', claudeAverageRating: 0 })).toBe('Lakes · ★0.0');
-    expect(pickLine({ region: 'Lakes', claudeAverageRating: 3.96 })).toBe('Lakes · ★4.0');
-  });
-
-  it('leaves out the parts the pick does not carry', () => {
-    expect(pickLine({ region: 'Lakes' })).toBe('Lakes');
-  });
-
-  it('returns an event date that is not a date as it came', () => {
-    expect(pickLine({ region: 'Lakes', eventDate: 'next week' })).toBe('Lakes · next week');
-  });
-
-  it('prefers the headline and falls back to the line', () => {
-    expect(pickHeadline({ headline: 'Go west', region: 'Lakes' })).toBe('Go west');
-    expect(pickHeadline({ headline: '', region: 'Lakes' })).toBe('Lakes');
-    expect(pickHeadline({ region: null })).toBe('Stay home');
-    expect(pickHeadline(null)).toBe('No pick');
-    expect(pickHeadline(undefined)).toBe('No pick');
-  });
-});
-
-describe('rankLabel', () => {
-  it('names the first two plans by letter and the rest by number', () => {
-    expect(rankLabel(1)).toBe('Plan A');
-    expect(rankLabel(2)).toBe('Plan B');
-    expect(rankLabel(3)).toBe('Plan 3');
-  });
-});
-
 describe('cycleName', () => {
   it('uses the list row name when the row is loaded', () => {
     expect(cycleName({ id: 5, cycleType: 'NIGHTLY' }, { name: 'Overnight cycle (Tue)' })).toBe('Overnight cycle (Tue)');
@@ -217,21 +166,5 @@ describe('cycleName', () => {
   it('falls back to the cycle number for an unknown type', () => {
     expect(cycleName({ id: 5, cycleType: 'WEEKLY' })).toBe('Cycle #5');
     expect(cycleName({ id: 6 })).toBe('Cycle #6');
-  });
-});
-
-describe('changedDimensionsText', () => {
-  it('words the changed dimensions in order, capitalising the first', () => {
-    expect(changedDimensionsText({ changedDimensions: ['REGION', 'RATING'] })).toBe('Region, rating');
-    expect(changedDimensionsText({ changedDimensions: ['PRESENCE'] })).toBe('Added/dropped');
-  });
-
-  it('passes an unknown dimension through', () => {
-    expect(changedDimensionsText({ changedDimensions: ['EVENT', 'mood'] })).toBe('Event, mood');
-  });
-
-  it('reads "Changed" when no dimension is named', () => {
-    expect(changedDimensionsText({ changedDimensions: [] })).toBe('Changed');
-    expect(changedDimensionsText({})).toBe('Changed');
   });
 });

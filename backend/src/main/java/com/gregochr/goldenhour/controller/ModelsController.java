@@ -113,9 +113,9 @@ public class ModelsController {
      * Enable or disable extended thinking for a specific run type (ADMIN only).
      *
      * <p>Extended thinking adds a {@code ThinkingConfigAdaptive} block to the Claude API call,
-     * allowing Claude to reason internally before responding. Currently surfaced in the UI
-     * for {@code BRIEFING_BEST_BET} only; silently ignored for HAIKU (which does not
-     * support extended thinking).
+     * allowing Claude to reason internally before responding. No longer surfaced in the UI
+     * (its only user, the Briefing tab, went with the best-bet advisor); silently ignored for
+     * HAIKU (which does not support extended thinking).
      *
      * @param request body containing {@code "runType"} and {@code "enabled"} (boolean) fields
      * @return response containing the updated {@code runType} and {@code extendedThinking} state

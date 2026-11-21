@@ -8,10 +8,6 @@ import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelinePhaseStatus;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunPhaseEntity;
-import com.gregochr.goldenhour.model.BestBet;
-import com.gregochr.goldenhour.model.Confidence;
-import com.gregochr.goldenhour.model.DailyBriefingResponse;
-import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
@@ -96,9 +92,6 @@ class PipelineOrchestratorTest {
     private ForecastBatchRepository forecastBatchRepository;
 
     @Mock
-    private PipelineRunPickService pipelineRunPickService;
-
-    @Mock
     private BatchRetryService batchRetryService;
 
     @Mock
@@ -129,7 +122,6 @@ class PipelineOrchestratorTest {
                 // 1h safety timeout: the retry phase needs at least ten minutes of budget left
                 Duration.ofHours(1),
                 null,
-                pipelineRunPickService,
                 batchRetryService,
                 adminAlertService,
                 locationFailureService);
@@ -341,8 +333,7 @@ class PipelineOrchestratorTest {
                     forecastBatchRepository, movingClock,
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
                     null,
-                    pipelineRunPickService,
-                    batchRetryService,
+                        batchRetryService,
                     adminAlertService,
                     locationFailureService);
 
@@ -575,7 +566,7 @@ class PipelineOrchestratorTest {
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
-                    null, pipelineRunPickService, batchRetryService, null,
+                    null, batchRetryService, null,
                     locationFailureService);
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
@@ -633,7 +624,7 @@ class PipelineOrchestratorTest {
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, movingClock,
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
-                    null, pipelineRunPickService, batchRetryService, adminAlertService,
+                    null, batchRetryService, adminAlertService,
                     locationFailureService);
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
@@ -720,7 +711,7 @@ class PipelineOrchestratorTest {
         @Test
         @DisplayName("a RUNNING run mid-BRIEFING re-runs the briefing only, and does NOT "
                 + "restart the already-current BRIEFING phase (a second phase row is exactly "
-                + "the defect that let picks duplicate — see PipelineRunPickService)")
+                + "the defect that once duplicated per-run rows)")
         void resumes_mid_briefing() {
             PipelineRunEntity midBrief = runInPhase(PipelinePhase.BRIEFING);
             when(pipelineRunService.findRunning()).thenReturn(List.of(midBrief));
@@ -800,163 +791,23 @@ class PipelineOrchestratorTest {
     }
 
     @Nested
-    @DisplayName("Pick persistence")
-    class PickPersistence {
-
-        private DailyBriefingResponse briefingWithPicks(List<BestBet> picks) {
-            return briefing(picks, false, com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS);
-        }
-
-        private DailyBriefingResponse briefingWithPicks(List<BestBet> picks, boolean stale) {
-            return briefing(picks, stale, com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS);
-        }
-
-        private DailyBriefingResponse briefing(List<BestBet> picks, boolean stale,
-                com.gregochr.goldenhour.model.BestBetStatus status) {
-            return new DailyBriefingResponse(
-                    java.time.LocalDateTime.of(2026, 5, 26, 4, 0),
-                    "test headline",
-                    List.of(),
-                    picks,
-                    null,
-                    null,
-                    stale,
-                    "Haiku",
-                    List.<HotTopic>of(),
-                    List.of(),
-                    status);
-        }
-
-        private BestBet pick(int rank) {
-            return new BestBet(rank, "h" + rank, "d" + rank,
-                    "2026-05-26_sunset", "Northumberland", Confidence.HIGH,
-                    null, "Today", "sunset", "20:50");
-        }
+    @DisplayName("Briefing phase")
+    class BriefingPhase {
 
         @Test
-        @DisplayName("happy path: briefing returns 2 picks → pickService.persist called with both")
-        void persists_picks_after_successful_briefing() {
+        @DisplayName("the Best bet advisor is retired: the BRIEFING phase refreshes without reading back")
+        void briefing_phase_refreshes_without_reading_the_cache_back() {
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
                     .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
-            List<BestBet> picks = List.of(pick(1), pick(2));
-            when(briefingService.getCachedBriefing()).thenReturn(briefingWithPicks(picks));
 
             orchestrator.runNightlyCycle();
 
-            verify(pipelineRunService).recordBestBetStatus(RUN_ID,
-                    com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS);
-            verify(pipelineRunPickService).persist(RUN_ID, picks);
+            verify(briefingService).refreshBriefing(RUN_ID);
+            verify(briefingService, never()).getCachedBriefing();
             verify(pipelineRunService).completePhase(eq(RUN_ID),
                     eq(PipelinePhase.BRIEFING), isNull());
-            verify(pipelineRunService).completeRun(RUN_ID);
-        }
-
-        @Test
-        @DisplayName("FAILED advisor → status recorded, NO pick rows persisted")
-        void records_status_but_no_picks_when_advisor_failed() {
-            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
-            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
-            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
-                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
-            when(briefingService.getCachedBriefing()).thenReturn(
-                    briefing(List.of(), false, com.gregochr.goldenhour.model.BestBetStatus.FAILED));
-
-            orchestrator.runNightlyCycle();
-
-            // A failed advisor records its outcome but must not write pick rows — absence of
-            // rows now means "no successful picks", which the fallback relies on.
-            verify(pipelineRunService).recordBestBetStatus(RUN_ID,
-                    com.gregochr.goldenhour.model.BestBetStatus.FAILED);
-            verify(pipelineRunPickService, never()).persist(eq(RUN_ID),
-                    org.mockito.ArgumentMatchers.anyList());
-            verify(pipelineRunService).completeRun(RUN_ID);
-        }
-
-        @Test
-        @DisplayName("honest decline (SUCCESS_NO_PICKS) → status recorded, NO pick rows persisted")
-        void records_status_but_no_picks_when_honest_decline() {
-            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
-            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
-            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
-                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
-            when(briefingService.getCachedBriefing()).thenReturn(
-                    briefing(List.of(), false,
-                            com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS));
-
-            orchestrator.runNightlyCycle();
-
-            verify(pipelineRunService).recordBestBetStatus(RUN_ID,
-                    com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS);
-            verify(pipelineRunPickService, never()).persist(eq(RUN_ID),
-                    org.mockito.ArgumentMatchers.anyList());
-            verify(pipelineRunService).completeRun(RUN_ID);
-        }
-
-        @Test
-        @DisplayName("stale briefing (below-threshold run, LKG picks) → persist NOT called")
-        void skips_persist_when_briefing_stale() {
-            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
-            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
-            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
-                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
-            // Below-threshold run: the cache holds the last-known-good briefing whose
-            // bestBets are the PREVIOUS cycle's picks. Recording them against this
-            // runId would corrupt the cross-run comparison, so persistence is skipped.
-            when(briefingService.getCachedBriefing())
-                    .thenReturn(briefingWithPicks(List.of(pick(1)), true));
-
-            orchestrator.runNightlyCycle();
-
-            verifyNoInteractions(pipelineRunPickService);
-            verify(pipelineRunService).completePhase(eq(RUN_ID),
-                    eq(PipelinePhase.BRIEFING), isNull());
-            verify(pipelineRunService).completeRun(RUN_ID);
-        }
-
-        @Test
-        @DisplayName("getCachedBriefing returns null → persist NOT called, run still COMPLETED")
-        void skips_persist_when_no_cached_briefing() {
-            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
-            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
-            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
-                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
-            when(briefingService.getCachedBriefing()).thenReturn(null);
-
-            orchestrator.runNightlyCycle();
-
-            verifyNoInteractions(pipelineRunPickService);
-            verify(pipelineRunService).completeRun(RUN_ID);
-        }
-
-        @Test
-        @DisplayName("pickService.persist throwing does NOT fail the BRIEFING phase or the run")
-        void persist_failure_does_not_fail_briefing_phase() {
-            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
-            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
-            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
-                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
-            when(briefingService.getCachedBriefing())
-                    .thenReturn(briefingWithPicks(List.of(pick(1))));
-            // Service contract is "swallows internally and never throws", BUT the
-            // orchestrator also has a belt-and-braces try/catch so a contract violation
-            // still cannot fail a briefing that actually succeeded. This test exercises
-            // that defensive wrapper by forcing the service to throw and asserting the
-            // BRIEFING phase + run still complete cleanly.
-            doThrow(new RuntimeException("simulated pick persist failure — should never escape"))
-                    .when(pipelineRunPickService).persist(eq(RUN_ID),
-                            org.mockito.ArgumentMatchers.anyList());
-
-            orchestrator.runNightlyCycle();
-
-            // The BRIEFING phase completed normally and the run completed despite the
-            // pick-persist failure — proving pick persistence is observability, not
-            // correctness, and exceptions from it never silently corrupt the phase.
-            verify(pipelineRunService).completePhase(eq(RUN_ID),
-                    eq(PipelinePhase.BRIEFING), isNull());
-            verify(pipelineRunService, never()).failPhase(eq(RUN_ID),
-                    eq(PipelinePhase.BRIEFING), org.mockito.ArgumentMatchers.anyString());
             verify(pipelineRunService).completeRun(RUN_ID);
         }
     }
@@ -975,8 +826,7 @@ class PipelineOrchestratorTest {
                     forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
                     scheduler,
-                    pipelineRunPickService,
-                    batchRetryService,
+                        batchRetryService,
                     adminAlertService,
                     locationFailureService);
 
@@ -1003,7 +853,7 @@ class PipelineOrchestratorTest {
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
-                    scheduler, pipelineRunPickService, batchRetryService, adminAlertService,
+                    scheduler, batchRetryService, adminAlertService,
                     locationFailureService);
             wired.registerJobTarget();
             org.mockito.ArgumentCaptor<Runnable> nightlyTarget =
@@ -1049,7 +899,6 @@ class PipelineOrchestratorTest {
             when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-            when(briefingService.getCachedBriefing()).thenReturn(null);
 
             orchestrator.runIntradayCycle();
 
@@ -1080,12 +929,11 @@ class PipelineOrchestratorTest {
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
-                    scheduler, pipelineRunPickService, batchRetryService, adminAlertService,
+                    scheduler, batchRetryService, adminAlertService,
                     locationFailureService);
             when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-            when(briefingService.getCachedBriefing()).thenReturn(null);
 
             wired.runIntradayCycle();
 
@@ -1111,7 +959,7 @@ class PipelineOrchestratorTest {
             PipelineOrchestrator budgeted = new PipelineOrchestrator(
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, thirtyMinutesIn, directExecutor,
-                    Duration.ofMillis(1), Duration.ofHours(1), null, pipelineRunPickService,
+                    Duration.ofMillis(1), Duration.ofHours(1), null,
                     batchRetryService, adminAlertService, locationFailureService, null, null,
                     java.util.Map.of(CycleType.NIGHTLY, Duration.ofHours(1),
                             CycleType.INTRADAY, Duration.ofMinutes(10)));
@@ -1134,7 +982,6 @@ class PipelineOrchestratorTest {
             when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-            when(briefingService.getCachedBriefing()).thenReturn(null);
             // Simulate the real batch service firing the between-collect-and-submit hook
             // with a cost-gate summary, which is what drives the phase boundary.
             doAnswer(inv -> {
@@ -1171,7 +1018,6 @@ class PipelineOrchestratorTest {
             when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-            when(briefingService.getCachedBriefing()).thenReturn(null);
             BatchSubmissionSummary failingSummary = new BatchSubmissionSummary(
                     1, 0, List.of(
                             new BatchSubmissionSummary.FailedBucket("near-term inland", 40)));
@@ -1240,7 +1086,6 @@ class PipelineOrchestratorTest {
             when(pipelineRunService.startRun(CycleType.EVENING)).thenReturn(newEveningRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newEveningRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-            when(briefingService.getCachedBriefing()).thenReturn(null);
 
             orchestrator.runEveningCycle();
 
@@ -1262,7 +1107,6 @@ class PipelineOrchestratorTest {
             when(pipelineRunService.startRun(CycleType.EVENING)).thenReturn(newEveningRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newEveningRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-            when(briefingService.getCachedBriefing()).thenReturn(null);
             doAnswer(inv -> {
                 @SuppressWarnings("unchecked")
                 java.util.function.Consumer<ReclassSummary> hook = inv.getArgument(4);
@@ -1289,7 +1133,7 @@ class PipelineOrchestratorTest {
             PipelineOrchestrator budgeted = new PipelineOrchestrator(
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, thirtyMinutesIn, directExecutor,
-                    Duration.ofMillis(1), Duration.ofHours(1), null, pipelineRunPickService,
+                    Duration.ofMillis(1), Duration.ofHours(1), null,
                     batchRetryService, adminAlertService, locationFailureService, null, null,
                     java.util.Map.of(CycleType.NIGHTLY, Duration.ofHours(1),
                             CycleType.EVENING, Duration.ofMinutes(10)));
@@ -1347,7 +1191,7 @@ class PipelineOrchestratorTest {
         private PipelineOrchestrator springConstructed(Clock clock, Duration eveningTimeout) {
             return new PipelineOrchestrator(pipelineRunService, scheduledBatchEvaluationService,
                     briefingService, forecastBatchRepository, clock, Duration.ofMinutes(210), null,
-                    pipelineRunPickService, batchRetryService, adminAlertService,
+                    batchRetryService, adminAlertService,
                     locationFailureService, null, null, eveningTimeout);
         }
     }
@@ -1470,7 +1314,6 @@ class PipelineOrchestratorTest {
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(intraday));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
                     .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
-            when(briefingService.getCachedBriefing()).thenReturn(null);
             when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
             when(batchRetryService.summariseRecovery(RUN_ID, 1))
                     .thenReturn("1 failed, 1 retried, 1 recovered, 0 still-failed");
@@ -1618,7 +1461,7 @@ class PipelineOrchestratorTest {
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, movingClock,
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
-                    null, pipelineRunPickService, batchRetryService, adminAlertService,
+                    null, batchRetryService, adminAlertService,
                     locationFailureService);
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
@@ -1741,7 +1584,7 @@ class PipelineOrchestratorTest {
             return new PipelineOrchestrator(
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, clock, directExecutor, Duration.ofMillis(1), budget,
-                    null, pipelineRunPickService, batchRetryService, adminAlertService,
+                    null, batchRetryService, adminAlertService,
                     locationFailureService);
         }
 
@@ -2326,25 +2169,6 @@ class PipelineOrchestratorTest {
         }
 
         @Test
-        @DisplayName("with no pick service wired, a briefing completes without reading the cached briefing")
-        void noPickService_briefingStillCompletes() {
-            PipelineOrchestrator noPicks = new PipelineOrchestrator(
-                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
-                    forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC), directExecutor,
-                    Duration.ofMillis(1), Duration.ofHours(1), null, null, batchRetryService,
-                    adminAlertService, locationFailureService);
-            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
-            stubSubmit(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(0, 0, List.of())));
-            stubEmptyTail();
-
-            noPicks.runNightlyCycle();
-
-            verify(briefingService, never()).getCachedBriefing();
-            verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.BRIEFING, null);
-            verify(pipelineRunService).completeRun(RUN_ID);
-        }
-
-        @Test
         @DisplayName("a resumed run with no cycle type still waits and briefs, on the default budget")
         void resumedRunWithoutCycleType_usesDefaultBudget() {
             PipelineRunEntity untyped = new PipelineRunEntity();
@@ -2367,7 +2191,7 @@ class PipelineOrchestratorTest {
             PipelineOrchestrator slowPoll = new PipelineOrchestrator(
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC), directExecutor,
-                    Duration.ofSeconds(60), Duration.ofHours(1), null, pipelineRunPickService,
+                    Duration.ofSeconds(60), Duration.ofHours(1), null,
                     batchRetryService, adminAlertService, locationFailureService);
             PipelineRunEntity midWait = runInPhase(PipelinePhase.FORECAST_BATCH_WAIT);
             when(pipelineRunService.findRunning()).thenReturn(List.of(midWait));

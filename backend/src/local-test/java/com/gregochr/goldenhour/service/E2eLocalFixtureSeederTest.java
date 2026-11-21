@@ -13,7 +13,6 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
-import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
@@ -306,8 +305,8 @@ class E2eLocalFixtureSeederTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of(), null,
                 window);
         return new DailyBriefingResponse(LocalDateTime.now(CLOCK), "h", List.of(new BriefingDay(TODAY,
-                List.of(summary))), List.of(), null, null, false, "m", List.of(), List.of(),
-                BestBetStatus.SUCCESS_NO_PICKS);
+                List.of(summary))), List.of(), null, null, false, null, List.of(), List.of(),
+                null);
     }
 
     private E2eLocalFixtureSeeder seeder(DataSource ds, String... profiles) {

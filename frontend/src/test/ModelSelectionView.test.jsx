@@ -6,20 +6,18 @@ import ModelSelectionView, { modelInfoFor, batchDescriptionFor } from '../compon
 vi.mock('../api/modelsApi', () => ({
   getAvailableModels: vi.fn(),
   setActiveModel: vi.fn(),
-  setExtendedThinking: vi.fn(),
 }));
 
 vi.mock('../context/AuthContext.jsx', () => ({
   useAuth: vi.fn(),
 }));
 
-import { getAvailableModels, setActiveModel, setExtendedThinking } from '../api/modelsApi';
+import { getAvailableModels, setActiveModel } from '../api/modelsApi';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const MOCK_DATA = {
   available: ['HAIKU', 'SONNET', 'OPUS'],
   configs: {
-    BRIEFING_BEST_BET: 'HAIKU',
     AURORA_EVALUATION: 'HAIKU',
     BATCH_NEAR_TERM: 'SONNET',
     BATCH_FAR_TERM: 'HAIKU',
@@ -31,7 +29,7 @@ const MOCK_DATA = {
   },
   gbpPerUsd: 0.78,
   costProfiles: {
-    BRIEFING_BEST_BET: {
+    AURORA_EVALUATION: {
       windowDays: 30,
       runsPerDay: 2.3,
       callsPerRun: 1,
@@ -39,16 +37,6 @@ const MOCK_DATA = {
       estimates: {
         HAIKU: { calls: 0, usdPerCall: 0.0125, usdPerDay: 0.02875 },
         OPUS: { calls: 0, usdPerCall: 0.065, usdPerDay: 0.1495 },
-      },
-    },
-    AURORA_EVALUATION: {
-      windowDays: 30,
-      runsPerDay: 0.6,
-      callsPerRun: 1,
-      measured: { SONNET: { calls: 18, usdPerCall: 0.44, usdPerDay: 0.264 } },
-      estimates: {
-        HAIKU: { calls: 0, usdPerCall: 0.14, usdPerDay: 0.084 },
-        OPUS: { calls: 0, usdPerCall: 0.73, usdPerDay: 0.438 },
       },
     },
     BATCH_NEAR_TERM: {
@@ -67,8 +55,8 @@ const MOCK_DATA = {
   },
 };
 
-const ET_ENABLED = 'Extended thinking enabled for Briefing';
-const SWITCHED = 'Briefing model switched to Sonnet 4.6';
+const SWITCHED = 'Aurora model switched to Sonnet 4.6';
+const SWITCHED_OPUS = 'Aurora model switched to Opus';
 
 describe('ModelSelectionView', () => {
   beforeEach(() => {
@@ -76,8 +64,8 @@ describe('ModelSelectionView', () => {
     // A sub-tab click now writes the hash, which would open the next test on that tab.
     window.location.hash = '';
     // clearAllMocks leaves mockResolvedValueOnce queues in place, so a test that fails mid-way
-    // would hand its unconsumed responses to the next test's first toggle.
-    setExtendedThinking.mockReset();
+    // would hand its unconsumed responses to the next test's first switch.
+    setActiveModel.mockReset();
     useAuth.mockReturnValue({ isAdmin: true });
     getAvailableModels.mockResolvedValue(MOCK_DATA);
   });
@@ -95,18 +83,18 @@ describe('ModelSelectionView', () => {
      * wall time spent getting the banner on screen comes straight out of the 3s window being
      * measured — with it, the "still showing at 2999ms" assertion below fails outright, because the
      * banner has already been dismissed by elapsed real time. Pumping with a zero advance settles
-     * the mount fetches and the toggle's PUT while the clock stays exactly where it is.
+     * the mount fetches and the switch's PUT while the clock stays exactly where it is.
      */
     it('holds the banner until the dismiss delay elapses, then clears it', async () => {
       vi.useFakeTimers();
       try {
-        setExtendedThinking.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', extendedThinking: true });
+        setActiveModel.mockResolvedValue({ runType: 'AURORA_EVALUATION', active: 'SONNET' });
         render(<ModelSelectionView />);
         await pump();
 
-        fireEvent.click(screen.getByTestId('toggle-extended-thinking'));
+        fireEvent.click(screen.getByTestId('switch-AURORA_EVALUATION-SONNET'));
         await pump();
-        expect(screen.getByText(ET_ENABLED)).toBeInTheDocument();
+        expect(screen.getByText(SWITCHED)).toBeInTheDocument();
 
         // Just short of the delay it must still be up: without this the constant is pinned only
         // from above, and shortening it (3000 → 500) would flash the message past unnoticed with
@@ -114,12 +102,12 @@ describe('ModelSelectionView', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(2999);
         });
-        expect(screen.getByText(ET_ENABLED)).toBeInTheDocument();
+        expect(screen.getByText(SWITCHED)).toBeInTheDocument();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1);
         });
-        expect(screen.queryByText(ET_ENABLED)).not.toBeInTheDocument();
+        expect(screen.queryByText(SWITCHED)).not.toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -127,7 +115,7 @@ describe('ModelSelectionView', () => {
 
     /**
      * A newer message gets its own full window. The handlers used to arm an independent 3s timer
-     * each, so a second toggle 2s after the first had its message wiped 1s later by the FIRST
+     * each, so a second switch 2s after the first had its message wiped 1s later by the FIRST
      * timer. Keying the dismiss on `success` means a new message re-runs the effect, whose cleanup
      * cancels the old timer — so at 3.5s, past the first message's deadline, the second must still
      * be showing.
@@ -135,33 +123,34 @@ describe('ModelSelectionView', () => {
     it('gives a newer message its full window rather than inheriting the older deadline', async () => {
       vi.useFakeTimers();
       try {
-        setExtendedThinking.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', extendedThinking: true });
-        setActiveModel.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', active: 'SONNET' });
+        setActiveModel
+          .mockResolvedValueOnce({ runType: 'AURORA_EVALUATION', active: 'SONNET' })
+          .mockResolvedValueOnce({ runType: 'AURORA_EVALUATION', active: 'OPUS' });
         render(<ModelSelectionView />);
         await pump();
 
-        fireEvent.click(screen.getByTestId('toggle-extended-thinking'));
+        fireEvent.click(screen.getByTestId('switch-AURORA_EVALUATION-SONNET'));
         await pump();
-        expect(screen.getByText(ET_ENABLED)).toBeInTheDocument();
+        expect(screen.getByText(SWITCHED)).toBeInTheDocument();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(2000);
         });
-        fireEvent.click(screen.getByTestId('switch-BRIEFING_BEST_BET-SONNET'));
+        fireEvent.click(screen.getByTestId('switch-AURORA_EVALUATION-OPUS'));
         await pump();
-        expect(screen.getByText(SWITCHED)).toBeInTheDocument();
+        expect(screen.getByText(SWITCHED_OPUS)).toBeInTheDocument();
 
         // 3.5s in: the first message's deadline has passed, the second's has not.
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1500);
         });
-        expect(screen.getByText(SWITCHED)).toBeInTheDocument();
+        expect(screen.getByText(SWITCHED_OPUS)).toBeInTheDocument();
 
         // 5s in: now the second message's own window has elapsed.
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1500);
         });
-        expect(screen.queryByText(SWITCHED)).not.toBeInTheDocument();
+        expect(screen.queryByText(SWITCHED_OPUS)).not.toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -182,8 +171,8 @@ describe('ModelSelectionView', () => {
       let unmounted = false;
       let releaseRequest;
 
-      setExtendedThinking.mockReturnValue(new Promise((resolve) => {
-        releaseRequest = () => resolve({ runType: 'BRIEFING_BEST_BET', extendedThinking: true });
+      setActiveModel.mockReturnValue(new Promise((resolve) => {
+        releaseRequest = () => resolve({ runType: 'AURORA_EVALUATION', active: 'SONNET' });
       }));
 
       const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
@@ -194,10 +183,10 @@ describe('ModelSelectionView', () => {
 
       try {
         const { unmount } = render(<ModelSelectionView />);
-        fireEvent.click(await screen.findByTestId('toggle-extended-thinking'));
-        // The request must genuinely be in flight, or a toggle that never reached the handler
+        fireEvent.click(await screen.findByTestId('switch-AURORA_EVALUATION-SONNET'));
+        // The request must genuinely be in flight, or a switch that never reached the handler
         // would leave nothing to arm and pass this test for the wrong reason.
-        expect(setExtendedThinking).toHaveBeenCalledTimes(1);
+        expect(setActiveModel).toHaveBeenCalledTimes(1);
         unmount();
         unmounted = true;
 
@@ -267,13 +256,13 @@ describe('ModelSelectionView', () => {
       });
 
       try {
-        setExtendedThinking.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', extendedThinking: true });
+        setActiveModel.mockResolvedValue({ runType: 'AURORA_EVALUATION', active: 'SONNET' });
         const { unmount } = render(<ModelSelectionView />);
         await pump();
 
-        fireEvent.click(screen.getByTestId('toggle-extended-thinking'));
+        fireEvent.click(screen.getByTestId('switch-AURORA_EVALUATION-SONNET'));
         await pump();
-        expect(screen.getByText(ET_ENABLED)).toBeInTheDocument();
+        expect(screen.getByText(SWITCHED)).toBeInTheDocument();
         expect(scheduled.length).toBeGreaterThan(0);
 
         const clearedBeforeUnmount = cleared.length;
@@ -292,18 +281,17 @@ describe('ModelSelectionView', () => {
     });
   });
 
-  it('renders model cards and the cost estimate for the default Briefing tab', async () => {
+  it('renders model cards and the cost estimate for the default Aurora tab', async () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
       expect(screen.getByText('Model Configuration')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toHaveClass('text-plex-gold');
-    // The tab buttons and the extended-thinking toggle are 44px tap targets on a phone.
-    expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toHaveClass('max-[639px]:min-h-11');
-    expect(await screen.findByTestId('toggle-extended-thinking')).toHaveClass('max-[639px]:min-h-11');
-    expect(screen.getByTestId('switch-BRIEFING_BEST_BET-SONNET')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toHaveClass('text-plex-gold');
+    // The tab buttons and the model switches are 44px tap targets on a phone.
+    expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('switch-AURORA_EVALUATION-SONNET')).toHaveClass('max-[639px]:min-h-11');
     expect(screen.getByTestId('cost-table')).toBeInTheDocument();
     expect(screen.getByTestId('cost-table-summary')).toHaveTextContent(
       '2.3 runs a day, 1 call per run, last 30 days',
@@ -314,10 +302,11 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
+      expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
+    // The Briefing tab went with the Best bet advisor it configured.
+    expect(screen.queryByTestId('config-tab-BRIEFING_BEST_BET')).not.toBeInTheDocument();
     expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toBeInTheDocument();
     expect(screen.getByTestId('config-tab-BATCH_FAR_TERM')).toBeInTheDocument();
     expect(screen.queryByTestId('config-tab-VERY_SHORT_TERM')).not.toBeInTheDocument();
@@ -328,7 +317,7 @@ describe('ModelSelectionView', () => {
   it('offers no optimisation strategy controls', async () => {
     render(<ModelSelectionView />);
 
-    await screen.findByTestId('config-tab-BRIEFING_BEST_BET');
+    await screen.findByTestId('config-tab-AURORA_EVALUATION');
 
     expect(screen.queryByText('Cost Optimisation')).not.toBeInTheDocument();
     expect(screen.queryByTestId('strategy-toggle-SENTINEL_SAMPLING')).not.toBeInTheDocument();
@@ -351,23 +340,6 @@ describe('ModelSelectionView', () => {
     expect(screen.getByText('Loading models...')).toBeInTheDocument();
   });
 
-  it('switches to Briefing tab and shows the served cost summary', async () => {
-    render(<ModelSelectionView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByTestId('config-tab-BRIEFING_BEST_BET'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('cost-table-summary')).toHaveTextContent('2.3 runs a day');
-    });
-
-    // Briefing tab should not show strategy toggles (no strategies configured)
-    expect(screen.queryByText('Cost Optimisation')).not.toBeInTheDocument();
-  });
-
   it('switches to Aurora tab and shows the served cost summary', async () => {
     render(<ModelSelectionView />);
 
@@ -379,27 +351,12 @@ describe('ModelSelectionView', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('cost-table-summary')).toHaveTextContent(
-        '0.6 runs a day, 1 call per run, last 30 days',
+        '2.3 runs a day, 1 call per run, last 30 days',
       );
     });
 
     // Aurora tab should not show strategy toggles
     expect(screen.queryByText('Cost Optimisation')).not.toBeInTheDocument();
-  });
-
-  it('shows tab-specific description for Briefing model cards', async () => {
-    render(<ModelSelectionView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByTestId('config-tab-BRIEFING_BEST_BET'));
-
-    await waitFor(() => {
-      // Each model card shows the same tab-specific description (3 cards)
-      expect(screen.getAllByText(/region-level triage data/)).toHaveLength(3);
-    });
   });
 
   it('shows tab-specific description for Aurora model cards', async () => {
@@ -413,28 +370,6 @@ describe('ModelSelectionView', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText(/aurora visibility conditions/)).toHaveLength(3);
-    });
-  });
-
-  it('calls setActiveModel API when switching model on Briefing tab', async () => {
-    setActiveModel.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', active: 'OPUS' });
-
-    render(<ModelSelectionView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByTestId('config-tab-BRIEFING_BEST_BET'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('switch-BRIEFING_BEST_BET-OPUS')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByTestId('switch-BRIEFING_BEST_BET-OPUS'));
-
-    await waitFor(() => {
-      expect(setActiveModel).toHaveBeenCalledWith('BRIEFING_BEST_BET', 'OPUS');
     });
   });
 
@@ -723,15 +658,15 @@ describe('ModelSelectionView', () => {
       const withoutProfiles = { ...MOCK_DATA };
       delete withoutProfiles.costProfiles;
       getAvailableModels.mockResolvedValue(withoutProfiles);
-      setActiveModel.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', active: 'OPUS' });
+      setActiveModel.mockResolvedValue({ runType: 'AURORA_EVALUATION', active: 'OPUS' });
       render(<ModelSelectionView />);
 
       expect(await screen.findByText('Cost figures unavailable')).toBeInTheDocument();
       expect(screen.queryByTestId('cost-table')).not.toBeInTheDocument();
       expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('Cost: unknown');
-      fireEvent.click(screen.getByTestId('switch-BRIEFING_BEST_BET-OPUS'));
+      fireEvent.click(screen.getByTestId('switch-AURORA_EVALUATION-OPUS'));
       await waitFor(() => {
-        expect(setActiveModel).toHaveBeenCalledWith('BRIEFING_BEST_BET', 'OPUS');
+        expect(setActiveModel).toHaveBeenCalledWith('AURORA_EVALUATION', 'OPUS');
       });
     });
 
@@ -764,6 +699,7 @@ describe('ModelSelectionView', () => {
 
     it('footnotes every tab, with the batch and aurora additions only where they apply', async () => {
       render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-ASK'));
       const footnote = await screen.findByTestId('cost-footnote');
       expect(footnote).toHaveTextContent('Costs are calculated from logged token counts at the configured prices.');
       expect(footnote).not.toHaveTextContent('Batch API discount');
@@ -804,7 +740,7 @@ describe('ModelSelectionView', () => {
       BANNED.forEach((re) => expect(text).not.toMatch(re));
     });
 
-    it.each(['BRIEFING_BEST_BET', 'AURORA_EVALUATION', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM'])(
+    it.each(['AURORA_EVALUATION', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM'])(
       '%s carries none of the retired figures',
       async (tab) => {
         render(<ModelSelectionView />);
@@ -837,7 +773,7 @@ describe('ModelSelectionView', () => {
     it('a non-empty costProfiles missing the active tab says figures are unavailable, not "no calls"', async () => {
       getAvailableModels.mockResolvedValue({
         ...MOCK_DATA,
-        costProfiles: { AURORA_EVALUATION: MOCK_DATA.costProfiles.AURORA_EVALUATION },
+        costProfiles: { BATCH_NEAR_TERM: MOCK_DATA.costProfiles.BATCH_NEAR_TERM },
       });
       render(<ModelSelectionView />);
 
@@ -915,15 +851,6 @@ describe('ModelSelectionView', () => {
       expect(screen.queryByText(/Use a more accurate model/)).not.toBeInTheDocument();
     });
 
-    it('the Briefing thinking panel explains adaptive thinking and the 16,000 ceiling', async () => {
-      render(<ModelSelectionView />);
-      const panel = await screen.findByTestId('extended-thinking-panel');
-
-      expect(panel).toHaveTextContent('Turns on adaptive thinking for Sonnet 4.6 and Opus 4.6.');
-      expect(panel).toHaveTextContent('rises from 4,096 to 16,000');
-      expect(panel).not.toHaveTextContent('10 000');
-    });
-
     it('the Aurora tab explains how thinking and the reply budget are set, with no toggle', async () => {
       render(<ModelSelectionView />);
       fireEvent.click(await screen.findByTestId('config-tab-AURORA_EVALUATION'));
@@ -933,50 +860,6 @@ describe('ModelSelectionView', () => {
       expect(note).toHaveTextContent('about 220 tokens per location, plus 4,096 for Sonnet 5.5');
       expect(screen.queryByTestId('toggle-extended-thinking')).not.toBeInTheDocument();
     });
-  });
-
-  it('Extended Thinking: Sonnet 5.5 shows the no-effect note and the 16,000 ceiling', async () => {
-    getAvailableModels.mockResolvedValue({
-      ...MOCK_DATA,
-      configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'SONNET_55' },
-      extendedThinkingConfigs: { BRIEFING_BEST_BET: true },
-    });
-    render(<ModelSelectionView />);
-    fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
-
-    expect(await screen.findByTestId('extended-thinking-sonnet-55-note')).toHaveTextContent(
-      'always thinks adaptively at low effort, so this switch has no effect on it, and it always has the 16,000 ceiling.',
-    );
-  });
-
-  it('Extended Thinking: Haiku 5.5 shows the no-effect note', async () => {
-    getAvailableModels.mockResolvedValue({
-      ...MOCK_DATA,
-      configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'HAIKU_55' },
-      extendedThinkingConfigs: { BRIEFING_BEST_BET: true },
-    });
-    render(<ModelSelectionView />);
-    fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
-
-    expect(await screen.findByTestId('extended-thinking-haiku-55-note')).toHaveTextContent(
-      'thinking disabled',
-    );
-  });
-
-  it('Extended Thinking: Sonnet 4.6 shows no no-effect note and no invented per-call cost', async () => {
-    getAvailableModels.mockResolvedValue({
-      ...MOCK_DATA,
-      configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'SONNET' },
-      extendedThinkingConfigs: { BRIEFING_BEST_BET: true },
-    });
-    render(<ModelSelectionView />);
-    fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
-
-    const panel = await screen.findByTestId('extended-thinking-panel');
-    expect(panel).not.toHaveTextContent('Active — adds');
-    expect(panel).not.toHaveTextContent('£0.12');
-    expect(screen.queryByTestId('extended-thinking-sonnet-55-note')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('extended-thinking-haiku-55-note')).not.toBeInTheDocument();
   });
 
   it('the batch info panel is absent on non-batch tabs', async () => {
@@ -1050,7 +933,7 @@ describe('ModelSelectionView', () => {
       useAuth.mockReturnValue({ isAdmin: false });
       render(<ModelSelectionView />);
 
-      await screen.findByTestId('config-tab-BRIEFING_BEST_BET');
+      await screen.findByTestId('config-tab-AURORA_EVALUATION');
       expect(screen.queryByTestId('config-tab-ASK')).not.toBeInTheDocument();
       expect(screen.queryByTestId('config-tab-ASK_READY')).not.toBeInTheDocument();
     });

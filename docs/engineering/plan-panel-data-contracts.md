@@ -30,7 +30,7 @@ this document since it was written; see Section 1 for the current, verified stat
 
 **The precedent that settles it:** per-user drive times were already removed from the shared
 briefing build path, and the dead parameter still carries the note —
-`BriefingBestBetAdvisor.java:193` and `:515`: `@param driveMap unused — retained for API
+the (since deleted) `BriefingBestBetAdvisor`'s `@param driveMap unused — retained for API
 compatibility (pass Map.of())`. This exact question has been answered once, the same way.
 
 ---
@@ -57,7 +57,7 @@ Plan tab is the window-first matrix + popup/sheet + doors, served by `WindowFirs
 
 | # | Panel | Source | Where it is shaped | Presentation or business logic? |
 |---|---|---|---|---|
-| 1 | Best Bet / Also Good | `GET /api/briefing` (`bestBets`) | Backend `BriefingBestBetAdvisor` + serve-time fallback | **Dead panel.** Died with `BestBetBanner` in v1 retirement D2 — the fields still populate but have no frontend renderer (v1-retirement §8.1) |
+| 1 | Best Bet / Also Good | `GET /api/briefing` (`bestBets`) | Backend `BriefingBestBetAdvisor` + serve-time fallback (both deleted 2026-11-21; `bestBets` is always empty) | **Dead panel.** Died with `BestBetBanner` in v1 retirement D2 — the fields still populate but have no frontend renderer (v1-retirement §8.1) |
 | 2 | **Close to home** | `/api/briefing` + `/api/user/settings*` | Was **frontend** `utils/closeToHome.js`, inside the now-deleted `CloseToHome.jsx` | **Dead panel, and the backend is gone too.** `GET /api/briefing/close-to-home` + `CloseToHomeService`/`CloseToHomeResponse` had zero callers from D2 (v1-retirement §8.3) and were deleted 2026-10-12 (Section 4) |
 | 3 | Hot topics | `GET /api/briefing` (`hotTopics`) | Backend strategies | Backend. Rendered by `HotTopicStrip.jsx`, a survivor |
 | 4 | Regional planner grid | `GET /api/briefing` | Backend `BriefingRegion.meanRating` + `displayVerdict` | Backend. `HeatmapGrid.jsx` reads `meanRating` unconditionally — the `serverCellRating` caller opt-in and the client-side slot-tree join it gated collapsed away entire in v1 retirement D3 |
@@ -191,7 +191,7 @@ every panel would be per-user and the consistency argument for one shared payloa
 substantially weaker.
 
 That is a real risk and it is not remote: per-user drive times *already* exist, and the fact they
-were explicitly removed from the shared path (`BriefingBestBetAdvisor.java:192`) shows the
+were explicitly removed from the shared path (the since-retired `BriefingBestBetAdvisor`) shows the
 pressure has been felt once already. The counter is that the removal went the *other* way — the
 codebase chose to keep the shared snapshot shared — and that reversing it is a much larger
 decision than this document is scoped to make.
@@ -302,8 +302,7 @@ endpoint as a precedent for something it is not.
 
 1. §3's hazard is two panels fetching independently and showing 4★ and 3★ for the same location.
    The digest cannot reach that state: it calls `BriefingService.getCachedBriefingForApi()` — the
-   same accessor `BriefingController.getBriefing()` calls, past the same re-enrichment, best-bet
-   fallback, honesty filter and window projection. There is one snapshot and one code path to it.
+   same accessor `BriefingController.getBriefing()` calls, past the same re-enrichment, honesty filter and window projection. There is one snapshot and one code path to it.
 2. §3's ⚠️ amendment is the sharper trap — *"one source removed disagreement about the data; it said
    nothing about the aggregators"*, the 2026-08-16 "Worth it · best 4★" over a grid of "Poor". The
    digest is immune by construction because it runs **no** aggregator. Every published field is a

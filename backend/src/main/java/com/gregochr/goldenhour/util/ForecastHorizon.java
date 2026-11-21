@@ -24,9 +24,9 @@ import java.time.temporal.ChronoUnit;
  * absent.
  *
  * <p><b>Scope, stated precisely because the looser version of this sentence was wrong.</b> Every
- * derivation of a <em>horizon</em> — a T+N — routes through here, including the four classes
+ * derivation of a <em>horizon</em> — a T+N — routes through here, including the three classes
  * ({@code ForceEvalHeadlineSelector}, {@code BatchRetryService},
- * {@code ScheduledBatchEvaluationService}, {@code BriefingRollupBuilder}) that used to hand-roll
+ * {@code ScheduledBatchEvaluationService}) that used to hand-roll
  * {@code LocalDate.now(...)} in {@code Europe/London} for the same "today" — collapsed here since
  * they already agreed with this class on the calendar and the swap was behaviourally inert. The
  * synchronous engine's date <em>range</em> was the one genuine exception (that engine, its

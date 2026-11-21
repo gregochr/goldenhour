@@ -316,16 +316,6 @@ photocast:
     enforce: false           # when true, a Lite reader's ratings are limited to their picks (S3 onwards; S2 only reports it)
     grace-days: 7            # a reader's first choice starts this many days (inclusive) of free changes
     lock-days: 30            # after grace, a change that swaps a pick out is allowed once per this many days
-  best-bet:
-    max-tokens: 4096        # response-token ceiling for the best-bet advisor JSON.
-                            # A 1024 ceiling was observed truncating a verbose two-pick
-                            # response mid-field (~3656 chars), producing invalid JSON and
-                            # zero persisted picks. 4096 clears a full reasoning-plus-two-picks
-                            # response with headroom. Configurable without a redeploy.
-    fallback-max-age-hours: 30  # age ceiling for the fail-safe stale fallback served when a
-                                # cycle's advisor FAILED: a prior successful pick older than this
-                                # (or whose event has passed) is NOT resurrected — the API shows
-                                # the honest empty state instead. ~30h ≈ one nightly + intraday.
   batch:
     min-prefetch-success-ratio: 0.5  # abort batch if fewer than 50% of weather fetches succeed
     cache-primer:

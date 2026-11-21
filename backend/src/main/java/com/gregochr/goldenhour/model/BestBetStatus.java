@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.model;
 
 /**
- * Explicit outcome discriminator for a best-bet advisor run.
+ * Explicit outcome discriminator for a best-bet advisor run. The advisor was retired 2026-11-21: no code sets it
+ * any more and it is always null on the wire; the type stays until the follow-up removal.
+ *
  *
  * <p>The API must tell the UI <em>what happened</em>, not leave it to infer intent from an
  * empty pick list. Without this, an empty Best Bet has two opposite meanings the frontend

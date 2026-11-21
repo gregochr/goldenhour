@@ -34,7 +34,7 @@ export async function getAvailableModels() {
 /**
  * Set the active evaluation model for a specific run type (admin only).
  *
- * @param {string} runType - a configurable run type (e.g. BRIEFING_BEST_BET, BATCH_NEAR_TERM)
+ * @param {string} runType - a configurable run type (e.g. AURORA_EVALUATION, BATCH_NEAR_TERM)
  * @param {string} model - model name (HAIKU, HAIKU_55, SONNET, SONNET_55, OPUS)
  * @returns {Promise<{runType: string, active: string}>} the updated config
  */
@@ -51,7 +51,7 @@ export async function setActiveModel(runType, model) {
 /**
  * Enable or disable extended thinking for a specific run type (admin only).
  *
- * @param {string} runType - run type (e.g. BRIEFING_BEST_BET)
+ * @param {string} runType - run type (e.g. AURORA_EVALUATION)
  * @param {boolean} enabled - whether to enable extended thinking
  * @returns {Promise<{runType: string, extendedThinking: boolean}>} the updated config
  */

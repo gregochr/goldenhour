@@ -69,8 +69,7 @@ import java.util.Set;
  * <p><b>Travel days are not marked on the served briefing.</b> A travel day still carries a window
  * and slots; the Plan client learns which dates are away from a separate {@code /api/travel-days}
  * fetch. The server-side test is {@link TravelDayService#isTravelDay}, the same one
- * {@code BriefingRollupBuilder} applies before the best-bet advisor sees a date, so it is used
- * here, once per distinct date.
+ * the briefing applies, so it is used here, once per distinct date.
  *
  * <p><b>The nights</b> (ask-night plan §2.1) are tonight's and tomorrow night's astro conditions and
  * aurora results, read from the same rows the Map's night rows read. "Tonight" is the poller's night,

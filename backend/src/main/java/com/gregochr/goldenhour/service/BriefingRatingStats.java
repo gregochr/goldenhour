@@ -13,20 +13,15 @@ import java.util.List;
  *
  * <p>Unifies the averaging logic across every caller that reduces a region's ratings to one
  * figure: {@code BriefingService.enrichWithCachedScores}, {@code BriefingGlossService}'s prompt
- * builder, {@code PlanWindowProjector}'s region ranking, {@code BriefingRollupBuilder} and
- * {@code PipelineRunPickService}.
+ * builder and {@code PlanWindowProjector}'s region ranking.
  *
  * <p><b>It does not decide WHICH slots go in, and that is deliberate.</b> Two different questions
  * are asked of one slot list and they take different populations: coverage ("how many locations
  * here were evaluated") counts every slot, while the verdict, the mean and the ranking count only
  * {@link com.gregochr.goldenhour.model.BriefingSlot#votingSlots} — a woodland verdict runs on
  * inverted polarity, so a rated wood must not set a sky band. Callers that hold slots pass the
- * right population in, and two of them — {@code BriefingGlossService} and
- * {@code BriefingRollupBuilder} — pass BOTH, because their prompt node carries a coverage count
- * and a sky average side by side. One caller still averages everything:
- * {@code PipelineRunPickService} reads a name-keyed score cache with no canopy flag and has nothing
- * to filter on. Its figure is never rendered as a verdict, but note it no longer equals the
- * rollup average it was written to snapshot — see that method's javadoc.
+ * right population in, and {@code BriefingGlossService} passes BOTH, because its prompt node
+ * carries a coverage count and a sky average side by side.
  *
  * <p>Defensively skips null or out-of-range ratings by delegating to
  * {@link RatingValidator} — which is the single source of truth for the

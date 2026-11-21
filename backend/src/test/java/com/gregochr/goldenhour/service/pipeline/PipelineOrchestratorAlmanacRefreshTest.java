@@ -67,8 +67,6 @@ class PipelineOrchestratorAlmanacRefreshTest {
     @Mock
     private ForecastBatchRepository forecastBatchRepository;
     @Mock
-    private PipelineRunPickService pipelineRunPickService;
-    @Mock
     private BatchRetryService batchRetryService;
     @Mock
     private AdminAlertService adminAlertService;
@@ -99,7 +97,7 @@ class PipelineOrchestratorAlmanacRefreshTest {
     private PipelineOrchestrator orchestrator(Executor executor, AlmanacService almanac) {
         return new PipelineOrchestrator(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC), executor, Duration.ofMillis(1),
-                Duration.ofSeconds(10), null, pipelineRunPickService, batchRetryService, adminAlertService,
+                Duration.ofSeconds(10), null, batchRetryService, adminAlertService,
                 locationFailureService, null, almanac);
     }
 

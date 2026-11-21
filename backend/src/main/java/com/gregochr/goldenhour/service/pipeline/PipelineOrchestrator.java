@@ -8,8 +8,6 @@ import com.gregochr.goldenhour.entity.PipelinePhaseStatus;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.entity.SchedulerFireStatus;
-import com.gregochr.goldenhour.model.BestBetStatus;
-import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
@@ -69,8 +67,7 @@ import java.util.function.Consumer;
  *   3. start FORECAST_BATCH_WAIT phase; poll the DB until every tagged batch
  *      reaches a terminal status, or the safety timeout fires
  *   4. start BRIEFING phase; call BriefingService.refreshBriefing()
- *      (gloss + best-bet run synchronously inside that call); persist the
- *      cycle's Plan A / Plan B picks
+ *      (the gloss runs synchronously inside that call)
  *   5. mark COMPLETED
  * </pre>
  *
@@ -151,7 +148,6 @@ public class PipelineOrchestrator {
     private final Duration safetyTimeout;
     private final Map<CycleType, Duration> cycleBudgets;
     private final DynamicSchedulerService dynamicSchedulerService;
-    private final PipelineRunPickService pipelineRunPickService;
     private final BatchRetryService batchRetryService;
     private final AdminAlertService adminAlertService;
     private final LocationFailureService locationFailureService;
@@ -174,7 +170,6 @@ public class PipelineOrchestrator {
      *                                        ({@code photocast.pipeline.safety-timeout},
      *                                        default {@link #DEFAULT_SAFETY_TIMEOUT})
      * @param dynamicSchedulerService         scheduler this orchestrator registers itself with
-     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
      * @param locationFailureService          settles each cycle's per-place failure counting
@@ -196,7 +191,6 @@ public class PipelineOrchestrator {
             Clock clock,
             @Value("${photocast.pipeline.safety-timeout:PT3H30M}") Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
-            PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
@@ -207,7 +201,7 @@ public class PipelineOrchestrator {
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, safetyTimeout,
-                dynamicSchedulerService, pipelineRunPickService, batchRetryService,
+                dynamicSchedulerService, batchRetryService,
                 adminAlertService, locationFailureService, askReadyPrecompute, almanacService,
                 budgetsFrom(safetyTimeout, eveningSafetyTimeout));
     }
@@ -226,7 +220,6 @@ public class PipelineOrchestrator {
      * @param safetyTimeout                   safety backstop for the wait phase
      * @param dynamicSchedulerService         scheduler the orchestrator registers itself with;
      *                                        tests may pass {@code null} to skip registration
-     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks;
      *                                        tests may pass {@code null} to skip persistence
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED;
@@ -243,13 +236,12 @@ public class PipelineOrchestrator {
             Duration pollInterval,
             Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
-            PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock, backgroundExecutor, pollInterval, safetyTimeout,
-                dynamicSchedulerService, pipelineRunPickService, batchRetryService,
+                dynamicSchedulerService, batchRetryService,
                 adminAlertService, locationFailureService, null);
     }
 
@@ -266,7 +258,6 @@ public class PipelineOrchestrator {
      * @param pollInterval                    DB poll interval during FORECAST_BATCH_WAIT
      * @param safetyTimeout                   safety backstop for the wait phase
      * @param dynamicSchedulerService         scheduler the orchestrator registers itself with
-     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
      * @param locationFailureService          settles each cycle's per-place failure counting
@@ -282,14 +273,13 @@ public class PipelineOrchestrator {
             Duration pollInterval,
             Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
-            PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
             AskReadyPrecompute askReadyPrecompute) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock, backgroundExecutor, pollInterval, safetyTimeout,
-                dynamicSchedulerService, pipelineRunPickService, batchRetryService,
+                dynamicSchedulerService, batchRetryService,
                 adminAlertService, locationFailureService, askReadyPrecompute, null);
     }
 
@@ -306,7 +296,6 @@ public class PipelineOrchestrator {
      * @param pollInterval                    DB poll interval during FORECAST_BATCH_WAIT
      * @param safetyTimeout                   safety backstop for the wait phase
      * @param dynamicSchedulerService         scheduler the orchestrator registers itself with
-     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
      * @param locationFailureService          settles each cycle's per-place failure counting
@@ -324,7 +313,6 @@ public class PipelineOrchestrator {
             Duration pollInterval,
             Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
-            PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
@@ -332,7 +320,7 @@ public class PipelineOrchestrator {
             AlmanacService almanacService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock, backgroundExecutor, pollInterval, safetyTimeout,
-                dynamicSchedulerService, pipelineRunPickService, batchRetryService,
+                dynamicSchedulerService, batchRetryService,
                 adminAlertService, locationFailureService, askReadyPrecompute, almanacService,
                 budgetsFrom(safetyTimeout));
     }
@@ -350,7 +338,6 @@ public class PipelineOrchestrator {
      * @param pollInterval                    DB poll interval during FORECAST_BATCH_WAIT
      * @param safetyTimeout                   fallback budget for a run with no cycle type
      * @param dynamicSchedulerService         scheduler the orchestrator registers itself with
-     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
      * @param locationFailureService          settles each cycle's per-place failure counting
@@ -367,7 +354,6 @@ public class PipelineOrchestrator {
             Duration pollInterval,
             Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
-            PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
@@ -385,7 +371,6 @@ public class PipelineOrchestrator {
         this.safetyTimeout = safetyTimeout;
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.adminAlertService = adminAlertService;
-        this.pipelineRunPickService = pipelineRunPickService;
         this.batchRetryService = batchRetryService;
         this.locationFailureService = locationFailureService;
         this.askReadyPrecompute = askReadyPrecompute;
@@ -477,7 +462,7 @@ public class PipelineOrchestrator {
      * {@link #registerJobTarget()}. Because it goes through {@code runCycle} with
      * {@link CycleType#INTRADAY}, the submit phase runs ephemerally (the morning
      * snapshot is preserved) and records a {@code STABILITY_RECLASSIFY} phase
-     * before {@code FORECAST_BATCH_SUBMIT}; wait, briefing and best-bet persistence
+     * before {@code FORECAST_BATCH_SUBMIT}; wait and briefing
      * are identical to nightly.
      */
     public void runIntradayCycle() {
@@ -786,10 +771,9 @@ public class PipelineOrchestrator {
             }
 
             // A run resumed mid-BRIEFING already has a BRIEFING phase row — reuse it
-            // rather than starting a second one (V148 fixed the duplicate-pick fallout
-            // of getting this wrong). refreshBriefing()/persistPicksForCycle() below
-            // still re-run either way; that is deliberate (see class javadoc — a
-            // republished briefing is harmless), and persistPicksForCycle upserts.
+            // rather than starting a second one. refreshBriefing() below still re-runs
+            // either way; that is deliberate (see class javadoc — a republished briefing
+            // is harmless).
             if (!atOrPastBrief) {
                 pipelineRunService.startPhase(runId, PipelinePhase.BRIEFING);
             }
@@ -800,7 +784,6 @@ public class PipelineOrchestrator {
             settleLocationFailures(run);
             try {
                 briefingService.refreshBriefing(runId);
-                persistPicksForCycle(runId);
                 pipelineRunService.completePhase(runId, PipelinePhase.BRIEFING, null);
             } catch (RuntimeException e) {
                 pipelineRunService.failPhase(runId, PipelinePhase.BRIEFING, e.getMessage());
@@ -1120,68 +1103,6 @@ public class PipelineOrchestrator {
             }
             default -> throw new IllegalStateException(
                     "Unhandled retry decision: " + selection.decision());
-        }
-    }
-
-    /**
-     * Reads the freshly-refreshed briefing's best-bet picks and persists them
-     * against this cycle. Called after a successful
-     * {@code briefingService.refreshBriefing()} and before
-     * {@code completePhase(BRIEFING)} so the picks are committed within the
-     * BRIEFING phase boundary.
-     *
-     * <p>Pick persistence is observability, not correctness — a failure here
-     * must NOT fail the BRIEFING phase or the run. The primary defense is
-     * inside {@link PipelineRunPickService#persist} (which swallows exceptions
-     * by contract). The belt-and-braces try/catch here exists so even a
-     * contract violation cannot fail a briefing that actually succeeded.
-     * The orchestrator does not see anywhere on the success path where a
-     * persist exception is the correct trigger for marking BRIEFING FAILED.
-     *
-     * <p>The {@code null} service guard exists for tests that pass a null
-     * service via the package-private constructor.
-     *
-     * <p>A stale briefing is skipped: on a below-threshold run
-     * {@code BriefingService.refreshBriefing()} serves the last-known-good
-     * briefing, whose {@code bestBets} are the PREVIOUS cycle's picks carried
-     * forward — not this run's. Persisting them would record the prior run's
-     * picks against this {@code runId}, silently corrupting the cross-run
-     * "did Plan A change?" comparison this table exists to power.
-     */
-    private void persistPicksForCycle(Long runId) {
-        if (pipelineRunPickService == null) {
-            return;
-        }
-        try {
-            DailyBriefingResponse briefing = briefingService.getCachedBriefing();
-            if (briefing == null) {
-                LOG.info("Pipeline run {}: no cached briefing after refresh — "
-                        + "skipping pick persistence", runId);
-                return;
-            }
-            if (briefing.stale()) {
-                LOG.info("Pipeline run {}: briefing served stale (below-threshold run) — "
-                        + "its picks are carried-forward last-known-good, not this cycle's; "
-                        + "skipping pick persistence", runId);
-                return;
-            }
-            // Record this run's best-bet outcome regardless of whether picks exist, so the
-            // run history distinguishes "good picks" / "honest decline" / "advisor failed".
-            BestBetStatus status = briefing.bestBetStatus();
-            pipelineRunService.recordBestBetStatus(runId, status);
-            // Persist pick rows ONLY for a genuine SUCCESS_WITH_PICKS — a SUCCESS_NO_PICKS
-            // (honest decline) or FAILED run has no picks of its own to record, and the
-            // fallback reads pick rows expecting them to belong to a successful run.
-            if (status == BestBetStatus.SUCCESS_WITH_PICKS) {
-                pipelineRunPickService.persist(runId, briefing.bestBets());
-            } else {
-                LOG.info("Pipeline run {}: best-bet status {} — no own picks to persist",
-                        runId, status);
-            }
-        } catch (RuntimeException e) {
-            LOG.warn("Pipeline run {}: pick persistence raised an exception — "
-                    + "logged and ignored (BRIEFING phase remains valid): {}",
-                    runId, e.getMessage());
         }
     }
 
