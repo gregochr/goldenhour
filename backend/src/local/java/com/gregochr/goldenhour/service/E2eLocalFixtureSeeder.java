@@ -677,7 +677,8 @@ public class E2eLocalFixtureSeeder {
     }
 
     private void persistBriefing(String headline, List<BriefingDay> days) {
-        DailyBriefingResponse response = new DailyBriefingResponse(LocalDateTime.now(clock), headline, days, null, null, false, List.of(), List.of());
+        DailyBriefingResponse response = new DailyBriefingResponse(LocalDateTime.now(clock), headline, days,
+                null, null, false, List.of(), List.of());
         try {
             DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
             entity.setId(1);
