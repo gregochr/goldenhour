@@ -872,7 +872,6 @@
                         <param>com.gregochr.goldenhour.service.PasswordResetFlowTest</param>
                         <param>com.gregochr.goldenhour.service.CredentialInvalidationFlowTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskCreateMessageResilienceTest</param>
-                        <param>com.gregochr.goldenhour.service.evaluation.BestBetAuroraPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.ValleyMistPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskThreadRegressionTest</param>

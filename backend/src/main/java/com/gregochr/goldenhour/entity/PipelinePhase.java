@@ -20,9 +20,9 @@ package com.gregochr.goldenhour.entity;
  * </ul>
  *
  * <p>The orchestrator advances through the cycle's phases in order. Each phase
- * corresponds to one {@link PipelineRunPhaseEntity} row. Gloss and best-bet are
- * intentionally <em>not</em> phases — they're synchronous in-process calls
- * inside {@code BriefingService.refreshBriefing()} and have no orchestration
+ * corresponds to one {@link PipelineRunPhaseEntity} row. The gloss is
+ * intentionally <em>not</em> a phase — it is a synchronous in-process call
+ * inside {@code BriefingService.refreshBriefing()} and has no orchestration
  * concern.
  */
 public enum PipelinePhase {
@@ -58,7 +58,7 @@ public enum PipelinePhase {
      */
     RETRY_FAILED,
 
-    /** Running BriefingService.refreshBriefing() (which calls gloss + best-bet inline). */
+    /** Running BriefingService.refreshBriefing() (which calls the gloss inline). */
     BRIEFING;
 
     /**

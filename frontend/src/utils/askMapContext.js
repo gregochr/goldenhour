@@ -33,7 +33,7 @@ import { EVENT_KIND } from './mapEvents.js';
 /**
  * The window id the server knows a window by: {@code yyyy-MM-dd_sunrise} or {@code yyyy-MM-dd_sunset}
  * for a solar window, {@code yyyy-MM-dd_astro} or {@code yyyy-MM-dd_aurora} for a night
- * (`AskWindowId`'s format, the encoding `BriefingRollupBuilder` already used;
+ * (`AskWindowId`'s format;
  * `docs/engineering/ask-night-plan.md` §2.1). {@code toLowerCase}, not a locale form: a Turkish locale
  * would lower-case {@code I} to a dotless one and stop the id matching.
  *

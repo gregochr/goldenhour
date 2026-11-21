@@ -2,6 +2,8 @@
 
 Owner decision, 2026-10-22. Narrows the 2026-09-29 force-evaluation exemption.
 
+> **Update 2026-11-21:** the best-bet advisor (`BriefingBestBetAdvisor`, `BriefingRollupBuilder`, `BestBetRanker`), `bestBets` picks and the `pipeline_run_pick` writes this brief names were retired; `pickEligible()` now governs `PlanWindowProjector` and Ask alone.
+
 ## The problem
 
 Plan tab, viewed Thu 22 Oct 2026. Sat 24 sunrise wears the strip's BEST BET on 6 rated places of

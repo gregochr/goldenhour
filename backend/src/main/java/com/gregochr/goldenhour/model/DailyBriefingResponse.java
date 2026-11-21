@@ -12,7 +12,8 @@ import java.util.List;
  * @param generatedAt        UTC timestamp when this briefing was generated
  * @param headline           one-line summary highlighting the best opportunities
  * @param days               per-day briefing data (today + tomorrow)
- * @param bestBets           Claude-generated "best bet" picks (empty if the advisory call failed)
+ * @param bestBets           always empty: the Claude best-bet advisor was retired 2026-11-21 (the field
+ *                           stays until the follow-up removal so stored payloads still deserialise)
  * @param auroraTonight      tonight's aurora summary, or {@code null} when the state machine is idle
  * @param auroraTomorrow     tomorrow night's Kp forecast summary, or {@code null} if unavailable
  * @param stale              true when this is the last-known-good briefing, not freshly generated
@@ -344,14 +345,9 @@ public record DailyBriefingResponse(
      * @param headline            one-line summary
      * @param days                per-day briefing data
      * <p><strong>Defaults {@code bestBetStatus} to {@code null} — do not use it to rebuild an
-     * existing response.</strong> Two consumers switch on that field and both fail silently when
-     * it is absent: {@code BriefingService.applyBestBetFallback} returns early unless the status is
-     * {@code FAILED}, so the serve-time fallback never fires; and the frontend renders its "from an
-     * earlier forecast" warning on {@code bestBetStatus === 'FAILED'}, so the staleness cue never
-     * appears. Nothing throws and no test that ignores the field notices. This constructor is
-     * retained for the many call sites that legitimately build a response from scratch with no
-     * status yet; anything copying or overlaying an existing response must pass all 11 components
-     * (or use {@link #withDays}).
+     * existing response.</strong> This constructor is retained for the many call sites that
+     * legitimately build a response from scratch with no status yet; anything copying or
+     * overlaying an existing response must pass all 11 components (or use {@link #withDays}).
      *
      * @param bestBets            best-bet picks
      * @param auroraTonight       tonight's aurora summary or null
@@ -493,9 +489,7 @@ public record DailyBriefingResponse(
      * summaries and the hot topics.
      *
      * <p>One method rather than three withers because the three are recomputed together on every
-     * serve, from the same live state. Every other component is preserved, {@code bestBetStatus}
-     * in particular: this is an overlay, not a new verdict on the best-bet advisor, and dropping
-     * the status would silently disable the fallback and the "from an earlier forecast" chip.
+     * serve, from the same live state. Every other component is preserved.
      *
      * @param newAuroraTonight  tonight's aurora summary, or null
      * @param newAuroraTomorrow tomorrow night's aurora summary, or null

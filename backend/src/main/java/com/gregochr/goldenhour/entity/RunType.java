@@ -20,7 +20,7 @@ public enum RunType {
     /** Daily briefing — zero-Claude-cost weather pre-flight check. */
     BRIEFING,
 
-    /** Briefing best-bet advisor — Claude-generated photography recommendations. */
+    /** Retired best-bet advisor (2026-11-21): kept only for historical rows until the follow-up migration. */
     BRIEFING_BEST_BET,
 
     /** Briefing region gloss — per-region Claude-generated one-line commentary. */

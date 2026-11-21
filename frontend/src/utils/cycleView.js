@@ -1,5 +1,4 @@
 import { formatElapsedSince, formatRelativeTimeUk, parseUtcInstant } from './conversions.js';
-import { UK_ZONE } from './mapDates.js';
 import { formatClockUk } from './runsView.js';
 
 /**
@@ -15,7 +14,7 @@ export const PHASE_LABEL = {
   FORECAST_BATCH_SUBMIT: 'Submit batches',
   FORECAST_BATCH_WAIT: 'Wait for completion',
   RETRY_FAILED: 'Retry failed requests',
-  BRIEFING: 'Briefing (gloss + best-bet)',
+  BRIEFING: 'Briefing (gloss)',
 };
 
 /** The short names the strip's bar and "Runs after {phase}" use. */
@@ -29,15 +28,6 @@ export const PHASE_SHORT = {
 
 /** The order a cycle runs its phases in, for the ones that have not started yet (the server serves only started ones). */
 const PHASE_ORDER = Object.keys(PHASE_LABEL);
-
-/** Human labels for the cross-run comparison's changed dimensions. */
-export const DIMENSION_LABEL = {
-  REGION: 'region',
-  DATE: 'date',
-  EVENT: 'event',
-  RATING: 'rating',
-  PRESENCE: 'added/dropped',
-};
 
 /** The label of a phase key, falling back to the key itself for one this build does not know. */
 export function phaseLabel(phase) {
@@ -109,49 +99,6 @@ export function totalRequests(batches) {
   return (batches ?? []).reduce((sum, b) => sum + (b.requestCount ?? 0), 0);
 }
 
-const PICK_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
-  timeZone: UK_ZONE, weekday: 'short', day: 'numeric', month: 'short',
-});
-
-/** A pick's event date ("2026-10-31") as "Sat 31 Oct"; a value that is not a date is returned as it came. */
-function pickDate(eventDate) {
-  const d = new Date(`${eventDate}T12:00:00Z`);
-  return Number.isNaN(d.getTime()) ? eventDate : PICK_DATE_FORMAT.format(d);
-}
-
-function capitalise(text) {
-  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
-}
-
-/**
- * One best-bet pick as a line: "Northumberland Coast · Sunset · Sat 31 Oct · ★4.2". A pick with no region is the
- * stay-home pick; no pick at all (a rank that exists on only one side of the comparison) reads "No pick".
- *
- * @param {object|null} pick a comparison pick
- * @returns {string}
- */
-export function pickLine(pick) {
-  if (!pick) return 'No pick';
-  if (!pick.region) return 'Stay home';
-  const parts = [pick.region];
-  if (pick.eventType) parts.push(capitalise(pick.eventType.toLowerCase()));
-  if (pick.eventDate) parts.push(pickDate(pick.eventDate));
-  if (pick.claudeAverageRating != null) parts.push(`★${pick.claudeAverageRating.toFixed(1)}`);
-  return parts.join(' · ');
-}
-
-/** The pick's headline when it has one, else its line ("Stay home" or "No pick" in words). */
-export function pickHeadline(pick) {
-  return pick?.headline || pickLine(pick);
-}
-
-/** "Plan A", "Plan B", then "Plan 3" and on. */
-export function rankLabel(rank) {
-  if (rank === 1) return 'Plan A';
-  if (rank === 2) return 'Plan B';
-  return `Plan ${rank}`;
-}
-
 /** The names the list serves for a cycle row, used only when the row is not on the loaded page (a deep link). */
 const CYCLE_NAME = {
   NIGHTLY: 'Overnight cycle',
@@ -168,10 +115,4 @@ const CYCLE_NAME = {
  */
 export function cycleName(run, item = null) {
   return item?.name || CYCLE_NAME[run.cycleType] || `Cycle #${run.id}`;
-}
-
-/** The changed dimensions of a diff as an amber line: "Region, rating"; "Changed" when none are named. */
-export function changedDimensionsText(diff) {
-  const dims = (diff.changedDimensions ?? []).map((dim) => DIMENSION_LABEL[dim] || dim);
-  return dims.length > 0 ? capitalise(dims.join(', ')) : 'Changed';
 }

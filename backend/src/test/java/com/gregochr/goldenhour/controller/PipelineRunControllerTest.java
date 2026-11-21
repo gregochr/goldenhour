@@ -137,66 +137,24 @@ class PipelineRunControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("GET /api/admin/pipeline-runs/{id} surfaces the intraday-vs-nightly comparison")
-    void detail_includes_cross_run_comparison_for_intraday() {
+    @DisplayName("GET /api/admin/pipeline-runs/{id} for an intraday run carries no comparison (retired)")
+    void detail_carries_no_comparison_for_intraday() throws Exception {
         PipelineRunEntity intraday = new PipelineRunEntity(CycleType.INTRADAY, T0.plusSeconds(46800));
         intraday.setId(50L);
         intraday.setStatus(PipelineRunStatus.COMPLETED);
-
-        // Plan A changed region + rating, Plan B unchanged — the value signal.
-        com.gregochr.goldenhour.model.PipelineRunPickComparison comparison =
-                new com.gregochr.goldenhour.model.PipelineRunPickComparison(
-                        42L, T0,
-                        List.of(
-                                new com.gregochr.goldenhour.model.PipelineRunPickComparison.PickDiff(
-                                        1, true, List.of("REGION", "RATING"),
-                                        new com.gregochr.goldenhour.model.PipelineRunPickComparison
-                                                .PickView("Coast tonight", "North Yorkshire Coast",
-                                                java.time.LocalDate.of(2026, 5, 26), "sunset",
-                                                "HIGH", 4.2),
-                                        new com.gregochr.goldenhour.model.PipelineRunPickComparison
-                                                .PickView("Hills tonight", "Northumberland",
-                                                java.time.LocalDate.of(2026, 5, 26), "sunset",
-                                                "MEDIUM", 3.1)),
-                                new com.gregochr.goldenhour.model.PipelineRunPickComparison.PickDiff(
-                                        2, false, List.of(),
-                                        new com.gregochr.goldenhour.model.PipelineRunPickComparison
-                                                .PickView("Lakes tomorrow", "Lake District",
-                                                java.time.LocalDate.of(2026, 5, 27), "sunrise",
-                                                "MEDIUM", 3.5),
-                                        new com.gregochr.goldenhour.model.PipelineRunPickComparison
-                                                .PickView("Lakes tomorrow", "Lake District",
-                                                java.time.LocalDate.of(2026, 5, 27), "sunrise",
-                                                "MEDIUM", 3.5))));
 
         when(pipelineRunService.findById(50L)).thenReturn(Optional.of(intraday));
         when(pipelineRunService.findPhases(50L)).thenReturn(List.of());
         when(batchRepository.findByPipelineRunId(50L)).thenReturn(List.of());
         when(adminRunsService.cycleCost(intraday, List.of())).thenReturn(new CycleCost(0L, null));
-        when(pipelineRunComparisonService.compareToSameDayNightly(intraday))
-                .thenReturn(comparison);
 
-        try {
-            mockMvc.perform(get("/api/admin/pipeline-runs/50"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.run.cycleType").value("INTRADAY"))
-                    .andExpect(jsonPath("$.comparison.baselineRunId").value(42))
-                    .andExpect(jsonPath("$.comparison.diffs.length()").value(2))
-                    .andExpect(jsonPath("$.comparison.diffs[0].rank").value(1))
-                    .andExpect(jsonPath("$.comparison.diffs[0].changed").value(true))
-                    .andExpect(jsonPath("$.comparison.diffs[0].changedDimensions[0]")
-                            .value("REGION"))
-                    .andExpect(jsonPath("$.comparison.diffs[0].intraday.region")
-                            .value("North Yorkshire Coast"))
-                    .andExpect(jsonPath("$.comparison.diffs[0].nightly.region")
-                            .value("Northumberland"))
-                    .andExpect(jsonPath("$.comparison.diffs[1].changed").value(false))
-                    // No cost resolved for this cycle: served as zero with no rate, never invented.
-                    .andExpect(jsonPath("$.costMicroDollars").value(0))
-                    .andExpect(jsonPath("$.costGbpRate").isEmpty());
-        } catch (Exception e) {
-            throw new AssertionError(e);
-        }
+        mockMvc.perform(get("/api/admin/pipeline-runs/50"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.run.cycleType").value("INTRADAY"))
+                .andExpect(jsonPath("$.comparison").doesNotExist())
+                // No cost resolved for this cycle: served as zero with no rate, never invented.
+                .andExpect(jsonPath("$.costMicroDollars").value(0))
+                .andExpect(jsonPath("$.costGbpRate").isEmpty());
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.entity;
 
+import com.gregochr.goldenhour.model.BestBetStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -55,6 +56,17 @@ class PipelineRunEntityTest {
         assertThat(run.getTriggerTime()).isEqualTo(T0);
         assertThat(run.getCompletedAt()).isEqualTo(T0.plusSeconds(900));
         assertThat(run.getFailureReason()).isEqualTo("safety timeout");
+    }
+
+    @Test
+    @DisplayName("the retired best-bet status column still round-trips and is null on a new run")
+    void bestBetStatus_round_trips() {
+        PipelineRunEntity run = new PipelineRunEntity(CycleType.NIGHTLY, T0);
+        assertThat(run.getBestBetStatus()).isNull();
+
+        run.setBestBetStatus(BestBetStatus.SUCCESS_NO_PICKS);
+
+        assertThat(run.getBestBetStatus()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
     }
 
     @Test

@@ -254,7 +254,7 @@ describe('Runs: the cycle panel', () => {
         'cycle-phase-RETRY_FAILED', 'cycle-phase-BRIEFING',
       ]);
       expect(screen.getByTestId('cycle-phase-STABILITY_RECLASSIFY')).toHaveTextContent('Re-classify (cost-gate)');
-      expect(screen.getByTestId('cycle-phase-BRIEFING')).toHaveTextContent('Briefing (gloss + best-bet)');
+      expect(screen.getByTestId('cycle-phase-BRIEFING')).toHaveTextContent('Briefing (gloss)');
     });
 
     it('reads an unknown phase as its own key', async () => {
@@ -358,122 +358,6 @@ describe('Runs: the cycle panel', () => {
         phases: [cyclePhase({ sequenceOrder: 1 })],
       }));
       expect(screen.queryByTestId('cycle-phase-STABILITY_RECLASSIFY')).toBeNull();
-    });
-  });
-
-  describe('the comparison', () => {
-    const PICK_A = {
-      headline: 'Coast tonight', region: 'North Yorkshire Coast', eventDate: '2026-10-31', eventType: 'sunset',
-      claudeAverageRating: 4.2,
-    };
-    const NIGHTLY_A = {
-      headline: 'Hills tonight', region: 'Northumberland', eventDate: '2026-10-31', eventType: 'sunset',
-      claudeAverageRating: 3.1,
-    };
-
-    it('is absent without a comparison', async () => {
-      await openCycle();
-      expect(screen.queryByTestId('cross-run-comparison')).toBeNull();
-    });
-
-    it('says Plan changed, shows the intraday headline, Was {nightly} struck through and the dimensions capitalised', async () => {
-      await openCycle(cycleDetail({
-        comparison: {
-          baselineRunId: 408,
-          baselineTriggerTime: '2026-10-31T01:08:00Z',
-          diffs: [
-            { rank: 1, changed: true, changedDimensions: ['REGION', 'RATING'], intraday: PICK_A, nightly: NIGHTLY_A },
-            {
-              rank: 2, changed: false, changedDimensions: [],
-              intraday: { region: 'Lake District', eventDate: '2026-11-01', eventType: 'sunrise', claudeAverageRating: 3.8 },
-              nightly: { region: 'Lake District', eventDate: '2026-11-01', eventType: 'sunrise', claudeAverageRating: 3.8 },
-            },
-          ],
-        },
-      }));
-      expect(screen.getByTestId('cross-run-verdict')).toHaveTextContent('Plan changed');
-      expect(screen.getByTestId('cross-run-pick-1')).toHaveTextContent('Coast tonight');
-      const was = screen.getByTestId('cross-run-was-1');
-      expect(was).toHaveTextContent('Was Hills tonight');
-      expect(was.className).toContain('line-through');
-      expect(screen.getByTestId('cross-run-changed-1')).toHaveTextContent('Region, rating');
-      expect(screen.getByTestId('cross-run-diff-1')).toHaveTextContent('Plan A');
-      expect(screen.getByTestId('cross-run-diff-2')).toHaveTextContent('Plan B');
-      expect(screen.getByTestId('cross-run-pick-2')).toHaveTextContent('Lake District · Sunrise · Sun 1 Nov · ★3.8');
-      expect(screen.queryByTestId('cross-run-was-2')).toBeNull();
-      expect(screen.getByTestId('cross-run-baseline')).toHaveTextContent('Baseline: nightly cycle #408 · 01:08');
-    });
-
-    it('says No change when no rank changed', async () => {
-      await openCycle(cycleDetail({
-        comparison: {
-          baselineRunId: 408, baselineTriggerTime: '2026-10-31T01:08:00Z',
-          diffs: [{ rank: 1, changed: false, changedDimensions: [], intraday: PICK_A, nightly: PICK_A }],
-        },
-      }));
-      expect(screen.getByTestId('cross-run-verdict')).toHaveTextContent('No change');
-    });
-
-    it('reads a pick with no region as "Stay home", and a rank on one side only as "No pick"', async () => {
-      await openCycle(cycleDetail({
-        comparison: {
-          baselineRunId: 408, baselineTriggerTime: '2026-10-31T01:08:00Z',
-          diffs: [
-            { rank: 1, changed: true, changedDimensions: ['REGION'], intraday: { region: null }, nightly: NIGHTLY_A },
-            { rank: 3, changed: true, changedDimensions: ['PRESENCE'], intraday: null, nightly: NIGHTLY_A },
-          ],
-        },
-      }));
-      expect(screen.getByTestId('cross-run-pick-1')).toHaveTextContent('Stay home');
-      expect(screen.getByTestId('cross-run-pick-3')).toHaveTextContent('No pick');
-    });
-
-    it('a changed card keeps the old values visible: Was {headline} and the nightly pick\'s region and rating', async () => {
-      await openCycle(cycleDetail({
-        comparison: {
-          baselineRunId: 408, baselineTriggerTime: '2026-10-31T01:08:00Z',
-          diffs: [{ rank: 1, changed: true, changedDimensions: ['REGION'], intraday: PICK_A, nightly: NIGHTLY_A }],
-        },
-      }));
-      expect(screen.getByTestId('cross-run-was-1')).toHaveTextContent('Was Hills tonight');
-      expect(screen.getByTestId('cross-run-was-line-1')).toHaveTextContent('Northumberland');
-      expect(screen.getByTestId('cross-run-was-line-1')).toHaveTextContent('∅3.1'.replace('∅', '★'));
-      // The current pick shows its headline only: no second line repeating the region.
-      expect(screen.getByTestId('cross-run-diff-1')).not.toHaveTextContent('North Yorkshire Coast');
-    });
-
-    it('leaves the baseline\'s time out when it has none', async () => {
-      await openCycle(cycleDetail({
-        comparison: {
-          baselineRunId: 408, baselineTriggerTime: null,
-          diffs: [{ rank: 1, changed: false, changedDimensions: [], intraday: PICK_A, nightly: PICK_A }],
-        },
-      }));
-      expect(screen.getByTestId('cross-run-baseline').textContent).toBe('Baseline: nightly cycle #408');
-    });
-
-    it('draws a rank beyond 2 as "Plan 3" and a missing pick in words', async () => {
-      await openCycle(cycleDetail({
-        comparison: {
-          baselineRunId: 408, baselineTriggerTime: '2026-10-31T01:08:00Z',
-          diffs: [
-            { rank: 3, changed: true, changedDimensions: ['PRESENCE'], intraday: null, nightly: NIGHTLY_A },
-          ],
-        },
-      }));
-      expect(screen.getByTestId('cross-run-diff-3')).toHaveTextContent('Plan 3');
-      expect(screen.getByTestId('cross-run-pick-3')).toHaveTextContent('No pick');
-      expect(screen.getByTestId('cross-run-changed-3')).toHaveTextContent('Added/dropped');
-    });
-
-    it('draws a changed pick with no named dimension as "Changed"', async () => {
-      await openCycle(cycleDetail({
-        comparison: {
-          baselineRunId: 408, baselineTriggerTime: '2026-10-31T01:08:00Z',
-          diffs: [{ rank: 1, changed: true, changedDimensions: [], intraday: PICK_A, nightly: NIGHTLY_A }],
-        },
-      }));
-      expect(screen.getByTestId('cross-run-changed-1')).toHaveTextContent('Changed');
     });
   });
 

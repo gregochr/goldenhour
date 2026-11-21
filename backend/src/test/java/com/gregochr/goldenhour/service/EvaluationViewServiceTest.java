@@ -3267,12 +3267,8 @@ class EvaluationViewServiceTest {
         }
 
         /**
-         * {@code PipelineRunPickService.lookupAverageRating} is the sole remaining caller of this
-         * single-key method — see {@code PipelineRunPickServiceTest
-         * .cached_scores_lookup_uses_pick_coordinates} for the pin on that call site.
-         * {@code BriefingRollupBuilder.computeRegionStats} used to call this once per region/event
-         * and now reads {@link #getLiveScoresForEnrichmentBulk} once per rollup instead — see
-         * {@code BriefingBestBetAdvisorTest.cacheLookupUsesExactParameters} for that pin, and
+         * A caller covering a whole window reads {@link #getLiveScoresForEnrichmentBulk} once rather
+         * than this single-key method per region/event; see
          * {@link LiveScoresBulkAgreesWithSingle} below for proof the two accessors answer
          * identically for the same slot. These tests exercise the filtering itself: what the raw
          * {@code BriefingEvaluationService} cache would have said, versus what a caller that must
@@ -3460,9 +3456,8 @@ class EvaluationViewServiceTest {
          * checked with a second pair of calls against a region with no locations at all.
          * {@link EvaluationViewService#getLiveScoresForEnrichment} and
          * {@link EvaluationViewService#getLiveScoresForEnrichmentBulk} must return the identical
-         * answer for every one of them, since {@code BriefingRollupBuilder} switched from the
-         * single-key read (once per region/event) to one bulk read per rollup, and the two
-         * accessors sharing a rule is what makes that switch safe.
+         * answer for every one of them: the two accessors sharing a rule is what makes it safe
+         * to switch a caller from the single-key read to one bulk read.
          */
         @Test
         @DisplayName("bulk and single reads agree for a retracted, a triaged, a "

@@ -210,25 +210,6 @@ class ModelRecordNormalisationTest {
         assertThat(response.totalClaudeCalls()).isEqualTo(3);
     }
 
-    // ── best bet ─────────────────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("BestBetResult factories carry the right status and a null picks list becomes empty")
-    void bestBetResult_factoriesAndNullPicks() {
-        BestBet pick = mock(BestBet.class);
-        List<BestBet> picks = new ArrayList<>(List.of(pick));
-
-        BestBetResult withPicks = BestBetResult.withPicks(picks);
-        picks.clear();
-
-        assertThat(withPicks.status()).isEqualTo(BestBetStatus.SUCCESS_WITH_PICKS);
-        assertThat(withPicks.picks()).containsExactly(pick);
-        assertThat(BestBetResult.noPicks().status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
-        assertThat(BestBetResult.failed().status()).isEqualTo(BestBetStatus.FAILED);
-        assertThat(BestBetResult.failed().picks()).isEmpty();
-        assertThat(new BestBetResult(BestBetStatus.FAILED, null).picks()).isEmpty();
-    }
-
     @Test
     @DisplayName("BriefingDayPeak defaults null events and regions to empty and copies supplied lists")
     void briefingDayPeak_normalisesLists() {

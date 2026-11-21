@@ -451,21 +451,17 @@ class ModelsControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @DisplayName("PUT /api/models/active switches BRIEFING_BEST_BET to SONNET")
-    void setActiveModel_switchesBriefingBestBetToSonnet() throws Exception {
+    @DisplayName("PUT /api/models/active refuses the retired BRIEFING_BEST_BET run type")
+    void setActiveModel_refusesRetiredBriefingBestBet() throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        when(modelSelectionService.setActiveModel(RunType.BRIEFING_BEST_BET, EvaluationModel.SONNET))
-                .thenReturn(EvaluationModel.SONNET);
 
         mockMvc.perform(put("/api/models/active")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
                 .content("{\"runType\":\"BRIEFING_BEST_BET\",\"model\":\"SONNET\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.runType").value("BRIEFING_BEST_BET"))
-                .andExpect(jsonPath("$.active").value("SONNET"));
+                .andExpect(status().isBadRequest());
 
-        verify(modelSelectionService).setActiveModel(RunType.BRIEFING_BEST_BET, EvaluationModel.SONNET);
+        verify(modelSelectionService, never()).setActiveModel(RunType.BRIEFING_BEST_BET, EvaluationModel.SONNET);
     }
 
     @Test

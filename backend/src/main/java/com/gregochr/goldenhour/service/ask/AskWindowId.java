@@ -11,16 +11,14 @@ import java.util.Optional;
  * The codec for a window id: {@code yyyy-MM-dd_sunrise} or {@code yyyy-MM-dd_sunset} for a solar
  * window, {@code yyyy-MM-dd_astro} or {@code yyyy-MM-dd_aurora} for a night (ask-night plan §2.1).
  *
- * <p>One format, one home. {@code BriefingRollupBuilder} used to build this string inline in two
- * places and Ask needs the identical encoding, because both sides name a window to Claude and
- * read it back. {@link Locale#ROOT} is deliberate: under a Turkish default locale {@code SUNRISE}
- * lower-cases with a dotless i and the keys stop matching (the reason the rollup builder's own
- * comment warns about it).
+ * <p>One format, one home. Ask names a window to Claude and reads it back, so both sides need
+ * the identical encoding. {@link Locale#ROOT} is deliberate: under a Turkish default locale
+ * {@code SUNRISE} lower-cases with a dotless i and the keys stop matching.
  *
- * <p>{@link #format(LocalDate, TargetType)} accepts any target type, as the rollup builder always
- * did; {@link #parse} accepts only the four {@link AskWindowKind}s, because a window is a solar event
- * or a night and nothing else. The date of a night is the date whose dusk opens it (the poller's night,
- * {@code AuroraForecastRunService.currentNightDate()}), never the civil date of its small hours.
+ * <p>{@link #format(LocalDate, TargetType)} accepts any target type; {@link #parse} accepts only the
+ * four {@link AskWindowKind}s, because a window is a solar event or a night and nothing else. The
+ * date of a night is the date whose dusk opens it
+ * (the poller's night, {@code AuroraForecastRunService.currentNightDate()}), never the civil date of its small hours.
  */
 public final class AskWindowId {
 

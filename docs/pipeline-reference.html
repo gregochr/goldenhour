@@ -289,7 +289,7 @@
       <p>PhotoCast is a photographer's forecast system. Its core value proposition: for each configured location, it fetches weather, aerosol, tidal, and solar geometry data, assembles a rich atmospheric snapshot, and asks Claude to score the sunrise/sunset colour potential on two axes (Fiery Sky 0&ndash;100, Golden Hour 0&ndash;100) plus a 1&ndash;5 star rating.</p>
       <p>The system operates on four tiers of Claude usage:</p>
       <ul>
-        <li><strong>Daily Briefing</strong> &mdash; zero-Claude-cost weather triage producing GO/MARGINAL/STANDDOWN verdicts per location, plus a single Haiku call for "best bet" recommendations and parallel Haiku calls for per-region glosses.</li>
+        <li><strong>Daily Briefing</strong> &mdash; zero-Claude-cost weather triage producing GO/MARGINAL/STANDDOWN verdicts per location, plus parallel Haiku calls for per-region glosses (the single "best bet" advisor call was retired 2026-11-21).</li>
         <li><strong>Briefing Gloss</strong> &mdash; per GO/MARGINAL region, a single Haiku call (max 64 tokens) generates a &le;10-word plain-English sentence explaining the key reason for the verdict. Parallel via virtual threads with semaphore (max 10 concurrent).</li>
         <li><strong>Per-Location Forecast</strong> &mdash; full Claude evaluation (Haiku/Sonnet/Opus configurable per run type) with directional cloud sampling, cloud approach risk, storm surge, and inversion scoring.</li>
         <li><strong>Aurora Photography</strong> &mdash; NOAA SWPC polling with state-machine alert management, weather triage, and a single Claude call to score all viable dark-sky locations.</li>
@@ -387,8 +387,6 @@ precipitation_probability, dew_point_2m, pressure_msl, wind_gusts_10m</code></pr
   &darr;
   Group into BriefingDay &rarr; BriefingEventSummary &rarr; BriefingRegion
   &darr;
-  <span class="hl">BriefingBestBetAdvisor.advise()</span> &rarr; Claude picks (single Haiku call)
-  &darr;
   Cache in AtomicReference + daily_briefing_cache DB table
   &darr;
   <span class="hl">GET /api/briefing</span> &rarr; DailyBriefingResponse</div>
@@ -460,64 +458,19 @@ precipitation_probability, dew_point_2m, pressure_msl, wind_gusts_10m</code></pr
       <table class="mb-1">
         <tr><th>Call</th><th>Service</th><th>Default Model</th><th>Max Tokens</th><th>Trigger</th><th>Batch API?</th></tr>
         <tr><td>Forecast Colour</td><td><code>ClaudeEvaluationStrategy</code></td><td>Per RunType</td><td>512</td><td>Scheduled / On-demand</td><td><span class="badge badge-yes">Yes</span></td></tr>
-        <tr><td>Briefing Best-Bet</td><td><code>BriefingBestBetAdvisor</code></td><td>Haiku</td><td>1024</td><td>After briefing refresh</td><td><span class="badge badge-no">No</span></td></tr>
         <tr><td>Briefing Gloss</td><td><code>BriefingGlossService</code></td><td>Haiku</td><td>64</td><td>After briefing refresh</td><td><span class="badge badge-no">No</span></td></tr>
         <tr><td>Aurora Scoring</td><td><code>ClaudeAuroraInterpreter</code></td><td>Haiku</td><td>1024</td><td>Aurora alert / Batch</td><td><span class="badge badge-yes">Yes</span></td></tr>
-        <tr><td>Briefing Model Compare</td><td><code>BriefingBestBetAdvisor</code></td><td>All three</td><td>1024</td><td>Admin manual</td><td><span class="badge badge-no">No</span></td></tr>
       </table>
 
-      <!-- 3.1 Briefing Best Bet -->
+      <!-- 3.1 Briefing Best Bet (retired) -->
       <div class="subsection" data-key="s3-1">
         <div class="subsection-header" onclick="toggle(this)">
-          <h3>3.1 Briefing Best-Bet Advisor</h3>
+          <h3>3.1 Briefing Best-Bet Advisor (retired 2026-11-21)</h3>
           <span class="chevron">&#9654;</span>
         </div>
         <div class="subsection-body">
           <div class="subsection-content">
-            <p>Identifies 2 best photographic opportunities from the briefing rollup. Single call after briefing triage completes.</p>
-
-            <h4>Service &amp; Method</h4>
-            <p><code>BriefingBestBetAdvisor.advise(List&lt;BriefingDay&gt;, Long jobRunId, Map&lt;String,Integer&gt; driveMap)</code></p>
-
-            <h4>System Prompt Summary</h4>
-            <p>Role: "photography forecast advisor for PhotoCast". Identify 2 picks: (1) best overall across all regions/events, (2) best alternative on a different day/event/region. Evaluation factors: GO regions with most clear locations rank highest, tide alignment as strong differentiator, lunar types (King &gt; Spring &gt; Regular), statistical sizes, storm surge as force multiplier, aurora integration, comfort, drive times, day-of-week preference. Sooner events preferred if quality equal.</p>
-
-            <h4>User Message Structure</h4>
-            <ul>
-              <li>Current UTC time</li>
-              <li>Event-based JSON rollup (solar events dated today to T+3, up to 8):
-                <ul>
-                  <li>Event ID, date, day name, event time</li>
-                  <li>Per-region verdict, go/marginal/standdown counts</li>
-                  <li>Temperature, apparent temperature, wind speed, weather code</li>
-                  <li>Tide counts: lunarKingTideCount, lunarSpringTideCount, extraExtraHighCount, extraHighCount, tideAlignedCount</li>
-                  <li>Coastal/inland location counts</li>
-                  <li>Storm surge boost flag</li>
-                </ul>
-              </li>
-              <li>Optional: Aurora event (alert level, Kp, dark sky / clear location counts)</li>
-              <li>Forecast window, valid events, valid regions</li>
-            </ul>
-
-            <h4>Output Schema</h4>
-            <pre><code>{
-  "picks": [
-    {
-      "rank": 1,
-      "headline": "max 15 words, punchy",
-      "detail": "2 sentences max, 40 words max",
-      "event": "&lt;eventId from validEvents&gt;",
-      "region": "&lt;region name from validRegions&gt;",
-      "confidence": "high|medium|low"
-    }
-  ]
-}</code></pre>
-
-            <h4>Fallback</h4>
-            <p>On parse failure: returns mechanical headline derived from best GO region. Validates picks against validEvents, validRegions, validDayNames; invalid picks are dropped and survivors re-ranked.</p>
-
-            <h4>Access Control</h4>
-            <p>Triggered internally by <code>BriefingService</code> &mdash; results visible to all authenticated users via <code>GET /api/briefing</code>. Model comparison endpoint is ADMIN-only.</p>
+            <p>The Claude best-bet advisor (<code>BriefingBestBetAdvisor</code>) no longer runs and its code, replay endpoint and admin comparison are deleted. The reader&rsquo;s Best bet and Also good are chosen by <code>PlanWindowProjector</code> from the ratings and worded by the region gloss; <code>DailyBriefingResponse.bestBets</code> is always empty. See <code>docs/engineering/best-bet-advisor-retirement-plan.md</code>.</p>
           </div>
         </div>
       </div>
@@ -1241,7 +1194,7 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
       <!-- Summary table -->
       <table>
         <tr><th>Cache</th><th>Class</th><th>Type</th><th>Key</th><th>TTL / Invalidation</th><th>Stale Consequence</th></tr>
-        <tr><td>Daily Briefing</td><td><code>BriefingService</code></td><td>AtomicReference</td><td>&mdash;</td><td>Scheduled refresh (3x/day)</td><td>Stale regional verdicts &amp; best-bet picks</td></tr>
+        <tr><td>Daily Briefing</td><td><code>BriefingService</code></td><td>AtomicReference</td><td>&mdash;</td><td>Scheduled refresh (3x/day)</td><td>Stale regional verdicts</td></tr>
         <tr><td>Briefing Last-Known-Good</td><td><code>BriefingService</code></td><td>AtomicReference</td><td>&mdash;</td><td>Only on successful refresh (&gt;50% locations)</td><td>Serves previous good result with <code>stale=true</code></td></tr>
         <tr><td>Briefing Evaluations</td><td><code>BriefingEvaluationService</code></td><td>ConcurrentHashMap</td><td><code>region|date|type</code></td><td>Cleared on <code>BriefingRefreshedEvent</code></td><td>Stale per-location scores until briefing refreshes</td></tr>
         <tr><td>Stability Summary</td><td><code>ForecastCommandExecutor</code></td><td>AtomicReference</td><td>&mdash;</td><td>Overwritten each triage run</td><td>Stale grid-cell stability classifications</td></tr>
@@ -1272,10 +1225,10 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
             <h4><code>cache</code> &mdash; <code>AtomicReference&lt;DailyBriefingResponse&gt;</code></h4>
             <table>
               <tr><th>Aspect</th><th>Detail</th></tr>
-              <tr><td>Populated by</td><td><code>refreshBriefing()</code> &mdash; fetches live weather for all enabled colour locations, builds verdicts, calls <code>BriefingBestBetAdvisor</code></td></tr>
+              <tr><td>Populated by</td><td><code>refreshBriefing()</code> &mdash; fetches live weather for all enabled colour locations, builds verdicts and glosses</td></tr>
               <tr><td>Read by</td><td><code>getCachedBriefing()</code> &rarr; <code>GET /api/briefing</code> (overlays live aurora state before returning)</td></tr>
               <tr><td>Invalidated by</td><td>Overwritten on each successful refresh. On startup, <code>loadPersistedBriefing()</code> loads from <code>daily_briefing_cache</code> DB table (single-row, id=1)</td></tr>
-              <tr><td>Stale consequence</td><td>Frontend displays outdated regional verdicts and best-bet recommendations until next scheduled refresh</td></tr>
+              <tr><td>Stale consequence</td><td>Frontend displays outdated regional verdicts until next scheduled refresh</td></tr>
             </table>
 
             <h4><code>lastKnownGood</code> &mdash; <code>AtomicReference&lt;DailyBriefingResponse&gt;</code></h4>
@@ -1469,7 +1422,7 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
         <tr><td>NOAA SWPC</td><td>Kp index, forecast, OVATION grid, solar wind Bz/plasma, G-scale alerts</td><td>5-min polling (6 endpoints)</td><td><span class="badge badge-go">Free</span></td></tr>
         <tr><td>Met Office Space Weather</td><td>Human-readable forecast narrative (Jsoup scrape)</td><td>Hourly</td><td><span class="badge badge-go">Free</span></td></tr>
         <tr><td>lightpollutionmap.info</td><td>Sky brightness (SQM/Bortle class)</td><td>On-demand (admin enrichment)</td><td><span class="badge badge-marginal">Paid</span> (1000/day quota)</td></tr>
-        <tr><td>Anthropic Claude</td><td>Colour evaluation scores, aurora scores, best-bet picks</td><td>Per evaluation / alert / briefing</td><td><span class="badge badge-standdown">Paid</span> (token-based)</td></tr>
+        <tr><td>Anthropic Claude</td><td>Colour evaluation scores, aurora scores, region glosses</td><td>Per evaluation / alert / briefing</td><td><span class="badge badge-standdown">Paid</span> (token-based)</td></tr>
       </table>
 
       <h4>Open-Meteo Batch Configuration</h4>
@@ -1503,7 +1456,6 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
         <tr><td>Forecast horizon</td><td>3-day</td><td>3-day</td><td>Full</td></tr>
         <tr><td>Detailed metrics</td><td>Blurred / greyed</td><td>Full</td><td>Full</td></tr>
         <tr><td>Daily Briefing</td><td>Read-only</td><td>Read + drill-down</td><td>Full + run trigger</td></tr>
-        <tr><td>Best-bet picks</td><td>Visible</td><td>Visible</td><td>Visible + model compare</td></tr>
         <tr><td>Aurora status/banner</td><td>Hidden (403)</td><td>Visible</td><td>Visible + admin tools</td></tr>
         <tr><td>Aurora viewline/locations</td><td>Hidden</td><td>Visible</td><td>Visible</td></tr>
         <tr><td>Outcomes recording</td><td>Read-only</td><td>Read + write</td><td>Read + write</td></tr>

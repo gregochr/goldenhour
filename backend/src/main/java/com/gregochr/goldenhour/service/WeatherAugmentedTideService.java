@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service;
  * Augments astronomical tide data with weather-driven storm surge.
  *
  * <p>This service sits between the existing forecast pipeline and the
- * PromptBuilder/BriefingBestBetAdvisor. It takes the existing TideSnapshot
+ * PromptBuilder. It takes the existing TideSnapshot
  * (lunar-driven, deterministic) and the weather forecast (pressure, wind)
  * and produces an augmented view that includes storm surge components.
  *

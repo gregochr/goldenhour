@@ -111,7 +111,7 @@ echo "-- text invariants"
 assert_file_has "calls the tested path script" "$WF" "scripts/prompt-regression-paths.sh"
 assert_file_has "uses the three-dot merge-base diff" "$WF" '"$BASE_SHA"..."$HEAD_SHA"'
 assert_file_has "runs the summary isolated" "$WF" "python3 -I scripts/prompt-regression-summary.py"
-assert_file_has "sky runs the unified sky class" "$WF" "SkyRatingRegressionTest,BestBetAuroraPromptRegressionTest,SystemPromptTokenCountTest"
+assert_file_has "sky runs the unified sky class" "$WF" "SkyRatingRegressionTest,SystemPromptTokenCountTest"
 assert_file_has "ask runs the Ask classes" "$WF" "-Dtest='Ask*RegressionTest'"
 assert_file_has "ask forks once" "$WF" "-DforkCount=1"
 assert_file_has "sky model is Sonnet 5.5" "$WF" "SKY_MODEL: SONNET_55"

@@ -14,7 +14,6 @@ import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
-import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
@@ -678,9 +677,8 @@ public class E2eLocalFixtureSeeder {
     }
 
     private void persistBriefing(String headline, List<BriefingDay> days) {
-        BestBetResult noPicks = BestBetResult.noPicks();
         DailyBriefingResponse response = new DailyBriefingResponse(LocalDateTime.now(clock), headline, days,
-                noPicks.picks(), null, null, false, "fixture", List.of(), List.of(), noPicks.status());
+                List.of(), null, null, false, null, List.of(), List.of(), null);
         try {
             DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
             entity.setId(1);

@@ -8,7 +8,7 @@ package com.gregochr.goldenhour.entity;
  * and wind gust variance) and is consumed by:
  * <ul>
  *   <li>the freshness resolver, which picks a per-stability cache TTL,</li>
- *   <li>the briefing best-bet advisor, which surfaces the worst-case
+ *   <li>the briefing, which surfaces the worst-case
  *       stability per region on the Plan tab, and</li>
  *   <li>the admin stability summary endpoint.</li>
  * </ul>

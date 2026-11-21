@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { modelLabel } from '../utils/modelLabels.js';
-import { getAvailableModels, setActiveModel, setExtendedThinking } from '../api/modelsApi.js';
+import { getAvailableModels, setActiveModel } from '../api/modelsApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import useHashSelection from '../hooks/useHashSelection.js';
 import InfoTip from './InfoTip.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 
 const CONFIG_TABS = [
-  { key: 'BRIEFING_BEST_BET', label: 'Briefing', tip: 'Claude model for the best-bet photography advisor in the daily briefing.' },
   { key: 'AURORA_EVALUATION', label: 'Aurora', tip: 'Claude model for scoring aurora photography conditions per location.' },
   { key: 'BATCH_NEAR_TERM', label: 'Batch Near-Term', tip: 'Claude model for T+0 and T+1 in the nightly cycle, and for every intraday, evening and JFDI request.', adminOnly: true },
   { key: 'BATCH_FAR_TERM', label: 'Batch Far-Term', tip: 'Claude model for nightly T+2 (settled or transitional) and T+3 (settled), plus forced headline contenders.', adminOnly: true },
@@ -17,7 +16,7 @@ const CONFIG_TABS = [
 ];
 
 /** The tab shown when the hash names no (visible) run type. */
-const DEFAULT_TAB = 'BRIEFING_BEST_BET';
+const DEFAULT_TAB = 'AURORA_EVALUATION';
 
 /** Reads {@code #manage/models/{RUN_TYPE}}: the first segment if it is a known run type (visibility is checked later). */
 const parseTabSegments = (segments) => (CONFIG_TABS.some((t) => t.key === segments[0]) ? segments[0] : null);
@@ -58,7 +57,6 @@ export function modelInfoFor(model) {
 
 /** Tab-specific model card descriptions. */
 const TAB_DESCRIPTIONS = {
-  BRIEFING_BEST_BET: 'Analyses region-level triage data to recommend the best photography opportunity',
   AURORA_EVALUATION: 'Evaluates aurora visibility conditions per location based on Kp forecast, cloud cover, and light pollution rating',
   ASK: 'Answers a typed question in plain English from the served forecasts, using a short loop of tool calls',
   ASK_READY: 'Writes the ready answers shown on the Map and the Plan matrix, precomputed after each forecast cycle',
@@ -256,7 +254,6 @@ export default function ModelSelectionView() {
   const { isAdmin } = useAuth();
   const [availableModels, setAvailableModels] = useState([]);
   const [configs, setConfigs] = useState({});
-  const [extendedThinkingConfig, setExtendedThinkingConfig] = useState({});
   const [costProfiles, setCostProfiles] = useState(null);
   const [allowedByRunType, setAllowedByRunType] = useState({});
   const [tokenRates, setTokenRates] = useState({});
@@ -290,16 +287,9 @@ export default function ModelSelectionView() {
    * never runs after unmount, and a {@code setSuccess} on an unmounted component is a no-op — so
    * no {@code isMounted} guard is needed either.
    *
-   * <p>The two handlers that show a message (model switch, extended thinking) each clear
-   * {@code success} before their await. The effect re-runs only when {@code success} changes, so
-   * the null committed in between guarantees a newer message gets its own full window. The two
-   * messages the screen can show today never repeat back to back, so this is a guard rather than
-   * something a current path exercises.
-   *
-   * <p>One case it does not cover: two requests for the same thing in flight at once (a
-   * double-click on the extended-thinking toggle, which stays enabled mid-request). Both responses
-   * carry the same string, so the second {@code setSuccess} is a no-op and the banner clears on the first response's timer,
-   * exactly as it did before this change.
+   * <p>The handler that shows a message (the model switch) clears {@code success} before its
+   * await. The effect re-runs only when {@code success} changes, so the null committed in between
+   * guarantees a newer message gets its own full window.
    */
   useEffect(() => {
     if (!success) return undefined;
@@ -317,7 +307,6 @@ export default function ModelSelectionView() {
         const available = (data.available || []).map((m) => (typeof m === 'string' ? m : m.name));
         setAvailableModels(available);
         setConfigs(data.configs || {});
-        setExtendedThinkingConfig(data.extendedThinkingConfigs || {});
         setCostProfiles(data.costProfiles || null);
         setAllowedByRunType(data.allowedByRunType || {});
         setTokenRates(data.tokenRates || {});
@@ -351,21 +340,6 @@ export default function ModelSelectionView() {
     }
   };
 
-  const handleExtendedThinkingToggle = async (runType) => {
-    const current = !!extendedThinkingConfig[runType];
-    const next = !current;
-    try {
-      setError(null);
-      setSuccess(null);
-      await setExtendedThinking(runType, next);
-      setExtendedThinkingConfig((prev) => ({ ...prev, [runType]: next }));
-      setSuccess(`Extended thinking ${next ? 'enabled' : 'disabled'} for Briefing`);
-    } catch (err) {
-      setError('Failed to update extended thinking setting');
-      console.error(err);
-    }
-  };
-
   if (loading) {
     return (
       <div className="card">
@@ -387,7 +361,6 @@ export default function ModelSelectionView() {
 
   const activeModelForTab = configs[activeTab] || 'HAIKU';
   const activeProfile = costProfiles?.[activeTab];
-  const etOn = !!extendedThinkingConfig['BRIEFING_BEST_BET'];
   // A run type the backend narrows (Ask) shows only the models it accepts; the others show every model.
   const allowedForTab = allowedByRunType[activeTab];
   const modelsForTab = allowedForTab
@@ -507,48 +480,6 @@ export default function ModelSelectionView() {
           );
         })}
       </div>
-
-      {/* Extended Thinking toggle — Briefing tab only */}
-      {activeTab === 'BRIEFING_BEST_BET' && (
-        <div className="card border border-plex-border" data-testid="extended-thinking-panel">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-plex-text">Extended Thinking</p>
-              <p className="text-xs text-plex-text-secondary mt-1">
-                Turns on adaptive thinking for Sonnet 4.6 and Opus 4.6. There is no fixed thinking budget;
-                the token ceiling for thinking plus reply rises from 4,096 to 16,000.
-                {etOn && activeModelForTab === 'HAIKU' && (
-                  <span className="text-yellow-400 ml-1">
-                    ⚠ Haiku 4.5 does not support extended thinking — switch to Sonnet or Opus.
-                  </span>
-                )}
-              </p>
-              {etOn && activeModelForTab === 'HAIKU_55' && (
-                <p className="text-xs text-yellow-400 mt-1" data-testid="extended-thinking-haiku-55-note">
-                  Haiku 5.5 runs with thinking disabled, so this switch has no effect on it.
-                </p>
-              )}
-              {etOn && activeModelForTab === 'SONNET_55' && (
-                <p className="text-xs text-yellow-400 mt-1" data-testid="extended-thinking-sonnet-55-note">
-                  Sonnet 5.5 always thinks adaptively at low effort, so this switch has no effect on it,
-                  and it always has the 16,000 ceiling.
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => handleExtendedThinkingToggle('BRIEFING_BEST_BET')}
-              className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors max-[639px]:min-h-11 ${
-                etOn
-                  ? 'bg-violet-600/30 text-violet-300 hover:bg-violet-600/50'
-                  : 'bg-plex-border text-plex-text-secondary hover:bg-plex-border-light'
-              }`}
-              data-testid="toggle-extended-thinking"
-            >
-              {etOn ? 'ON' : 'OFF'}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Ask: why the list is short, and that there is no thinking switch */}
       {isAskTab(activeTab) && (

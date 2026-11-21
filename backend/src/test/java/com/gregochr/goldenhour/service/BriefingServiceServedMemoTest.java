@@ -5,7 +5,6 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
-import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import com.gregochr.goldenhour.util.Rewind;
 import org.junit.jupiter.api.AfterEach;
@@ -407,7 +406,7 @@ class BriefingServiceServedMemoTest {
                 mock(LocationService.class), mock(BriefingWeatherLoader.class),
                 mock(JobRunService.class), mock(DailyBriefingCacheRepository.class),
                 new ObjectMapper().findAndRegisterModules(),
-                mock(BriefingHeadlineGenerator.class), mock(BriefingBestBetAdvisor.class),
+                mock(BriefingHeadlineGenerator.class),
                 mock(BriefingGlossService.class), mock(BluebellGlossService.class),
                 mock(BriefingAuroraSummaryBuilder.class), mock(BriefingHierarchyBuilder.class),
                 mock(BriefingSlotBuilder.class), mock(ApplicationEventPublisher.class),

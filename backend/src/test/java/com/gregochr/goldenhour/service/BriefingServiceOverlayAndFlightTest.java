@@ -13,7 +13,6 @@ import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
-import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
 import org.junit.jupiter.api.BeforeEach;
@@ -97,7 +96,7 @@ class BriefingServiceOverlayAndFlightTest {
         service = new BriefingService(
                 mock(LocationService.class), mock(BriefingWeatherLoader.class),
                 mock(JobRunService.class), briefingCacheRepository, MAPPER,
-                mock(BriefingHeadlineGenerator.class), mock(BriefingBestBetAdvisor.class),
+                mock(BriefingHeadlineGenerator.class),
                 mock(BriefingGlossService.class), mock(BluebellGlossService.class),
                 auroraSummaryBuilder, mock(BriefingHierarchyBuilder.class),
                 mock(BriefingSlotBuilder.class), mock(ApplicationEventPublisher.class),

@@ -4,14 +4,9 @@ package com.gregochr.goldenhour.service;
  * The quality floor a second region must clear before a window offers it as "Also good".
  *
  * <p><b>This rule is authored here, not lifted from anywhere.</b> The plan for the window-first
- * Plan tab described it as an existing floor to be shared, on the strength of
- * {@code BriefingBestBetAdvisor.PICK_TWO_RATING_FLOOR}. That constant is private and its own
- * Javadoc says it "never gates selection or ranking" — its only use is a diagnostic log line, and
- * the 0.5 band had no Java representation at all. On the {@code bestBets} path the rule is prose in
- * {@code BestBetPromptText}, applied by Claude. So the two paths can share a <em>constant</em>;
- * they cannot share an <em>enforcement</em>, and no predicate can make them agree. Do not write
- * that they cannot drift — they can, and only a test asserting the prompt still states these
- * numbers will notice.
+ * Plan tab described it as an existing floor to be shared with the (since retired) Claude best-bet
+ * advisor, whose own constant never gated anything: its only use was a diagnostic log line. The
+ * rule lives here alone.
  *
  * <p><b>Why a floor at all.</b> A gloss carries no quality signal: glossing is gated on Claude
  * eligibility rather than verdict, so weather-STANDDOWN regions are glossed too, and the system
@@ -27,9 +22,6 @@ public final class AlsoGoodFloor {
 
     /**
      * The lowest average rating a second region may have and still be offered.
-     *
-     * <p>Mirrored by {@code BriefingBestBetAdvisor.PICK_TWO_RATING_FLOOR}'s diagnostic log so the
-     * two surfaces cannot report different numbers.
      */
     public static final double MIN_ABSOLUTE = 3.0;
 

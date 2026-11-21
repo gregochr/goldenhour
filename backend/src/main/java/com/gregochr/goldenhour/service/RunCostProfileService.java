@@ -59,9 +59,6 @@ public class RunCostProfileService {
     /** How long a computed profile is reused. */
     public static final Duration MEMO_TTL = Duration.ofMinutes(10);
 
-    /** The request label {@code BriefingBestBetAdvisor} logs its calls under. */
-    static final String BEST_BET_URL = "briefing-best-bet";
-
     private static final String AURORA_BATCH_PREFIX = "au-";
     private static final List<String> FORECAST_BATCH_PREFIXES = List.of("fc-", "bb-", "wd-");
 
@@ -174,7 +171,7 @@ public class RunCostProfileService {
             List<ApiCallCostRow> rows = apiCallLogRepository.findCostRowsSince(
                     ForecastHorizon.ukDayStartUtc(today.minusDays(WINDOW_DAYS - 1L)));
             Map<RunType, List<ApiCallCostRow>> byTab = classify(rows);
-            for (RunType tab : List.of(RunType.BRIEFING_BEST_BET, RunType.AURORA_EVALUATION,
+            for (RunType tab : List.of(RunType.AURORA_EVALUATION,
                     RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM, RunType.ASK, RunType.ASK_READY)) {
                 profiles.put(tab.name(), profile(tab, byTab.getOrDefault(tab, List.of()), isBatchTab(tab)));
             }
@@ -210,9 +207,6 @@ public class RunCostProfileService {
     }
 
     private RunType tabOf(ApiCallCostRow row) {
-        if (row.runType() == RunType.BRIEFING && BEST_BET_URL.equals(row.requestUrl())) {
-            return RunType.BRIEFING_BEST_BET;
-        }
         if (row.runType() == RunType.AURORA_EVALUATION) {
             return RunType.AURORA_EVALUATION;
         }

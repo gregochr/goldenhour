@@ -20,7 +20,9 @@ regardless of batch latency.
 **Prerequisites:** `DynamicSchedulerService` currently drives cron expressions; this
 needs a per-day computed fire time (soonest event across enabled locations).
 
-## Explicit "declined to crown" pick record (product decision needed first)
+## Explicit "declined to crown" pick record (moot: the advisor was retired 2026-11-21)
+
+> **Retired 2026-11-21.** The best-bet advisor and the `pipeline_run_pick` writes are gone, so there is no decline to record. Kept as history.
 
 **What:** Optionally persist an explicit no-pick record per pipeline run when the
 best-bet advisor returns zero picks, so `pipeline_run_pick` history distinguishes

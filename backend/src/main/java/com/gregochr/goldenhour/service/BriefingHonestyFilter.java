@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -10,16 +9,12 @@ import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.service.EvaluationViewService.LatestDisposition;
-import com.gregochr.goldenhour.service.evaluation.BestBetRanker;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 
 import java.time.Clock;
 import java.time.LocalDate;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Read-time transform that suppresses positive verdicts for regions where
@@ -198,7 +193,7 @@ final class BriefingHonestyFilter {
      * <em>why</em> it has no forecast: {@link CoverageReasons#of} folds the pipeline's own latest
      * disposition per slot and the horizon into a {@link CoverageReason}, and
      * {@link #fullRewrite} picks the wording and verdict from it. Every reason still empties the
-     * slots, so the region stays in {@code blanked} and a Best Bet on it is still withdrawn. The
+     * slots, so the region stays blanked. The
      * overloads without a lookup bypass the fold: every region reads {@code UNKNOWN}, which is
      * worded {@code AWAITING} ("Not scored"), never as a weather stand-down.
      *
@@ -216,17 +211,10 @@ final class BriefingHonestyFilter {
         }
         Reasons reasons = latestBySlot == null || clock == null ? null
                 : new Reasons(latestBySlot, clock);
-        Set<String> blanked = new HashSet<>();
         List<BriefingDay> rewrittenDays = response.days().stream()
-                .map(day -> rewriteDay(day, minCoverageRatio, blanked, reasons))
+                .map(day -> rewriteDay(day, minCoverageRatio, reasons))
                 .toList();
-        List<BestBet> keptBets = withdrawUnsupportedBets(response.bestBets(), blanked);
-        // Flagged rather than inferred: a one-pick list means "the advisor withheld a runner-up"
-        // in every other case, and the banner says so in prose. Only this method knows the
-        // difference, and only on this serve.
-        Boolean withdrawn = response.bestBets() != null
-                && keptBets.size() != response.bestBets().size() ? Boolean.TRUE : null;
-        return response.withDays(rewrittenDays).withBestBets(keptBets, withdrawn);
+        return response.withDays(rewrittenDays);
     }
 
     /** The pipeline's record of what it did with each slot, and the clock horizons are read on. */
@@ -234,100 +222,23 @@ final class BriefingHonestyFilter {
     }
 
     private static BriefingDay rewriteDay(BriefingDay day, double minCoverageRatio,
-            Set<String> blanked, Reasons reasons) {
+            Reasons reasons) {
         List<BriefingEventSummary> rewrittenEvents = day.eventSummaries().stream()
-                .map(es -> rewriteEvent(es, minCoverageRatio, day.date(), blanked, reasons))
+                .map(es -> rewriteEvent(es, minCoverageRatio, day.date(), reasons))
                 .toList();
         return new BriefingDay(day.date(), rewrittenEvents);
     }
 
     private static BriefingEventSummary rewriteEvent(BriefingEventSummary es,
-            double minCoverageRatio, LocalDate date, Set<String> blanked, Reasons reasons) {
+            double minCoverageRatio, LocalDate date, Reasons reasons) {
         List<BriefingRegion> rewrittenRegions = es.regions().stream()
-                .map(region -> {
-                    BriefingRegion rewritten = rewriteRegionByCoverage(region, minCoverageRatio,
-                            date, es.targetType(), reasons);
-                    if (rewritten != region && rewritten.slots().isEmpty()) {
-                        blanked.add(betKey(region.regionName(), date, es.targetType()));
-                    }
-                    return rewritten;
-                })
+                .map(region -> rewriteRegionByCoverage(region, minCoverageRatio,
+                        date, es.targetType(), reasons))
                 .toList();
         // withRegions, not a positional rebuild: this filter empties the slot list of a
         // zero-coverage region, and the slots used to be the only carrier of the event's time.
         // Dropping solarEventTime here would put that back exactly as it was.
         return es.withRegions(rewrittenRegions);
-    }
-
-    /**
-     * The identity a {@link BestBet} uses for a solar slot: its {@code region} plus its
-     * {@code event}, which is {@code "2026-03-30_sunset"}.
-     */
-    private static String betKey(String regionName, LocalDate date, TargetType targetType) {
-        return regionName + "|" + date + "_" + targetType.name().toLowerCase(Locale.ROOT);
-    }
-
-    /**
-     * Withdraws Best Bets that recommend a region this filter has just blanked.
-     *
-     * <p>The rewrite above replaces a zero-coverage region with "No per-location forecast" and an
-     * empty slot list. A Best Bet naming that same region and event is the same claim the rewrite
-     * exists to suppress, made louder — the response would crown a destination it simultaneously
-     * reports as unevaluable, and the pick renders perfectly, so nothing looks wrong until someone
-     * opens the drill-down. Best Bets are chosen at briefing BUILD time and frozen into the
-     * payload; the coverage they were chosen on is re-derived at SERVE time. (Or they are a stale
-     * fallback list swapped in on this serve — older still, and checked here for the same reason.)
-     *
-     * <p><b>Losing rank 1 withdraws the whole block.</b> Rank 2 is defined relative to rank 1 —
-     * {@code relationship} and {@code differsBy} describe how it differs from that pick, and its
-     * Claude-written prose was composed as the runner-up to it — so an orphaned rank 2 is a
-     * comparison to something no longer on screen. The banner also reads {@code picks[0]} as the
-     * top pick positionally while labelling by {@code rank}, so leaving one behind renders a lone
-     * "② ALSO GOOD" card compared against itself. Promoting it instead would need its prose
-     * rewritten, which cannot be done without another Claude call. Withdrawing rank 2 alone is
-     * safe and keeps rank 1. ⚠️ **This is no longer this method's own rule** — round 11 generalised
-     * it onto {@link BestBetRanker#afterRemoval}, shared with {@link
-     * BestBetRanker#dropUnevaluatedPicks}, {@link BestBetRanker#dropIneligiblePicks} and {@code
-     * BestBetFallbackService}'s current-briefing eligibility re-check, after a Codex review found
-     * the fallback re-check promoting an orphaned rank 2 exactly this method was written to refuse.
-     * This method's own behaviour is unchanged; only where the rule lives moved.
-     *
-     * <p>{@code bestBetStatus} is deliberately untouched: setting it to {@code FAILED} would be a
-     * lie about the advisor, which succeeded. An empty list leaves the client on its honest empty
-     * state, distinguished from a flat week by {@code bestBetsWithdrawn}.
-     *
-     * <p>This runs <em>after</em> {@code BriefingService.applyBestBetFallback}, so a stale
-     * fallback list is subject to withdrawal like any other. It used to run before it, which left
-     * the fallback as the one list never checked — and it is the most likely to fail the check,
-     * being picks from an earlier forecast served precisely because this one's advisor failed.
-     *
-     * @param bets    the picks to check — the frozen build-time list, or the stale fallback
-     *                that replaced it; possibly null or empty
-     * @param blanked keys of the regions blanked on this serve, from {@link #betKey}
-     * @return the picks that still describe something this response stands behind
-     */
-    private static List<BestBet> withdrawUnsupportedBets(List<BestBet> bets, Set<String> blanked) {
-        if (bets == null || bets.isEmpty() || blanked.isEmpty()) {
-            return bets;
-        }
-        List<BestBet> kept = bets.stream()
-                .filter(bet -> !namesBlankedRegion(bet, blanked))
-                .toList();
-        return BestBetRanker.afterRemoval(bets, kept);
-    }
-
-    /**
-     * Whether a pick recommends a blanked region.
-     *
-     * <p>A stay-home pick carries a null region and event, and an aurora pick's event is
-     * {@code "aurora_tonight"} rather than a solar slot; neither can name a region this filter
-     * blanked, and both are left alone.
-     */
-    private static boolean namesBlankedRegion(BestBet bet, Set<String> blanked) {
-        if (bet.region() == null || bet.event() == null) {
-            return false;
-        }
-        return blanked.contains(bet.region() + "|" + bet.event());
     }
 
     /**

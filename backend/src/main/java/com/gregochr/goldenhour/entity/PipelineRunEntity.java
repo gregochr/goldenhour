@@ -54,10 +54,10 @@ public class PipelineRunEntity {
     private String failureReason;
 
     /**
-     * The best-bet advisor's outcome for this cycle: {@code SUCCESS_WITH_PICKS},
-     * {@code SUCCESS_NO_PICKS} (honest decline), or {@code FAILED}. Distinguishes "flat week"
-     * from "advisor broke" in the run history and feeds the cross-run comparison; null on runs
-     * that predate the status contract or whose briefing was served stale.
+     * The retired best-bet advisor's outcome for this cycle: {@code SUCCESS_WITH_PICKS},
+     * {@code SUCCESS_NO_PICKS} (honest decline), or {@code FAILED}. Nothing writes or reads it
+     * any more (the advisor was retired 2026-11-21); the column stays until the follow-up
+     * migration drops it, and is null on every new run.
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "best_bet_status", length = 20)

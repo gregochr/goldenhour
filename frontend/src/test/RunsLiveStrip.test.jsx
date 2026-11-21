@@ -102,7 +102,7 @@ describe('RunsLiveStrip', () => {
         onOpen={vi.fn()}
       />,
     );
-    expect(screen.getByTestId('runs-live-line').textContent).toBe('Briefing (gloss + best-bet) · 5m 0s so far');
+    expect(screen.getByTestId('runs-live-line').textContent).toBe('Briefing (gloss) · 5m 0s so far');
   });
 
   it('times from the cycle trigger when no phase is running', () => {

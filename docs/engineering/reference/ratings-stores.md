@@ -299,38 +299,25 @@ Two consequences worth stating plainly:
 - ⚠️ **The raw `BriefingEvaluationService` cache is a store, never a read surface — every reader that
   produces something a person or admin sees goes through `EvaluationViewService`'s retraction-aware
   read instead.** Two callers read `briefingEvaluationService.getCachedScores` directly until a Codex
-  review of #940 caught it: `BriefingRollupBuilder.computeRegionStats` (the best-bet advisor's
-  region-level rollup — its `claudeAverageRating`/coverage figures) and
-  `PipelineRunPickService.lookupAverageRating` (the `pipeline_run_pick.claude_average_rating`
-  cross-run comparison snapshot, read by `PipelineRunsView`'s picks). Both read the cache **before**
-  retraction is applied, so a rating a nightly stability skip had already withdrawn from the Plan
-  card and the map still counted toward the advisor's pick and the run-to-run comparison — the exact
-  "every surface must agree" requirement this whole feature exists for, broken one layer further in.
-  The same gap is older than the stability-skip feature: a rating superseded by a newer **triage**
-  row was equally still in the raw cache, uncounted nowhere else in the product. Both close the same
-  way — `EvaluationViewService.getLiveScoresForEnrichment(regionName, date, targetType)`, a sibling of
+  review of #940 caught it (the best-bet advisor's region rollup and the pick snapshot of
+  `PipelineRunPickService`, both deleted 2026-11-21 with the advisor). Both read the cache **before**
+  retraction is applied, so a rating a nightly stability skip had already withdrawn from the Plan card
+  and the map still counted — the exact "every surface must agree" requirement this whole feature
+  exists for, broken one layer further in. The same gap is older than the stability-skip feature: a
+  rating superseded by a newer **triage** row was equally still in the raw cache. The fix is
+  `EvaluationViewService.getLiveScoresForEnrichment(regionName, date, targetType)`, a sibling of
   `getScoresForEnrichment` that applies the identical cached-vs-forecast-row precedence and
   stability-skip retraction and then, unlike its sibling, **filters out every `retracted()` marker**
   before returning: `getScoresForEnrichment` has to be able to say "this was here and a skip is why it
   is not any more" for `BriefingRegionEvaluationRollup.enrichSlot` to clear an embedded rating rather
   than leave it (above), but a caller with no such branch has no use for a marker whose every numeric
-  field is null — it would either NPE on the rating or silently count the marker as "no opinion",
-  neither a decision anyone made. `getLiveScoresForEnrichment` removes that whole class of mistake by
-  construction: what comes back contains no retracted entries and no superseded ratings, exactly as
-  if the affected location had never been evaluated at all. `BriefingRollupBuilder` and
-  `PipelineRunPickService` now depend on `EvaluationViewService` instead of `BriefingEvaluationService`
-  directly (the latter dependency is gone from both, and from `BriefingBestBetAdvisor`, which only
-  ever held it to construct the rollup builder) — no circular dependency resulted, so neither needed
-  `@Lazy` beyond the one already on `BriefingBestBetAdvisor`'s own `EvaluationViewService` param,
-  matching `BriefingService`'s existing `@Lazy EvaluationViewService`. ⚠️ **A second, deliberate
-  widening rides along, not just retraction.** Before this fix `computeRegionStats` only ever saw a
-  location with a `cached_evaluation` entry; `getScoresForEnrichment` also resolves a location whose
-  *only* evidence is a scored or triaged `forecast_evaluation` row, so such a location is now counted
-  in the advisor's rollup and the pick snapshot too — narrowing the divergence between what the
-  advisor is shown and what the Plan tab and map already serve, not merely retracting stale ratings.
-  ⚠️ **The pre-existing fail-open roster-hygiene residual is unchanged, not fixed, by this move** — a
-  location renamed, disabled or moved to another region since the batch wrote its cache entry still
-  answers under a name no slot claims (`computeRegionStats`'s own javadoc), because
+  field is null. `getLiveScoresForEnrichment` removes that whole class of mistake by construction:
+  what comes back contains no retracted entries and no superseded ratings, exactly as if the affected
+  location had never been evaluated at all. ⚠️ **A second, deliberate widening rides along, not just
+  retraction:** `getScoresForEnrichment` also resolves a location whose *only* evidence is a scored or
+  triaged `forecast_evaluation` row. ⚠️ **The pre-existing fail-open roster-hygiene residual is
+  unchanged, not fixed, by this move** — a location renamed, disabled or moved to another region since
+  the batch wrote its cache entry still answers under a name no slot claims, because
   `getScoresForEnrichment` carries that same cache-outlives-the-roster entry forward for the identical
   reason (dropping it would be an unrelated behaviour change). Two write-path readers of the raw cache
   were checked and correctly left alone: `ForecastResultHandler.hasSkyScoredEntry` asks "did *this same
@@ -339,29 +326,17 @@ Two consequences worth stating plainly:
   across cycles) cannot answer and must not be asked to; and `EvaluationViewService`'s own
   `loadCachedEvaluations` (the DB-fallback half of `forDateRange`) feeds `mergeToView` per location,
   which is already retraction-aware, so it was never a naked reader in the first place.
-- ⚠️ **A reader that covers a whole window loads it ONCE — the rule the paragraph above got wrong the
-  first time.** `BriefingRollupBuilder.computeRegionStats` and `logCacheCoverage` originally called
-  `EvaluationViewService.getLiveScoresForEnrichment` per region **and** event — up to
-  `PlanRenderLimits.MAX_VISIBLE_EVENTS` (6 then; up to 8 since the whole-day horizon) events × the region count × 2 call sites, each call
-  costing three queries (the enabled roster, the latest forecast rows, the stability dispositions):
-  roughly 216 queries per best-bet rollup against production's ~6 regions, where the direct in-memory
-  cache read this whole feature replaced cost none. A second Codex re-review of #940 caught it.
+- ⚠️ **A reader that covers a whole window loads it ONCE.** A rollup that called
+  `EvaluationViewService.getLiveScoresForEnrichment` per region **and** event (the retired best-bet
+  rollup did, up to 8 events × the region count × 2 call sites at three queries each, roughly 216
+  queries per rollup) was caught by a second Codex re-review of #940.
   `EvaluationViewService.getLiveScoresForEnrichmentBulk(start, end, types)` is the fix — the
   `getLiveScoresForEnrichment` sibling of `getScoresForEnrichmentBulk`, filtering out retraction
-  markers the identical way — and `BriefingRollupBuilder.loadLiveScores` calls it exactly ONCE per
-  `buildRollupJson`, over the whole rollup's date range and every target type its days carry;
-  `computeRegionStats` and `logCacheCoverage` both read the one pre-loaded map by
-  `"regionName|date|targetType"` key, never calling `EvaluationViewService` themselves. Single-key
-  `getLiveScoresForEnrichment` keeps exactly one caller, `PipelineRunPickService.lookupAverageRating`
-  — at most a handful of calls per pipeline run (`persist` documents "normally 1 or 2" picks), so the
-  single-key cost is the right shape there and a bulk load would trade a small, bounded cost for the
-  same fixed per-call cost the bulk accessor itself carries, for no benefit. The **build path** for
-  the Plan payload itself had the identical shape of bug, one query narrower: `BriefingService`'s
-  `enrichWithCachedScores` call used to hand `BriefingRegionEvaluationRollup.enrich` the single-key
-  `evaluationViewService::getScoresForEnrichment` as its resolver, one call per region/event — 2
-  queries each before the stability-skip retraction feature added a third
-  (`loadStabilitySkips`), which is what turned a pre-existing, tolerated pattern into a fix worth
-  making in the same pass. `BriefingService.bulkScoreResolver` now loads
+  markers the identical way; `AsOfEventResolver` and the force-evaluation collector read it. The
+  **build path** for the Plan payload itself had the identical shape of bug, one query narrower:
+  `BriefingService`'s `enrichWithCachedScores` call used to hand
+  `BriefingRegionEvaluationRollup.enrich` the single-key `evaluationViewService::getScoresForEnrichment`
+  as its resolver, one call per region/event. `BriefingService.bulkScoreResolver` now loads
   `getScoresForEnrichmentBulk` once per build (the marker-preserving sibling, since
   `BriefingRegionEvaluationRollup.enrichSlot` still needs to see a retraction marker to clear an
   embedded rating — see above) and hands `rollup.enrich` a closure over it, the identical shape
@@ -379,9 +354,9 @@ Two consequences worth stating plainly:
   and their query counts are back to what they were before the exemption existed. Measured now: one
   `GET /api/briefing` serve issues exactly **3** queries for scores+stability together
   (`findAllEnabled`, `loadStabilitySkips`, `findLatestRunPerSlotByLocationIds`) via the single
-  `reEnrichVerdicts` call; one briefing BUILD issues **6** — the same 3 from `BriefingService
-  .bulkScoreResolver`'s own call plus another 3 from `BriefingRollupBuilder.loadLiveScores`'s
-  independent call for the best-bet advisor's rollup.
+  `reEnrichVerdicts` call; one briefing BUILD issued **6** while the best-bet advisor's rollup ran: the same 3 from
+  `BriefingService.bulkScoreResolver`'s own call plus another 3 from the rollup's independent call
+  (the advisor was retired 2026-11-21, so a build is now back to the one call's 3).
 - ⚠️ **The verdict-minimum-sample rule's "examined" evidence (P1-A) is loaded by a SEPARATE pair of
   methods, never folded into the counts just above** — a second Codex review of #943 (P1-A, round
   2) found the first cut's own fold (stamping a synthetic `BriefingEvaluationResult.triagedByBatch`
@@ -416,14 +391,13 @@ Two consequences worth stating plainly:
   double-counting a slot that is both rated and named by either channel. Only the two production
   sites that call `BriefingRegionEvaluationRollup.enrich` — `BriefingService.bulkTriagedResolver`
   and `ServedBriefingAssembler#reEnrichVerdicts`'s own triaged index — pay for this pair of queries;
-  `BriefingRollupBuilder.loadLiveScores` (the best-bet advisor's separate rollup, which never calls
-  `enrich`) has no use for triaged names and no longer pays for them either, a genuine reduction
-  from what the first cut cost it. One `GET /api/briefing` serve now issues **5** queries in total
+  the retired best-bet advisor's separate rollup never called `enrich` and so never paid for them. One `GET /api/briefing` serve now issues **5** queries in total
   for scores+stability+triaged (the 3 above plus the triaged pair), or **6** when any latest
   disposition is `EVALUATED`/`FORCE_EVALUATED` (the honesty filter's cycle-ended query,
   `PipelineRunRepository.findEndedDispositionJobRunIds`; the triaged pair is now `loadServeTriage`'s one
   disposition read plus the roster); one briefing BUILD issues
-  **8** — the 6 above (3 + 3 from the two independent score-resolver bulk loads) plus the triaged
+  **5** now (it was 8 while the best-bet advisor's rollup made its own 3-query load) — the one
+  score-resolver bulk load's 3 plus the triaged
   pair, paid ONCE, only by `BriefingService.bulkTriagedResolver` (the build path never runs the
   cycle query: `getTriagedByBatchLocationNamesBulk` reads without it).
 
