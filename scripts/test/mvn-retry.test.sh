@@ -95,6 +95,33 @@ printf '1\n' > "$WORK/rc"
 MVN_RETRY_ATTEMPTS=2 MVN_RETRY_SLEEP="$WORK/fake-sleep" bash "$SCRIPTS/mvn-retry.sh" "$WORK/fake-mvn" > /dev/null 2>&1
 assert_eq "MVN_RETRY_ATTEMPTS is honoured" "2" "$(cat "$WORK/count")"
 
+RECOVERED='[WARNING] Could not transfer metadata org.x:y/maven-metadata.xml from/to central (https://repo.maven.apache.org/maven2): Connection reset'
+
+reset_case
+printf '%s\n%s\n' "$RECOVERED" "[ERROR] Failed to execute goal org.jacoco:jacoco-maven-plugin:0.8.12:check (check) on project goldenhour: Coverage checks have not been met." > "$WORK/out.last"
+run_case 1
+assert_eq "recovered warning then jacoco failure: not retried" "1" "$RUNS"
+
+reset_case
+printf '%s\n%s\n' "$RECOVERED" "[ERROR] You have 3 Checkstyle violations. The maximum number of allowed violations is 0." > "$WORK/out.last"
+run_case 1
+assert_eq "recovered warning then checkstyle failure: not retried" "1" "$RUNS"
+
+reset_case
+printf '%s\n%s\n' "$RECOVERED" "[ERROR] Failed to execute goal com.github.spotbugs:spotbugs-maven-plugin:4.8:check (default) on project goldenhour: BugInstance size is 2" > "$WORK/out.last"
+run_case 1
+assert_eq "recovered warning then SpotBugs failure: not retried" "1" "$RUNS"
+
+reset_case
+printf '%s\n%s\n' "$RECOVERED" "[ERROR] Failed to execute goal some:plugin:1:run: something unrecognised failed" > "$WORK/out.last"
+run_case 1
+assert_eq "recovered warning then unrecognised failure: not retried" "1" "$RUNS"
+
+reset_case
+echo "[ERROR] Failed to execute goal on project goldenhour: Could not transfer artifact a:b:jar:1 from/to central: Connection reset" > "$WORK/out.last"
+run_case 1
+assert_eq "genuine [ERROR] connection reset: still retried" "3" "$RUNS"
+
 bash "$SCRIPTS/mvn-retry.sh" > /dev/null 2>&1
 assert_eq "no command: usage error 2" "2" "$?"
 
