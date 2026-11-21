@@ -787,7 +787,7 @@ function areaLabel(regionName, tiny) {
  *                                    from {@code briefing.generatedAt} — passed rather than
  *                                    recomputed so the change line and the footer's stamp can
  *                                    never disagree by a rounding boundary
- * @param {Function} [props.onOpenWindow] opens and reveals a window's card
+ * @param {Function} [props.onOpenWindow] `(key)` — a card press: opens the Map with that window selected
  * @param {?object}  [props.origin]   the away origin, or null for home — framing and scope
  * @param {Function} [props.onSearchRegion] opens search pre-filled with a region name
  * @param {Array}    [props.comingUpEntries] the served almanac entries, for a topic pill's jump
@@ -804,7 +804,7 @@ export default function WindowFirstHeatStrip({
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
   picksLocked = false, groundSets = null, picks = null,
   comingUpEntries = null, renderedEntryIds = null, openableKeys = null, forecastDates = null,
-  onOpenComingUp = undefined, onShowOnMap = undefined, onGoToPlanWindow = undefined,
+  onOpenComingUp = undefined, onShowOnMap = undefined, onOpenLaneOnMap = undefined,
 }) {
   // Your places (F4): the Glance best-spot line marks a place the reader starred itself, and says so. A mark only.
   const favourites = useFavourites();
@@ -849,7 +849,7 @@ export default function WindowFirstHeatStrip({
   // `hotTopics`, re-bucketed by `buildGlanceLanes` into one lane per run of a topic on this matrix's columns.
   // UNSCOPED, as the Coming up block it replaced was, while the cards' own topic rows are scope-filtered — the
   // design's stated source, and intended. No `onShowOnMap` means no Map door and no window route without
-  // `onGoToPlanWindow`, so a lane's spoken destination and its tap cannot disagree (the model builds only the
+  // `onOpenLaneOnMap`, so a lane's spoken destination and its tap cannot disagree (the model builds only the
   // routes the caller can honour).
   const hasMapDoor = typeof onShowOnMap === 'function';
   const glanceLanes = useMemo(() => {
@@ -858,7 +858,7 @@ export default function WindowFirstHeatStrip({
       hotTopics,
       entries: comingUpEntries,
       renderedEntryIds,
-      openableKeys: onGoToPlanWindow ? openableKeys : null,
+      openableKeys: onOpenLaneOnMap ? openableKeys : null,
       forecastDates,
       hasMapDoor,
     });
@@ -871,7 +871,7 @@ export default function WindowFirstHeatStrip({
     return buildGlanceLanes(days, columns, hotTopics);
   }, [
     todayStr, hotTopics, comingUpEntries, renderedEntryIds, openableKeys, forecastDates, hasMapDoor,
-    onGoToPlanWindow, matrix,
+    onOpenLaneOnMap, matrix,
   ]);
   // Met Office weather warnings (weather-warnings-plan.md W3): per window card, matched against the polled served list
   // (never a stored row), so a withdrawn or changed warning changes within the poll. Display only: a warning never
@@ -887,12 +887,12 @@ export default function WindowFirstHeatStrip({
     () => buildWarningLanes(matrix.days, (card) => cardWarnings.get(card.key) ?? [])
       .map((lane) => ({
         ...lane,
-        tappable: typeof onGoToPlanWindow === 'function'
+        tappable: typeof onOpenLaneOnMap === 'function'
           && (openableKeys instanceof Set ? openableKeys.has(lane.firstCardKey) : true),
       })),
-    [matrix, cardWarnings, onGoToPlanWindow, openableKeys],
+    [matrix, cardWarnings, onOpenLaneOnMap, openableKeys],
   );
-  const tapWarning = (lane) => onGoToPlanWindow?.(lane.firstCardKey);
+  const tapWarning = (lane) => onOpenLaneOnMap?.(lane.firstCardKey);
   const firstMatrixDate = matrix.days[0]?.date ?? null;
   /** The source line for the whole lane grid (desktop), or for one day's cell (phone: the stale line on day one only). */
   const warningFooterFor = (dayDate) => {
@@ -918,7 +918,7 @@ export default function WindowFirstHeatStrip({
     else if (lane.mapDoor) onShowOnMap({
       kind: 'event', date: lane.mapDoor.date, eventType: lane.mapDoor.eventType, topicType: lane.type,
     });
-    else if (lane.target && onGoToPlanWindow) onGoToPlanWindow(lane.target, lane.type);
+    else if (lane.target && onOpenLaneOnMap) onOpenLaneOnMap(lane.target, lane.type);
     else onOpenComingUp?.(null);
   };
   // The tide run across the WHOLE strip — which cards are live, and which of them is the one to
@@ -2497,7 +2497,7 @@ WindowFirstHeatStrip.propTypes = {
   /** `({kind:'event', date, eventType, topicType})` — the Map door of a weather pill. Absent: no Map door. */
   onShowOnMap: PropTypes.func,
   /** `(windowKey, topicType)` — opens that window's popup with the topic emphasised. */
-  onGoToPlanWindow: PropTypes.func,
+  onOpenLaneOnMap: PropTypes.func,
   /** True for a reader without best bets: draws the key row's one Pro door. */
   picksLocked: PropTypes.bool,
   /** The active scoreRamp mode — a repaint key only; see the paint callback's note. */

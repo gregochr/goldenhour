@@ -27,7 +27,7 @@ export const MAP_WARNING_PANEL_ID = 'wf-map-warning-panel';
  * @returns {{served: object, warnings: Array<object>, applies: boolean}} {@code applies} is false off a solar window
  *          that is not past, and while the feature is off
  */
-function useMapWarnings({
+export function useMapWarnings({
   event, locations, slotIndex, scoreIndex,
 }) {
   const served = useWarnings();
@@ -110,7 +110,7 @@ export default function MapWarningChips({
                   aria-expanded={open}
                   aria-controls={open ? MAP_WARNING_PANEL_ID : undefined}
                   aria-label={`${open ? 'Hide' : 'Show'} details of ${name}`}
-                  onClick={(event) => onToggle(warning.warningId, event.currentTarget)}
+                  onClick={(click) => onToggle(warning.warningId, click.currentTarget)}
                 >
                   {open ? 'Hide' : 'Details'}
                 </button>

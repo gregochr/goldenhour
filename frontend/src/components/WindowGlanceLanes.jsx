@@ -78,7 +78,7 @@ function spokenTail(lane, date) {
  * <p><b>What a tap does</b>, first match wins: a lane with a {@code jump} opens Coming up at that entry
  * ({@code onOpenComingUp(entryId)}); one with a {@code mapDoor} (a weather topic, for a date the reader holds a
  * forecast for) calls {@code onShowOnMap({kind:'event', date, eventType, topicType})}; otherwise
- * {@code onGoToPlanWindow(target, type)} when a window card exists for it; else plain
+ * {@code onOpenLaneOnMap(target, type)} when a window card exists for it; else plain
  * {@code onOpenComingUp(null)}. The destination in the lane's name says which.
  *
  * <p>The phone rules live in {@code @media (max-width: 639px)} only.

@@ -565,7 +565,7 @@ export function MapPeekWindowsSection({
       {/* "See all N" (glance-to-map-plan.md G1): the ranked spot list for the window on screen, the phone's door to the
           button the desktop Map carries beside Regions. A row in this section, never a fifth peek button. Hosted by the
           shell in a bottom sheet. Withheld where no card exists (the caller passes null). */}
-      {listDoor && (
+      {listDoor && listDoor.count > 0 && (
         <button
           type="button"
           data-testid="wf-map-peek-list"

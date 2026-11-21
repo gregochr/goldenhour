@@ -38,7 +38,7 @@ import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import BigSeasLine from './map/BigSeasLine.jsx';
 import MapTopicChips from './map/MapTopicChips.jsx';
-import MapWarningChips, { MapWarningPanel } from './map/MapWarningChips.jsx';
+import MapWarningChips, { MapWarningPanel, useMapWarnings } from './map/MapWarningChips.jsx';
 import MapTopicStrip from './map/MapTopicStrip.jsx';
 import MapTopicRings from './map/MapTopicRings.jsx';
 import { useChromeTlHeight } from '../hooks/useChromeTlHeight.js';
@@ -2332,6 +2332,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [isMobile, selectedLocationName]);
 
   /**
+   * **A phone sheet cannot outlive the Map pane** (glance-to-map review H1). The warning, Regions and Filters sheets
+   * portal to `document.body` whenever open, so hiding the pane (a tab switch, or Back out of an arrival) would
+   * leave them drawn over the next tab. Phone only: the desktop panels live inside the hidden pane.
+   */
+  useEffect(() => {
+    if (panelShown || !isMobile) return;
+    (async () => {
+      setOpenWarningId(null);
+      setBestBetKey(null);
+      setOpenMapMenu((cur) => (cur === 'jump' || cur === 'filters' ? null : cur));
+    })();
+  }, [panelShown, isMobile]);
+
+  /**
    * **Ask's section cannot outlive its row, or its tab** (F4, plan §2.7's table). `'peek:ask'` means
    * "the Ask section is EXPANDED" and nothing else: whether an answer exists is Ask's own state
    * (`askPhase`), and "minimised" is simply no section open with an answer settled
@@ -4050,6 +4064,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // effect). Keyed on the change, not on a mismatch, so a strip press that sets the yield to its target row
   // before that row arrives is not cleared by an intermediate render.
   const activeMapEventId = activeMapEvent?.id ?? null;
+  /**
+   * Whether the open warning's panel is actually on screen: the id still matches a warning in force for the window
+   * shown. A poll that withdraws it, or a window move, makes this false while the id lingers, so the Escape rung
+   * ignores it and the stale id is cleared (else the same id returning would reopen the panel by itself).
+   */
+  const { warnings: mapWarnings, applies: mapWarningsApply } = useMapWarnings({
+    event: activeMapEvent, locations, slotIndex, scoreIndex,
+  });
+  const warningShown = openWarningId != null && mapWarningsApply
+    && mapWarnings.some((w) => w.warningId === openWarningId);
+  useEffect(() => {
+    if (openWarningId == null || warningShown) return;
+    (async () => { setOpenWarningId(null); })();
+  }, [openWarningId, warningShown]);
   const [yieldSeenRowId, setYieldSeenRowId] = useState(activeMapEventId);
   if (activeMapEventId !== yieldSeenRowId) {
     setYieldSeenRowId(activeMapEventId);
@@ -6960,7 +6988,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       setPanelRegion(null);
       return;
     }
-    if (openWarningId != null) {
+    if (warningShown) {
       closeWarning();
       return;
     }

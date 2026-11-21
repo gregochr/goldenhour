@@ -379,6 +379,34 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     await expectBaseline(page, base);
   });
 
+  // Glance-to-map review H1: the Map's phone sheets portal to <body>, so hiding the pane on Back must close them.
+  // The seeded fixture serves no weather warning, so the Regions sheet stands in for the warning sheet (same mount,
+  // same `modal={false}`, no Back layer of its own).
+  test.describe('on a phone', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('Back after a card arrival leaves no Map bottom sheet over At a Glance', async ({ page }) => {
+      test.setTimeout(60_000);
+      await loginAndWaitForForecast(page);
+      await openPlan(page);
+      const base = await entryIndex(page);
+      await page.getByTestId('wf-heat-card').nth(2).click();
+      await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+      await settled(page, 1);
+      await page.getByTestId('wf-map-peek-btn-lay').click();
+      await page.getByTestId('wf-map-peek-lay-regions').click();
+      await expect(page.getByTestId('wf-jump-menu')).toBeVisible();
+      await expect(page.getByTestId('bottom-sheet-root')).toHaveCount(1);
+
+      await page.goBack();
+
+      await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('bottom-sheet-root')).toHaveCount(0);
+      await expect(page.getByTestId('wf-jump-menu')).toHaveCount(0);
+      await expectBaseline(page, base);
+    });
+  });
+
   test('a place from Find, its location sheet: goBack closes it and focus returns to Find', async ({ page }) => {
     test.setTimeout(60_000);
     await installDialogDepthObserver(page);

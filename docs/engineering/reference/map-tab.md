@@ -185,4 +185,4 @@ Four pieces the deleted window popup alone carried live on the Map (G1); G2a rep
 
 ## Arriving from a Glance card, a lane or Find (glance-to-map-plan.md G2a, 2026-11-20)
 
-A Glance card, a lane and Find's window pick land on the Map with that window selected through the `kind: 'event'` door; see "Every door opens the Map" in `plan-tab.md` for the Back layer that returns to the tab the reader left (card and Find arrivals only) and the lens the door carries.
+A Glance card, a lane and Find's window pick land on the Map with that window selected through the `kind: 'event'` door; see "Every door opens the Map" in `plan-tab.md` for the Back layer that returns to the tab the reader left (card, lane and Find arrivals) and the lens the door carries.

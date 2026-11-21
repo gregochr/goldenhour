@@ -170,7 +170,7 @@ describe('the Map List', () => {
   });
 
   it.each([
-    [3, 2], [4, 1], [5, 0], [2, 3], [1, 3],
+    [3, 2], [4, 1], [2, 3], [1, 3],
   ])('counts "See all N" at the Map\'s %i-star floor, as the list will', async (stars, expected) => {
     localStorage.setItem('mapFilterMinStars', String(stars));
     mapViewState.isMobile = true;
@@ -178,6 +178,15 @@ describe('the Map List', () => {
     await renderMap({ windowCardsByKey: cardsByKey(rated) });
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-win'));
     expect(screen.getByTestId('wf-map-peek-list')).toHaveTextContent(`See all ${expected} spot`);
+  });
+
+  it('draws no "See all 0 spots" row when the floor leaves nothing to list', async () => {
+    localStorage.setItem('mapFilterMinStars', '5');
+    mapViewState.isMobile = true;
+    const rated = { ...CARD, allSpots: [spotOf(SPOTS[0], 3), spotOf(SPOTS[1], 2), spotOf(SPOTS[2], 4)] };
+    await renderMap({ windowCardsByKey: cardsByKey(rated) });
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-win'));
+    expect(screen.queryByTestId('wf-map-peek-list')).toBeNull();
   });
 
   it('says "1 spot" for a single place and draws no row for a window with no card', async () => {

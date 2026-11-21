@@ -476,7 +476,7 @@ describe('what a pick does on the Map', () => {
     fireEvent.click(screen.getAllByRole('option', { name: /Tonight/ })[0]);
 
     expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({
-      date: TODAY, targetType: 'SUNSET', inPlace: true,
+      kind: 'event', date: TODAY, eventType: 'SUNSET', inPlace: true,
     }));
     expect(selectedTab()).toHaveTextContent('Map');
   });

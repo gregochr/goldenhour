@@ -4837,17 +4837,17 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
   });
 
   it('routes a press: a topic with a window card opens that window with the topic emphasised', async () => {
-    const onGoToPlanWindow = vi.fn();
+    const onOpenLaneOnMap = vi.fn();
     await renderStrip({
       cards: COLUMNS,
       hotTopics: [inversion(D5)],
-      onGoToPlanWindow,
+      onOpenLaneOnMap,
       openableKeys: new Set([`${D5}:SUNRISE`]),
       forecastDates: [],
       onShowOnMap: vi.fn(),
     });
     fireEvent.click(screen.getByTestId('wf-glance-lane'));
-    expect(onGoToPlanWindow).toHaveBeenCalledWith(`${D5}:SUNRISE`, 'INVERSION');
+    expect(onOpenLaneOnMap).toHaveBeenCalledWith(`${D5}:SUNRISE`, 'INVERSION');
   });
 
   it('routes a press: otherwise Coming up with no entry', async () => {
