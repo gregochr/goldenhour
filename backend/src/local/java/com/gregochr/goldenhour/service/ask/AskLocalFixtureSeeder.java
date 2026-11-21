@@ -123,7 +123,7 @@ import java.util.Set;
  * sample gate, tide and the Ask tools' picks are all real; only the pick is not.
  *
  * <p><b>Cost warning.</b> The briefing build it triggers makes the same calls a normal build does,
- * including the gloss and best-bet Claude calls <em>with whatever {@code ANTHROPIC_API_KEY} is
+ * including the gloss Claude calls <em>with whatever {@code ANTHROPIC_API_KEY} is
  * set</em>. With the placeholder key from {@code application-local.yml} they fail harmlessly; with
  * a real key they spend a few Haiku calls. That is why {@code seed-local-fixture} is off by default.
  */

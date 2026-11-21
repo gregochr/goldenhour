@@ -331,189 +331,21 @@ class BriefingHonestyFilterTest {
         assertThat(out.seasonalFeatures()).containsExactly("BLUEBELL");
     }
 
-    // ── Best Bets naming a blanked region ─────────────────────────────────────
+    // ── The retired Best bet list ─────────────────────────────────────────────
 
     @Test
-    @DisplayName("A Best Bet recommending a blanked region is withdrawn")
-    void bestBetOnBlankedRegionWithdrawn() {
-        // Picks are chosen at briefing BUILD time and frozen; coverage is re-derived at SERVE
-        // time. When it drops to zero the rewrite says "No per-location forecast" — and the pick
-        // would still be crowning that exact region and event on the same screen.
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
-                        List.of(bet(1, "Northumberland", "2026-05-23_sunset"))),
-                0.5);
-
-        assertThat(out.bestBets()).isEmpty();
-        assertThat(firstRegion(out).summary())
-                .isEqualTo(BriefingHonestyFilter.UNKNOWN_SUMMARY);
-    }
-
-    @Test
-    @DisplayName("A Best Bet on a well-covered region is left alone")
-    void bestBetOnCoveredRegionKept() {
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET,
-                        regionWith("Northumberland", Verdict.GO, "Clear at 3 of 3",
-                                DisplayVerdict.WORTH_IT, 3, threeSampleSlots()),
-                        List.of(bet(1, "Northumberland", "2026-05-23_sunset"))),
-                0.5);
-
-        assertThat(out.bestBets()).hasSize(1);
-        assertThat(out.bestBets().get(0).region()).isEqualTo("Northumberland");
-    }
-
-    @Test
-    @DisplayName("Losing rank 1 withdraws rank 2 as well — it is defined relative to rank 1")
-    void losingRankOneWithdrawsRankTwo() {
-        // Rank 2 carries relationship/differsBy describing how it differs from rank 1, and prose
-        // written as the runner-up to it. The banner also reads picks[0] as the top pick, so a
-        // surviving rank 2 renders as a lone "② ALSO GOOD" compared against itself.
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
-                        List.of(bet(1, "Northumberland", "2026-05-23_sunset"),
-                                bet(2, "The Lake District", "2026-05-23_sunset"))),
-                0.5);
-
-        assertThat(out.bestBets()).isEmpty();
-        // An empty list has four producers and the client explains three of them as "the week was
-        // flat". Only the flag distinguishes this one, where a standout existed and was pulled.
-        assertThat(out.bestBetsWithdrawn()).isTrue();
-    }
-
-    @Test
-    @DisplayName("Losing only rank 2 keeps rank 1 — nothing above it is left dangling")
-    void losingRankTwoKeepsRankOne() {
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
-                        List.of(bet(1, "The Lake District", "2026-05-23_sunset"),
-                                bet(2, "Northumberland", "2026-05-23_sunset"))),
-                0.5);
-
-        assertThat(out.bestBets()).hasSize(1);
-        assertThat(out.bestBets().get(0).rank()).isEqualTo(1);
-        assertThat(out.bestBets().get(0).region()).isEqualTo("The Lake District");
-        // The surviving list is now indistinguishable from "the advisor only ever had one pick",
-        // and the banner explains that case in prose — "nothing else scored well enough to be
-        // worth a second trip. That's the forecast, not a missing recommendation" — which is
-        // false here. The flag is what lets the client tell the two apart.
-        assertThat(out.bestBetsWithdrawn()).isTrue();
-    }
-
-    @Test
-    @DisplayName("Withdrawing nothing leaves the flag null — the ordinary case stays quiet")
-    void noWithdrawalLeavesFlagNull() {
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET,
-                        regionWith("Northumberland", Verdict.GO, "Clear at 3 of 3",
-                                DisplayVerdict.WORTH_IT, 3, threeSampleSlots()),
-                        List.of(bet(1, "Northumberland", "2026-05-23_sunset"))),
-                0.5);
-
-        assertThat(out.bestBetsWithdrawn()).isNull();
-    }
-
-    @Test
-    @DisplayName("The flag survives withDays — the projector rebuilds the response after this")
-    void flagSurvivesWithDays() {
-        // PlanWindowProjector is the OUTERMOST serve step and rebuilds via withDays. Dropping the
-        // flag there would silently restore the false note this whole mechanism suppresses.
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
-                        List.of(bet(1, "The Lake District", "2026-05-23_sunset"),
-                                bet(2, "Northumberland", "2026-05-23_sunset"))),
-                0.5);
-
-        assertThat(out.withDays(out.days()).bestBetsWithdrawn()).isTrue();
-    }
-
-    @Test
-    @DisplayName("The same region at a DIFFERENT event is not withdrawn")
-    void sameRegionDifferentEventKept() {
-        // The key is region AND event. Blanking Northumberland's sunset says nothing about its
-        // sunrise, which is a separate cell with its own coverage.
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
-                        List.of(bet(1, "Northumberland", "2026-05-23_sunrise"))),
-                0.5);
-
-        assertThat(out.bestBets()).hasSize(1);
-    }
-
-    @Test
-    @DisplayName("Stay-home and aurora picks are never withdrawn")
-    void stayHomeAndAuroraPicksUntouched() {
-        // A stay-home pick names no region or event at all; an aurora pick's event is not a solar
-        // slot. Neither can be describing the region this filter blanked.
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
-                        List.of(bet(1, null, null),
-                                bet(2, "Northumberland", "aurora_tonight"))),
-                0.5);
-
-        assertThat(out.bestBets()).hasSize(2);
-    }
-
-    @Test
-    @DisplayName("An empty Best Bet list beside a blanked region stays empty with no withdrawn flag")
-    void emptyBestBetList_noWithdrawnFlag() {
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of()), 0.5);
-
-        assertThat(out.bestBets()).isEmpty();
-        assertThat(out.bestBetsWithdrawn()).isNull();
-    }
-
-    @Test
-    @DisplayName("A pick naming a region but no event cannot match a blanked slot and is kept")
-    void pickWithRegionButNoEvent_kept() {
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
-                        List.of(bet(1, "Northumberland", null))),
-                0.5);
-
-        assertThat(out.bestBets()).hasSize(1);
-        assertThat(out.bestBetsWithdrawn()).isNull();
-    }
-
-    @Test
-    @DisplayName("A disposition lookup with no clock cannot fold a reason, so the blanked region reads 'Not scored'")
-    void lookupWithoutClock_readsNotScored() {
-        DailyBriefingResponse in = responseWith(TargetType.SUNSET,
-                zeroCoverageRegion("Northumberland"), List.of());
-
-        assertNotScoredWording(firstRegion(BriefingHonestyFilter.apply(in, 0.5, Map.of(), null)));
-    }
-
-    @Test
-    @DisplayName("A thinly covered (non-zero) region does not withdraw its Best Bet")
-    void thinlyCoveredRegionKeepsItsBet() {
-        // Only the zero-coverage rewrite contradicts a pick. A thinly covered region keeps its
-        // real slots, scores and gloss — it is scoped, not unevaluable.
-        DailyBriefingResponse out = BriefingHonestyFilter.apply(
-                responseWith(TargetType.SUNSET,
-                        regionWith("Northumberland", Verdict.GO, "Clear at 1 of 10",
-                                DisplayVerdict.WORTH_IT, 1, goSlots(10)),
-                        List.of(bet(1, "Northumberland", "2026-05-23_sunset"))),
-                0.5);
-
-        assertThat(out.bestBets()).hasSize(1);
-    }
-
-    @Test
-    @DisplayName("Withdrawal does not touch bestBetStatus — the advisor did not fail")
-    void withdrawalLeavesStatusAlone() {
-        // Flipping it to FAILED would libel an advisor that succeeded, and would invite
-        // applyBestBetFallback to replace these picks with a stale set for no reason. (Since the
-        // reorder that set is now filtered too, so it would no longer smuggle in a phantom — but
-        // the claim about the advisor would still be false, which is reason enough.)
+    @DisplayName("The filter no longer withdraws Best Bets: the list passes through untouched "
+            + "(BriefingService empties it on restore and on every build)")
+    void bestBetListIsLeftAlone() {
         DailyBriefingResponse in = responseWith(TargetType.SUNSET,
                 zeroCoverageRegion("Northumberland"),
                 List.of(bet(1, "Northumberland", "2026-05-23_sunset")));
 
         DailyBriefingResponse out = BriefingHonestyFilter.apply(in, 0.5);
 
-        assertThat(out.bestBets()).isEmpty();
+        assertThat(firstRegion(out).slots()).isEmpty();
+        assertThat(out.bestBets()).isEqualTo(in.bestBets());
+        assertThat(out.bestBetsWithdrawn()).isNull();
         assertThat(out.bestBetStatus()).isEqualTo(in.bestBetStatus());
     }
 
@@ -744,8 +576,7 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
-    @DisplayName("Whatever the reason the slots are emptied and a Best Bet on the region is "
-            + "withdrawn")
+    @DisplayName("Whatever the reason the slots are emptied")
     void everyReasonStaysBlanked() {
         List<DailyBriefingResponse> outs = List.of(
                 blanked(DispositionCategory.SKIPPED_TRAVEL_DAY, false, T_PLUS_0),
@@ -756,7 +587,6 @@ class BriefingHonestyFilterTest {
 
         for (DailyBriefingResponse out : outs) {
             assertThat(firstRegion(out).slots()).isEmpty();
-            assertThat(out.bestBets()).isEmpty();
         }
     }
 

@@ -45,8 +45,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * table for cross-restart durability. Writes arrive exclusively from the batch pipeline via
  * {@link #writeFromBatch}; the legacy SSE write path was retired in Pass 3.3.3.
  *
- * <p>Reads serve the Plan and Map tabs via {@link EvaluationViewService}, the
- * {@code BriefingBestBetAdvisor}, and the {@code BriefingGlossService}. Freshness gates
+ * <p>Reads serve the Plan and Map tabs via {@link EvaluationViewService} and the
+ * {@code BriefingGlossService}. Freshness gates
  * for the batch collector are exposed through
  * {@link #hasFreshEvaluation}.
  *

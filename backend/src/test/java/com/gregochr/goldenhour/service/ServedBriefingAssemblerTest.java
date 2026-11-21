@@ -13,7 +13,6 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
-import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,8 +58,6 @@ class ServedBriefingAssemblerTest {
             Clock.fixed(Instant.parse("2026-10-08T08:00:00Z"), ZoneOffset.UTC);
 
     @Mock
-    private BestBetFallbackService bestBetFallbackService;
-    @Mock
     private BriefingRegionSnapshotService regionSnapshotService;
     @Mock
     private WindowTideRollupBuilder windowTideRollupBuilder;
@@ -86,7 +83,7 @@ class ServedBriefingAssemblerTest {
                 .thenReturn(EvaluationViewService.ServeTriage.EMPTY);
         // The enricher is a stub that leaves the hierarchy as cached: the fixture region's
         // scoredLocationCount of zero is then exactly what the honesty filter reads.
-        assembler = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService,
+        assembler = new ServedBriefingAssembler(regionSnapshotService,
                 windowTideRollupBuilder, evaluationViewService, CLOCK,
                 (days, resolver, triaged) -> days, locationPointProvider, neighbourGuardProperties,
                 new NeighbourGuardLog(line -> { }), bigSeasBuilder);
@@ -132,7 +129,7 @@ class ServedBriefingAssemblerTest {
         // is the 12th: the 11th is behind the horizon and the 15th (T+3) is inside it. The clock is
         // read once, so the rendered set and the version hash agree on the same `today`.
         Clock bstMidnight = Clock.fixed(Instant.parse("2026-10-11T23:30:00Z"), ZoneOffset.UTC);
-        ServedBriefingAssembler bst = new ServedBriefingAssembler(bestBetFallbackService,
+        ServedBriefingAssembler bst = new ServedBriefingAssembler(
                 regionSnapshotService, windowTideRollupBuilder, evaluationViewService, bstMidnight,
                 (days, resolver, triaged) -> days, locationPointProvider, neighbourGuardProperties,
                 new NeighbourGuardLog(line -> { }), bigSeasBuilder);

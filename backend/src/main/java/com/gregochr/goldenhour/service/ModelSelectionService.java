@@ -26,7 +26,7 @@ public class ModelSelectionService {
 
     /** The run types that support model configuration. */
     private static final RunType[] CONFIGURABLE_RUN_TYPES = {
-        RunType.BRIEFING_BEST_BET, RunType.BRIEFING_GLOSS,
+        RunType.BRIEFING_GLOSS,
         RunType.AURORA_EVALUATION, RunType.AURORA_GLOSS, RunType.BLUEBELL_GLOSS,
         RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM,
         RunType.ASK, RunType.ASK_READY

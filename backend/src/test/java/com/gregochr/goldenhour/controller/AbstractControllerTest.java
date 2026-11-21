@@ -60,7 +60,6 @@ import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraPollingJob;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
-import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.service.pipeline.PipelineRunService;
 import com.gregochr.goldenhour.service.runs.AdminRunsService;
@@ -118,9 +117,6 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected BriefingService briefingService;
-
-    @MockitoBean
-    protected BriefingBestBetAdvisor bestBetAdvisor;
 
     @MockitoBean
     protected DriveTimeResolver driveTimeResolver;
@@ -238,10 +234,6 @@ abstract class AbstractControllerTest {
     /** The dry run of a proposed schedule, for {@code SchedulerController}. */
     @MockitoBean
     protected com.gregochr.goldenhour.service.SchedulePreviewService schedulePreviewService;
-
-    @MockitoBean
-    protected com.gregochr.goldenhour.service.pipeline.PipelineRunComparisonService
-            pipelineRunComparisonService;
 
     @MockitoBean
     protected com.gregochr.goldenhour.service.SkyRatingEvalService skyRatingEvalService;

@@ -5,7 +5,6 @@ import ModelSelectionView from '../components/ModelSelectionView.jsx';
 vi.mock('../api/modelsApi', () => ({
   getAvailableModels: vi.fn(),
   setActiveModel: vi.fn(),
-  setExtendedThinking: vi.fn(),
 }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: vi.fn() }));
 
@@ -14,13 +13,13 @@ import { useAuth } from '../context/AuthContext.jsx';
 
 const DATA = {
   available: ['HAIKU', 'SONNET'],
-  configs: { BRIEFING_BEST_BET: 'HAIKU', AURORA_EVALUATION: 'HAIKU', BATCH_NEAR_TERM: 'SONNET', BATCH_FAR_TERM: 'HAIKU' },
+  configs: { AURORA_EVALUATION: 'HAIKU', BATCH_NEAR_TERM: 'SONNET', BATCH_FAR_TERM: 'HAIKU' },
   tokenRates: {},
   gbpPerUsd: 0.78,
   costProfiles: {},
 };
 
-const BRIEFING = 'config-tab-BRIEFING_BEST_BET';
+const AURORA = 'config-tab-AURORA_EVALUATION';
 const FAR = 'config-tab-BATCH_FAR_TERM';
 
 /** The gold underline marks the active sub-tab. */
@@ -28,7 +27,7 @@ const isActive = (testId) => screen.getByTestId(testId).className.includes('bord
 
 const mount = async () => {
   render(<ModelSelectionView />);
-  await waitFor(() => expect(screen.getByTestId(BRIEFING)).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByTestId(AURORA)).toBeInTheDocument());
 };
 
 describe('ModelSelectionView sub-tab in the hash', () => {
@@ -46,27 +45,27 @@ describe('ModelSelectionView sub-tab in the hash', () => {
     window.location.hash = '#manage/models/BATCH_FAR_TERM';
     await mount();
     expect(isActive(FAR)).toBe(true);
-    expect(isActive(BRIEFING)).toBe(false);
+    expect(isActive(AURORA)).toBe(false);
   });
 
-  it('falls back to Briefing for an unknown key', async () => {
+  it('falls back to Aurora for an unknown key', async () => {
     window.location.hash = '#manage/models/NOPE';
     await mount();
-    expect(isActive(BRIEFING)).toBe(true);
+    expect(isActive(AURORA)).toBe(true);
   });
 
-  it('falls back to Briefing for an admin-only key when the reader is not an admin', async () => {
+  it('falls back to Aurora for an admin-only key when the reader is not an admin', async () => {
     useAuth.mockReturnValue({ isAdmin: false });
     window.location.hash = '#manage/models/BATCH_NEAR_TERM';
     await mount();
-    expect(isActive(BRIEFING)).toBe(true);
+    expect(isActive(AURORA)).toBe(true);
     expect(screen.queryByTestId('config-tab-BATCH_NEAR_TERM')).not.toBeInTheDocument();
   });
 
-  it('opens on Briefing with no run type in the hash', async () => {
+  it('opens on Aurora with no run type in the hash', async () => {
     window.location.hash = '#manage/models';
     await mount();
-    expect(isActive(BRIEFING)).toBe(true);
+    expect(isActive(AURORA)).toBe(true);
   });
 
   it('mirrors a sub-tab click into the hash without adding a history entry', async () => {

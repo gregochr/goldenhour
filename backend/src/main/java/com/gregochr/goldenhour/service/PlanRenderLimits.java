@@ -15,9 +15,7 @@ import java.time.LocalDate;
  * window outside the six. See {@code docs/engineering/whole-day-horizon-plan.md}.
  *
  * <p>One owner, referenced everywhere the horizon matters: {@link PlanWindowProjector} (which
- * windows the forecast-wide picks may land on), {@link
- * com.gregochr.goldenhour.service.evaluation.BriefingRollupBuilder} (which events the best-bet
- * advisor's prompt may name) and {@link BriefingDigestService} (the digest's default list).
+ * windows the forecast-wide picks may land on) and {@link BriefingDigestService} (the digest's default list).
  *
  * <p><b>The client keeps no copy of this.</b> The projector publishes
  * {@code DailyBriefingResponse.renderedEvents} and the client renders that list.

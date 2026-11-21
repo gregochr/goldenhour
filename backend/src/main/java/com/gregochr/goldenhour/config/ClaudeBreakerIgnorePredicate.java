@@ -22,8 +22,8 @@ import java.util.function.Predicate;
  * visible where it is actually reported: the failure is logged as an ERROR
  * and a failed call's {@code api_call_log} row carries the status and an
  * {@code anthropic_401} / {@code anthropic_403} error type, which the Job Runs detail shows.
- * Another consequence: callers with no stop-on-rejected-key rule of their own (the briefing's gloss and
- * best-bet calls) used to be cut off by the open breaker after about ten calls and now attempt every call.
+ * Another consequence: callers with no stop-on-rejected-key rule of their own (the briefing's gloss
+ * calls) used to be cut off by the open breaker after about ten calls and now attempt every call.
  *
  * <p>Wired as the breaker's {@code ignoreException} predicate by
  * {@link ResilienceConfig#anthropicCircuitBreakerCustomizer()}. Every other exception keeps counting

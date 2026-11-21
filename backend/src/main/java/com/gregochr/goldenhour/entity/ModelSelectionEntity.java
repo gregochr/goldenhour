@@ -46,7 +46,7 @@ public class ModelSelectionEntity {
 
     /**
      * Whether extended thinking is enabled for this run type.
-     * Currently only surfaced in the UI for BRIEFING_BEST_BET.
+     * No longer surfaced in the UI (its only user was the retired best-bet advisor).
      * Silently ignored if the active model does not support extended thinking (e.g. HAIKU).
      */
     @Builder.Default

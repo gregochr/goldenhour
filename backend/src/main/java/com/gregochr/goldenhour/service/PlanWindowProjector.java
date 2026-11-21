@@ -91,8 +91,8 @@ public final class PlanWindowProjector {
      * rated region averaging lower — the defect this whole rule exists to close. Every other term
      * is unchanged, so two regions on the SAME side of the eligibility line are still ordered
      * exactly as before. ⚠️ The test itself moved onto {@link BriefingRegion#verdictEligible()} in
-     * round 10 (P1-B) so {@code BriefingBestBetAdvisor} could share it rather than recompute its
-     * own copy — see that method's javadoc.
+     * round 10 (P1-B) so every caller shares it rather than recomputing its own copy — see that
+     * method's javadoc.
      */
     private static final Comparator<RankedRegion> BY_RANK =
             Comparator.comparing((RankedRegion r) -> r.region().verdictEligible()).reversed()

@@ -30,9 +30,9 @@ describe('modelsApi', () => {
 
   it('setExtendedThinking PUTs runType and the flag, false included', async () => {
     apiClient.put.mockResolvedValue({ data: { extendedThinking: false } });
-    expect(await setExtendedThinking('BRIEFING_BEST_BET', false)).toEqual({ extendedThinking: false });
+    expect(await setExtendedThinking('AURORA_EVALUATION', false)).toEqual({ extendedThinking: false });
     expect(apiClient.put).toHaveBeenCalledWith('/api/models/extended-thinking',
-      { runType: 'BRIEFING_BEST_BET', enabled: false });
+      { runType: 'AURORA_EVALUATION', enabled: false });
   });
 
   it.each([

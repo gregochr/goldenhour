@@ -30,7 +30,6 @@ import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
 import com.gregochr.solarutils.LunarCalculator;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
@@ -132,8 +131,6 @@ class BriefingServiceTest {
     /** The guard's switch, shared with the assembler built in {@code setUp}; off unless a test sets it. */
     private final NeighbourGuardProperties guardProperties = new NeighbourGuardProperties();
     @Mock
-    private BriefingBestBetAdvisor bestBetAdvisor;
-    @Mock
     private BriefingGlossService glossService;
     @Mock
     private BluebellGlossService bluebellGlossService;
@@ -145,8 +142,6 @@ class BriefingServiceTest {
     private HotTopicAggregator hotTopicAggregator;
     @Mock
     private EvaluationViewService evaluationViewService;
-    @Mock
-    private com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
     /**
      * The tide-fit curve's own extremes fetch. Left unstubbed throughout: Mockito answers an
      * empty list, which degrades every slot's tide-fit fields to null — this suite's own
@@ -172,11 +167,6 @@ class BriefingServiceTest {
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(EvaluationViewService.ServeTriage.EMPTY);
-        org.mockito.Mockito.lenient().when(bestBetAdvisor.advise(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()))
-                .thenReturn(com.gregochr.goldenhour.model.BestBetResult.noPicks());
         // Gloss service: pass-through by default (return input days unchanged)
         org.mockito.Mockito.lenient().when(glossService.generateGlosses(
                 org.mockito.ArgumentMatchers.anyList(),
@@ -204,7 +194,7 @@ class BriefingServiceTest {
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository,
                 new ObjectMapper().findAndRegisterModules(),
-                new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
+                new BriefingHeadlineGenerator(CLOCK), glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
@@ -231,7 +221,7 @@ class BriefingServiceTest {
 
     /**
      * A real {@link ServedBriefingAssembler} over the mocked serve-only collaborators
-     * ({@code bestBetFallbackService}, {@code windowTideRollupBuilder}) plus the shared
+     * ({@code windowTideRollupBuilder}) plus the shared
      * {@code evaluationViewService} mock, a real {@link #snapshots()} and a real
      * {@link #rollup(java.time.Clock)}.
      *
@@ -245,7 +235,7 @@ class BriefingServiceTest {
      * @return an assembler ready to use
      */
     private ServedBriefingAssembler assembler(java.time.Clock clock) {
-        return new ServedBriefingAssembler(bestBetFallbackService, snapshots(),
+        return new ServedBriefingAssembler(snapshots(),
                 windowTideRollupBuilder, evaluationViewService, clock, rollup(clock),
                 locationPointProvider, guardProperties, new NeighbourGuardLog(line -> { }),
                 bigSeasBuilder);
@@ -634,7 +624,7 @@ class BriefingServiceTest {
             BriefingService freshService = new BriefingService(
                     locationService, weatherLoader(),
                     jobRunService, briefingCacheRepository, mapper,
-                    new BriefingHeadlineGenerator(BST_CLOCK), bestBetAdvisor, glossService,
+                    new BriefingHeadlineGenerator(BST_CLOCK), glossService,
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
@@ -655,133 +645,111 @@ class BriefingServiceTest {
     }
 
     @Nested
-    @DisplayName("Serve-time best-bet fallback (getCachedBriefingForApi)")
-    class ServeTimeFallback {
+    @DisplayName("The retired Best bet advisor (bestBets stays empty from startup and from every build)")
+    class RetiredBestBetAdvisor {
 
-        /** Drives a refresh whose advisor returns the given outcome, leaving it in the cache. */
-        private void refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult result) {
-            refreshWithAdvisorResult(result, location("Durham", null));
+        private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+
+        private BestBet storedPick() {
+            return new BestBet(1, "Old pick", "From before the retirement.", "2026-06-14_sunset",
+                    "Northumberland", Confidence.HIGH, null, "Tomorrow", "sunset", null);
         }
 
-        /** As above, with the location supplied — so a test can put it in a nameable region. */
-        private void refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult result,
-                LocationEntity loc) {
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
-                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+        private DailyBriefingResponse storedWith(com.gregochr.goldenhour.model.BestBetStatus status) {
+            return new DailyBriefingResponse(
+                    LocalDateTime.now(ZoneOffset.UTC), "Stored headline", List.of(), List.of(storedPick()),
+                    null, null, false, "Opus", List.of(), List.of(), status);
+        }
+
+        /** A service whose startup restore reads the given payload from the cache table. */
+        private BriefingService restoredFrom(DailyBriefingResponse persisted) throws Exception {
+            DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
+            entity.setId(1);
+            entity.setGeneratedAt(persisted.generatedAt());
+            entity.setPayload(mapper.writeValueAsString(persisted));
+            when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
+            BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
+            BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
+                    solarService, locationService,
+                    new TideFactDeriver(tideService, new LunarPhaseService(new LunarCalculator()), solarService),
+                    verdictEvaluator, new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
+            BriefingService restored = new BriefingService(
+                    locationService, weatherLoader(), jobRunService, briefingCacheRepository, mapper,
+                    new BriefingHeadlineGenerator(CLOCK), glossService, bluebellGlossService,
+                    auroraSummaryBuilder, new BriefingHierarchyBuilder(verdictEvaluator), slotBuilder,
+                    eventPublisher, hotTopicAggregator, evaluationViewService, BLUEBELL_WINDOW, nlc(), meteor(),
+                    surgeCurve(), CLOCK, marineWaveRefreshService, snapshots(), assembler(CLOCK), rollup(CLOCK),
+                    eclipseSightAssembler, new ServedBriefingEpoch());
+            restored.loadPersistedBriefing();
+            return restored;
+        }
+
+        private void stubSolarTimes(LocationEntity loc) {
             when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
                     .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
                     .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
-            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
-                    .thenAnswer(inv -> ((List<?>) inv.getArgument(0)).stream()
-                            .map(c -> buildForecastResponse()).toList());
-            when(bestBetAdvisor.advise(anyList(), any(), any())).thenReturn(result);
+        }
+
+        private void assertNoPicks(DailyBriefingResponse response) {
+            assertThat(response).isNotNull();
+            assertThat(response.bestBets()).isEmpty();
+            assertThat(response.bestBetModel()).isNull();
+            assertThat(response.bestBetStatus()).isNull();
+        }
+
+        @Test
+        @DisplayName("a rebuilt briefing carries no picks, no model and no status")
+        void rebuiltBriefing_carriesNoPicks() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(RunType.BRIEFING, false, null))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
             briefingService.refreshBriefing();
-        }
 
-        private BestBet fallbackPick() {
-            return new BestBet(1, "Last good pick", "From earlier.", "2026-06-14_sunset",
-                    "Northumberland", Confidence.HIGH, null, "Tomorrow", "sunset", null);
-        }
-
-        @Test
-        @DisplayName("FAILED status + fresh fallback → API substitutes the stale picks")
-        void failedWithFallback_substitutesStalePicks() {
-            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
-            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of(fallbackPick()));
-
-            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
-
-            assertThat(api.bestBetStatus())
-                    .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.FAILED);
-            assertThat(api.bestBets()).hasSize(1);
-            assertThat(api.bestBets().get(0).headline()).isEqualTo("Last good pick");
+            assertNoPicks(briefingService.getCachedBriefing());
+            assertNoPicks(briefingService.getCachedBriefingForApi());
         }
 
         @Test
-        @DisplayName("A stale FALLBACK pick naming a blanked region is withdrawn too")
-        void fallbackPickOnBlankedRegion_isWithdrawn() {
-            // The fallback is the list MOST likely to name a region this serve cannot evaluate:
-            // it is picks from an earlier forecast, offered precisely because this one's advisor
-            // failed. While the honesty filter ran inside the fallback rather than around it,
-            // this was the one list that never passed the coverage check — so a stale pick could
-            // still crown a region the same response reports as unevaluable. The stale chip tells
-            // a reader the picks are old; it does not tell them the region has no forecast.
-            //
-            // Nothing stubs the evaluation scores, so the region's only slot is unrated and the
-            // filter blanks it — the same state the withdrawal exists for.
-            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed(),
-                    location("Bamburgh", "Northumberland"));
-            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of(
-                    new BestBet(1, "Last good pick", "From earlier.",
-                            FIXED_TODAY + "_sunset", "Northumberland",
-                            Confidence.HIGH, null, "Today", "sunset", null)));
+        @DisplayName("a stored SUCCESS_WITH_PICKS payload restored at startup serves no picks")
+        void storedSuccessWithPicks_servesNoPicks() throws Exception {
+            BriefingService restored = restoredFrom(
+                    storedWith(com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS));
 
-            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
-
-            assertThat(api.bestBets()).isEmpty();
-            assertThat(api.bestBetsWithdrawn()).isTrue();
+            assertNoPicks(restored.getCachedBriefing());
+            assertNoPicks(restored.getCachedBriefingForApi());
         }
 
         @Test
-        @DisplayName("FAILED status + no fresh fallback → honest empty state preserved")
-        void failedWithoutFallback_keepsEmpty() {
-            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
-            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of());
+        @DisplayName("a stored FAILED payload restored at startup serves no picks and resurrects none")
+        void storedFailed_servesNoPicksAndResurrectsNone() throws Exception {
+            BriefingService restored = restoredFrom(
+                    storedWith(com.gregochr.goldenhour.model.BestBetStatus.FAILED));
 
-            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
-
-            assertThat(api.bestBetStatus())
-                    .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.FAILED);
-            assertThat(api.bestBets()).isEmpty();
-        }
-
-        /**
-         * Regression guard. The aurora/hot-topic overlay in {@code getCachedBriefing} rebuilds the
-         * response, and it used to do so through the 12-arg convenience constructor, which defaults
-         * {@code bestBetStatus} to null. Nothing threw: the fallback below simply stopped firing
-         * (it returns early unless the status is FAILED) and the frontend's "from an earlier
-         * forecast" chip stopped rendering — on precisely the requests that reach this branch, i.e.
-         * whenever aurora is live or a hot-topic simulation is toggled.
-         *
-         * <p>The other tests in this class miss it because their live aurora/topics equal the
-         * cached ones, so the overlay short-circuits before rebuilding. This one forces the rebuild
-         * by returning a live aurora summary that differs from the cached (null) one.
-         */
-        @Test
-        @DisplayName("Aurora overlay rebuild preserves bestBetStatus → fallback still fires")
-        void auroraOverlayRebuild_preservesBestBetStatus() {
-            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
-            // Differs from the cached (null) summary, so the overlay takes the rebuild branch
-            // rather than the Objects.equals early return.
-            when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
-                    new AuroraTonightSummary(null, 5.0, 3, 7, List.of(),
-                            420.0, "Waxing Gibbous", 62.0, true, "GOOD", "21:10", "04:55"));
-            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of(fallbackPick()));
-
-            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
-
-            assertThat(api.auroraTonight()).as("overlay must have rebuilt").isNotNull();
-            assertThat(api.bestBetStatus())
-                    .as("status must survive the overlay rebuild")
-                    .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.FAILED);
-            assertThat(api.bestBets())
-                    .as("fallback fires only if the status survived")
-                    .hasSize(1);
+            assertNoPicks(restored.getCachedBriefing());
+            assertNoPicks(restored.getCachedBriefingForApi());
         }
 
         @Test
-        @DisplayName("SUCCESS_NO_PICKS (honest decline) → fallback NOT consulted, empty preserved")
-        void honestDecline_doesNotConsultFallback() {
-            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.noPicks());
+        @DisplayName("last-known-good restored from a stored payload with picks is served stale without them")
+        void lastKnownGoodRestoredWithPicks_isServedStaleWithoutThem() throws Exception {
+            BriefingService restored = restoredFrom(
+                    storedWith(com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS));
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(RunType.BRIEFING, false, null))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenThrow(new RuntimeException("API down"));
 
-            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+            restored.refreshBriefing();
 
-            assertThat(api.bestBetStatus())
-                    .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS);
-            assertThat(api.bestBets()).isEmpty();
-            verify(bestBetFallbackService, never()).findFreshFallback(any());
+            DailyBriefingResponse stale = restored.getCachedBriefing();
+            assertThat(stale.stale()).isTrue();
+            assertNoPicks(stale);
         }
     }
 
@@ -1010,7 +978,7 @@ class BriefingServiceTest {
         BriefingService freshService = new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository, mapper,
-                new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
+                new BriefingHeadlineGenerator(CLOCK), glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
@@ -1044,7 +1012,7 @@ class BriefingServiceTest {
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository,
                 new ObjectMapper().findAndRegisterModules(),
-                new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
+                new BriefingHeadlineGenerator(CLOCK), glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
@@ -1071,7 +1039,7 @@ class BriefingServiceTest {
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository,
                 new ObjectMapper().findAndRegisterModules(),
-                new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
+                new BriefingHeadlineGenerator(CLOCK), glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
@@ -1611,7 +1579,7 @@ class BriefingServiceTest {
             BriefingService freshService = new BriefingService(
                     locationService, weatherLoader(),
                     jobRunService, briefingCacheRepository, mapper,
-                    new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
+                    new BriefingHeadlineGenerator(CLOCK), glossService,
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
@@ -1790,7 +1758,7 @@ class BriefingServiceTest {
                     locationService, weatherLoader(),
                     jobRunService, briefingCacheRepository,
                     new ObjectMapper().findAndRegisterModules(),
-                    new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
+                    new BriefingHeadlineGenerator(CLOCK), glossService,
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, realAggregator,
@@ -2070,25 +2038,6 @@ class BriefingServiceTest {
         }
 
         /**
-         * Kills RemoveConditionalMutator at L250 (bestBet gate: succeeded > 0 always true).
-         * When all locations fail, bestBetAdvisor must not be called.
-         */
-        @Test
-        @DisplayName("all locations fail — bestBetAdvisor not called")
-        void allLocationsFail_bestBetAdvisorNotCalled() {
-            LocationEntity loc = location("Durham", null);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
-                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
-            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
-                    .thenThrow(new RuntimeException("API down"));
-
-            briefingService.refreshBriefing();
-
-            verify(bestBetAdvisor, never()).advise(any(), any(), any());
-        }
-
-        /**
          * Kills MathMutator at L258 (division replaced by multiplication).
          * 1 succeed + 2 fail (total=3): real=(1*100/3)=33 &lt; 50 → below threshold.
          * Mutant=(1*100*3)=300 &ge; 50 → above threshold. With LKG present, real serves stale.
@@ -2184,24 +2133,6 @@ class BriefingServiceTest {
             briefingService.refreshBriefing();
 
             verify(glossService).generateGlosses(anyList(), any());
-        }
-
-        /**
-         * Kills RemoveConditionalMutator at L250 that replaces "succeeded > 0" with false.
-         * When at least one location succeeds, bestBetAdvisor must be called.
-         */
-        @Test
-        @DisplayName("successful refresh — bestBetAdvisor called")
-        void singleSuccess_bestBetAdvisorCalled() {
-            LocationEntity loc = location("Durham", null);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
-                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
-            stubSolarTimes(loc);
-
-            briefingService.refreshBriefing();
-
-            verify(bestBetAdvisor).advise(anyList(), any(), any());
         }
 
         /**
@@ -4081,9 +4012,8 @@ class BriefingServiceTest {
         }
 
         /**
-         * ⚠️ The pipeline's entry point must WAIT, not refuse. Refusing would leave its cycle's
-         * picks unpersisted — or worse, {@code persistPicksForCycle} would read the other build's
-         * briefing and record its picks against this run. So this pins both halves: the waiter
+         * ⚠️ The pipeline's entry point must WAIT, not refuse. Refusing would leave the cycle
+         * without its briefing. So this pins both halves: the waiter
          * does not start while the holder runs, and it does run once the holder is done.
          */
         @Test
@@ -4193,7 +4123,7 @@ class BriefingServiceTest {
             return new BriefingService(
                     locationService, weatherLoader(), jobRunService, briefingCacheRepository,
                     new ObjectMapper().findAndRegisterModules(), new BriefingHeadlineGenerator(CLOCK),
-                    bestBetAdvisor, glossService, bluebellGlossService, auroraSummaryBuilder,
+                    glossService, bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator), slotBuilder, eventPublisher,
                     hotTopicAggregator, evaluationViewService, BLUEBELL_WINDOW, nlcService, meteorService,
                     surgeService, CLOCK, marineWaveRefreshService, snapshots(), assembler(CLOCK),

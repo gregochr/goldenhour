@@ -191,7 +191,6 @@ export const cycleDetail = (over = {}) => ({
       succeededCount: null, erroredCount: null, submittedAt: '2026-10-31T15:03:00Z', endedAt: null,
     }),
   ],
-  comparison: null,
   costMicroDollars: 770_000,
   costGbpRate: 0.79,
   ...over,

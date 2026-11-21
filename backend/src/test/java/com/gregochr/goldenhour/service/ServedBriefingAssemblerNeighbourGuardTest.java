@@ -6,7 +6,6 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
-import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,8 +50,6 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     private static final LocalDateTime BUILT = LocalDateTime.of(2026, 10, 17, 6, 0);
 
     @Mock
-    private BestBetFallbackService bestBetFallbackService;
-    @Mock
     private BriefingRegionSnapshotService regionSnapshotService;
     @Mock
     private WindowTideRollupBuilder windowTideRollupBuilder;
@@ -75,7 +72,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
         lenient().when(evaluationViewService.loadServeTriage(any(), any(), any()))
                 .thenReturn(EvaluationViewService.ServeTriage.EMPTY);
         properties.setEnabled(true);
-        assembler = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService,
+        assembler = new ServedBriefingAssembler(regionSnapshotService,
                 windowTideRollupBuilder, evaluationViewService, CLOCK,
                 (days, resolver, triaged) -> days, locationPointProvider, properties,
                 new NeighbourGuardLog(logLines::add), bigSeasBuilder);
@@ -127,7 +124,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @DisplayName("with DEFAULT-constructed properties (no setEnabled call) the Caw Gap fixture is flagged")
     void defaultPropertiesFlagTheCawGapFixture() {
         stubPoints();
-        ServedBriefingAssembler defaulted = new ServedBriefingAssembler(bestBetFallbackService,
+        ServedBriefingAssembler defaulted = new ServedBriefingAssembler(
                 regionSnapshotService, windowTideRollupBuilder, evaluationViewService, CLOCK,
                 (days, resolver, triaged) -> days, locationPointProvider, new NeighbourGuardProperties(),
                 new NeighbourGuardLog(logLines::add), bigSeasBuilder);

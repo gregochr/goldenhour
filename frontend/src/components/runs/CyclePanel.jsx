@@ -2,7 +2,6 @@ import PropTypes from 'prop-types';
 import PanelShell from '../data/PanelShell.jsx';
 import KvList from '../data/KvList.jsx';
 import CycleBatches from './CycleBatches.jsx';
-import CycleComparison from './CycleComparison.jsx';
 import CyclePhases from './CyclePhases.jsx';
 import { formatRelativeTimeUk, formatTimestampUk } from '../../utils/conversions.js';
 import { cycleMetaLine, cycleName, waitingBatches } from '../../utils/cycleView.js';
@@ -84,14 +83,14 @@ RefreshAction.propTypes = { onRefresh: PropTypes.func.isRequired };
 /**
  * The cycle panel (plan §5.2, R2b): everything the old Pipeline Runs detail showed, in sections that appear only when
  * they have data. Title is the cycle's name, then the meta, a waiting box (running) or a failure box (degraded or
- * failed), the comparison (only with one), the phases, the batches, and a footer with the batch cost and the
+ * failed), the phases, the batches, and a footer with the batch cost and the
  * completed time. A batch row opens that batch's job-run panel.
  *
  * <p>The footer's cost is the detail's own ({@code costMicroDollars}, {@code costGbpRate}: the batch cost by the list
  * row's rule); zero or absent reads as an em dash, never as a zero amount.
  *
  * @param {object} props
- * @param {object|null} props.detail the cycle detail ({@code run}, {@code phases}, {@code batches}, {@code comparison})
+ * @param {object|null} props.detail the cycle detail ({@code run}, {@code phases}, {@code batches})
  * @param {object|null} [props.item] the cycle's list row, when it is on the loaded page (its served name)
  * @param {boolean} props.loading true until the cycle arrives
  * @param {string|null} [props.error] why it could not load
@@ -166,7 +165,6 @@ export default function CyclePanel({
       )}
       <WaitingBox detail={detail} fetchedAt={fetchedAt} />
       <FailureBox run={run} />
-      {detail.comparison && <CycleComparison comparison={detail.comparison} />}
       <CyclePhases detail={detail} />
       <CycleBatches batches={detail.batches ?? []} onOpen={onOpenBatch} />
     </PanelShell>
@@ -178,7 +176,6 @@ CyclePanel.propTypes = {
     run: PropTypes.object.isRequired,
     phases: PropTypes.arrayOf(PropTypes.object),
     batches: PropTypes.arrayOf(PropTypes.object),
-    comparison: PropTypes.object,
     costMicroDollars: PropTypes.number,
     costGbpRate: PropTypes.number,
   }),

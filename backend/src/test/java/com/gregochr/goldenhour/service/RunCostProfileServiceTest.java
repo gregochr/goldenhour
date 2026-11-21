@@ -100,8 +100,8 @@ class RunCostProfileServiceTest {
         }
     }
 
-    private static ApiCallCostRow bestBet(long jobRunId, String url, boolean ok, long cost) {
-        return new ApiCallCostRow(RunType.BRIEFING, LocalDateTime.of(2026, 10, 30, 6, 0), url, null, false, ok,
+    private static ApiCallCostRow syncCall(long jobRunId, String url, boolean ok, long cost) {
+        return new ApiCallCostRow(RunType.AURORA_EVALUATION, LocalDateTime.of(2026, 10, 30, 6, 0), url, null, false, ok,
                 EvaluationModel.SONNET, null, 9_500L, 726L, 0L, 0L, cost, jobRunId, null);
     }
 
@@ -126,28 +126,24 @@ class RunCostProfileServiceTest {
     }
 
     @Test
-    @DisplayName("best-bet figures count only briefing-best-bet rows, not the gloss rows in the same run")
-    void bestBetExcludesGloss() {
-        rows(bestBet(1, "briefing-best-bet", true, 39_000),
-                bestBet(1, "briefing-gloss", true, 1_500),
-                bestBet(2, "briefing-best-bet", true, 41_000));
+    @DisplayName("the retired best-bet advisor's old rows belong to no tab, so they never reach a profile")
+    void retiredBestBetRowsBelongToNoTab() {
+        rows(new ApiCallCostRow(RunType.BRIEFING, LocalDateTime.of(2026, 10, 30, 6, 0), "briefing-best-bet", null,
+                false, true, EvaluationModel.SONNET, null, 9_500L, 726L, 0L, 0L, 39_000L, 1L, null));
 
-        RunCostProfile p = service.costProfiles().get("BRIEFING_BEST_BET");
+        Map<String, RunCostProfile> profiles = service.costProfiles();
 
-        assertThat(p.callsPerRun()).isEqualTo(1.0);
-        assertThat(p.runsPerDay()).isCloseTo(2 / 30.0, within(1e-9));
-        assertThat(p.measured()).containsOnlyKeys("SONNET");
-        assertThat(p.measured().get("SONNET").calls()).isEqualTo(2);
-        assertThat(p.measured().get("SONNET").usdPerCall()).isCloseTo(0.040, within(1e-9));
+        assertThat(profiles).doesNotContainKey("BRIEFING_BEST_BET");
+        profiles.values().forEach(p -> assertThat(p.measured()).isEmpty());
     }
 
     @Test
     @DisplayName("failed calls are left out of the per-call average and of the per-day basis")
     void failedCallsLeftOut() {
-        rows(bestBet(1, "briefing-best-bet", true, 40_000),
-                bestBet(2, "briefing-best-bet", false, 20_000));
+        rows(syncCall(1, "aurora-evaluation", true, 40_000),
+                syncCall(2, "aurora-evaluation", false, 20_000));
 
-        RunCostProfile.ModelCost m = service.costProfiles().get("BRIEFING_BEST_BET").measured().get("SONNET");
+        RunCostProfile.ModelCost m = service.costProfiles().get("AURORA_EVALUATION").measured().get("SONNET");
 
         assertThat(m.calls()).isEqualTo(1);
         assertThat(m.usdPerCall()).isCloseTo(0.040, within(1e-9));
@@ -166,7 +162,7 @@ class RunCostProfileServiceTest {
         }
         rows(list.toArray(new ApiCallCostRow[0]));
 
-        RunCostProfile p = service.costProfiles().get("BRIEFING_BEST_BET");
+        RunCostProfile p = service.costProfiles().get("AURORA_EVALUATION");
 
         assertThat(p.measured().get("SONNET").usdPerDay())
                 .isCloseTo(p.measured().get("OPUS").usdPerDay(), within(1e-12));
@@ -175,7 +171,8 @@ class RunCostProfileServiceTest {
     }
 
     private static ApiCallCostRow modelRow(EvaluationModel model, long jobRunId) {
-        return new ApiCallCostRow(RunType.BRIEFING, LocalDateTime.of(2026, 10, 10, 6, 0), "briefing-best-bet",
+        return new ApiCallCostRow(RunType.AURORA_EVALUATION, LocalDateTime.of(2026, 10, 10, 6, 0),
+                "aurora-evaluation",
                 null, false, true, model, null, 9_500L, 726L, 0L, 0L, 40_000L, jobRunId, null);
     }
 
@@ -196,7 +193,7 @@ class RunCostProfileServiceTest {
         assertThat(profiles.get("ASK_READY").measured()).containsOnlyKeys("HAIKU_55");
         assertThat(profiles.get("ASK_READY").estimates()).containsOnlyKeys("HAIKU", "SONNET");
         assertThat(profiles.get("ASK").estimates()).containsOnlyKeys("HAIKU_55", "SONNET");
-        assertThat(profiles.get("BRIEFING_BEST_BET").measured()).isEmpty();
+        assertThat(profiles.get("AURORA_EVALUATION").measured()).isEmpty();
     }
 
     @Test
@@ -301,9 +298,9 @@ class RunCostProfileServiceTest {
     @Test
     @DisplayName("models that did not run get an estimate priced through CostCalculator on the average mix")
     void estimatesPriceTheAverageTokenMix() {
-        rows(bestBet(1, "briefing-best-bet", true, 39_000));
+        rows(syncCall(1, "aurora-evaluation", true, 39_000));
 
-        RunCostProfile p = service.costProfiles().get("BRIEFING_BEST_BET");
+        RunCostProfile p = service.costProfiles().get("AURORA_EVALUATION");
 
         assertThat(p.estimates()).doesNotContainKey("SONNET").containsKeys("HAIKU", "OPUS", "SONNET_55");
         long haiku = costCalculator.calculateCostMicroDollars(EvaluationModel.HAIKU,
@@ -354,7 +351,7 @@ class RunCostProfileServiceTest {
 
         Map<String, RunCostProfile> profiles = service.costProfiles();
 
-        assertThat(profiles).containsKeys("BRIEFING_BEST_BET", "AURORA_EVALUATION", "BATCH_NEAR_TERM",
+        assertThat(profiles).containsOnlyKeys("AURORA_EVALUATION", "BATCH_NEAR_TERM",
                 "BATCH_FAR_TERM", "ASK", "ASK_READY");
         profiles.values().forEach(p -> {
             assertThat(p.runsPerDay()).isZero();
@@ -367,9 +364,9 @@ class RunCostProfileServiceTest {
     @Test
     @DisplayName("a tab whose only rows failed has no figures")
     void onlyFailedRowsGiveNoFigures() {
-        rows(bestBet(1, "briefing-best-bet", false, 0));
+        rows(syncCall(1, "aurora-evaluation", false, 0));
 
-        RunCostProfile p = service.costProfiles().get("BRIEFING_BEST_BET");
+        RunCostProfile p = service.costProfiles().get("AURORA_EVALUATION");
 
         assertThat(p.runsPerDay()).isZero();
         assertThat(p.measured()).isEmpty();
@@ -469,10 +466,10 @@ class RunCostProfileServiceTest {
     void failedReadIsNotMemoised() {
         when(apiCallLogRepository.findCostRowsSince(WINDOW_START))
                 .thenThrow(new IllegalStateException("db down"))
-                .thenReturn(List.of(bestBet(1, "briefing-best-bet", true, 40_000)));
+                .thenReturn(List.of(syncCall(1, "aurora-evaluation", true, 40_000)));
 
         assertThat(service.costProfiles()).isEmpty();
-        assertThat(service.costProfiles().get("BRIEFING_BEST_BET").measured()).containsKey("SONNET");
+        assertThat(service.costProfiles().get("AURORA_EVALUATION").measured()).containsKey("SONNET");
         verify(apiCallLogRepository, times(2)).findCostRowsSince(WINDOW_START);
     }
 

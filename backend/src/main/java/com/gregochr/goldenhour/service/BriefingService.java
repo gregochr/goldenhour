@@ -9,9 +9,6 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
-import com.gregochr.goldenhour.model.BestBet;
-import com.gregochr.goldenhour.model.BestBetResult;
-import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -24,7 +21,6 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
-import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.Rewind;
@@ -74,7 +70,6 @@ public class BriefingService {
     private final DailyBriefingCacheRepository briefingCacheRepository;
     private final ObjectMapper objectMapper;
     private final BriefingHeadlineGenerator headlineGenerator;
-    private final BriefingBestBetAdvisor bestBetAdvisor;
     private final BriefingGlossService glossService;
     private final BluebellGlossService bluebellGlossService;
     private final BriefingAuroraSummaryBuilder auroraSummaryBuilder;
@@ -164,8 +159,8 @@ public class BriefingService {
     /**
      * Held for the whole of a briefing build, so two builds never run at once.
      *
-     * <p>Two concurrent builds each fetch the whole roster's weather, each pay for the gloss and
-     * best-bet Claude calls, and race to write {@link #cache}, {@link #lastKnownGood} and
+     * <p>Two concurrent builds each fetch the whole roster's weather, each pay for the gloss
+     * Claude calls, and race to write {@link #cache}, {@link #lastKnownGood} and
      * {@code daily_briefing_cache} — last writer wins, and the last writer can be the one that
      * started first and read older evaluations. A {@link ReentrantLock} rather than an
      * {@code AtomicBoolean} because {@link #refreshBriefing()} must be able to <em>wait</em> for
@@ -195,7 +190,6 @@ public class BriefingService {
      * @param briefingCacheRepository repository for persisting the briefing across restarts
      * @param objectMapper            Jackson mapper for JSON serialization
      * @param headlineGenerator       generator for the briefing headline
-     * @param bestBetAdvisor          Claude Haiku advisor producing ranked best-bet picks
      * @param glossService            Claude gloss service for per-region commentary
      * @param bluebellGlossService    Claude gloss service for bluebell region commentary
      * @param auroraSummaryBuilder    builder for aurora tonight/tomorrow summaries
@@ -229,7 +223,7 @@ public class BriefingService {
             BriefingWeatherLoader weatherLoader,
             JobRunService jobRunService, DailyBriefingCacheRepository briefingCacheRepository,
             ObjectMapper objectMapper,
-            BriefingHeadlineGenerator headlineGenerator, BriefingBestBetAdvisor bestBetAdvisor,
+            BriefingHeadlineGenerator headlineGenerator,
             BriefingGlossService glossService,
             BluebellGlossService bluebellGlossService,
             BriefingAuroraSummaryBuilder auroraSummaryBuilder,
@@ -255,7 +249,6 @@ public class BriefingService {
         this.briefingCacheRepository = briefingCacheRepository;
         this.objectMapper = objectMapper;
         this.headlineGenerator = headlineGenerator;
-        this.bestBetAdvisor = bestBetAdvisor;
         this.glossService = glossService;
         this.bluebellGlossService = bluebellGlossService;
         this.auroraSummaryBuilder = auroraSummaryBuilder;
@@ -287,8 +280,14 @@ public class BriefingService {
     void loadPersistedBriefing() {
         briefingCacheRepository.findById(1).ifPresent(entity -> {
             try {
+                // The Best bet advisor is retired: a briefing persisted before the retirement may
+                // still carry its picks, model and FAILED status. Neutralise them on restore so
+                // "bestBets is empty" holds from startup, in the cache and in last-known-good.
                 DailyBriefingResponse persisted = objectMapper.readValue(
-                        entity.getPayload(), DailyBriefingResponse.class);
+                        entity.getPayload(), DailyBriefingResponse.class)
+                        .withBestBets(List.of(), null)
+                        .withBestBetModel(null)
+                        .withBestBetStatus(null);
                 cache.set(persisted);
                 lastKnownGood.set(persisted);
                 LOG.info("Loaded persisted briefing from DB (generated {})", entity.getGeneratedAt());
@@ -345,11 +344,7 @@ public class BriefingService {
                     && Objects.equals(cached.hotTopics(), liveTopics)) {
                 overlaid = cached;
             } else {
-                // withLiveOverlays() carries every other component, bestBetStatus included. This
-                // rebuild overlays live aurora and hot topics; it is not a new verdict on the
-                // best-bet advisor, so dropping the status would silently disable the serve-time
-                // fallback in applyBestBetFallback (which returns early unless the status is
-                // FAILED) and the frontend's "from an earlier forecast" chip.
+                // withLiveOverlays() carries every other component.
                 overlaid = cached.withLiveOverlays(liveTonight, liveTomorrow, liveTopics);
             }
         } catch (Exception e) {
@@ -543,13 +538,11 @@ public class BriefingService {
      *
      * <p>This is the pipeline's entry point, and it waits rather than refusing on purpose. The
      * pipeline calls it once its cycle's batches are terminal, so its build is the first to see
-     * those results in the gloss and the best-bet picks; a refresh that started earlier may have
-     * read the evaluations from before they landed. And {@code PipelineOrchestrator} reads the
-     * cached briefing straight afterwards to persist this cycle's picks — skipping would record
-     * another build's picks against this run.
+     * those results in the gloss; a refresh that started earlier may have
+     * read the evaluations from before they landed.
      *
      * <p>⚠️ The wait is as long as the running build, and nothing bounds it more tightly than
-     * the pipeline's own build is bounded: the gloss and best-bet Claude calls run under the
+     * the pipeline's own build is bounded: the gloss Claude calls run under the
      * Anthropic SDK's per-request timeout and its retries, not the 30-second REST read timeout.
      * So in the worst case a BRIEFING phase takes two builds' time rather than one. It logs when
      * it waits, so a phase queued behind an admin build does not read as a hung one.
@@ -720,15 +713,6 @@ public class BriefingService {
         }
 
         String headline = headlineGenerator.generateHeadline(days);
-        // The advisor reports an explicit outcome status so the served response can tell an
-        // honest empty result apart from a failure (and the latter can trigger the fallback).
-        // With zero successful locations the advisor is not run — that is an honest no-data
-        // empty, not a failure.
-        BestBetResult bestBetResult = succeeded > 0
-                ? bestBetAdvisor.advise(days, jobRun.getId(), Map.of())
-                : BestBetResult.noPicks();
-        List<BestBet> bestBets = bestBetResult.picks();
-        BestBetStatus bestBetStatus = bestBetResult.status();
         AuroraTonightSummary auroraTonight = auroraSummaryBuilder.buildAuroraTonight();
         AuroraTomorrowSummary auroraTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
 
@@ -778,10 +762,10 @@ public class BriefingService {
 
         if (aboveThreshold) {
             DailyBriefingResponse response = new DailyBriefingResponse(
-                    LocalDateTime.now(clock), headline, days, bestBets,
-                    auroraTonight, auroraTomorrow, false, bestBetAdvisor.getModelDisplayName(), hotTopics,
+                    LocalDateTime.now(clock), headline, days, List.of(),
+                    auroraTonight, auroraTomorrow, false, null, hotTopics,
                     seasonalFeatures,
-                    bestBetStatus);
+                    null);
             cache.set(response);
             lastKnownGood.set(response);
             persistBriefing(response);
@@ -794,19 +778,19 @@ public class BriefingService {
             DailyBriefingResponse lkg = lastKnownGood.get();
             if (lkg != null) {
                 DailyBriefingResponse staleResponse = new DailyBriefingResponse(
-                        lkg.generatedAt(), lkg.headline(), lkg.days(), lkg.bestBets(),
-                        auroraTonight, auroraTomorrow, true, lkg.bestBetModel(), hotTopics, seasonalFeatures,
-                        lkg.bestBetStatus());
+                        lkg.generatedAt(), lkg.headline(), lkg.days(), List.of(),
+                        auroraTonight, auroraTomorrow, true, null, hotTopics, seasonalFeatures,
+                        null);
                 cache.set(staleResponse);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below 50% threshold, "
                         + "serving stale=true (LKG from {}), circuit={}, duration={}ms",
                         succeeded, total, failed, lkg.generatedAt(), circuit, totalMs);
             } else {
                 DailyBriefingResponse response = new DailyBriefingResponse(
-                        LocalDateTime.now(clock), headline, days, bestBets,
-                        auroraTonight, auroraTomorrow, false, bestBetAdvisor.getModelDisplayName(), hotTopics,
+                        LocalDateTime.now(clock), headline, days, List.of(),
+                        auroraTonight, auroraTomorrow, false, null, hotTopics,
                         seasonalFeatures,
-                        bestBetStatus);
+                        null);
                 cache.set(response);
                 // Snapshotted like the healthy branch, and deliberately: this partial response IS
                 // what gets served, so it is what the next run's movement must be measured

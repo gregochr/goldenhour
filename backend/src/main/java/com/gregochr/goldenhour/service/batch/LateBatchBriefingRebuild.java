@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
  *
  * <p>A late batch's ratings go live the moment it lands (they are re-enriched from
  * {@code cached_evaluation} on every serve), but everything built once per briefing, the gloss
- * prose and the best-bet picks, is not: the only {@code refreshBriefing()} call is the
+ * prose, is not: the only {@code refreshBriefing()} call is the
  * orchestrator's, and a cycle that timed out on its safety budget never reaches it. This closes that
  * gap.
  *
@@ -42,12 +42,11 @@ import java.util.concurrent.Executors;
  * <p>It asks for {@link BriefingService#refreshBriefingIfIdle()}, which neither waits for nor runs
  * alongside another build: a refused request is logged at INFO and not retried (the next cycle
  * rebuilds anyway). That is also the only guard against two runs' late batches landing together;
- * the second one is simply refused. <b>It never</b> persists the cycle's picks
- * ({@code persistPicksForCycle} belongs to the orchestrator's own tail), never dispatches the Ask
+ * the second one is simply refused. <b>It never</b> dispatches the Ask
  * Ready precompute or the almanac refresh (those are the orchestrator's too), and never changes
  * {@code pipeline_run} state: it reads the run and nothing else.
  *
- * <p>The rebuild takes minutes (weather, gloss and best-bet Claude calls), so it is handed to a
+ * <p>The rebuild takes minutes (weather and gloss Claude calls), so it is handed to a
  * background executor and never runs on the batch poller's thread. Nothing this class does can
  * throw into the poller.
  */

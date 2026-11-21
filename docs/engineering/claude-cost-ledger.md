@@ -20,7 +20,7 @@ The total was **£89.29 ($119.64)**. The owner called this "a large monthly cost
 | Aurora | ~7.6 | One call per run, 27k–40k output tokens |
 | Batch sky ratings, Haiku 4.5 | ~5 | |
 | Briefing gloss | ~4.3 | |
-| Best-bet | ~2.8 | |
+| Best-bet | ~2.8 | Retired 2026-11-21 (see "Best bet advisor retired") |
 | Weekly Sky-Rating Eval | ~6.5 | Mostly the retired Opus 4.6 and Sonnet 4.6 |
 | Ask and the rest | small | |
 
@@ -186,9 +186,10 @@ before. Query: `overnight-and-ask-daily.sql` (production, 40 days, UTC days).
 The Plan tab now renders whole days (today to T+3: up to 8 events) instead of the leading 6 events.
 No new model calls and no change to which slots are scored; two inputs carry up to two more events:
 
-- **The best-bet advisor's rollup** (one call per briefing build). Fixture measurement, not production:
+- **The best-bet advisor's rollup** (one call per briefing build; the advisor was retired 2026-11-21, so this
+  input no longer exists). Fixture measurement, not production:
   the same six-region fixture serialises to 12,706 characters at 6 events and 16,863 at 8
-  (`BriefingBestBetAdvisorTest.rollupJsonSizeAtSixVersusEightEvents`). The two extra events are mostly
+  (`BriefingBestBetAdvisorTest.rollupJsonSizeAtSixVersusEightEvents`, deleted with the advisor). The two extra events are mostly
   unscored T+3 nodes, so real growth is smaller than the fixture's +33%; estimated roughly +15-30% advisor
   input, tens of cents a month.
 - **Ask's `list_windows`** (enlarges the Ready precomputes). Fixture measurement: the busy four-region
@@ -323,3 +324,18 @@ Ready is unaffected): one typed-prompt cache rewrite when it ships. A Pro asker 
 scope no longer reads the shared cache key (their order may differ), so the first such ask is an engine call; the
 answer is stored under their own key (also when it is non-personal), so a repeat of the same question hits the cache.
 The cost is at most one extra typed call per favourite-touched question per asker per build; not measured.
+
+## Best bet advisor retired (2026-11-21, `best-bet-advisor-retirement-plan.md`)
+
+The owner decided to stop the Claude Best bet advisor call (`BriefingBestBetAdvisor`, one call per briefing build,
+model per the `BRIEFING_BEST_BET` `model_selection` row) and delete its code and admin surfaces. The call only wrote
+`DailyBriefingResponse.bestBets`, which no reader screen renders: the Best bet and Also good a reader sees are chosen
+by `PlanWindowProjector` from the ratings and worded by the region gloss. **Saving: about $2.8 per 30 days. This is
+the 2026-11-01 baseline figure, an estimate, not measured after the change.** After the deploy there are no more
+`briefing-best-bet` rows in `api_call_log`; check with `measured-costs.sql`.
+
+- **Rejected, same decision: trim the gloss to four days (drop the fifth date).** The fifth date's gloss is what
+  gives T+3 a pick overnight, so trimming it would remove a reader-facing pick to save a few cents.
+- **Not part of this saving, and unchanged: force-evaluating headline contenders.** `ForceEvalHeadlineSelector`,
+  `ForecastTaskCollector` and `ScheduledBatchEvaluationService` still force-evaluate far-out cells because their
+  ratings feed `PlanWindowProjector`. That spend is a separate line and stays.

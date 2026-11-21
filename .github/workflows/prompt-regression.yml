@@ -95,7 +95,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── Sky rating, best-bet aurora and prompt-size tests ────────────────────────────────────────────────────────
+  # ── Sky rating and prompt-size tests ────────────────────────────────────────────────────────
   sky:
     name: Prompt regression — sky
     needs: changes
@@ -141,11 +141,11 @@ jobs:
           fi
 
       # Hard step. PromptReplayHarnessTest is deliberately absent: it throws without its own config.
-      - name: Sky rating, best-bet aurora and token-count tests
+      - name: Sky rating and token-count tests
         run: |
           chmod +x mvnw
           ./mvnw -B --no-transfer-progress test -Pprompt-regression \
-            -Dtest='SkyRatingRegressionTest,BestBetAuroraPromptRegressionTest,SystemPromptTokenCountTest' \
+            -Dtest='SkyRatingRegressionTest,SystemPromptTokenCountTest' \
             -DfailIfNoSpecifiedTests=true
 
       # Reported, never failing, until the owner approves ValleyMistPromptRegressionTest's assertions (its Javadoc).

@@ -14,7 +14,6 @@ import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.WeatherWarningVersionRepository;
-import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
 import com.gregochr.goldenhour.service.warnings.WarningCoverage;
 import com.gregochr.goldenhour.service.warnings.WarningOverlay;
 import com.gregochr.goldenhour.service.warnings.WarningTimeline;
@@ -56,8 +55,6 @@ class ServedBriefingAssemblerWarningGoldenTest {
             + "[-3,54]]]]}";
 
     @Mock
-    private BestBetFallbackService bestBetFallbackService;
-    @Mock
     private BriefingRegionSnapshotService regionSnapshotService;
     @Mock
     private WindowTideRollupBuilder windowTideRollupBuilder;
@@ -90,10 +87,10 @@ class ServedBriefingAssemblerWarningGoldenTest {
         on.setApiKey("test-key");
         WarningOverlay overlay = new WarningOverlay(warningRepository, new WarningTimeline(CLOCK),
                 new WarningCoverage(), locationRepository, on, CLOCK, solarEventFreshness);
-        plain = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService, windowTideRollupBuilder,
+        plain = new ServedBriefingAssembler(regionSnapshotService, windowTideRollupBuilder,
                 evaluationViewService, CLOCK, (days, resolver, triaged) -> days, locationPointProvider, guard,
                 new NeighbourGuardLog(line -> { }), bigSeasBuilder);
-        warned = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService, windowTideRollupBuilder,
+        warned = new ServedBriefingAssembler(regionSnapshotService, windowTideRollupBuilder,
                 evaluationViewService, CLOCK, (days, resolver, triaged) -> days, locationPointProvider, guard,
                 new NeighbourGuardLog(line -> { }), bigSeasBuilder, overlay);
     }

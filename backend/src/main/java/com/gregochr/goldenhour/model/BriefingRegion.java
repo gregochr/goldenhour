@@ -614,15 +614,12 @@ public record BriefingRegion(
      * time.
      *
      * <p><b>The ONE shared test — round 10 (P1-B).</b> Originally private to {@code
-     * PlanWindowProjector} (the Plan tab's own ranking), a Codex review found {@code
-     * BriefingBestBetAdvisor}'s {@code BriefingRollupBuilder}/{@code BestBetRanker} recomputed
-     * rating coverage independently and never consulted this test at all, so an insufficient,
-     * non-exempt region — one the Plan tab correctly withholds a rating-derived verdict from —
-     * could still be named in {@code DailyBriefingResponse.bestBets}, {@code pipeline_run_pick}
-     * and (via the advisor's own model-comparison surfaces) get treated as though its average
-     * meant something. Moved here, onto the record both call sites already hold a reference to,
-     * so there is exactly one method to call and no second copy of the condition to drift from
-     * this one.
+     * PlanWindowProjector} (the Plan tab's own ranking), a Codex review found the (since
+     * retired) best-bet advisor recomputed rating coverage independently and never consulted
+     * this test at all, so an insufficient, non-exempt region — one the Plan tab correctly
+     * withholds a rating-derived verdict from — could still be named as a pick. Moved here, onto
+     * the record every call site already holds a reference to, so there is exactly one method to
+     * call and no second copy of the condition to drift from this one.
      *
      * <p>{@code null} on either field — a payload cached before this rule existed — reads as
      * <b>not</b> eligible, the safe direction: the same convention {@link #sampleSufficient} and
