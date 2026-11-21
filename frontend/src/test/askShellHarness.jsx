@@ -89,7 +89,7 @@ export const shellCtx = (overrides = {}) => {
 };
 
 /**
- * The matrix's descriptor and catalogue, so a window card exists to press and the popup it opens has
+ * The matrix's descriptor and catalogue, so a window card exists to press and the sheet it opens has
  * something to show — the same minimum `WindowFirstShellSheet.test.jsx` uses (one card, one spot,
  * nothing that paints). Spread into {@code ctx}.
  */
@@ -102,7 +102,7 @@ export const matrixCtx = () => {
     key: '2', locationId: SALTBURN, locationName: 'Saltburn', regionName: 'North York Moors & Coast',
     rating: 5, driveMinutes: 400, distanceMiles: 300, far: true,
   };
-  // Two spots, one beyond the reach tier: the popup's "all spots" trigger only draws when there is
+  // Two spots, one beyond the reach tier: the "all spots" trigger only draws when there is
   // something the tier left out.
   return {
     windowCards: [{ ...card(), spots: [near], allSpots: [near, far], reachTotal: 2 }],

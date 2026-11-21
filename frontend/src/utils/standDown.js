@@ -1,10 +1,10 @@
 /**
  * Which score source decides whether a slot reads as a stand-down.
  *
- * <p>Lives here rather than inside `MapView` because the marker and its own popup must answer the
+ * <p>Lives here rather than inside `MapView` because the marker and its callout must answer the
  * question identically. They previously did not: the marker ORed the two sources while
- * The since-deleted `MarkerPopupContent` consulted only the forecast row, so a slot could render a 4★ marker
- * whose popup said "Stand-down".
+ * the callout consulted only the forecast row, so a slot could render a 4★ marker
+ * whose callout said "Stand-down".
  */
 
 /**
@@ -20,9 +20,9 @@
  * <p>The rule is symmetric: <b>a rating from either source beats a triageReason from the other</b>.
  * That makes it exactly the complement of the rating lookup — a slot is a stand-down precisely
  * when `briefingScore?.rating ?? forecast?.rating` would come back null and something triaged it.
- * The invariant is what keeps the marker, its popup and the map's quality filter from disagreeing;
+ * The invariant is what keeps the marker, its callout and the map's quality filter from disagreeing;
  * an asymmetric rule would fix one direction of disagreement and leave the mirror image, which is
- * how the deleted popup came to say "Stand-down" over a scored marker.
+ * how a surface came to say "Stand-down" over a scored marker.
  *
  * @param {object|null|undefined} briefingScore - briefing evaluation score for the slot.
  * @param {object|null|undefined} forecast - forecast row for the slot.

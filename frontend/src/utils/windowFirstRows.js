@@ -1,8 +1,8 @@
 /**
  * The tide vocabulary shared by the Map's tide strip, the Glance thumbnails' tide wording and Ask's pick facts.
  *
- * <p>The window's attribute rows this file used to build (the tide row and its sparkline, the topic facts) were
- * the deleted window popup's; only the two word tables survive, because several live surfaces name a tide the same way.
+ * <p>The window's attribute rows this file used to build (the tide row and its sparkline, the topic facts) have been
+ * deleted; only the two word tables survive, because several live surfaces name a tide the same way.
  */
 
 /**

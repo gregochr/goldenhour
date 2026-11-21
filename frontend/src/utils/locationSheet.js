@@ -412,9 +412,9 @@ export function buildTideAlignmentIndex(days) {
 }
 
 /**
- * Each location's lunar eclipse sight per window — the deleted popup's dawn-race source (L4,
+ * Each location's lunar eclipse sight per window — the per-window eclipse source (L4,
  * `docs/engineering/lunar-eclipse-plan.md` §2.7), keyed exactly like {@link buildSlotIndex} so
- * the retired window popup reads it through the same {@link lookupForWindow} every other
+ * a caller reads it through the same {@link lookupForWindow} every other
  * per-location, per-window fact in this file goes through.
  *
  * <p>Reads {@code BriefingSlot.eclipse} (the served {@code EclipseSight}, {@code NON_NULL} on the
@@ -506,7 +506,7 @@ export function slotVerdictOf(score, slot) {
  * for a rating the pipeline never produced.
  *
  * <p>Also carries {@code fierySky}/{@code goldenHour} (location-sheet superset plan, Phase 1) —
- * the same two 0–100 model outputs the deleted window popup's peek already shows, bounded here the same way
+ * the same two 0–100 model outputs, bounded here the same way
  * {@code rating} is: an out-of-range or non-integer value is discarded rather than reaching
  * {@link ScoreBar}, which clamps and would otherwise draw a bar for a number the pipeline never
  * produced.
@@ -746,7 +746,7 @@ export function outsideLabel(origin) {
  * <h2>It is not map-only</h2>
  *
  * <p>Derived from the location record and the windows the sheet already holds, so EVERY entry point
- * gets it — search, a popup field chip, a spot card, the map callout. A row that appeared only on
+ * gets it — search, a spot card, the map callout. A row that appeared only on
  * the map's route would make one dialog two dialogs again, one screen down.
  *
  * <p>Each fact is omitted rather than half-stated when its input is missing, the silence rule this

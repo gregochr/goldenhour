@@ -6,7 +6,7 @@
  * re-authored §5.2 — a 2026-08-30 owner decision: 25 mi / 50 mi, not the earlier unlabelled 40/80
  * km, and not the design bundle's 36/72 km either). Extracted here at map-tab-v2-plan.md §3 P8,
  * decision D-4, so {@code MapHeatLayer}'s canvas rings on the Map tab draw the exact same two
- * circles as the deleted Plan popup's field map — a second authored pair of numbers here would drift the
+ * circles as the Plan field map — a second authored pair of numbers here would drift the
  * moment either host's constant changed without the other noticing.
  *
  * <p>25 mi / 50 mi ≈ 40.2336 / 80.4672 km — visually indistinguishable from the original 40/80 km,

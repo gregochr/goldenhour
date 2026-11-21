@@ -174,25 +174,23 @@ export default function useDialogFocus(active = true, { restoreFallback = null }
       // leaving them where they are is right. This cleanup governs a dialog being DESTROYED, and on
       // a stacked route that also changes which layer claims modality.
       //
-      // <p>The route: a Plan sheet open, press `/` to open search — the sheet goes `stacked` and
-      // `inert` — Tab out onto the page behind the backdrop (a supported move, pinned by
-      // `WindowFirstShellSheet.test.jsx`), then `Escape`. Search closes, the sheet re-claims
-      // `aria-modal="true"` and drops `inert`, and with the unconditional "focus is somewhere real"
-      // test BOTH guards stood down: nothing returned the reader into the layer now claiming
-      // modality, so their next Tab walked content AT is hiding. `Modal`'s own doc names that end
-      // state as the defect its uncover fallback exists to prevent.
+      // <p>The route that matters is a stacked one: when the layer above closes, the layer beneath
+      // re-claims `aria-modal="true"` and drops `inert`, and with the unconditional "focus is
+      // somewhere real" test BOTH guards stood down even if the reader had Tabbed out onto the page
+      // behind the backdrop, so their next Tab walked content AT is hiding. `Modal`'s own doc names
+      // that end state as the defect its uncover fallback exists to prevent.
       //
       // <p>So a position only counts as the reader's own CHOICE when nothing is left claiming
       // modality, or when they are inside the thing that is. Stranded outside one, they are not
       // choosing — they are orphaned, and the restore is what recovers them.
       //
       // <p>⚠️ **"Choice" is read from where focus IS, never from who put it there**, and one route
-      // relies on that: the masthead's ⌂ closes the open sheet in the commit that removes ⌂,
-      // and `MastheadTickLine`'s LAYOUT-effect handoff puts the reader on the origin control
-      // before this passive cleanup runs, so the restore stands down (an owner decision,
-      // 2026-09-16). Asking here whether focus moved during the close sends that reader back to
-      // the opener with this hook's own tests still green (measured 2026-09-17);
-      // `planOriginShell.test.jsx`'s sheet test is what fails.
+      // relies on that: the masthead's ⌂ is removed by its own press, and `MastheadTickLine`'s
+      // LAYOUT-effect handoff puts the reader on the origin control before this passive cleanup
+      // runs, so the restore stands down (an owner decision, 2026-09-16). Asking here whether focus
+      // moved during the close sends that reader back to the opener with this hook's own tests still
+      // green (measured 2026-09-17); `planOriginShell.test.jsx`'s "puts the reader on the origin
+      // button it leaves behind" test is what fails.
       //
       // <p>Arm C is unaffected, and that is why the narrowing is safe rather than a revert: the map
       // drilldown's two panels are `role="dialog"` WITHOUT `aria-modal` deliberately, so when the

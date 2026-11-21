@@ -188,8 +188,8 @@ export function shortVerdictLabel(verdict, label) {
  * window rows and the Map callout's verdict slot — the last two through
  * {@code locationSheet.unratedSlotWord}, which carries the three-way choice for a slot with no
  * rating ("Not rated" / "Poor" / "Not scored yet"; the Codex review of #1140 caught that this
- * comment once named them while they still hardcoded "Not scored yet"). The popup's spot chips are
- * NOT readers: a chip draws a star badge for a rated spot and nothing at all for an unrated one
+ * comment once named them while they still hardcoded "Not scored yet"). A spot chip is
+ * NOT a reader: it draws a star badge for a rated spot and nothing at all for an unrated one
  * (no verdict word is ever printed on it), so there is no word to localise there.
  *
  * <p>The two levels share every word but one: a region is "Too few rated" because the SAMPLE is
@@ -529,7 +529,7 @@ function verdictMeanOf(scoped, top) {
  * What a card says beside a STAND_DOWN word over a blanked region (plan-card-verdict-honesty-plan.md
  * H4). The visible form is short enough for the mean's own slot ("unsettled", about 54px at
  * 10px, the honesty filter's "Too unsettled to forecast" abridged); the spoken form is the filter's label in full, so the card
- * and the deleted popup's region rail speak one vocabulary.
+ * and the region rail speak one vocabulary.
  */
 export const BLANKED_STAND_DOWN_VISIBLE = 'unsettled';
 export const BLANKED_STAND_DOWN_SPOKEN = 'too unsettled to forecast';
@@ -785,7 +785,7 @@ function cardPick(pick) {
  *                                carries {@code verdictScope}; without one every card is exactly what it was.
  * @param {boolean} [picksLocked] true when the reader does not have best bets (LITE): every card's
  *                                {@code pick} is null. Defaults to false so every PRO caller is unchanged.
- * @returns {Array} card descriptors for the matrix and the deleted window popup
+ * @returns {Array} one card descriptor per upcoming window (the Plan matrix's cards)
  */
 export function buildWindowCards(
   upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates, reachById,
@@ -839,8 +839,7 @@ export function buildWindowCards(
     // which left the two disagreeing where before they had at least agreed by both being raw. The
     // helper prefers the served `displayVerdict` and MAPS the legacy triage `verdict` where the
     // cached payload carries only that; reading raw here dropped to `AWAITING` while the region rail
-    // beside it — built by `buildRegionRows`, converged at L5 — said `Worth it`. Both render in one
-    // the retired window popup, the card's word at its head and the rail under it. Found by the
+    // beside it — built by `buildRegionRows`, converged at L5 — said `Worth it`. Found by the
     // cross-phase review on #792 (§4 #39).
     const verdictSource = scopedRegion ? resolveRegionDisplay(scopedRegion) : null;
     const servedVerdict = verdictSource || win?.verdict || 'AWAITING';
@@ -867,7 +866,7 @@ export function buildWindowCards(
     const spots = gateSpotsByRating(reached, minRating);
     // ⚠️ The pool a Lite reader's counts, spread, thin-sample line, best place and tide fit read is the places
     // INSIDE their sub-regions (S5b-1, B2): a gated place is in neither half of any count. `allSpots`, `reached`
-    // and `spots` keep the gated places (the deleted popup lists them after the reader's own; the Map and the eclipse
+    // and `spots` keep the gated places (the Map and the eclipse
     // race read them), so only the pool is filtered. With nothing gated `placesOf` hands `reached` back untouched,
     // so a Pro, Admin or flag-off card's `pool` is the very array it always was.
     const pool = placesOf(reached);
@@ -973,7 +972,7 @@ export function buildWindowCards(
       // inferred tier, as it always has). UNRATED keeps the server's tier — an ineligible region is
       // floored LOW there, and a field drawn for a window nothing has called should be the hazy one,
       // not the horizon's MEDIUM — while the BADGE decay and `ProvisionalMark` stay gated on
-      // `CONFIDENCE_VERDICTS` at their own mounts (the deleted popup's badge, the grid cell, the since-deleted `VerdictPill`),
+      // `CONFIDENCE_VERDICTS` at their own mounts,
       // so "Too few rated" is never also a faded or marked word: it already says the provisional thing.
       confidence: HAZE_VERDICTS.has(verdict)
         ? (scoped ? (scoped.confidence ?? null) : servedConfidenceOf(scopedRegion, win))
@@ -1004,7 +1003,7 @@ export function buildWindowCards(
        * reach), so a reader with no home postcode has every gate open and {@code pool === allSpots}
        * whatever the tier says. Every surface that then prints "within reach" is naming a filter
        * that never ran — §6 clause 7's own sentence, "no count describes a set that was never
-       * filtered". M5 fixed that in the deleted popup's footer and an adversarial review found the same
+       * filtered". M5 fixed that in one footer and an adversarial review found the same
        * claim still standing on five other surfaces, so the answer is computed ONCE here and folded
        * outward like everything else on this descriptor.
        *
@@ -1049,7 +1048,7 @@ export function buildWindowCards(
       pool,
       // How many of this window's places lie outside the reader's sub-regions, and whether the body was shaped by
       // them at all (S5b-1). Present ONLY on a shaped body's card, so every Pro, Admin and flag-off card is the
-      // object it always was. The popup's "· {m} outside" and the strip's Best row read them; the places
+      // object it always was. The strip's Best row reads them; the places
       // themselves stay on `allSpots`/`spots`, flagged `gated`.
       ...(allowedIds ? { outsideCount, picksScoped: true } : {}),
       // Is the coast live on this window, and how well served — over the SAME `pool` above, never a

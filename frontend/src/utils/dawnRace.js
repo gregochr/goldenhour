@@ -2,7 +2,7 @@ import { parseUtcInstant } from './conversions.js';
 
 /**
  * The eclipse sight's time convention and the per-location eclipse line (`docs/engineering/lunar-eclipse-plan.md`).
- * The dawn/dusk race track this file once modelled was the deleted window popup's; the per-location line the Map
+ * The dawn/dusk race track this file once modelled is gone; the per-location line the Map
  * callout and the four-day sheet mount (`components/map/EclipseSpotLine.jsx`) is what remains.
  *
  * <h2>⚠️ Times are the sight's OWN convention, and it is NOT {@code solarEventTime}'s</h2>

@@ -1966,9 +1966,8 @@ export default function WindowFirstShell({
   );
   /**
    * The eclipse spot line's source on this sheet (L7, `docs/engineering/lunar-eclipse-plan.md`) —
-   * the SAME join the deleted window popup's {@code eclipseIndex} above builds for `DawnRace`, over the SAME
-   * `briefing.days`, so a location's own moon geometry never disagrees between the deleted window popup that
-   * opened this sheet and the sheet itself. Null-until-open, like {@code sheetTideAlignmentIndex}
+   * `buildEclipseIndex(briefing.days)`, which the sheet hands to its `DawnRace`, so a location's own moon
+   * geometry is read from the served briefing days. Null-until-open, like {@code sheetTideAlignmentIndex}
    * beside it.
    */
   const sheetEclipseIndex = useMemo(

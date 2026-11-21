@@ -60,13 +60,6 @@ const EMPTY_POINT_SETS = new Map();
 const EMPTY_GROUND_SETS = new Map();
 
 /**
- * The region series' empty value — its own constant rather than a share of the one above, because
- * the two are different shapes ({@code Map<string, Array>} against
- * {@code Map<string, Map<string, ?number>>}) and a shared empty is exactly how two shapes end up
- * documented as one.
- */
-
-/**
  * The region list and the shared drive-time matrix before their own fetches land.
  *
  * <p>Their own constants rather than a share of {@code EMPTY_ARRAY}: the matrix is a plain object

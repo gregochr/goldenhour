@@ -188,7 +188,7 @@ export default function WindowSpotCard({
       )}
 
       {/* ⚠️ It names WHERE THE CLICK GOES, so it is the caller's word and not this card's. M4 (D-3)
-          retargeted the popup's copy of the ranked strip from the map to the location sheet, while
+          retargeted one copy of the ranked strip from the map to the location sheet, while
           the drill-down sheet's copy still opens the map — one component, two destinations, and a
           card that promised a map and delivered a sheet would be lying in its own accessible name
           (the span is inside the button). Defaulted to the map so every caller written before M4 is
