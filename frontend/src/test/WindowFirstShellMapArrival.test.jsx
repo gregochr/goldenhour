@@ -162,12 +162,12 @@ describe('a lane opens the Map on its window', () => {
     const { onOpenMapTab, arriveOnMap } = mount();
     await screen.findByTestId('wf-heat-card-button');
 
-    await act(async () => { seen.strip.onGoToPlanWindow(KEY, 'inversion'); });
+    await act(async () => { seen.strip.onOpenLaneOnMap(KEY, 'inversion'); });
     expect(onOpenMapTab).toHaveBeenLastCalledWith(expect.objectContaining({
       kind: 'event', date: TODAY, eventType: 'SUNSET', topicType: 'INVERSION', from: 'plan',
     }));
 
-    await act(async () => { seen.strip.onGoToPlanWindow(KEY); });
+    await act(async () => { seen.strip.onOpenLaneOnMap(KEY); });
     expect(onOpenMapTab.mock.calls[1][0]).not.toHaveProperty('topicType');
 
     await arriveOnMap();
@@ -178,7 +178,7 @@ describe('a lane opens the Map on its window', () => {
     const { onOpenMapTab } = mount();
     await screen.findByTestId('wf-heat-card-button');
 
-    await act(async () => { seen.strip.onGoToPlanWindow('garbage'); });
+    await act(async () => { seen.strip.onOpenLaneOnMap('garbage'); });
 
     expect(onOpenMapTab).not.toHaveBeenCalled();
     cleanup();
@@ -189,7 +189,7 @@ describe('a lane opens the Map on its window', () => {
       </AskProvider>,
     );
     await screen.findByTestId('wf-heat-card-button');
-    await act(async () => { seen.strip.onGoToPlanWindow(KEY); });
+    await act(async () => { seen.strip.onOpenLaneOnMap(KEY); });
     expect(selected().id).toBe('window-first-tab-plan');
   });
 });
@@ -212,7 +212,7 @@ describe('Find opens the Map on a window', () => {
     await act(async () => { seen.search.onPickWindow(KEY); seen.search.onClose(); });
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      date: TODAY, targetType: 'SUNSET', from: 'plan', inPlace: false,
+      kind: 'event', date: TODAY, eventType: 'SUNSET', from: 'plan', inPlace: false,
     }));
     expect(screen.queryByTestId('window-sheet')).toBeNull();
 
@@ -220,6 +220,22 @@ describe('Find opens the Map on a window', () => {
     expect(arrivalLayers()).toBe(1);
     await browser.back();
     expect(selected().id).toBe('window-first-tab-plan');
+  });
+
+  it('a Find pick carries the same door a card or lane does: the event trigger, the lens and the outlier marks', async () => {
+    const { onOpenMapTab } = mount();
+    await screen.findByTestId('wf-heat-card-button');
+    await openFind();
+
+    await act(async () => { seen.search.onPickWindow(KEY); seen.search.onClose(); });
+
+    const door = onOpenMapTab.mock.calls[0][0];
+    expect(door).toMatchObject({
+      kind: 'event', date: TODAY, eventType: 'SUNSET', from: 'plan', inPlace: false, limitMinutes: 45,
+    });
+    expect(door).toHaveProperty('outlierKeys');
+    expect(door).not.toHaveProperty('targetType');
+    expect(door).not.toHaveProperty('topicType');
   });
 
   it('from Coming up: Back returns to Coming up', async () => {
@@ -244,8 +260,26 @@ describe('Find opens the Map on a window', () => {
     await act(async () => { seen.search.onPickWindow(KEY); seen.search.onClose(); });
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      date: TODAY, targetType: 'SUNSET', inPlace: true,
+      kind: 'event', date: TODAY, eventType: 'SUNSET', inPlace: true,
     }));
+    expect(arrivalLayers()).toBe(0);
+  });
+
+  it('with no Map door a pick records no arrival, so a later manual Map press registers no Back layer', async () => {
+    installViewport(1280);
+    vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(shellCtx({ ...matrixCtx() }));
+    render(
+      <AskProvider>
+        <WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={[]} mapPane={MAP_PANE} />
+      </AskProvider>,
+    );
+    await screen.findByTestId('wf-heat-card-button');
+    await openFind();
+
+    await act(async () => { seen.search.onPickWindow(KEY); seen.search.onClose(); });
+    await act(async () => { fireEvent.click(tab('map')); });
+
+    expect(selected().id).toBe('window-first-tab-map');
     expect(arrivalLayers()).toBe(0);
   });
 });

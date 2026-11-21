@@ -574,7 +574,9 @@ export function MapPeekWindowsSection({
           onClick={listDoor.onOpen}
         >
           <span aria-hidden="true">&#9776; </span>
-          {`See all ${listDoor.count} ${listDoor.count === 1 ? 'spot' : 'spots'}`}
+          {listDoor.count > 0
+            ? `See all ${listDoor.count} ${listDoor.count === 1 ? 'spot' : 'spots'}`
+            : 'Open the list'}
         </button>
       )}
       {/* The Lite aurora door (aurora-pro-door-plan.md §2.2): after the list and its drilldown row, before the

@@ -97,7 +97,7 @@ const mount = async (served, props = {}) => {
           spots={SPOTS}
           todayStr={TODAY}
           onOpenWindow={() => {}}
-          onGoToPlanWindow={vi.fn()}
+          onOpenLaneOnMap={vi.fn()}
           {...props}
         />
       </WarningsProvider>,
@@ -128,14 +128,14 @@ describe('the warning lane', () => {
   });
 
   it('opens the first covered window when pressed', async () => {
-    const onGoToPlanWindow = vi.fn();
-    await mount(response([WIND]), { onGoToPlanWindow });
+    const onOpenLaneOnMap = vi.fn();
+    await mount(response([WIND]), { onOpenLaneOnMap });
     fireEvent.click(screen.getByTestId('wf-warning-lane'));
-    expect(onGoToPlanWindow).toHaveBeenCalledWith(`${TOMORROW}:SUNRISE`);
+    expect(onOpenLaneOnMap).toHaveBeenCalledWith(`${TOMORROW}:SUNRISE`);
   });
 
   it('is not a button when the strip has no window route', async () => {
-    await mount(response([WIND]), { onGoToPlanWindow: undefined });
+    await mount(response([WIND]), { onOpenLaneOnMap: undefined });
     expect(screen.getByTestId('wf-warning-lane').tagName).toBe('DIV');
   });
 

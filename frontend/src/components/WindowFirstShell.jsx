@@ -1029,9 +1029,9 @@ export default function WindowFirstShell({
   const sheetCardShown = sheetCard != null
     ? {
       ...sheetCard,
-      allSpots: (sheetCard.allSpots || []).filter((spot) => sheetScope.spotKeys.has(
+      allSpots: (sheetCard.allSpots || []).filter((spot) => sheetScope?.spotKeys?.has(
         heatSpotKey({ id: spot.locationId, name: spot.locationName }),
-      )),
+      ) ?? true),
     }
     : null;
 
@@ -2185,9 +2185,7 @@ export default function WindowFirstShell({
    * from Plan or Coming up it goes through the Map door and records the arrival, so Back returns to the tab it left.
    */
   const pickFindWindow = (key) => {
-    const [date, targetType] = String(key).split(':');
-    if (effectiveTab !== 'map') setMapArrival({ from: effectiveTab, pending: true });
-    openMapTab({ date, targetType });
+    openWindowOnMap(key);
   };
   /**
    * A region picked in Find. Plan and Coming up plan from it (the origin moves, as ever); the Map only pans and
@@ -2986,7 +2984,7 @@ export default function WindowFirstShell({
             forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
             onOpenComingUp={openComingUp}
             onShowOnMap={showOnMap ?? NO_MAP_DOOR}
-            onGoToPlanWindow={openWindowOnMap}
+            onOpenLaneOnMap={openWindowOnMap}
             highlightKeys={askHighlight}
             todayStr={todayStr}
             runAge={age}
@@ -3395,8 +3393,8 @@ export default function WindowFirstShell({
               : undefined}
             onClose={() => openSheetLayer(null)}
             // Door 2 (doors D3, `plan-to-map-doors-plan.md` §3 D3 task 1). `openMapTab` (the
-            // `openMapDoor` wrapper above) does its OWN close-then-move: `openSheetLayer(null)` then
-            // `openWindow(null)` before it reads the live lens and hands the door to `onOpenMapTab`, so
+            // `openMapDoor` wrapper above) does its OWN close-then-move: `openSheetLayer(null)` (since G2a
+            // it no longer calls `openWindow(null)`) before it reads the live lens and hands the door to `onOpenMapTab`, so
             // nothing here repeats that ordering — repeating it would just be two callers racing to
             // close the same two pieces of state. `region: null` because this door names a LOCATION,
             // never a region (the deleted pick dialog's two actions below take the same door since C4).
