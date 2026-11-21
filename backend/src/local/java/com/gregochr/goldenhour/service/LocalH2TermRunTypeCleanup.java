@@ -32,6 +32,12 @@ import java.sql.Statement;
  * statement works whether the column is a native {@code ENUM} that still lists the labels or one a
  * fresh file created without them.
  *
+ * <p><b>The orphaned column.</b> It also drops {@code model_selection.extended_thinking} when present
+ * ({@code ALTER TABLE ... DROP COLUMN IF EXISTS}). The entity no longer maps it (best-bet retirement R2b-1), and
+ * an old file declares it {@code NOT NULL} with no default, so every new {@code model_selection} insert would
+ * fail. Flyway's R2b-2 drops it on Postgres. No {@code BRIEFING_BEST_BET} row is deleted locally: that enum
+ * constant still loads.
+ *
  * <p><b>Ordering.</b> It runs in {@code afterSingletonsInstantiated}, after the schema update and
  * before the application is ready, so before any scheduled job, runner or request reads
  * {@code job_run}. It is idempotent, does nothing unless the database is H2, and never fails
@@ -90,6 +96,9 @@ public class LocalH2TermRunTypeCleanup implements SmartInitializingSingleton {
             if (tableExists(connection, "model_selection")) {
                 deleted += execute(connection,
                         "delete from model_selection where cast(run_type as varchar) in " + TERM_RUN_TYPES);
+            }
+            if (tableExists(connection, "model_selection")) {
+                execute(connection, "alter table model_selection drop column if exists extended_thinking");
             }
             if (tableExists(connection, "prompt_test_result")) {
                 deleted += execute(connection, "delete from prompt_test_result");

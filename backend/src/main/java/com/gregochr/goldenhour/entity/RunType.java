@@ -20,10 +20,9 @@ public enum RunType {
     /** Daily briefing — zero-Claude-cost weather pre-flight check. */
     BRIEFING,
 
-    /** Retired best-bet advisor (2026-11-21): kept only because stored
-     * {@code model_selection} and {@code job_run} rows may still hold it (no {@code pipeline_run} row stores a
-     * {@code RunType}); deleted in R2b
-     * (docs/engineering/best-bet-advisor-retirement-r2a-plan.md) together with the migration that clears them. */
+    /** History only: the best-bet advisor was retired 2026-11-21 and no code runs this type. Kept so the
+     * {@code job_run} and {@code api_call_log} rows it left (cost history) still load; its {@code model_selection}
+     * row was removed by V227. */
     BRIEFING_BEST_BET,
 
     /** Briefing region gloss — per-region Claude-generated one-line commentary. */
