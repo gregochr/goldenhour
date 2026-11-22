@@ -457,3 +457,11 @@ each later turn of that conversation. The Ready precompute and every question th
 conversation with a warning is never cached, so it always pays for the Claude call. The guard is a text pattern, not a fact-checker: it stops a
 claimed warning that was not shown, or a level that was not shown, but it cannot judge whether prose about a shown warning is a fair paraphrase; the
 facts card and the attribution beside it are the server's words. Ask prompt-regression cases are the owner's to add (no assertion was edited).
+
+## The E2E fixture warning
+
+The smoke suite's seeded backend carries one stored warning (`E2eWarningFixture`, local-only, see `dev-and-testing.md`,
+"The seeded fixture") so the Map chip and its Details toggle can be driven end to end. It is a real (non-simulated)
+`weather_warning_version` row over the Lake District's six places and valid for the T+1 sunset window only. Because the feature
+is dormant without an API key and stale until a poll succeeds, the smoke script sets a fake key, a dead loopback base URL and
+`poll-stale-minutes=1440`, and the seeder records one success in `WarningPollStatus`. Nothing polls in that run.

@@ -380,8 +380,8 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
   });
 
   // Glance-to-map review H1: the Map's phone sheets portal to <body>, so hiding the pane on Back must close them.
-  // The seeded fixture serves no weather warning, so the Regions sheet stands in for the warning sheet (same mount,
-  // same `modal={false}`, no Back layer of its own).
+  // The seeded fixture's one warning sits on a single window the card arrival does not choose, so the Regions sheet
+  // stands in for the warning sheet (same mount, same `modal={false}`, no Back layer of its own).
   test.describe('on a phone', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 

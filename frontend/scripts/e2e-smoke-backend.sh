@@ -44,6 +44,13 @@ unset MAIL_PASSWORD WORLDTIDES_API_KEY TURNSTILE_SECRET_KEY || true
 #   --photocast.sub-regions.enforce=true  matches production (`application-prod.yml`): a Lite reader's ratings
 #       outside their sub-region picks are stripped and marked `gated` by LitePickShaper. The seeder gives `lite`
 #       picks for two of the three regions (Phase 3a.2); admin and pro are unrestricted whatever this says.
+#   --photocast.warnings.api-key=e2e-fake-never-sent  makes the warnings feature ACTIVE (it is dormant, and
+#       serves nothing, without a key), so the one seeded Met Office warning (E2eWarningFixture) is served.
+#       The key is a fake and is never sent anywhere.
+#   --photocast.warnings.base-url=http://127.0.0.1:9/...  a dead loopback port (loopback bypasses the dead proxy),
+#       in addition to the proxy: the warnings client can never reach the real Met Office.
+#   --photocast.warnings.poll-stale-minutes=1440  the seeder records one successful poll at seed time and nothing
+#       ever polls (no scheduler row), so without this the feed would go stale mid-suite and print a stale line.
 #   ...group.container.include=db,ping,e2eFixture  makes /actuator/health/container wait for the seed:
 #       Tomcat accepts requests before ApplicationReadyEvent listeners finish. Only the smoke group changes.
 #   ...health.cache.time-to-live=0s  so that probe never serves a stale DOWN after the seed lands.
@@ -63,6 +70,9 @@ exec java \
   --cors.extra-origins="$WEB_ORIGIN" \
   --photocast.e2e.seed-fixture=true \
   --photocast.sub-regions.enforce=true \
+  --photocast.warnings.api-key=e2e-fake-never-sent \
+  --photocast.warnings.base-url=http://127.0.0.1:9/nswws/v1.1 \
+  --photocast.warnings.poll-stale-minutes=1440 \
   --management.endpoint.health.group.container.include=db,ping,e2eFixture \
   --management.endpoint.health.cache.time-to-live=0s \
   >"$LOG_DIR/backend.log" 2>&1
