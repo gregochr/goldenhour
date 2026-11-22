@@ -131,7 +131,7 @@ each exists in `guide/`. Rename one here and it must change in the app too: `at-
 `at-a-glance`, `coming-up`, `map`, `ask-photocast`, `settings`.
 
 **Filling a placeholder screenshot.** Placeholders (`map#shot-tide-match`, `at-a-glance#shot-days`,
-`at-a-glance#shot-open`, `night-sky#shot-banner`, `night-sky#shot-aurora-map`) are `<figure id="shot-…">`
+`night-sky#shot-banner`, `night-sky#shot-aurora-map`) are `<figure id="shot-…">`
 blocks holding a `<div class="ph">`. Add the WebP to `guide/shots/`, replace the `ph` div with an
 `<img src="shots/name.webp" width height alt>` like its neighbours, and deploy; no `COPY` line is needed.
 
