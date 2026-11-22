@@ -45,7 +45,7 @@ Code in the same PR (the 2.41.0 image tolerates all of it because the columns st
   `database-migrations.md` (new notable-migration entry), the Javadoc in `RunType`, and the R2a plan's R2b section
   pointer. Changelog `changelog.d/20261121-retire-best-bet-advisor-r2b1.md` (`### Chore — …`).
 
-### R2b-2 (next-but-one release, NOT this PR)
+### R2b-2 (DONE as V228 with `DropBestBetStatusAndExtendedThinkingMigrationTest`; merge only after the release containing R2b-1 is deployed)
 
 `ALTER TABLE pipeline_run DROP COLUMN best_bet_status; ALTER TABLE model_selection DROP COLUMN extended_thinking;`
 once the release containing R2b-1 is deployed. Written and built in its own PR after the owner says so.
