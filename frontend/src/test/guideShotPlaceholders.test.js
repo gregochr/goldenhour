@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
@@ -15,9 +15,14 @@ const shotIds = (html) => [...html.matchAll(/<figure[^>]*\sid="(shot-[^"]+)"/g)]
 const PLACEHOLDERS = {
   'weather-warnings': ['shot-warn-stale', 'shot-warn-ask'],
   'at-a-glance': ['shot-warn-lanes'],
-  map: ['shot-warn-map-chips', 'shot-warn-callout'],
   'coming-up': ['shot-warn-coming-up'],
 };
+/** Placeholders replaced by a real capture: the figure id stays, the `.ph` block becomes a WebP the page can load. */
+const REAL_IMAGES = {
+  map: { 'shot-warn-map-chips': 'warn-map-chips.webp', 'shot-warn-callout': 'warn-callout.webp' },
+  'at-a-glance': { 'shot-open': 'open-map.webp' },
+};
+const REAL_CASES = Object.entries(REAL_IMAGES).flatMap(([page, m]) => Object.entries(m).map(([id, file]) => [page, id, file]));
 const CASES = Object.entries(PLACEHOLDERS).flatMap(([page, ids]) => ids.map((id) => [page, id]));
 
 describe('guide screenshot ids', () => {
@@ -28,7 +33,7 @@ describe('guide screenshot ids', () => {
 
   it('keeps warning shot ids unique across all pages', () => {
     const all = pages.flatMap((p) => shotIds(source(p))).filter((id) => id.startsWith('shot-warn-'));
-    expect(all.length).toBe(CASES.length);
+    expect(all.length).toBe(CASES.length + REAL_CASES.filter(([, id]) => id.startsWith('shot-warn-')).length);
     expect(new Set(all).size).toBe(all.length);
   });
 });
@@ -51,7 +56,21 @@ describe('weather warnings placeholders', () => {
     links.forEach(([, page, id]) => expect(shotIds(source(page))).toContain(id));
   });
 
-  it('adds no image files for the placeholders', () => {
-    expect(readdirSync(resolve(GUIDE_DIR, 'shots')).filter((f) => /warn/i.test(f))).toEqual([]);
+  it('adds image files only for the captured shots', () => {
+    const captured = REAL_CASES.map(([, , file]) => file);
+    const warnFiles = readdirSync(resolve(GUIDE_DIR, 'shots')).filter((f) => /warn/i.test(f));
+    expect(warnFiles.sort()).toEqual(captured.filter((f) => /warn/i.test(f)).sort());
+  });
+});
+
+describe('captured screenshots', () => {
+  it.each(REAL_CASES)('%s: %s is a real image with alt text and no placeholder', (page, id, file) => {
+    const html = source(page);
+    const re = new RegExp(`<figure class="shot[^"]*" id="${id}"><img src="shots/${file}" width="(\\d+)" height="(\\d+)" alt="([^"]{40,})">`);
+    const m = html.match(re);
+    expect(m, `${page}.html lacks a real image for ${id}`).not.toBeNull();
+    expect(existsSync(resolve(GUIDE_DIR, 'shots', file))).toBe(true);
+    expect(m[3]).not.toMatch(/all[- ]clear|seeded|not a forecast/i);
+    expect(html).not.toMatch(new RegExp(`id="${id}"><div class="ph">`));
   });
 });
