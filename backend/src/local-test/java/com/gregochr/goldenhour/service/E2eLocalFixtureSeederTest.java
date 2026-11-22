@@ -136,6 +136,7 @@ class E2eLocalFixtureSeederTest {
     private TideExtremeSnapshot snapshot;
     private E2eFixtureHealthIndicator health;
     private E2eRoleUsers roleUsers;
+    private E2eWarningFixture warningFixture;
     private ListAppender<ILoggingEvent> logs;
     private final AtomicLong ids = new AtomicLong(100);
 
@@ -166,6 +167,9 @@ class E2eLocalFixtureSeederTest {
         snapshot = mock(TideExtremeSnapshot.class);
         health = new E2eFixtureHealthIndicator();
         roleUsers = mock(E2eRoleUsers.class);
+        warningFixture = mock(E2eWarningFixture.class);
+        when(warningFixture.seed(argThat(E2eLocalFixtureSeederTest::isTheSeededPlaces)))
+                .thenReturn("1 weather warning");
 
         // The database's id assignment (typed matchers: the entities are built by the seeder; they are captured
         // below and asserted field by field).
@@ -313,7 +317,8 @@ class E2eLocalFixtureSeederTest {
         env.setActiveProfiles(profiles);
         return new E2eLocalFixtureSeeder(regionRepository, locationRepository, tideRepository, forecastRepository,
                 cacheRepository, evaluationService, briefingService, slotBuilder, hierarchyBuilder, rollup,
-                headlineGenerator, viewService, almanac, freshness, ds, env, CLOCK, MAPPER, health, roleUsers);
+                headlineGenerator, viewService, almanac, freshness, ds, env, CLOCK, MAPPER, health, roleUsers,
+                warningFixture);
     }
 
     private static DataSource databaseCalled(String product) throws SQLException {
@@ -421,7 +426,8 @@ class E2eLocalFixtureSeederTest {
         assertThatThrownBy(seeder::onApplicationReady)
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("already holds locations");
         verifyNoInteractions(regionRepository, forecastRepository, evaluationService, cacheRepository,
-                tideRepository, slotBuilder, hierarchyBuilder, rollup, headlineGenerator, almanac, roleUsers);
+                tideRepository, slotBuilder, hierarchyBuilder, rollup, headlineGenerator, almanac, roleUsers,
+                warningFixture);
         verify(locationRepository, never()).save(any(LocationEntity.class));
         assertThat(health.health().getStatus()).isEqualTo(Status.DOWN);
     }
@@ -432,7 +438,7 @@ class E2eLocalFixtureSeederTest {
         assertThatThrownBy(() -> seeder(databaseCalled("PostgreSQL"), "local").onApplicationReady())
                 .isInstanceOf(IllegalStateException.class);
         assertThat(health.health().getStatus()).isEqualTo(Status.DOWN);
-        verifyNoInteractions(regionRepository, roleUsers);
+        verifyNoInteractions(regionRepository, roleUsers, warningFixture);
     }
 
     // -- the write order and what each collaborator is handed --------------------------------
@@ -469,11 +475,12 @@ class E2eLocalFixtureSeederTest {
 
         InOrder order = inOrder(regionRepository, locationRepository, tideRepository, forecastRepository,
                 evaluationService, slotBuilder, hierarchyBuilder, viewService, rollup, headlineGenerator,
-                cacheRepository, briefingService, almanac, roleUsers);
+                cacheRepository, briefingService, almanac, roleUsers, warningFixture);
         order.verify(regionRepository, times(3)).save(regions.capture());
         order.verify(locationRepository, times(PLACES)).save(places.capture());
         order.verify(tideRepository, times(3)).saveAll(tides.capture());
         order.verify(roleUsers).seed(roleUserPlaces.capture());
+        order.verify(warningFixture).seed(argThat(E2eLocalFixtureSeederTest::isTheSeededPlaces));
         order.verify(forecastRepository).saveAll(forecastRows.capture());
         order.verify(evaluationService, times(30)).mergeFromBatch(keys.capture(), results.capture());
         order.verify(slotBuilder).snapshotFor(snapshotPlaces.capture(), snapshotDates.capture());
@@ -489,6 +496,7 @@ class E2eLocalFixtureSeederTest {
         order.verify(almanac).refresh();
         order.verify(briefingService).getCachedBriefingForApi();
         order.verify(roleUsers).verify();
+        order.verify(warningFixture).verify(argThat(E2eLocalFixtureSeederTest::isTheSeededPlaces));
 
         // The role users are handed the very places that were saved, in the fixture's order, and nothing else.
         assertThat(roleUserPlaces.getValue()).containsExactlyElementsOf(places.getAllValues());
@@ -561,7 +569,7 @@ class E2eLocalFixtureSeederTest {
 
         assertThat(health.health().getStatus()).isEqualTo(Status.UP);
         assertThat(logs.list).anySatisfy(e -> assertThat(e.getFormattedMessage())
-                .startsWith(E2eLocalFixtureSeeder.SEEDED_MARKER).endsWith(ROLE_SUMMARY));
+                .startsWith(E2eLocalFixtureSeeder.SEEDED_MARKER).endsWith(ROLE_SUMMARY + ", 1 weather warning"));
     }
 
     @Test
@@ -751,6 +759,14 @@ class E2eLocalFixtureSeederTest {
         assertFailsLoudly("user 'lite' does not exist");
         verify(roleUsers).seed(argThat(E2eLocalFixtureSeederTest::isTheSeededPlaces));
         verify(roleUsers).verify();
+    }
+
+    @Test
+    @DisplayName("self-check: a warning that does not read back fails it")
+    void selfCheckNeedsTheWarning() throws SQLException {
+        doThrow(new IllegalStateException("Self-check: the fixture warning does not exist"))
+                .when(warningFixture).verify(argThat(E2eLocalFixtureSeederTest::isTheSeededPlaces));
+        assertFailsLoudly("fixture warning does not exist");
     }
 
     @Test

@@ -210,6 +210,7 @@ public class E2eLocalFixtureSeeder {
     private final ObjectMapper objectMapper;
     private final E2eFixtureHealthIndicator health;
     private final E2eRoleUsers roleUsers;
+    private final E2eWarningFixture warningFixture;
 
     /**
      * Creates the seeder.
@@ -235,6 +236,7 @@ public class E2eLocalFixtureSeeder {
      * @param health                       readiness, {@code UP} only once the self-check passes
      * @param roleUsers                    the {@code lite} and {@code pro} readers and the sub-regions the Lite
      *                                     reader's picks need
+     * @param warningFixture               the one Met Office warning the Map's chip journey needs
      */
     public E2eLocalFixtureSeeder(RegionRepository regionRepository, LocationRepository locationRepository,
             TideExtremeRepository tideExtremeRepository,
@@ -245,7 +247,7 @@ public class E2eLocalFixtureSeeder {
             BriefingHeadlineGenerator headlineGenerator, EvaluationViewService evaluationViewService,
             AlmanacService almanacService, SolarEventFreshness freshness, DataSource dataSource,
             Environment environment, Clock clock, ObjectMapper objectMapper, E2eFixtureHealthIndicator health,
-            E2eRoleUsers roleUsers) {
+            E2eRoleUsers roleUsers, E2eWarningFixture warningFixture) {
         this.regionRepository = regionRepository;
         this.locationRepository = locationRepository;
         this.tideExtremeRepository = tideExtremeRepository;
@@ -266,6 +268,7 @@ public class E2eLocalFixtureSeeder {
         this.objectMapper = objectMapper;
         this.health = health;
         this.roleUsers = roleUsers;
+        this.warningFixture = warningFixture;
     }
 
     /**
@@ -343,6 +346,7 @@ public class E2eLocalFixtureSeeder {
         List<LocationEntity> locations = savePlaces(regions);
         int tides = saveTides(locations, today);
         String roles = roleUsers.seed(locations);
+        String warning = warningFixture.seed(locations);
 
         int forecastRows = saveForecastRows(locations, today, seedStart);
         int cachedEntries = saveCachedEvaluations(locations, today);
@@ -361,9 +365,10 @@ public class E2eLocalFixtureSeeder {
 
         int picks = selfCheck(forecastRows, cachedEntries);
         roleUsers.verify();
+        warningFixture.verify(locations);
         return regions.size() + " regions, " + locations.size() + " places, " + forecastRows
                 + " forecast rows, " + cachedEntries + " cached entries, " + tides + " tide extremes, "
-                + picks + " windows with a pick, " + roles;
+                + picks + " windows with a pick, " + roles + ", " + warning;
     }
 
     // -- the ratings -------------------------------------------------------------------------

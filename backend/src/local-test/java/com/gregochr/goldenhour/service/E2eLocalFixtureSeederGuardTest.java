@@ -9,6 +9,9 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.repository.WeatherWarningVersionRepository;
+import com.gregochr.goldenhour.service.warnings.WarningPollStatus;
+import com.gregochr.goldenhour.service.warnings.WarningService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -57,7 +60,11 @@ class E2eLocalFixtureSeederGuardTest {
                 .withBean(DataSource.class, () -> mock(DataSource.class))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(Clock.class, () -> Clock.fixed(Instant.parse("2031-07-14T12:00:00Z"), ZoneOffset.UTC))
-                .withUserConfiguration(E2eLocalFixtureSeeder.class, E2eRoleUsers.class,
+                .withBean(WeatherWarningVersionRepository.class, () -> mock(WeatherWarningVersionRepository.class))
+                .withBean(ServedBriefingEpoch.class, () -> mock(ServedBriefingEpoch.class))
+                .withBean(WarningPollStatus.class, WarningPollStatus::new)
+                .withBean(WarningService.class, () -> mock(WarningService.class))
+                .withUserConfiguration(E2eLocalFixtureSeeder.class, E2eRoleUsers.class, E2eWarningFixture.class,
                         E2eFixtureHealthIndicator.class);
     }
 
@@ -68,6 +75,7 @@ class E2eLocalFixtureSeederGuardTest {
                 .run(context -> {
                     assertThat(context).hasSingleBean(E2eLocalFixtureSeeder.class);
                     assertThat(context).hasSingleBean(E2eRoleUsers.class);
+                    assertThat(context).hasSingleBean(E2eWarningFixture.class);
                     assertThat(context).hasBean("e2eFixtureHealthIndicator");
                 });
     }
@@ -108,6 +116,7 @@ class E2eLocalFixtureSeederGuardTest {
     private void assertNeither(AssertableApplicationContext context) {
         assertThat(context).doesNotHaveBean(E2eLocalFixtureSeeder.class);
         assertThat(context).doesNotHaveBean(E2eRoleUsers.class);
+        assertThat(context).doesNotHaveBean(E2eWarningFixture.class);
         assertThat(context).doesNotHaveBean("e2eFixtureHealthIndicator");
     }
 }
