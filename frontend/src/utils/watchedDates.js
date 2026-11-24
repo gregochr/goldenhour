@@ -115,7 +115,7 @@ export function matchWatchToEntry(key, entries) {
   if (!Array.isArray(entries)) return null;
   const hits = entries.filter((entry) => entryMatchesWatch(key, entry));
   if (hits.length === 0) return null;
-  return hits.reduce((first, entry) => (entry.startDate < first.startDate ? entry : first));
+  return hits.reduce((first, entry) => (entry.startDate < first.startDate ? entry : first), hits[0]);
 }
 
 /**
