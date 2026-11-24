@@ -1,5 +1,7 @@
 # The map view (v2): locations, thin-sample hatch, verdict and picks, phone peek sheet, past windows, outcome rating
 
+> **The screen's specification is `docs/engineering/screen-spec.md`** (owner, 2026-11-24): it supersedes the screen parts of the earlier design handoffs and wins where this file disagrees. Its phases are `docs/engineering/screen-spec-plan.md` (P1–P5).
+
 > **There is no Map tab (one-screen-plan.md O1 and O3, 2026-11-24).** The map is a full-screen **view** over the one screen, opened by `openMap` from a card, a lane, Find, the location sheet, Ask or the aurora banner (never from a masthead button) and closed by ✕, Back or Escape; see "The map view" below for the mechanics. Below, "the Map tab" means the map view and "the Plan tab" means This week; "At a Glance" and "Coming up" are This week and Further ahead. `MapView`, the pane, the callout and every map rule are unchanged by the tab removal.
 
 > Moved verbatim from `CLAUDE.md` on 2026-10-22 to keep the always-loaded file small.

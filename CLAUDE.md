@@ -68,6 +68,7 @@ Still never done by a session: creating or deleting tags, cutting a release (the
 
 | Area | File |
 |---|---|
+| **The one screen's specification** (the owner's single source of truth for the screen; amend it rather than work around it; phases in `docs/engineering/screen-spec-plan.md`) | `docs/engineering/screen-spec.md` |
 | Core pipeline, scoring, evaluation, cost tracking, job metrics and per-location failure tracking, resilience, batch cache primer | `docs/engineering/reference/pipeline.md` |
 | Daily Briefing, the Plan tab matrix (cards, location sheet, dialog stacking, Back), Plan-screen confidence, `VerdictSampleGate`, neighbour guard | `docs/engineering/reference/plan-tab.md` |
 | Map tab (v2), locations, thin-sample hatch, verdict and picks, phone peek sheet, past windows, "How was it?" rating | `docs/engineering/reference/map-tab.md` |
