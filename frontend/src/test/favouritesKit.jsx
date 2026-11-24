@@ -12,22 +12,27 @@ import { FavouritesContext } from '../context/FavouritesContext.jsx';
  * @param {number[]} [o.areas] starred area ids
  * @param {number[]} [o.locationIds] the served merged ids
  * @param {Array} [o.starredAreas] directory entries of the starred areas
+ * @param {string[]} [o.dates] watched almanac date keys (one-screen-plan.md D16)
  * @returns {object} a context value
  */
 export function favouritesValue({
-  status = 'ready', places = [], areas = [], locationIds = places, starredAreas = [],
+  status = 'ready', places = [], areas = [], locationIds = places, starredAreas = [], dates = [],
 } = {}) {
   const placeIds = new Set(places);
   const areaIds = new Set(areas);
+  const dateKeys = new Set(dates);
   return {
     status,
     placeIds,
     areaIds,
     locationIds: new Set(locationIds),
+    dateKeys,
+    dates: dates.map((key) => ({ key, createdAt: null })),
     starredAreas,
     areasUnresolved: Math.max(0, areaIds.size - starredAreas.length),
     isPlaceStarred: (id) => placeIds.has(id),
     isAreaStarred: (id) => areaIds.has(id),
+    isDateWatched: (key) => dateKeys.has(key),
     setStar: vi.fn(() => Promise.resolve(true)),
     toggle: vi.fn(() => Promise.resolve(true)),
   };

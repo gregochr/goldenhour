@@ -69,6 +69,25 @@ async function scan(page, testInfo, scan_) {
 }
 
 test.describe('Accessibility scan (advisory)', () => {
+  // The Lite reader's "Watch this date" (one-screen-plan.md O2b, D16): the control with its Pro pill in an open Further
+  // ahead entry, then the date-worded upsell it opens. Read-only (a Lite reader's door never calls the endpoint), and
+  // signed in as `lite` rather than the admin the rest of the suite uses.
+  test('Further ahead as a Lite reader, with the watch toggle and its upsell', async ({ page }, testInfo) => {
+    await loginAndWaitForForecast(page, 'lite');
+    await openFurtherAhead(page);
+    const openAll = page.getByTestId('coming-up-toggle-all');
+    await expect(openAll).toBeVisible();
+    if ((await openAll.textContent()).trim() === 'Open all') await openAll.click();
+    const door = page.getByTestId('coming-up-watch-toggle-locked').first();
+    await expect(door).toBeVisible();
+    await expect(door.locator('.wf-lens-pro')).toBeVisible();
+    await scan(page, testInfo, 'further-ahead-lite-watch');
+    await door.click();
+    await expect(page.getByTestId('coming-up-watch-upsell-panel')).toBeVisible();
+    await expect(page.getByTestId('coming-up-watch-upsell-panel')).toContainText('Watch a date');
+    await scan(page, testInfo, 'further-ahead-lite-watch-upsell');
+  });
+
   test('sign-in page', async ({ page }, testInfo) => {
     await page.goto('/');
     await expect(page.getByTestId('login-submit')).toBeVisible();

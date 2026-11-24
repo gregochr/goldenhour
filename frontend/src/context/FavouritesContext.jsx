@@ -28,6 +28,7 @@ export const OFF_FAVOURITES = Object.freeze({
   areasUnresolved: 0,
   isPlaceStarred: () => false,
   isAreaStarred: () => false,
+  isDateWatched: () => false,
   setStar: () => Promise.resolve(false),
   toggle: () => Promise.resolve(false),
 });
@@ -141,8 +142,8 @@ export function FavouritesProvider({ pro, children }) {
   /**
    * Sets one place or area to a given state: optimistic, then the server's merged list, with the toast.
    *
-   * @param {'place'|'area'} kind
-   * @param {number} id
+   * @param {'place'|'area'|'date'} kind
+   * @param {number|string} id the location or area id, or a watched date's key
    * @param {string} name what the toast calls it
    * @param {boolean} on the state to move to
    * @param {boolean} [undo] true for an Undo press: the toast then says "Undone." and offers no second Undo
@@ -213,8 +214,11 @@ export function FavouritesProvider({ pro, children }) {
       areasUnresolved: Math.max(0, sets.areaIds.size - starredAreas.length),
       isPlaceStarred: (id) => sets.placeIds.has(id),
       isAreaStarred: (id) => sets.areaIds.has(id),
+      isDateWatched: (key) => sets.dateKeys.has(key),
       setStar,
-      toggle: (kind, id, name) => setStar(kind, id, name, !(kind === 'area' ? sets.areaIds : sets.placeIds).has(id)),
+      toggle: (kind, id, name) => setStar(
+        kind, id, name, !({ area: sets.areaIds, date: sets.dateKeys }[kind] ?? sets.placeIds).has(id),
+      ),
     };
   }, [pro, body, failed, sets, starredAreas, setStar]);
 

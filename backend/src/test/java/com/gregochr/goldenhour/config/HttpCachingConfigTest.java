@@ -135,6 +135,8 @@ class HttpCachingConfigTest {
         "/api/user/settings/favourites",
         "/api/user/settings/favourites/places/7",
         "/api/user/settings/favourites/areas/7",
+        // A watched almanac date (one-screen-plan D16): the key is the reader's own, so it is never filtered either.
+        "/api/user/settings/favourites/dates/king-tide:2026-12-03",
         // Each area's figure for THIS reader (find-and-favourites-plan D3): gated members counted, a Lite
         // reader's picks implied by the counts. Shaped per reader, so it must never be ETag-shared.
         "/api/areas/outlook",

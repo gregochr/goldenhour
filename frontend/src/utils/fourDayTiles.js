@@ -113,7 +113,7 @@ function dayNum(dateStr) {
 }
 
 /** Whether an almanac entry is, or carries (in a coincidence line), one of these almanac types. */
-function holdsType(entry, wanted) {
+export function holdsType(entry, wanted) {
   return wanted.includes(entry?.type)
     || (entry?.coincidence ?? []).some((line) => wanted.includes(line?.type));
 }
@@ -132,7 +132,7 @@ function holdsType(entry, wanted) {
  * @param {object} entry a served almanac entry that holds a tide
  * @returns {?{first: string, last: string}} the tide's days, or null when the entry offers no evidence
  */
-function tideSpan(entry) {
+export function tideSpan(entry) {
   if ((entry.coincidence ?? []).length === 0) {
     return entry.startDate && entry.endDate ? { first: entry.startDate, last: entry.endDate } : null;
   }

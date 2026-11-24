@@ -23,7 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
  * {@link UserFavouritesService}; nothing here but routing.
  *
  * <p>Every endpoint answers with the new merged list. POST and DELETE are idempotent; an unknown location
- * or area id is 404; a new star over the cap of 25 is 409 {@code You can keep up to 25 places.}.
+ * or area id is 404; a malformed or unknown date key is 400; a new star or watch over the cap of 25 is 409
+ * {@code You can keep up to 25 places and dates.}. The list also carries the reader's watched almanac dates.
  */
 @RestController
 @RequestMapping("/api/user/settings/favourites")
@@ -110,5 +111,29 @@ public class UserFavouritesController {
     @DeleteMapping("/areas/{areaId}")
     public FavouritesResponse removeArea(@PathVariable Long areaId, Authentication auth) {
         return favouritesService.removeArea(auth.getName(), areaId);
+    }
+
+    /**
+     * Watches one almanac date (one-screen-plan D16).
+     *
+     * @param key  {@code <almanac type>:<start date>}, for example {@code king-tide:2026-12-03}
+     * @param auth the current authentication context
+     * @return the new list
+     */
+    @PostMapping("/dates/{key}")
+    public FavouritesResponse addDate(@PathVariable String key, Authentication auth) {
+        return favouritesService.addDate(auth.getName(), key);
+    }
+
+    /**
+     * Un-watches one almanac date.
+     *
+     * @param key  {@code <almanac type>:<start date>}
+     * @param auth the current authentication context
+     * @return the new list
+     */
+    @DeleteMapping("/dates/{key}")
+    public FavouritesResponse removeDate(@PathVariable String key, Authentication auth) {
+        return favouritesService.removeDate(auth.getName(), key);
     }
 }

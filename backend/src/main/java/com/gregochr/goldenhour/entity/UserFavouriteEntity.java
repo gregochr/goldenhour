@@ -15,9 +15,9 @@ import java.time.LocalDateTime;
 /**
  * One row of {@code user_favourite} (V226): a place or an area a Pro or Admin reader has starred.
  *
- * <p>Exactly one of {@link #locationId} and {@link #areaId} is set (a database CHECK). No association to
- * {@link AppUserEntity}, {@link LocationEntity} or {@link AreaEntity}, deliberately: saving any of them can
- * never rewrite a favourite, and the database cascades all three foreign keys. Rows are written only by
+ * <p>Exactly one of {@link #locationId}, {@link #areaId} and {@link #almanacKey} is set (a database CHECK). No
+ * association to {@link AppUserEntity}, {@link LocationEntity} or {@link AreaEntity}, deliberately: saving any of
+ * them can never rewrite a favourite, and the database cascades all three foreign keys. Rows are written only by
  * {@code UserFavouriteRepository}.
  */
 @Entity
@@ -43,6 +43,12 @@ public class UserFavouriteEntity {
     /** The starred area, or null when this row stars a location. */
     @Column(name = "area_id")
     private Long areaId;
+
+    /**
+     * The watched almanac date (type:startDate, V229), or null when this row stars a place or an area.
+     */
+    @Column(name = "almanac_key", length = 64)
+    private String almanacKey;
 
     /** When it was starred (UTC wall clock); the order a reader's list follows. */
     @Column(name = "created_at", nullable = false)

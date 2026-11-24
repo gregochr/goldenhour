@@ -17,6 +17,32 @@ describe('favourites helpers', () => {
     expect(NO_FAVOURITES.locationIds.size).toBe(0);
   });
 
+  it('reads watched dates beside the places, and they add nothing to the merged location ids', () => {
+    const sets = favouriteSets({
+      places: [], areas: [], locationIds: [3],
+      dates: [{ key: 'king-tide:2026-12-03', createdAt: 't' }, { key: 'meteor:2026-12-14', createdAt: 't' }],
+    });
+    expect([...sets.dateKeys]).toEqual(['king-tide:2026-12-03', 'meteor:2026-12-14']);
+    expect(sets.dates).toHaveLength(2);
+    expect([...sets.locationIds]).toEqual([3]);
+    // An older body with no dates, and an absent one, read as none.
+    expect(favouriteSets({ places: [] }).dateKeys.size).toBe(0);
+    expect(favouriteSets(null).dates).toEqual([]);
+    expect(NO_FAVOURITES.dateKeys.size).toBe(0);
+    expect(NO_FAVOURITES.dates).toEqual([]);
+  });
+
+  it('applyStar watches and un-watches a date by its key and touches nothing else', () => {
+    const body = { places: [{ locationId: 1 }], areas: [], locationIds: [1], dates: [{ key: 'meteor:2026-12-14', createdAt: 'x' }] };
+    const watched = applyStar(body, 'date', 'king-tide:2026-12-03', true);
+    expect(watched.dates.map((d) => d.key)).toEqual(['meteor:2026-12-14', 'king-tide:2026-12-03']);
+    expect(watched.places).toEqual(body.places);
+    expect(watched.locationIds).toEqual([1]);
+    expect(applyStar(watched, 'date', 'meteor:2026-12-14', false).dates.map((d) => d.key)).toEqual(['king-tide:2026-12-03']);
+    expect(applyStar(watched, 'date', 'king-tide:2026-12-03', true).dates).toHaveLength(2);
+    expect(applyStar({ places: [] }, 'date', 'king-tide:2026-12-03', true).dates).toEqual([{ key: 'king-tide:2026-12-03', createdAt: null }]);
+  });
+
   it('applyStar moves only the list the toggle reads and leaves the merged ids to the server', () => {
     const body = { places: [{ locationId: 1, createdAt: 'x' }], areas: [], locationIds: [1] };
     const added = applyStar(body, 'place', 2, true);
@@ -50,6 +76,8 @@ describe('favourites helpers', () => {
   it('words the toast for a place and for an area', () => {
     expect(starToastText('place', 'Steel Rigg', true)).toBe('Added Steel Rigg to your places.');
     expect(starToastText('area', "Hadrian's Wall", false)).toBe("Removed Hadrian's Wall (area) from your places.");
+    expect(starToastText('date', 'King tide · 3 Dec', true)).toBe('Watching King tide · 3 Dec. It joins your places.');
+    expect(starToastText('date', 'King tide · 3 Dec', false)).toBe('Stopped watching King tide · 3 Dec.');
   });
 });
 

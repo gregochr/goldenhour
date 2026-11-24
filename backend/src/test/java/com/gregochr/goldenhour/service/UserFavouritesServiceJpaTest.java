@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
+import com.gregochr.goldenhour.repository.UserFavouriteRepository;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
@@ -85,6 +86,12 @@ class UserFavouritesServiceJpaTest {
 
     @Autowired
     private RegionRepository regions;
+
+    @Autowired
+    private UserFavouriteRepository favouriteRepository;
+
+    @Autowired
+    private SubRegionMembershipService membership;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -385,7 +392,7 @@ class UserFavouritesServiceJpaTest {
         service.addArea(PRO, area);
         assertThat(service.get(PRO).places().size() + service.get(PRO).areas().size()).isEqualTo(25);
         assertThatThrownBy(() -> service.addPlace(PRO, extra)).isInstanceOf(FavouritesLimitException.class)
-                .hasMessage("You can keep up to 25 places.");
+                .hasMessage("You can keep up to 25 places and dates.");
         assertThatThrownBy(() -> service.addArea(PRO, named("Another"))).isInstanceOf(FavouritesLimitException.class);
         // An existing star at the cap is still idempotent, and an un-star frees a place.
         assertThat(service.addArea(PRO, area).areas()).hasSize(1);
@@ -404,7 +411,7 @@ class UserFavouritesServiceJpaTest {
         exactly.addAll(places.subList(0, 5));
 
         assertThatThrownBy(() -> service.replace(PRO, request(places, List.of())))
-                .isInstanceOf(FavouritesLimitException.class).hasMessage("You can keep up to 25 places.");
+                .isInstanceOf(FavouritesLimitException.class).hasMessage("You can keep up to 25 places and dates.");
         assertThat(service.get(PRO).places()).isEmpty();
         assertThat(service.replace(PRO, request(exactly, List.of())).places()).hasSize(25);
     }
@@ -478,5 +485,226 @@ class UserFavouritesServiceJpaTest {
             pool.shutdownNow();
         }
         assertThat(service.get(PRO).places()).hasSize(25);
+    }
+
+    // ---- Watched dates (one-screen-plan D16) -------------------------------------------------------------------
+    // The clock is fixed at 2019-03-04, so the grace cut-off is 2019-02-18: a date starting on it is kept, the day
+    // before it is expired.
+
+    private static final String KEPT = "king-tide:2019-03-10";
+    private static final String LAST_KEPT_DAY = "spring-tide:2019-02-18";
+    private static final String FIRST_EXPIRED_DAY = "spring-tide:2019-02-17";
+
+    /** Plants a date row directly, as a row written before its start date passed (a write would refuse it). */
+    private void plantDate(String key) {
+        jdbc.update("INSERT INTO user_favourite (user_id, almanac_key, created_at) VALUES (?, ?, ?)",
+                userIds.getFirst(), key, LocalDateTime.of(2019, 1, 1, 12, 0));
+    }
+
+    private int dateRows() {
+        return jdbc.queryForObject("SELECT count(*) FROM user_favourite WHERE almanac_key IS NOT NULL",
+                Integer.class);
+    }
+
+    @Test
+    @DisplayName("watching a date serves it with its time from the clock; a second watch is idempotent")
+    void addDate_servesAndIsIdempotent() {
+        FavouritesResponse first = service.addDate(PRO, KEPT);
+        FavouritesResponse again = service.addDate(PRO, KEPT);
+
+        assertThat(first.dates()).singleElement().satisfies(date -> {
+            assertThat(date.key()).isEqualTo(KEPT);
+            assertThat(date.createdAt()).isEqualTo(LocalDateTime.of(2019, 3, 4, 10, 15));
+        });
+        assertThat(again.dates()).hasSize(1);
+        assertThat(dateRows()).isEqualTo(1);
+        assertThat(first.places()).isEmpty();
+        assertThat(first.areas()).isEmpty();
+        assertThat(first.locationIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("un-watching removes the date, and un-watching one that is not watched changes nothing")
+    void removeDate_isIdempotent() {
+        service.addDate(PRO, KEPT);
+
+        assertThat(service.removeDate(PRO, KEPT).dates()).isEmpty();
+        assertThat(service.removeDate(PRO, KEPT).dates()).isEmpty();
+        assertThat(dateRows()).isZero();
+    }
+
+    @Test
+    @DisplayName("a bad key is IllegalArgumentException on watch and un-watch, and a date already past its grace "
+            + "period cannot be watched")
+    void dates_refuseBadAndPastKeys() {
+        assertThatThrownBy(() -> service.addDate(PRO, "aurora:2019-03-10"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.removeDate(PRO, "king-tide")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.addDate(PRO, FIRST_EXPIRED_DAY))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("already passed");
+        assertThat(service.addDate(PRO, LAST_KEPT_DAY).dates()).hasSize(1);
+        assertThat(dateRows()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("an unknown username is NoSuchElementException on a date write")
+    void dates_unknownUser() {
+        assertThatThrownBy(() -> service.addDate("nobody", KEPT)).isInstanceOf(NoSuchElementException.class);
+        assertThatThrownBy(() -> service.removeDate("nobody", KEPT)).isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    @DisplayName("a date row beside places and areas: get serves all three, and locationIds holds no date")
+    void get_threeWay() {
+        Long bamburgh = location("Bamburgh", true);
+        Long cawfields = location("Cawfields", true);
+        Long wall = named("Hadrian's Wall", cawfields);
+        service.addPlace(PRO, bamburgh);
+        service.addArea(PRO, wall);
+        service.addDate(PRO, KEPT);
+
+        FavouritesResponse out = service.get(PRO);
+
+        assertThat(out.places()).extracting(FavouritesResponse.Place::locationId).containsExactly(bamburgh);
+        assertThat(out.areas()).extracting(FavouritesResponse.Area::areaId).containsExactly(wall);
+        assertThat(out.dates()).extracting(FavouritesResponse.Date::key).containsExactly(KEPT);
+        assertThat(out.locationIds()).containsExactly(bamburgh, cawfields);
+    }
+
+    @Test
+    @DisplayName("forAsk never sees a date row: a reader with only watched dates has no favourites, and a mixed "
+            + "reader's places and areas read as before")
+    void forAsk_ignoresDates() {
+        Long reader = userIds.getFirst();
+        service.addDate(PRO, KEPT);
+        assertThat(service.forAsk(reader)).isSameAs(FavouriteLocations.NONE);
+
+        Long bamburgh = location("Bamburgh", true);
+        Long cawfields = location("Cawfields", true);
+        Long wall = named("Hadrian's Wall", cawfields);
+        service.addPlace(PRO, bamburgh);
+        service.addArea(PRO, wall);
+        service.addDate(PRO, LAST_KEPT_DAY);
+
+        FavouriteLocations out = service.forAsk(reader);
+
+        assertThat(out.locationIds()).containsExactlyInAnyOrder(bamburgh, cawfields);
+        assertThat(out.areaByLocation()).containsOnly(java.util.Map.entry(cawfields, "Hadrian's Wall"));
+    }
+
+    @Test
+    @DisplayName("PUT leaves watched dates alone and counts them toward the cap")
+    void replace_keepsAndCountsDates() {
+        service.addDate(PRO, KEPT);
+        Long keep = location("Keep", true);
+
+        FavouritesResponse out = service.replace(PRO, request(List.of(keep), List.of()));
+        assertThat(out.dates()).extracting(FavouritesResponse.Date::key).containsExactly(KEPT);
+        assertThat(out.places()).hasSize(1);
+        assertThat(service.replace(PRO, request(null, null)).dates()).hasSize(1);
+
+        List<Long> twentyFive = new ArrayList<>();
+        for (int i = 0; i < 25; i++) {
+            twentyFive.add(location("Spot " + i, true));
+        }
+        assertThatThrownBy(() -> service.replace(PRO, request(twentyFive, List.of())))
+                .isInstanceOf(FavouritesLimitException.class)
+                .hasMessage("You can keep up to 25 places and dates.");
+        assertThat(service.replace(PRO, request(twentyFive.subList(0, 24), List.of())).places()).hasSize(24);
+    }
+
+    @Test
+    @DisplayName("the cap counts dates: 24 places and one date is full, and the next place or date is refused")
+    void cap_countsDates() {
+        List<Long> places = new ArrayList<>();
+        for (int i = 0; i < 24; i++) {
+            places.add(location("Spot " + i, true));
+        }
+        service.replace(PRO, request(places, List.of()));
+        service.addDate(PRO, KEPT);
+        Long extra = location("Extra", true);
+
+        assertThatThrownBy(() -> service.addPlace(PRO, extra)).isInstanceOf(FavouritesLimitException.class);
+        assertThatThrownBy(() -> service.addDate(PRO, LAST_KEPT_DAY)).isInstanceOf(FavouritesLimitException.class)
+                .hasMessage("You can keep up to 25 places and dates.");
+        assertThatThrownBy(() -> service.addArea(PRO, named("One more"))).isInstanceOf(FavouritesLimitException.class);
+        // An existing watch at the cap is idempotent, and un-watching frees a slot.
+        assertThat(service.addDate(PRO, KEPT).dates()).hasSize(1);
+        service.removeDate(PRO, KEPT);
+        assertThat(service.addPlace(PRO, extra).places()).hasSize(25);
+    }
+
+    @Test
+    @DisplayName("an expired date is not served and is deleted by the next write, whichever write it is")
+    void expiredDates_areServedNeverAndDeletedOnEveryWrite() {
+        Long place = location("Bamburgh", true);
+        Long area = named("Hadrian's Wall", place);
+        plantDate(FIRST_EXPIRED_DAY);
+        plantDate(LAST_KEPT_DAY);
+
+        FavouritesResponse read = service.get(PRO);
+        assertThat(read.dates()).extracting(FavouritesResponse.Date::key).containsExactly(LAST_KEPT_DAY);
+        // A read deletes nothing.
+        assertThat(dateRows()).isEqualTo(2);
+
+        service.addPlace(PRO, place);
+        assertThat(dateRows()).isEqualTo(1);
+
+        plantDate(FIRST_EXPIRED_DAY);
+        service.addArea(PRO, area);
+        assertThat(dateRows()).isEqualTo(1);
+
+        plantDate(FIRST_EXPIRED_DAY);
+        service.removePlace(PRO, place);
+        assertThat(dateRows()).isEqualTo(1);
+
+        plantDate(FIRST_EXPIRED_DAY);
+        service.removeArea(PRO, area);
+        assertThat(dateRows()).isEqualTo(1);
+
+        plantDate(FIRST_EXPIRED_DAY);
+        service.replace(PRO, request(null, null));
+        assertThat(dateRows()).isEqualTo(1);
+
+        plantDate(FIRST_EXPIRED_DAY);
+        service.addDate(PRO, KEPT);
+        assertThat(dateRows()).isEqualTo(2);
+
+        plantDate(FIRST_EXPIRED_DAY);
+        service.removeDate(PRO, KEPT);
+        assertThat(dateRows()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("expired date rows never block the cap: 24 places, one expired date and a new place is allowed")
+    void expiredDates_doNotBlockTheCap() {
+        List<Long> places = new ArrayList<>();
+        for (int i = 0; i < 24; i++) {
+            places.add(location("Spot " + i, true));
+        }
+        service.replace(PRO, request(places, List.of()));
+        plantDate(FIRST_EXPIRED_DAY);
+        plantDate("meteor:2018-12-14");
+        Long extra = location("Extra", true);
+
+        FavouritesResponse out = service.addPlace(PRO, extra);
+
+        assertThat(out.places()).hasSize(25);
+        assertThat(out.dates()).isEmpty();
+        assertThat(dateRows()).isZero();
+    }
+
+    @Test
+    @DisplayName("the day boundary is the UK civil date: the grace is counted from London today, not from UTC")
+    void expiry_usesTheUkCivilDate() {
+        // 23:30 UTC on 2019-07-02 is already 00:30 on 2019-07-03 in London (BST), so the cut-off is 2019-06-19.
+        Clock lateUtc = Clock.fixed(Instant.parse("2019-07-02T23:30:00Z"), ZoneOffset.UTC);
+        UserFavouritesService late = new UserFavouritesService(users, favouriteRepository, locations, areas,
+                membership, lateUtc);
+        plantDate("king-tide:2019-06-19");
+        plantDate("king-tide:2019-06-18");
+
+        assertThat(late.get(PRO).dates()).extracting(FavouritesResponse.Date::key)
+                .containsExactly("king-tide:2019-06-19");
     }
 }

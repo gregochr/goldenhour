@@ -11557,9 +11557,18 @@ div.wf-lane { cursor: default; }
 .wf-yp-chip:hover { border-color: var(--color-plex-border-light); }
 .wf-yp-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-yp-detail { font-size: 11.5px; color: var(--color-plex-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A watched date that opens nothing (a meteor peak has no window of its own): the same chip, drawn as text, not a control. */
+.wf-yp-chip-static { cursor: default; border-style: dashed; }
+.wf-yp-chip-static:hover { border-color: var(--color-plex-border); }
+.wf-yp-star { color: var(--color-plex-gold); margin-right: 4px; }
 @media (max-width: 639px) {
   .wf-yp-row { scroll-snap-type: x mandatory; }
 }
+
+/* Watch this date (D16): under an open entry's card, in the card's own column of the entry grid, never inside the card
+   (a single-action card is itself a button) or the Open / Close button. */
+.wf-cu-watch { grid-column: 2; justify-self: start; min-width: 0; max-width: 100%; margin: -2px 0 2px; }
+.wf-cu-watch .wf-pro-upsell-door { margin-top: 6px; }
 
 /* ── Beyond-line link and search (heat-field plan §4.8, P7; the origin chip moved into the
    masthead's tick line at M3 and its rules went with it) ─────────────────────────────────── */
