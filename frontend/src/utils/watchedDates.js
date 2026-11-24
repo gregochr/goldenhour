@@ -201,10 +201,17 @@ function planFor(entry, watch, windows, hotTopics) {
   return card ? { state: 'window', card, tideOnLight: false } : null;
 }
 
+/** The calendar tile's fields (the same rail Further ahead draws), without its countdown. */
+function railOf(first, last, todayStr) {
+  const { dow, day, month, isRange } = buildDateRail(first, last, todayStr);
+  return { dow, day, month, isRange };
+}
+
 /**
  * The chips for the reader's watched dates, ready to draw in Your places. A watch whose entry is not in the served feed
  * (not loaded, or gone) draws nothing, and so does one whose dates have passed (the row is kept, not shown). Earliest
- * date first.
+ * date first. Each chip carries {@code rail} (the calendar tile) and {@code label} (the visible name, without the date;
+ * {@code name} keeps the date for the stop-watching label).
  *
  * <p>Every field read is served: the entry's {@code id}, {@code type}, {@code title}, {@code family},
  * {@code startDate}, {@code endDate}, {@code coincidence[].type} and {@code dayRanges}; a window's {@code key},
@@ -219,7 +226,8 @@ function planFor(entry, watch, windows, hotTopics) {
  * @param {?Array<object>} args.hotTopics the served {@code briefing.hotTopics}
  * @param {string} args.todayStr the reader's UK today
  * @returns {Array<{key: string, kind: 'beyond'|'window'|'static', entryId: string, glyph: ?string, title: string,
- *   name: string, detail: string, window: ?{date: string, eventType: string}, bestSpot: ?{id: number, name: string},
+ *   name: string, label: string, rail: {dow: ?string, day: string, month: string, isRange: boolean},
+ *   detail: string, window: ?{date: string, eventType: string}, bestSpot: ?{id: number, name: string},
  *   sortDate: string}>}
  */
 export function buildWatchedChips({ dates, entries, windows, hotTopics, todayStr }) {
@@ -232,6 +240,7 @@ export function buildWatchedChips({ dates, entries, windows, hotTopics, todayStr
       if (Array.isArray(entries) && watch && watch.date >= todayStr) {
         chips.push({
           key, kind: 'unlisted', entryId: null, glyph: null, title: TYPE_NAMES[watch.type],
+          label: TYPE_NAMES[watch.type], rail: railOf(watch.date, watch.date, todayStr),
           name: `${TYPE_NAMES[watch.type]} · ${formatArrivalDate(watch.date)}`, detail: 'no longer listed',
           window: null, bestSpot: null, firstWindow: null, sortDate: watch.date,
         });
@@ -243,8 +252,8 @@ export function buildWatchedChips({ dates, entries, windows, hotTopics, todayStr
     const glyph = entryGlyph(entry);
     const dateLabel = formatArrivalDate(span.first);
     const base = {
-      key, entryId: entry.id, glyph, title: entry.title, sortDate: span.first, window: null, bestSpot: null,
-      firstWindow: null,
+      key, entryId: entry.id, glyph, title: entry.title, label: entry.title, sortDate: span.first, window: null,
+      bestSpot: null, firstWindow: null, rail: railOf(span.first, span.last, todayStr),
     };
     const plan = planFor(entry, watch, windows, hotTopics);
     if (plan?.state === 'window') {
@@ -255,6 +264,8 @@ export function buildWatchedChips({ dates, entries, windows, hotTopics, todayStr
         ...base,
         kind: 'window',
         name: `${entry.title} · ${card.dow}`,
+        // The date is in the tile; a window chip names the chosen window's day instead.
+        label: `${entry.title} · ${card.dow}`,
         detail: [
           card.time ? `${event} ${card.time}` : event,
           best ? `best ${best.locationName} ${best.rating}★` : null,
@@ -270,7 +281,6 @@ export function buildWatchedChips({ dates, entries, windows, hotTopics, todayStr
     } else {
       const live = windowsIn(windows, span);
       const forecast = live.length > 0;
-      const countdown = buildDateRail(span.first, span.last, todayStr).countdown;
       chips.push({
         ...base,
         kind: 'beyond',
@@ -278,7 +288,7 @@ export function buildWatchedChips({ dates, entries, windows, hotTopics, todayStr
         // Further ahead, so a tap goes to the map instead).
         firstWindow: forecast ? { date: live[0].date, eventType: live[0].targetType } : null,
         name: `${entry.title} · ${dateLabel}`,
-        detail: [countdown, forecast ? null : "best spots once it's forecast"].filter(Boolean).join(' · '),
+        detail: forecast ? "in this week's forecast" : "best spots once it's forecast",
       });
     }
   }

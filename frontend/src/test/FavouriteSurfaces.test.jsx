@@ -428,7 +428,7 @@ describe('Your places, the row at the top of This week', () => {
 
   it('says what to do when nothing is starred, and draws no outlook request without a starred area', async () => {
     render(list({}));
-    expect(await screen.findByTestId('your-places-empty')).toHaveTextContent('Star a place or an area');
+    expect(await screen.findByTestId('your-places-empty')).toHaveTextContent('Tap ☆ on a place, an area or a date, and it lands here.');
     expect(fetchAreaOutlook).not.toHaveBeenCalled();
   });
 
