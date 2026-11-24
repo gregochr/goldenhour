@@ -90,6 +90,28 @@ test.describe('The map view mounts visible, whatever the chunk is doing', () => 
     ).toBe(true);
   });
 
+  // The reader closes the view before the lazy pane has landed (a slow chunk, or a quick reader): the pane then mounts
+  // behind `hidden`, `panelShown` is still its initial true for a tick, and the door's camera must not fit against the
+  // 0x0 box (it clamped to zoom 12 and the reopened view showed an empty field with no chips: CI's nginx smoke).
+  test('close before the held chunk lands, then reopen through the door: the camera still frames the planning area', async ({ page }) => {
+    test.setTimeout(90_000);
+    const { release, hits } = await holdMapChunk(page);
+    await loginAndWaitForForecast(page, 'admin');
+    await expect.poll(() => hits.count).toBeGreaterThan(0);
+
+    await pressCard(page, 2);
+    await expect(page.getByTestId('map-screen')).toBeVisible();
+    await expect(page.locator('.leaflet-container')).toHaveCount(0);
+    await closeMapView(page);
+    release();
+    // The pane lands and mounts while the view is hidden.
+    await expect(page.locator('.leaflet-container')).toHaveCount(1);
+
+    await page.getByTestId('window-first-tab-map').click();
+    await expect(page.getByTestId('map-screen')).toBeVisible();
+    await expectFramed(page);
+  });
+
   // The slow-4G acceptance (Chromium only: CDP network emulation).
   test('the first open under slow 4G throttling frames the planning area too', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', 'CDP network throttling is Chromium-only');

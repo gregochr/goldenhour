@@ -892,6 +892,20 @@ MapSizeSync.propTypes = {
 };
 
 /**
+ * Whether Leaflet's container has no box right now (a pane mounted or kept behind the `hidden` attribute). Any view
+ * move made against it computes NaN or Infinity and clamps to the map's cap: the door landed zoomed right in.
+ * `panelShown` cannot say this on its own, because it starts true and only falls on the pane's first
+ * ResizeObserver tick; a size-less test map (no `clientWidth`) reads as sized.
+ *
+ * @param {object} map the Leaflet map
+ * @returns {boolean}
+ */
+function containerIsUnsized(map) {
+  const box = map?.getContainer?.();
+  return Boolean(box && box.clientWidth === 0 && box.clientHeight === 0);
+}
+
+/**
  * Programmatically flies the map to a target lat/lon when `target` changes.
  *
  * <p>`active` is the shell showing this pane (`panelShown`): the pane is only hidden between visits, so
@@ -902,15 +916,25 @@ MapSizeSync.propTypes = {
 function FlyToController({ target, active = true, onProgrammaticMove = undefined }) {
   const map = useMap();
   const applied = useRef(null);
+  // Bumped by Leaflet's own `resize` while a fly is held at 0x0 (see `HeatBoundsController`'s `sizeTick`).
+  const [sizeTick, setSizeTick] = useState(0);
   useEffect(() => {
-    if (!active || !target || applied.current === target) return;
+    if (!active || !target || applied.current === target) return undefined;
+    // Held, not spent: `applied` is left alone so the fly replays once the box is real.
+    if (containerIsUnsized(map)) {
+      if (typeof map.once !== 'function') return undefined;
+      const wake = () => setSizeTick((n) => n + 1);
+      map.once('resize', wake);
+      return () => map.off?.('resize', wake);
+    }
     applied.current = target;
     onProgrammaticMove?.();
     map.invalidateSize?.({ animate: false });
     map.flyTo([target.lat, target.lon], Math.max(map.getZoom(), 11));
+    return undefined;
     // `onProgrammaticMove` is a fresh closure each render; the applied ref is the once-only guard.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, map, active]);
+  }, [target, map, active, sizeTick]);
   return null;
 }
 
@@ -927,19 +951,31 @@ FlyToController.propTypes = {
 function FitBoundsController({ target, active = true, onProgrammaticMove = undefined }) {
   const map = useMap();
   const appliedKey = useRef(null);
+  // Bumped by Leaflet's own `resize` while a fit is held at 0x0 (see `HeatBoundsController`'s `sizeTick`).
+  const [sizeTick, setSizeTick] = useState(0);
   useEffect(() => {
     // `active` is `panelShown`. A fit on a hidden pane reads Leaflet's cached 0x0 size, whose zoom is NaN,
     // then Infinity, then clamped to `maxZoom` (12): the door landed zoomed right in. So hold the target
     // until the pane shows, and re-measure right before fitting. `invalidateSize` may pan from the stale
     // size; harmless, the absolute fit that follows overrides it.
-    if (!active || !target?.points?.length || target.key === appliedKey.current) return;
+    if (!active || !target?.points?.length || target.key === appliedKey.current) return undefined;
+    // `active` (`panelShown`) starts true and falls only on the pane's first ResizeObserver tick, so a pane
+    // mounted behind `hidden` (the reader closed the view before the lazy chunk landed) is "active" at 0x0 for
+    // a moment. Hold, leaving `appliedKey` alone, and wake on Leaflet's `resize` once the box is real.
+    if (containerIsUnsized(map)) {
+      if (typeof map.once !== 'function') return undefined;
+      const wake = () => setSizeTick((n) => n + 1);
+      map.once('resize', wake);
+      return () => map.off?.('resize', wake);
+    }
     appliedKey.current = target.key;
     onProgrammaticMove?.();
     map.invalidateSize?.({ animate: false });
     map.fitBounds(L.latLngBounds(target.points), { padding: [60, 60], maxZoom: 12, animate: true });
+    return undefined;
     // Only re-fit when the handoff key changes (or the pane shows), not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.key, active]);
+  }, [target?.key, active, sizeTick]);
   return null;
 }
 

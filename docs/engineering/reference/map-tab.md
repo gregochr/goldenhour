@@ -163,6 +163,11 @@ never make a view move (fit, `flyTo`, zoom) on a 0x0 container (an animated or z
 on the pane's ResizeObserver flipping `panelShown`, which a browser may skip: it also listens once for Leaflet's own
 `resize` and re-runs when the box is real. With no heat bounds the replay refits to the catalogue box at `[60, 60]`. A map that opened sized (every phone, every Map-first
 opening) behaves as before, so the fix needs no phone or desktop split. Proved by `map-hidden-mount.spec.js`.
+The door controllers `FitBoundsController` and `FlyToController` hold the same way (2026-11-24): `panelShown` starts true and
+falls only on the first ResizeObserver tick, so a pane that mounts behind `hidden` (the reader closed the map view before the
+lazy chunk landed, which the nginx smoke does on a slow runner) is "active" at 0x0 for a moment. They leave their applied ref
+alone while `containerIsUnsized(map)` and wake on Leaflet's `resize`; before this, the door's `maxZoom: 12` fit ran at 0x0, the
+reopened view sat at zoom 12 away from every chip, and `openMapTab` timed out waiting for a visible chip.
 
 ## Met Office warning chips on the callout (weather-warnings W2, 2026-11-17)
 
