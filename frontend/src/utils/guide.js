@@ -40,8 +40,7 @@ export const GUIDE_PAGES = Object.freeze({
   index: 'Guide',
   'getting-started': 'Getting started',
   'reading-the-forecast': 'Reading the forecast',
-  'at-a-glance': 'This week',
-  'coming-up': 'Further ahead',
+  planning: 'Planning a shoot',
   map: 'Map',
   'weather-warnings': 'Weather warnings',
   'night-sky': 'Aurora and night sky',
@@ -51,9 +50,9 @@ export const GUIDE_PAGES = Object.freeze({
   settings: 'Settings',
 });
 
-/** The tab id (as `WindowFirstShell` names it) to the guide page that explains it. No Operations entry. */
-export const TAB_GUIDE = Object.freeze({
-  plan: 'at-a-glance',
+/** The screen in force (as `WindowFirstShell` names it: the forecast screen `plan`, or the `map` view) to the guide page that explains it. No Operations entry. */
+export const SCREEN_GUIDE = Object.freeze({
+  plan: 'planning',
   map: 'map',
 });
 
@@ -62,14 +61,14 @@ export const TAB_GUIDE = Object.freeze({
  * each id exists in `landing/guide/`. Rename one in the guide and it must change here too.
  */
 export const GUIDE_SECTIONS = Object.freeze({
-  lens: Object.freeze({ page: 'at-a-glance', section: 'lens' }),
-  bestBet: Object.freeze({ page: 'at-a-glance', section: 'bestbet' }),
+  lens: Object.freeze({ page: 'planning', section: 'lens' }),
+  bestBet: Object.freeze({ page: 'planning', section: 'bestbet' }),
   fixed: Object.freeze({ page: 'reading-the-forecast', section: 'fixed' }),
   colour: Object.freeze({ page: 'reading-the-forecast', section: 'colour' }),
   fiery: Object.freeze({ page: 'reading-the-forecast', section: 'fiery' }),
-  comingUpNew: Object.freeze({ page: 'coming-up', section: 'new' }),
-  comingUpTopics: Object.freeze({ page: 'coming-up', section: 'topics' }),
-  comingUpTides: Object.freeze({ page: 'coming-up', section: 'tides' }),
+  furtherAheadNew: Object.freeze({ page: 'planning', section: 'new' }),
+  furtherAheadTopics: Object.freeze({ page: 'planning', section: 'topics' }),
+  furtherAheadTides: Object.freeze({ page: 'planning', section: 'tides' }),
   mapWindow: Object.freeze({ page: 'map', section: 'window' }),
   mapFilters: Object.freeze({ page: 'map', section: 'filters' }),
   mapHotTopics: Object.freeze({ page: 'map', section: 'hot-topics' }),

@@ -501,12 +501,12 @@ describe('WindowFirstLensBar — what it no longer offers', () => {
 describe('WindowFirstLensBar — guide doors (G3)', () => {
   beforeEach(() => mockOpenGuide.mockClear());
 
-  it('draws a ? after the readout that opens at-a-glance#lens', () => {
+  it('draws a ? after the readout that opens planning#lens', () => {
     render(<Lens />);
     const link = within(screen.getByTestId('window-first-lens')).getByTestId('guide-link');
     expect(link).toHaveAccessibleName('How the drive and rating bar works');
     fireEvent.click(link);
-    expect(mockOpenGuide).toHaveBeenCalledWith('at-a-glance', 'lens', expect.any(Object));
+    expect(mockOpenGuide).toHaveBeenCalledWith('planning', 'lens', expect.any(Object));
   });
 
   it('on a phone the ? is inside the count readout, so it ends that line instead of starting another', () => {
@@ -525,7 +525,7 @@ describe('WindowFirstLensBar — guide doors (G3)', () => {
     // Outside the greyed segment, with the pill: pointer-events:none would make it unpressable inside.
     expect(screen.getByTestId('window-first-lens-controls')).not.toContainElement(why);
     fireEvent.click(why);
-    expect(mockOpenGuide).toHaveBeenCalledWith('at-a-glance', 'lens', expect.any(Object));
+    expect(mockOpenGuide).toHaveBeenCalledWith('planning', 'lens', expect.any(Object));
     unmount();
     render(<Lens />);
     expect(screen.queryByTestId('guide-why')).toBeNull();

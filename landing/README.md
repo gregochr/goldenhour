@@ -123,15 +123,21 @@ to the app. `nginx.conf` maps `/guide/` documents to `frame-ancestors https://ap
 Deploy the landing site before any app release that opens the guide panel; until then /guide/ refuses to be framed.
 
 **Section-id contract.** The app opens exactly these `page#section` ids, and a frontend test checks
-each exists in `guide/`. Rename one here and it must change in the app too: `at-a-glance#lens`,
-`at-a-glance#bestbet`, `reading-the-forecast#fixed`, `reading-the-forecast#colour`,
-`reading-the-forecast#fiery`, `coming-up#new`, `coming-up#topics`, `coming-up#tides`, `map#window`,
+each exists in `guide/`. Rename one here and it must change in the app too: `planning#lens`,
+`planning#bestbet`, `reading-the-forecast#fixed`, `reading-the-forecast#colour`,
+`reading-the-forecast#fiery`, `planning#new`, `planning#topics`, `planning#tides`, `map#window`,
 `map#filters`, `map#hot-topics`, `map#tide`, `night-sky#alerts`, `night-sky#aurora-map`,
 `ask-photocast#typed`, `settings#sub-regions`, `settings#drive`, `settings#radius`, plus the pages
-`at-a-glance`, `coming-up`, `map`, `ask-photocast`, `settings`.
+`planning`, `map`, `ask-photocast`, `settings`.
 
-**Filling a placeholder screenshot.** Placeholders (`map#shot-tide-match`, `at-a-glance#shot-days`,
-`night-sky#shot-banner`, `night-sky#shot-aurora-map`) are `<figure id="shot-…">`
+**Retired pages (one screen, O4a).** `at-a-glance.html` and `coming-up.html` are now redirect stubs
+(a meta refresh plus `moved.js`, which keeps the old `#section`, mapping `coming-up#list` and `#watchlist`
+to `#further-ahead` and `#your-places`, and the `?embed=1`). Both became `planning.html` ("Planning a shoot"),
+which carries every id the two pages had. They are not in `GUIDE_PAGES` or the search index. **Deploy the landing
+site (`release-landing.sh`) before any app build that links `planning.html`**, or those in-app links 404.
+
+**Filling a placeholder screenshot.** Placeholders (`map#shot-tide-match`, `planning#shot-warn-coming-up`,
+`night-sky#shot-banner`) are `<figure id="shot-…">`
 blocks holding a `<div class="ph">`. Add the WebP to `guide/shots/`, replace the `ph` div with an
 `<img src="shots/name.webp" width height alt>` like its neighbours, and deploy; no `COPY` line is needed.
 

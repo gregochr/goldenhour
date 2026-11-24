@@ -357,7 +357,7 @@ The rest of this section is the handoff's §5, in `landing/guide/` and the landi
 - **New and rewritten pages:**
   - `getting-started.html` becomes the workflow.
   - `at-a-glance.html` → `planning.html` (`#this-week`, `#further-ahead`, `#watch-a-date`), with a meta-refresh stub left at the old address.
-  - `coming-up.html` folds into `planning.html` and is deleted. Every link and anchor is repointed, along with `guide-search.js`, the hub, `utils/guide.js` (`TAB_GUIDE` becomes a screen/map map) and `guideSections.test.js`.
+  - `coming-up.html` folds into `planning.html`. **Both old pages (`at-a-glance.html` and `coming-up.html`) are kept as redirect stubs, not deleted**: links to them exist in the wild (the landing, the FAQ, bookmarks and app builds already out). Each is a meta refresh (3 s, so the script decides first) plus `moved.js`, which keeps the old `#section` (`#list` becomes `#further-ahead`, `#watchlist` becomes `#your-places`) and `?embed=1`. They are not in `GUIDE_PAGES` or the search index. Every link and anchor is repointed, along with `guide-search.js`, the hub, `utils/guide.js` (`TAB_GUIDE` becomes `SCREEN_GUIDE`) and `guideSections.test.js`.
   - `map.html` is rewritten.
 - **Edits to existing pages:** `your-places.html` gets watched dates. Every page is grepped for "tab", "Coming up", "Map tab", "At a Glance" and "Glance".
 - **Screenshots:** new webp shots replace every one showing the tab bar or the Coming up tab, each opened and checked.

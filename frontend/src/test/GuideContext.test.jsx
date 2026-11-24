@@ -256,10 +256,10 @@ describe('the message listener', () => {
   it('takes the title and page from the frame it owns and points "Open in new tab" at them', () => {
     mount();
     press('door-map');
-    post(report({ page: 'coming-up.html', title: 'Coming up.', hash: '#tides' }));
-    expect(screen.getByTestId('guide-title')).toHaveTextContent('Further ahead');
+    post(report({ page: 'planning.html', title: 'Planning a shoot.', hash: '#tides' }));
+    expect(screen.getByTestId('guide-title')).toHaveTextContent('Planning a shoot');
     expect(screen.getByTestId('guide-new-tab')).toHaveAttribute(
-      'href', `${GUIDE_ORIGIN}/guide/coming-up.html#tides`,
+      'href', `${GUIDE_ORIGIN}/guide/planning.html#tides`,
     );
   });
 
@@ -444,7 +444,7 @@ describe('tab changes', () => {
     const probe = makeProbe();
     installViewport(1280);
     const view = render(<Harness probe={probe} tab="plan" />);
-    act(() => probe.guide.openGuide('at-a-glance'));
+    act(() => probe.guide.openGuide('planning'));
     const before = frame();
     view.rerender(<Harness probe={probe} tab="map" />);
     expect(frame().getAttribute('src')).toContain('/map.html?embed=1');
@@ -457,7 +457,7 @@ describe('tab changes', () => {
     installViewport(1280);
     const view = render(<Harness probe={probe} tab="plan" />);
     act(() => probe.guide.openGuide('settings'));
-    post(report({ page: 'at-a-glance.html', title: 'This week.', hash: '' }));
+    post(report({ page: 'planning.html', title: 'Planning a shoot.', hash: '' }));
     view.rerender(<Harness probe={probe} tab="map" />);
     expect(frame().getAttribute('src')).toContain('/map.html');
     // ...and the reverse: a frame that wandered off the old tab's page stays where the reader took it.

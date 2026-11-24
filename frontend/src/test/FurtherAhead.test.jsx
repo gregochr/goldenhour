@@ -851,7 +851,7 @@ describe('FurtherAhead — guide doors (G3)', () => {
     expect(chips.lastElementChild).toBe(link);
     const before = within(chips).getAllByTestId('coming-up-chip').map((c) => c.getAttribute('aria-pressed'));
     fireEvent.click(link);
-    expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'topics', expect.any(Object));
+    expect(mockOpenGuide).toHaveBeenCalledWith('planning', 'topics', expect.any(Object));
     expect(within(chips).getAllByTestId('coming-up-chip').map((c) => c.getAttribute('aria-pressed'))).toEqual(before);
   });
 });

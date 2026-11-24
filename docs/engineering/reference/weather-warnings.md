@@ -400,8 +400,8 @@ Tests: `warningsMapWindow.test.js`, `MapWarningChips.test.jsx`, `MapViewWarnings
 ## W5: guides, landing pages and the guide doors
 
 Phase W5 is documentation and help links only; no warning behaviour changed. The guide is a new static page `landing/guide/weather-warnings.html`
-(sections `what`, `levels`, `matrix`, `updated`, `where`, `ratings`, `fresh`, `act`, `credit`), a `#warnings` section on the At a Glance, Map, Coming up
-and Reading the forecast pages (the location sheet and callout are covered inside the At a Glance "Opening a sunrise or sunset" and Map "Locations"
+(sections `what`, `levels`, `matrix`, `updated`, `where`, `ratings`, `fresh`, `act`, `credit`), a `#warnings` section on the Planning a shoot (was At a Glance and Coming up; one-screen-plan.md O4a), Map
+and Reading the forecast pages (the location sheet and callout are covered inside the Planning a shoot "Opening a sunrise or sunset" and Map "Locations and the callout"
 sections), a hub card and Lite/Pro row, search registration (`guide-search.js`), and the landing index, FAQ, acknowledgements and terms. `utils/guide.js`
 gains the `weather-warnings` page and two `GUIDE_SECTIONS` (`warnings` to `#what`, `warningsFresh` to `#fresh`); `guideSections.test.js` pins the new ids, the
 exact attribution, the official colours and both Met Office links. In the app, `WarningFooter` ends with one `GuideLink` (`wf-warning-guide`), so the lane,

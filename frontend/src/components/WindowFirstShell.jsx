@@ -27,7 +27,7 @@ import AskUpsellPopover from './ask/AskUpsell.jsx';
 import { useAsk } from '../context/AskContext.jsx';
 import { useGuide } from '../context/GuideContext.jsx';
 import GuideDock from './guide/GuideDock.jsx';
-import { TAB_GUIDE } from '../utils/guide.js';
+import { SCREEN_GUIDE } from '../utils/guide.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useSubRegionStatus } from '../context/SubRegionStatusContext.jsx';
 import { useWarnings } from '../context/WarningsContext.jsx';
@@ -1316,12 +1316,12 @@ export default function WindowFirstShell({
       ? prev : route));
   }, []);
   /** The guide page the menu's Guide row opens for the screen in force; none on Operations. */
-  const guideTabPage = operationsShown ? null : (TAB_GUIDE[mapOpen ? 'map' : 'plan'] ?? null);
+  const guideScreenPage = operationsShown ? null : (SCREEN_GUIDE[mapOpen ? 'map' : 'plan'] ?? null);
   /** The menu's Guide row: open the screen's page, or close the guide if it is already up. */
   const toggleGuide = () => {
     if (guide.open) guide.closeGuide();
     // Safari does not focus a button on click, so there may be no focused door to return to: name the menu's.
-    else if (guideTabPage) guide.openGuide(guideTabPage, '', { returnFocus: () => menuBtnRef.current });
+    else if (guideScreenPage) guide.openGuide(guideScreenPage, '', { returnFocus: () => menuBtnRef.current });
   };
   const askDialogOpen = modalOpenOverLayer || settingsOpen;
   // Two questions the old `askDisabled` answered at once. `askBlocked` is whether the CONTROL is really
@@ -2273,7 +2273,7 @@ export default function WindowFirstShell({
       }}
       onSignOut={onSignOut}
       onWarmSettings={warmSettingsModal}
-      onGuide={guideTabPage ? toggleGuide : undefined}
+      onGuide={guideScreenPage ? toggleGuide : undefined}
       guideOpen={guide.open}
       guideControls={guideDockShown ? 'wf-guide-dock' : undefined}
       onOperations={onOpenOperations && operationsPane != null

@@ -640,12 +640,12 @@ export default function WindowComingUpEntry({
                   <span className="wf-cu-locked-body" data-testid="coming-up-tide-light-locked-body">
                     {TIDE_LIGHT_LOCKED_BODY}
                   </span>
-                  {!cardIsButton && <GuideWhy section="comingUpTides" />}
+                  {!cardIsButton && <GuideWhy section="furtherAheadTides" />}
                 </span>
               </>
             )}
             {isTideRun && !cardIsButton && (
-              <GuideLink section="comingUpTides" label="How tide entries work" />
+              <GuideLink section="furtherAheadTides" label="How tide entries work" />
             )}
           </div>
           {' '}

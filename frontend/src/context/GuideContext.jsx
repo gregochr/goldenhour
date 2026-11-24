@@ -5,7 +5,7 @@ import PropTypes from 'prop-types';
 import GuidePanel from '../components/guide/GuidePanel.jsx';
 import useAskSurface from '../hooks/useAskSurface.js';
 import {
-  GUIDE_LABEL, GUIDE_PAGES, MODAL_DIALOG_SELECTOR, TAB_GUIDE, guideUrl,
+  GUIDE_LABEL, GUIDE_PAGES, MODAL_DIALOG_SELECTOR, SCREEN_GUIDE, guideUrl,
 } from '../utils/guide.js';
 
 /** What a close last did, for the shell: it restores the Ask dock and decides whether to focus it. */
@@ -64,7 +64,7 @@ const LAYER_SELECTOR = '[role="dialog"]';
  *
  * <p><b>Screens.</b> Presentations 2 and 3 close when the active screen changes (an effect keyed on the screen,
  * never during render). Presentation 1 follows the reader: if the page it is
- * showing is the old screen's {@code TAB_GUIDE} page it loads the new screen's, otherwise it stays; Operations
+ * showing is the old screen's {@code SCREEN_GUIDE} page it loads the new screen's, otherwise it stays; Operations
  * has no guide page and closes it.
  *
  * @param {object} props
@@ -182,14 +182,14 @@ export function GuideProvider({ children, activeScreen }) {
       closeGuide({ restoreFocus: false });
       return;
     }
-    if (activeScreen === 'operations' || !TAB_GUIDE[activeScreen]) {
+    if (activeScreen === 'operations' || !SCREEN_GUIDE[activeScreen]) {
       closeGuide({ restoreFocus: false });
       return;
     }
     const showing = trackedRef.current?.page ?? current.page;
-    if (TAB_GUIDE[before] && showing === TAB_GUIDE[before]) {
+    if (SCREEN_GUIDE[before] && showing === SCREEN_GUIDE[before]) {
       nonceRef.current += 1;
-      commit({ ...current, page: TAB_GUIDE[activeScreen], hash: '', nonce: nonceRef.current });
+      commit({ ...current, page: SCREEN_GUIDE[activeScreen], hash: '', nonce: nonceRef.current });
     }
   }, [activeScreen, closeGuide, commit]);
 

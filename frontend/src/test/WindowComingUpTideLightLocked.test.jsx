@@ -227,7 +227,7 @@ describe('WindowComingUpEntry — guide doors on a tide run (G3)', () => {
     render(<WindowComingUpEntry entry={view({ lightRowsWithheld: true })} onGoToPlan={onGoToPlan} onShowOnMap={onShowOnMap} />);
     const why = within(screen.getByTestId('coming-up-tide-light-locked')).getByTestId('guide-why');
     fireEvent.click(why);
-    expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'tides', expect.any(Object));
+    expect(mockOpenGuide).toHaveBeenCalledWith('planning', 'tides', expect.any(Object));
     expect(onGoToPlan).not.toHaveBeenCalled();
     expect(onShowOnMap).not.toHaveBeenCalled();
   });
@@ -242,7 +242,7 @@ describe('WindowComingUpEntry — guide doors on a tide run (G3)', () => {
     const link = within(screen.getByTestId('coming-up-facts')).getByTestId('guide-link');
     expect(link).toHaveAccessibleName('How tide entries work');
     fireEvent.click(link);
-    expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'tides', expect.any(Object));
+    expect(mockOpenGuide).toHaveBeenCalledWith('planning', 'tides', expect.any(Object));
     unmount();
     renderEntry({
       type: 'meteor-shower',
