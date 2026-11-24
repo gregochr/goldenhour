@@ -91,7 +91,9 @@ vi.mock('../components/map/FiltersPopover.jsx', () => ({
   DRIVE_TIME_TIERS: [[0, 'Any'], [45, '45 min'], [90, '1h 30'], [150, '2h 30']],
 }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
-vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
+/** The phone layout, switched per test. */
+let phone = false;
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => phone }));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
@@ -180,6 +182,7 @@ const fits = () => cameraLog.filter((c) => c === 'fitBounds').length;
 const flies = () => cameraLog.filter((c) => c === 'flyTo').length;
 
 beforeEach(() => {
+  phone = false;
   localStorage.clear();
   cameraLog.length = 0;
   fitArgs.length = 0;
@@ -301,5 +304,63 @@ describe('MapView door camera - held while the Map pane is hidden', () => {
     expect(flies()).toBe(1);
     await act(async () => { fireResize(); });
     expect(flies()).toBe(1);
+  });
+
+  describe('a window door frames home and its best place (frame: home-and-place)', () => {
+    const HOME = { lat: 55.0, lon: -1.6 };
+    /** The fits made by the door's `FitBoundsController` (a `{points}` bounds), not the heat field's. */
+    const doorFits = () => fitArgs.filter(([bounds]) => bounds?.points);
+    const framed = { ...DOOR_BASE, locationName: 'Far', frame: 'home-and-place' };
+
+    it('fits [home, place] with maxZoom 11 and the door insets, and does not fly', async () => {
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(1);
+      expect(flies()).toBe(0);
+      expect(doorFits()[0][0].points).toEqual([[55.0, -1.6], [FAR.lat, FAR.lon]]);
+      expect(doorFits()[0][1]).toEqual({
+        paddingTopLeft: [80, 90], paddingBottomRight: [80, 90], maxZoom: 11, animate: true,
+      });
+    });
+
+    it('uses the phone insets (clear of the 74px peek sheet) on a phone', async () => {
+      phone = true;
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(1);
+      expect(doorFits()[0][1]).toEqual({
+        paddingTopLeft: [48, 90], paddingBottomRight: [48, 150], maxZoom: 11, animate: true,
+      });
+    });
+
+    it('holds at 0x0 and fits once on resize', async () => {
+      containerBox = { clientWidth: 0, clientHeight: 0 };
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(0);
+      containerBox = { clientWidth: 1200, clientHeight: 600 };
+      await act(async () => { fireResize(); });
+      expect(doorFits()).toHaveLength(1);
+      expect(doorFits()[0][1].maxZoom).toBe(11);
+    });
+
+    it('flies to the place when there is no home coordinate', async () => {
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: null });
+      expect(doorFits()).toHaveLength(0);
+      expect(flies()).toBe(1);
+    });
+
+    it('flies to the place under an away origin, which draws no home', async () => {
+      await renderTab({
+        planHandoff: { ...framed, nonce: 1 },
+        homeCoords: HOME,
+        origin: { id: 7, name: 'Lake District', baseName: 'Keswick' },
+      });
+      expect(doorFits()).toHaveLength(0);
+      expect(flies()).toBe(1);
+    });
+
+    it('a place door without the frame still flies, even with a home', async () => {
+      await renderTab({ planHandoff: { ...DOOR_BASE, locationName: 'Far', nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(0);
+      expect(flies()).toBe(1);
+    });
   });
 });

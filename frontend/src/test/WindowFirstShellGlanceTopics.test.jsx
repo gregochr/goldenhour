@@ -271,6 +271,8 @@ describe('WindowFirstShell — a days-ahead lane goes to its window, never to Co
     await act(async () => { fireEvent.click(await pillFor('SPRING_TIDE')); });
 
     expect(onOpenMapTab).toHaveBeenCalledTimes(1);
+    // A window door: the map frames home and the window's best place together.
+    expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ kind: 'event', frame: 'home-and-place' }));
     // Nothing scrolled to an entry, nothing moved to a tab.
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
     expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();

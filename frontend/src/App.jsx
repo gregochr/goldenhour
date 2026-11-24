@@ -837,6 +837,8 @@ function AppInner() {
       minRating: door.minRating ?? null,
       limitMinutes: door.limitMinutes ?? null,
       locationName: door.locationName ?? null,
+      // A window door's camera: home and the best place together. ABSENT unless the door asked.
+      ...(door.frame ? { frame: door.frame } : {}),
       // The overlay-convergence fields (C1, C4). ABSENT, not null, when the door carries none, so a
       // plain door's payload is exactly what it was and `MapView` reads absence as "not asked".
       ...(door.night ? { night: door.night } : {}),

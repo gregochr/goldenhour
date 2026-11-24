@@ -358,6 +358,30 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     expect(plain).not.toHaveProperty('topicType');
   });
 
+  it('a window door\'s frame rides the event trigger and lands on the door only when a single place resolved', () => {
+    expect(normalizeMapTrigger({ kind: 'event', date: DATE, eventType: 'SUNSET', frame: 'home-and-place' }))
+      .toMatchObject({ frame: 'home-and-place' });
+    expect(normalizeMapTrigger(DATE, 'SUNSET')).not.toHaveProperty('frame');
+    const one = doorFromTrigger(
+      { kind: 'event', date: DATE, eventType: 'SUNSET', frame: 'home-and-place' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(one).toMatchObject({ locationName: 'Top', frame: 'home-and-place' });
+    // Several regions fit their pins and name no place, so there is nothing to frame home with.
+    const many = doorFromTrigger(
+      { kind: 'event', date: DATE, eventType: 'SUNSET', frame: 'home-and-place' },
+      ctx([loc('A', 'Tyne and Wear', 4), loc('B', 'Lake District', 3)]),
+    );
+    expect(many.locationName).toBeNull();
+    expect(many).not.toHaveProperty('frame');
+    // A place door that asked for none stays unframed.
+    const place = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(place).not.toHaveProperty('frame');
+  });
+
   it('aurora: names the night and the AURORA event; no lens fields at all', () => {
     const door = doorFromTrigger({ kind: 'aurora', date: DATE }, ctx([]));
     expect(door).toEqual({

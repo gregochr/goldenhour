@@ -1,4 +1,4 @@
-import { test, expect, loginAndWaitForForecast } from './fixture.js';
+import { test, expect, loginAndWaitForForecast, openOperations } from './fixture.js';
 
 /**
  * The map view (`docs/engineering/one-screen-plan.md` O1) as a reader meets it: a Glance card opens it over the
@@ -196,5 +196,20 @@ test.describe('The map view over the screen', () => {
     await page.goBack();
     await expect(page.getByTestId('map-screen')).toBeHidden();
     await settled(page, 0);
+  });
+});
+
+test.describe('The map view\'s address after Operations', () => {
+  test('an admin who leaves Operations and presses a card sees #map/..., never the Operations address', async ({ page }) => {
+    test.setTimeout(60_000);
+    await loginAndWaitForForecast(page, 'admin');
+    await openOperations(page);
+    expect(await page.evaluate(() => window.location.hash)).toMatch(/^#manage/);
+    await page.getByTestId('operations-back').click();
+    await expect(page.getByTestId('operations-screen')).toHaveCount(0);
+    await (await cardAt(page)).card.click();
+    await expect(page.getByTestId('map-screen')).toBeVisible();
+    await settled(page, 1);
+    expect(await page.evaluate(() => window.location.hash)).toMatch(/^#map\/\d{4}-\d{2}-\d{2}\/(sunrise|sunset)/);
   });
 });

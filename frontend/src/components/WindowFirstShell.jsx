@@ -69,6 +69,8 @@ import useStuckSentinel from '../hooks/useStuckSentinel.js';
  * (a card becomes a plain card, a chip is dimmed) - a control that opens nothing is banned.
  */
 const NO_MAP_DOOR = () => {};
+/** The camera a window door asks of the map: frame the reader's home and the window's best place together. */
+const HOME_AND_PLACE = 'home-and-place';
 /** "Known empty": the Coming up pane's way of withholding every map door. */
 const NO_FORECAST_DATES = Object.freeze([]);
 
@@ -875,10 +877,11 @@ export default function WindowFirstShell({
    * @param {?object} [request.trigger] a normalised trigger from `normalizeMapTrigger`
    * @param {boolean} [request.loadTime] the open came from the page's own address, not a press
    * @param {?string} [request.note] a line the view shows under its header
+   * @param {?string} [request.frame] `'home-and-place'` for a window door: the camera frames home and its best place
    */
   const openMap = (request = {}) => {
     const {
-      window: win = null, focus = null, from = null, trigger = null, loadTime = false, note = null,
+      window: win = null, focus = null, from = null, trigger = null, loadTime = false, note = null, frame = null,
     } = request;
     const inPlace = mapOpen;
     let door = trigger;
@@ -906,7 +909,9 @@ export default function WindowFirstShell({
         door = normalizeMapTrigger({ kind: 'event', date: win.date, eventType: win.eventType });
       }
     }
-    if (door) door = { ...door, outlierKeys };
+    // A WINDOW door's camera (`'home-and-place'`), set only by the callers that open a window (a Glance card, a lane,
+    // a Your places chip); a door about a place (the location sheet, Find, Ask, the area sheet) never passes one.
+    if (door) door = { ...door, outlierKeys, ...(frame ? { frame } : {}) };
     if (door && onOpenMapTab) {
       openMapDoor({
         // Every map door takes the layers under it down too, the area sheet included (it can sit under a place sheet).
@@ -1885,7 +1890,8 @@ export default function WindowFirstShell({
     const [date, eventType] = String(key).split(':');
     if (!date || !eventType) return;
     showOnMap({
-      kind: 'event', date, eventType, ...(topicType ? { topicType: String(topicType).toUpperCase() } : {}),
+      kind: 'event', date, eventType, frame: HOME_AND_PLACE,
+      ...(topicType ? { topicType: String(topicType).toUpperCase() } : {}),
     });
   };
   /**
@@ -2056,7 +2062,7 @@ export default function WindowFirstShell({
       openMap({ window: win, focus: { kind: 'names', focusNames: names }, from });
       return;
     }
-    openMap({ window: win, focus, from });
+    openMap({ window: win, focus, from, frame: HOME_AND_PLACE });
   };
   /** The area sheet's foot: the Map on the area's best window, with the area's spots as the named-spot lens. */
   const showAreaOnMap = (area) => {

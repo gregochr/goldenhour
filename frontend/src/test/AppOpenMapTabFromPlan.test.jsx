@@ -277,9 +277,14 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
 
   it('a plain door\'s payload carries NONE of the new fields - absent, not null', async () => {
     const handoff = await press(DOOR);
-    for (const key of ['night', 'focusNames', 'focusPoints', 'filterAction', 'darkSky']) {
+    for (const key of ['night', 'focusNames', 'focusPoints', 'filterAction', 'darkSky', 'frame']) {
       expect(handoff).not.toHaveProperty(key);
     }
+  });
+
+  it('a window door\'s frame rides the handoff for the map\'s camera', async () => {
+    const handoff = await press({ ...DOOR, frame: 'home-and-place' });
+    expect(handoff).toMatchObject({ source: 'plan', frame: 'home-and-place' });
   });
 
   it('a door that already names its fields passes them through to the handoff', async () => {
