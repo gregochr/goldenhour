@@ -5,6 +5,89 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.41.2] - 2026-11-24
+
+### Added — Watch a date (one screen, O2b; Pro)
+
+An open entry in Further ahead now has a **☆ Watch this date** button. A watched date joins **Your places** at the top of This week as a chip, earliest first: beyond the forecast it reads "★ 🌊 King tide · 3 Dec" with "in 10 days" (a tap scrolls to the entry and opens it), and once its dates reach the forecast it becomes that morning's plan, such as "King tide · Fri, sunrise 07:48 · best Crimdon Beach 4★ · tide on the light", and a tap opens the map on that window. For a tide the window is the one the tide data marks as on the light (the better-rated when two tie); other topics open their own window, and a meteor peak, which has none, says "clear-sky check on the night" and opens nothing. A watch follows its date if a tide run is reclassified or its start moves a few days, drops off the row once the date has passed, and is deleted two weeks after its start. A Lite reader sees the button with the Pro pill and a worded upsell. Watched dates share the 25-place cap, which now reads "You can keep up to 25 places and dates." They are never places: Ask and the merged place list never see them, and the shared almanac carries no personal data. Backend: `V229` adds `almanac_key` to `user_favourite` with a three-way one-target CHECK and a partial unique index, and `POST`/`DELETE /api/user/settings/favourites/dates/{key}` (Lite 403, bad key 400, cap 409) with the dates also served on `GET`. Review round 1: every watched chip has its own × to stop watching (including one whose date has become a lane, or that the feed no longer lists); the NLC season cannot be watched, since its start is clipped; a date beyond the almanac's 90 days is refused; and un-watching several matched dates is one Undo.
+
+### Changed — Further ahead: the almanac moves to the bottom of the forecast screen (one screen, O2)
+
+Coming up's almanac is now **Further ahead**, the bottom section of the forecast screen, under a sticky "Further ahead · dates known in advance" heading, and the forecast above it is headed "This week · forecast" with a "Further ahead ↓" jump at the right that carries the NEW badge ("Further ahead, 2 new dates"). The badge keeps today's rules: "Mark seen" clears it, scrolling past does not, and the one-off first-visit write now fires when the heading first reaches the viewport. The filter chips are remembered in this browser (`furtherAheadFilter`), so a reader who lives in Coastal opens on it. A date that already shows as a lane under its day in This week is no longer listed twice, and a lane that has nowhere to go is plain text rather than a button; entries with no lane stay listed, in date order. Your places is now one row of compact chips at the top of This week (a chip with a good window opens the map on it, otherwise its sheet; a Lite reader sees the one-line Pro teaser there). The Coming up tab still exists for one more phase but is a door onto the new section and nothing else links to it. Ask offers the rare-events and snow-on-the-tops questions on the plan view, and the server reads an old client's `coming-up` view as `plan` for one release. Review round 1: the arrow keys step over the Coming up door instead of jumping to the section, the jump and the heading show one badge counted from the dates Further ahead actually lists, a date no longer drops out of both places when the matrix has nothing to draw, jumps scroll the section (not its sticky heading) into place, and Find opens in view from the bottom of the screen.
+
+### Fixed — the map view: focus, keyboard, address and the notes it states (review round 1)
+
+Closing the map view always puts focus on the control that opened it, or on the selected tab, never on a hidden title.
+The session-expiry notice stays usable above the view while the banners and footer behind it are inert. The scrim
+closes on a click that began on it, not on the pointer going down, so a touch no longer reaches what is under the
+closing view. ←/→ on the header step the window, Escape works with focus on the page itself, and Escape in the window
+control's menu closes only the menu. The view's address is taken down when a sheet replaces it ("Open in Plan"), is
+rewritten after Back lands on the base entry, is republished when the view reopens and reopens an aurora or astro
+night; a ⌘K pressed as the first gesture no longer inverts Back. The note over the map again states the rating floor,
+reach tier and region a door carried, with one Clear; an away origin can be reset from the view's header; the dock edge
+is measured in the commit that needs it. Removed the code the strip left behind (`doorHeadline`, the door's
+`title`/`caption`/`from`, `tabRequest.opener` and the masthead's `isMapTab`/`hideAtHome`).
+A `#map/<date>/night` or `/aurora` address dated yesterday no longer opens with "has passed" in the small hours: a night belongs to its evening's date, so only an earlier one has passed.
+The page behind the view no longer stays inert if the shell crashes with the view open; the view starts below the pinned
+session notice instead of under it; ←/→ on the header use the window control's own stepping rules (no stepping while an
+older day loads, ‹ at the oldest fetches the older day); Escape with focus on the page closes only the view even with an
+Operations panel open behind it; and a `#map/...` address the page loaded on is only taken down once a layer has adopted it.
+
+### Fixed — Reopening the map view after closing it before it finished loading no longer lands zoomed in on an empty field
+
+If the map view was closed before the map's lazy chunk had landed, the map was built behind the hidden view and the door's camera (fit to a window's places, or fly to a place) ran against a 0x0 box, clamping to zoom 12 and leaving the reopened view on an empty stretch of country with no chips. Both door cameras now hold while the map has no size and run once it does. This was the cause of the red `E2E — Playwright smoke` on `no inline <style> element appears on any main tab`.
+
+### Fixed — The Lite lens dims its tier buttons, not its caption
+
+For a Lite reader the reach control ("Drive from home") was greyed as a whole, which also dimmed its caption below the contrast an accessibility check requires. The lock now dims only the tier buttons; the caption and the Pro pill stay at full strength.
+
+### Changed — the map opens as a view over the screen, not as a tab
+
+The Map is now a view (`docs/engineering/one-screen-plan.md`, phase O1): a labelled region, drawn over the screen you
+came from, with a header that carries the window's title, verdict, best star and confidence, the one window control
+(‹ ›), Find, your origin and, on a tablet or desktop, the Ask field, and a close button. A Glance card, a lane, a Coming
+up card, a Find pick, a spot row, the location sheet's footer, the area sheet's foot, Ask's "Show on map" and the aurora
+banner all open it through one function. Close, Escape or Back puts you back on the same card with the page where you
+left it (the page behind never moves; it only goes inert, and its scroll is locked while the view is open). The Map is
+still reachable from a button beside the tabs, but it is no longer a tab.
+
+The view has an address, `#map/<date>/<sunrise|sunset|night|aurora>[/<place id>]`, kept in step with the window and the
+selected place by the dialog-history engine (a sheet or Find over the view inherits it, and a window step while one
+stands keeps it right). Reloading, or following the link, reopens the view on that window; a window that has passed or
+is not forecast yet opens the view with a one-line note, and an unknown place opens it with no place selected. The map's
+code is fetched when the browser is idle after first paint, and the pane is built the first time the view opens, so a
+reader never sees it built inside a hidden panel.
+
+Removed with the tab: the map tab panel, the "Where you came from" landing strip (a named-spot or subject lens a door
+applied is now stated by a small "Showing …" note with a Clear button), the arrival Back layer and the opening-tab
+preload.
+
+### Chore — best-bet advisor retirement R2b-2: drop the two unmapped columns
+
+Migration V228 drops `pipeline_run.best_bet_status` and `model_selection.extended_thinking`, which no entity has
+mapped since R2b-1. It is irreversible and ships only after the release containing R2b-1 is deployed. No ratings,
+verdicts or prompts change.
+
+### Test — Map warning Details E2E
+
+The seeded E2E fixture now carries one Met Office weather warning (a Yellow rain warning over the Lake District's six
+places, valid for the T+1 sunset window only), written through the same repository the poller uses, with the smoke script
+giving the warnings feature a fake key, a dead loopback base URL and a 24-hour staleness bound. A new Playwright case in
+`map-glance.spec.js` opens the Map on that window and drives the chip's Details toggle (expand, collapse, the panel's close
+button and Escape). Test-only: no production code changes.
+
+### Test — Map phone overflow check
+
+A new smoke spec, `map-phone-overflow.spec.js`, checks the Map's phone states (default, Best bet reason, Regions, Filters, windows, List, callout) at 360, 375 and 390 wide under Chromium mobile emulation. It asserts no element outside the viewport, no inner horizontal scroller and no clipped overflow, measured on boxes because the Map root and sheets hide overflow from the document's own scroll width. No source changed: nothing overflowed at those widths. (At 320 the List sheet's segmented control overflows by about 3px; that width stays report-only.)
+
+### Docs — Guide Map screenshots
+
+The guide's Map page now carries real captures of the warning chip (`#shot-warn-map-chips`) and a location callout with a warning chip (`#shot-warn-callout`), and At a Glance carries a sunrise opened on the Map (`#shot-open`), all taken as the `pro` reader from the seeded E2E stack. The seeded Met Office warning's wording is paraphrased and will appear publicly: the owner approves it before `release-landing.sh` runs.
+
+### Docs — Glance-to-Map follow-ups plan
+
+Records the plan and review questions for the warning Details E2E (#1911), the phone overflow check (#1910) and the guide screenshots (#1912).
+
 ## [v2.41.1] - 2026-11-22
 
 ### Chore — best-bet advisor retirement R2b-1: drop the pick table and the model row
