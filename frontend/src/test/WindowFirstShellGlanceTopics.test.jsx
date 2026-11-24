@@ -201,8 +201,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
-const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 
 const pillFor = async (type) => (await screen.findAllByTestId('wf-glance-lane'))
   .find((b) => b.getAttribute('data-topic') === type);
@@ -268,7 +266,7 @@ describe('WindowFirstShell — an entry never vanishes from both places', () => 
 describe('WindowFirstShell — a days-ahead lane goes to its window, never to Coming up', () => {
   it('a lane with an almanac entry opens its window on the map, with the topic emphasised', async () => {
     const { onOpenMapTab } = await renderShell();
-    await waitFor(async () => expect(await pillFor('SPRING_TIDE')).toHaveAccessibleName(/opens the At a Glance window$/));
+    await waitFor(async () => expect(await pillFor('SPRING_TIDE')).toHaveAccessibleName(/opens that window on the map$/));
 
     await act(async () => { fireEvent.click(await pillFor('SPRING_TIDE')); });
 
@@ -277,7 +275,7 @@ describe('WindowFirstShell — a days-ahead lane goes to its window, never to Co
     expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ kind: 'event', frame: 'home-and-place' }));
     // Nothing scrolled to an entry, nothing moved to a tab.
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
   });
 
   it('names no Coming up destination on any lane', async () => {
@@ -294,7 +292,7 @@ describe('WindowFirstShell — a days-ahead lane goes to its window, never to Co
     const dust = await pillFor('DUST');
     expect(dust.tagName).toBe('DIV');
     await act(async () => { fireEvent.click(dust); });
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 });
@@ -315,7 +313,7 @@ describe('WindowFirstShell — a Further ahead card\'s "plan" action goes up to 
 
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('this-week-heading')).toHaveFocus();
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
   });
 });
 
@@ -330,7 +328,7 @@ describe('WindowFirstShell — the "Further ahead ↓" jump', () => {
     // The request names no entry, so the section answers "not found" and the shell falls back to its heading.
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('further-ahead-heading')).toHaveFocus();
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
   });
 
   it('a second press is a new request, answered again', async () => {

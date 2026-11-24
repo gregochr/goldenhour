@@ -59,13 +59,13 @@ describe('the Ask upsell popover\'s placement and stacking', () => {
   const bar = () => ruleNaming('.wf-ask-upsell-pop[data-placement="bar"]');
   const zOf = (rule) => Number(/z-index:\s*(\d+)/.exec(rule.body)?.[1]);
 
-  it('hangs the field\'s popover from the tab row, right-aligned, 320px, clamped to the column', () => {
+  it('hangs the field\'s popover from the masthead\'s tools cluster, right-aligned, 320px, clamped to it', () => {
     expect(field().body).toMatch(/position:\s*absolute/);
     expect(field().body).toMatch(/top:\s*100%/);
-    expect(field().body).toMatch(/right:\s*var\(--wf-gutter\)/);
+    expect(field().body).toMatch(/right:\s*0/);
     expect(field().body).toMatch(/width:\s*320px/);
     expect(field().body).toMatch(/max-width:\s*calc\(100% - 16px\)/);
-    expect(ruleNaming('.wf-tabrow').body).toMatch(/position:\s*relative/);
+    expect(ruleNaming('.wf-mast-tools').body).toMatch(/position:\s*relative/);
   });
 
   it('fixes the bar\'s popover at the bar\'s own sides, above it, at the bar\'s own tier', () => {
@@ -77,23 +77,15 @@ describe('the Ask upsell popover\'s placement and stacking', () => {
   });
 
   it('keeps every Ask upsell z-index above 0 and below Modal\'s z-50 and the sheet scrim', () => {
-    const open = ruleNaming('.wf-tabrow[data-ask-upsell="open"]');
-    expect(open).toBeDefined();
-    for (const rule of [field(), bar(), open]) {
+    for (const rule of [field(), bar()]) {
       expect(zOf(rule)).toBeGreaterThanOrEqual(1);
       expect(zOf(rule)).toBeLessThan(50);
     }
   });
 
-  it('raises the tab row only while the popover is open, so it paints over the Map\'s own stacking context', () => {
-    expect(ruleNaming('.wf-tabrow').body).not.toMatch(/z-index/);
-    expect(zOf(ruleNaming('.wf-tabrow[data-ask-upsell="open"]'))).toBeGreaterThan(0);
-  });
-
-  it('keeps the raised tab row below the masthead\'s z-index 45, so it never ties with .wf-mast', () => {
-    const mast = zOf(ruleNaming('.wf-mast'));
-    expect(mast).toBe(45);
-    expect(zOf(ruleNaming('.wf-tabrow[data-ask-upsell="open"]'))).toBeLessThan(mast);
+  it('needs no raised row of its own: the masthead is a z-index 45 stacking context that already beats the map\'s chrome', () => {
+    expect(css).not.toMatch(/data-ask-upsell/);
+    expect(zOf(ruleNaming('.wf-mast'))).toBe(45);
   });
 
   it('gives the sketch CanvasText fills and strokes in forced colours, so it does not vanish', () => {

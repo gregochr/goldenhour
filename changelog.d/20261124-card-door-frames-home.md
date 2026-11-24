@@ -5,9 +5,3 @@ the map always landed zoomed in on one spot. It now frames your home and that pl
 with room for the callout, the header and the phone's sheet), and still opens the place's callout. Without a saved home, or
 under an away origin, it flies to the place as before; doors about a place (the location sheet, Find, the area sheet, Ask)
 are unchanged.
-
-### Fixed — the map view showed `#manage/...` after a visit to Operations
-
-An admin who left Operations and pressed a card saw the map view open under the stale Operations address instead of its own
-`#map/...`. Leaving Operations now clears its address, and the view pushes its own entry over a stale one, so Back returns
-to where you were.

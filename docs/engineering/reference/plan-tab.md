@@ -1,6 +1,14 @@
 # Plan tab, Daily Briefing, Plan-screen confidence and the neighbour guard
 
-> **Label (coming-up-glance-plan.md R1):** the tab's user-facing name is **At a Glance** (phone: **Glance**) since that phase. This file, the code and every identifier still say "Plan tab" / `plan`.
+> **One screen, no tabs (one-screen-plan.md O3, 2026-11-24).** There is no tab bar, no "At a Glance" name and no Coming up tab. The screen is **This week** (the matrix, Your places) over **Further ahead** (the almanac feed); the map is a full-screen **view** over it and **Operations** is an admin-only view. This file still says "Plan tab" for the matrix section and `plan` for the id (the Ask view, the `window-first-pane` test id). Read the sections below with that translation; the section "The one screen" is current truth.
+
+## The one screen (one-screen-plan.md O3)
+
+- **No tablist, no `selectTab`, no opening tab.** `WindowFirstShell` draws the masthead and one column. Every device opens on This week (phone, tablet and desktop alike); the map view opens only from a door, or from a `#map/...` address. `utils/initialTab.js`, `tabLabels.js`, `GlanceLabel.jsx`, `TABS`, `openedTabs`, the tab focus management and the Coming up tab and door are deleted. Section words: **This week**, **Further ahead**, the map.
+- **`closeShellLayers()` is the one list of what a dialog is** (it replaced `selectTab`'s body). Every route that leaves the screen, opens a view or opens settings calls it and never inlines the list: the ☰ menu's rows, `openMap`, the settings edge, Operations opening (a render-time edge, like settings), the aurora banner's closer.
+- **The masthead.** Desktop and tablet: brand, the admin's health pill, the Ask field (while the screen shows; the map view's header carries its own) and the ☰ menu. Phone: the compact line (wordmark, golden times, the admin's status dot, ☰) with the AskBar. The origin chip and Find are the tick line's. Settings, Change home postcode, Guide, Operations and Sign out are the menu's rows at every width (the old inline ⚙, `?` and Sign out are gone). `MastheadMenu` keeps the disclosure `role="group"` pattern ("Menu"); Escape closes it and returns focus to the ☰ button, and every row focuses that button before its handler runs.
+- **Operations (D9).** An admin-only full-screen view, open exactly while `location.hash` starts with `#manage` (`hooks/useOperationsRoute.js`; `App` hands `operationsPane` and the opener to an admin only). Pro and Lite get no menu row at all (no pill, no greyed row); a non-admin `#manage` is cleared with a `replaceState` and `ManageView` is never imported for them. `OperationsScreen` (a labelled region with "‹ PhotoCast" and an `h2`) mounts on open and unmounts on close; the screen and masthead are `hidden`, so nothing behind it is reachable. **Never a Back layer**: its tabs already write `#manage/<tab>` entries, so Back steps through them and past the first one out of the view; "‹ PhotoCast" pushes the bare path. Focus: the heading on open, the ☰ button on close. Doors: the menu (`#manage/runs`), the aurora banner for a simulated alert (`#manage/runs/start`, after the map view closes and the engine settles), and a load-time or pasted `#manage/...` link. Tests: `smoke/screen.spec.js`, `useOperationsRoute.test.jsx`, `OperationsScreen.test.jsx`.
+- **Ask's view** is `'map'` while the map view is open and otherwise `'plan'` (`ASK_VIEW`, labels "This week · all regions" and "Map · all regions"); the backend still accepts `coming-up` for one release and maps it to `plan`.
 
 > Moved verbatim from `CLAUDE.md` on 2026-10-22 to keep the always-loaded file small.
 > Read the section you need; this file is not loaded automatically.
@@ -173,7 +181,7 @@ The browser or phone Back button closes the top dialog, where Escape closes it t
   a scrim press no longer closes it either: `Modal`'s `closeOnBackdrop={false}`),
   Settings while the drive-times spinner is up or a delete is in flight.
 - **never registered:** menus and popovers, the docked Ask panel and guide, the Map callout / peek sheet / drilldown panels,
-  and Operations `#manage/...` panels or their in-panel confirm steps: those already push hash entries, so Back would answer twice.
+  and Operations `#manage/...` panels or their in-panel confirm steps: those already push hash entries, so Back would answer twice (the Operations view itself, `OperationsScreen`, is not a layer either).
 
 **PR 2b wires the Plan-shell dialogs, all `close`, all registered by `WindowFirstShell` with `useBackLayer` from its DERIVED
 open state and outside every `Suspense`, never from the lazy dialog's mount** (so a cold chunk neither delays the entry nor
@@ -191,7 +199,7 @@ turns a swap into a pop and a push):
   an area sheet then a place sheet gives depth 2 and the first Back closes the place sheet only.
 - **A swap is the same depth.** `openSheetLayer` replaces the sheet layer in one commit (a place to another place), so the registration stays and the engine makes no `go` and no push. A card that leaves `windowCards` on a data refresh simply unregisters (the engine traverses; `go` needs no
   activation), and a card that returns registers entry-less, which is today's behaviour.
-- **`selectTab` with two layers makes one `go(-2)`**: every route out of the Plan closes its dialogs, and the engine coalesces.
+- **`closeShellLayers` with two layers makes one `go(-2)`**: every route off the screen closes its dialogs, and the engine coalesces.
 - **`!guideModal` on EVERY Find door**: `onOpenSearch` (the button), ⌘K and the beyond line's `onSearchRegion` refuse while the modal guide is
   up, which closes the one three-deep route (sheet, guide, search). The button and ⌘K also refuse over a sheet layer (`stackedOverLayer`), so Find is at most the second layer.
 - Over the Map the location sheet (from the callout's "Four days here") is a layer; the callout under it is not, so Back

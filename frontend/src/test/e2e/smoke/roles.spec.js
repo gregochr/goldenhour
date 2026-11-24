@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, openTab, visibleChips, fetchForecast, starsOf, activeWindowId,
+  test, expect, loginAndWaitForForecast, openMapView, visibleChips, fetchForecast, starsOf, activeWindowId,
   stepIntoPast, clickMiddleChip, apiGet, USERS, CHIP_NAME, OUTSIDE_CHIP,
 } from './fixture.js';
 
@@ -55,10 +55,9 @@ function windowsOf(briefing) {
 
 test.describe('Every non-admin reader', () => {
   for (const role of ['lite', 'pro']) {
-    test(`${role}: no Operations tab, and an admin endpoint is refused with 403`, async ({ page }) => {
+    test(`${role}: an admin endpoint is refused with 403 (the menu has no Operations row: screen.spec.js)`, async ({ page }) => {
       await loginAndWaitForForecast(page, role);
-      await expect(page.getByTestId('window-first-tab-plan')).toBeVisible();
-      await expect(page.getByTestId('window-first-tab-operations')).toHaveCount(0);
+      await expect(page.getByTestId('window-first-pane')).toBeVisible();
 
       // Through page.request, so the 403 is the assertion and never a hygiene finding.
       const refused = await apiGet(page, '/api/admin/scheduler/jobs');
@@ -77,7 +76,6 @@ test.describe('LITE reader', () => {
     await loginAndWaitForForecast(page, 'lite');
 
     // The Plan tab's "Best bets" door, in the heat strip's key row.
-    await openTab(page, 'plan');
     const bestBets = page.getByTestId('wf-heat-bestbets-upsell-trigger');
     await expect(bestBets).toBeVisible();
     await expect(bestBets.locator('.wf-lens-pro')).toBeVisible();
@@ -87,7 +85,7 @@ test.describe('LITE reader', () => {
     await expect(page.getByTestId('wf-heat-bestbets-upsell-popover')).toHaveCount(0);
 
     // The location sheet of a place INSIDE the picks: "Scores and the why".
-    await openMapTab(page);
+    await openMapView(page);
     await visibleChips(page).first().click();
     await page.getByTestId('map-callout-reason').click();
     await expect(page.getByTestId('location-sheet')).toBeVisible();
@@ -126,7 +124,7 @@ test.describe('LITE reader', () => {
     await expect(page.getByTestId('wf-ask-upsell')).toHaveCount(0);
     await page.locator('body').press('/');
     await expect(page.getByTestId('ask-dock')).toHaveCount(0);
-    await openMapTab(page);
+    await openMapView(page);
 
     expect(askRequests, 'a LITE reader makes no /api/ask* request').toEqual([]);
   });
@@ -140,7 +138,7 @@ test.describe('LITE reader', () => {
       }
     });
     await loginAndWaitForForecast(page, 'lite');
-    await openMapTab(page);
+    await openMapView(page);
     await stepIntoPast(page);
     await clickMiddleChip(page);
 
@@ -168,7 +166,12 @@ test.describe('LITE reader', () => {
   test('chips outside the picks are gated, and the callout and the location sheet say so', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page, 'lite');
-    await openMapTab(page);
+    await openMapView(page, 0);
+    // A card opens the map on its own lens (the reach tier and the area it names); the plain Map this spec was written
+    // against showed the whole roster, so widen the scope to everywhere through Filters.
+    await page.getByRole('button', { name: /^Filters/ }).first().click();
+    await page.getByTestId('wf-filters-scope-everywhere').click();
+    await page.keyboard.press('Escape');
 
     // The oracle: what the server served this reader. Exactly one region's six places are gated.
     const forecast = await fetchForecast(page);
@@ -276,11 +279,10 @@ test.describe('PRO reader', () => {
     await expect(page.getByTestId('ask-field-upsell')).toHaveCount(0);
 
     // The Plan tab first: no Best bets door.
-    await openTab(page, 'plan');
     await expect(page.getByTestId('wf-heat-bestbets-upsell-door')).toHaveCount(0);
 
     // The Map: no gated chip, and every visible chip is rated.
-    await openMapTab(page);
+    await openMapView(page);
     await expect(page.getByTestId('map-label-chip-outside')).toHaveCount(0);
     await expect(page.locator('[data-testid="map-label-chip"][data-gated="true"]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: OUTSIDE_CHIP })).toHaveCount(0);

@@ -260,15 +260,24 @@ export function starsOf(rows, evId) {
 }
 
 /**
- * Selects a tab by its id and waits for it to read as selected.
+ * Opens the ☰ menu and waits for its rows. The menu is one mount at every width (one-screen-plan.md D9, D14).
  *
  * @param {import('@playwright/test').Page} page
- * @param {string} id 'plan' | 'coming-up' | 'map' | 'operations'
  */
-export async function openTab(page, id) {
-  const tab = page.getByTestId(`window-first-tab-${id}`);
-  await tab.click();
-  await expect(tab).toHaveAttribute('aria-selected', 'true');
+export async function openMenu(page) {
+  await page.getByTestId('masthead-menu-button').click();
+  await expect(page.getByTestId('masthead-menu')).toBeVisible();
+}
+
+/**
+ * Opens Operations through the ☰ menu's row (admin only) and waits for the view and its content.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function openOperations(page) {
+  await openMenu(page);
+  await page.getByTestId('masthead-menu-operations').click();
+  await expect(page.getByTestId('operations-screen')).toBeVisible();
 }
 
 /**
@@ -284,36 +293,16 @@ export async function openFurtherAhead(page) {
 }
 
 /**
- * Makes the device answer "phone" to the one media query that decides the opening landing, so the page starts on the
- * screen and never on the map view (see {@link loginAndWaitForForecast}). For a spec that signs in by hand.
- *
- * @param {import('@playwright/test').Page} page
- */
-export async function forceScreenLanding(page) {
-  await page.addInitScript(() => {
-    const real = window.matchMedia.bind(window);
-    window.matchMedia = (query) => (String(query).includes('max-height: 499px') ? real('(min-width: 0px)') : real(query));
-  });
-}
-
-/**
- * Signs in, waits for the shell, and waits for the Map door (it is offered only once the forecast has arrived).
- *
- * <p>A tablet or desktop would also open the map VIEW on its own once the forecast lands (the Map landing, kept until
- * the tab model goes: one-screen-plan.md §7 Q1), which is a race with whatever the spec does first. So by default the
- * device answers "phone" to the one media query that decides the landing (`utils/initialTab.js`'s
- * `PHONE_OPENING_QUERY`, the only query naming `max-height: 499px`): every spec starts on the screen, deterministically.
- * A spec about the landing itself passes {@code {settleLanding: false}}.
+ * Signs in, waits for the shell, and waits for the forecast to land: the heat strip's window cards are what the map
+ * view's doors hang from (every device opens on This week, one-screen-plan.md §7 Q1, so there is no landing to settle).
  *
  * @param {import('@playwright/test').Page} page
  * @param {'admin'|'lite'|'pro'} [role] which seeded account
- * @param {{settleLanding?: boolean}} [options]
  */
-export async function loginAndWaitForForecast(page, role = 'admin', { settleLanding = true } = {}) {
-  if (settleLanding) await forceScreenLanding(page);
+export async function loginAndWaitForForecast(page, role = 'admin') {
   await loginAs(page, role);
   await expect(page.getByTestId('window-first-shell')).toBeVisible();
-  await expect(page.getByTestId('window-first-tab-map')).toBeVisible();
+  await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
 }
 
 /** The guide site's origin, which the app frames. Stubbed by {@link stubGuideFrame}: the suite never reaches it. */
@@ -364,16 +353,25 @@ export function visibleChips(page) {
 }
 
 /**
- * Opens the map VIEW through its door beside the tabs and waits until its label layer has measured and placed its
- * chips (`data-placed`), the fonts have loaded and at least one chip is visible, so no spec reads a position
- * mid-placement. (The Map is no longer a tab: one-screen-plan.md D1.)
+ * Opens the map VIEW through a This week card (the third, never the first: it may be the window about to pass) and waits
+ * until its label layer has measured and placed its chips (`data-placed`), the fonts have loaded and at least one chip is
+ * visible, so no spec reads a position mid-placement. (The Map is a view, not a tab, and has no button of its own:
+ * one-screen-plan.md D1.)
  *
  * @param {import('@playwright/test').Page} page
+ * @param {number} [index] which window card to press
+ * @param {{plain?: boolean}} [options] `plain` presses the lens note's Clear, so the map reads as it did when its own
+ *        button opened it: no card's reach tier or rating floor carried over (a few specs assert on the whole roster)
  */
-export async function openMapTab(page) {
-  await page.getByTestId('window-first-tab-map').click();
+export async function openMapView(page, index = 2, { plain = false } = {}) {
+  await page.getByTestId('wf-heat-card').nth(index).click();
   await expect(page.getByTestId('map-screen')).toBeVisible();
   await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
+  if (plain) {
+    // Only once the pane has placed its chips is the lens note drawn or absent for good: a check earlier would skip it.
+    const clear = page.getByTestId('map-lens-note-clear');
+    if (await clear.isVisible()) await clear.click();
+  }
   await page.evaluate(() => document.fonts.ready);
   await expect.poll(() => visibleChips(page).count()).toBeGreaterThan(0);
 }

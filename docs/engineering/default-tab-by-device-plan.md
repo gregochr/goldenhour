@@ -1,5 +1,7 @@
 # Default tab by device — Plan on a phone, Map on a tablet or desktop
 
+> **Superseded (one-screen-plan.md O3, 2026-11-24), whole.** There is no opening tab: every device opens on This week, and `utils/initialTab.js` and its preload are deleted. See `docs/engineering/one-screen-plan.md` §7 Q1.
+
 **Status:** plan, not started. **Scope:** frontend only. No backend, no migration, no new endpoint.
 
 ## 1. The ask

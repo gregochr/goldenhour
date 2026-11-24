@@ -76,7 +76,7 @@ function DayChips({ entry, onShowOnMap }) {
   const leadId = `${entry.id.replace(/[^A-Za-z0-9_-]/g, '-')}-days-lead`;
 
   const open = (chip) => onShowOnMap({
-    kind: 'coming-up',
+    kind: 'further-ahead',
     filterAction: coastal ? 'SEASCAPE' : null,
     darkSky,
     // Names the day picked, so the crumb's headline says which day's map it is.
@@ -306,7 +306,7 @@ DayChips.propTypes = {
  * <h2>The map channel, and why the click seam dispatches by kind (D8, plan §6b)</h2>
  *
  * <p>{@code coastal-spots} and {@code dark-sky-spots} now dispatch through {@code onShowOnMap} with
- * a {@code kind:'coming-up'} handoff object — a new trigger kind (D8), never the {@code kind:'topic'}
+ * a {@code kind:'further-ahead'} handoff object — a new trigger kind (D8), never the {@code kind:'topic'}
  * branch {@code HotTopicStrip} uses today, because P6 deletes that branch outright and a new caller
  * of it would break the moment P6 lands. Both card kinds are interactive as of this phase
  * ({@code utils/comingUpFeed.js}'s {@code interactive} flag now names all three served kinds); the
@@ -335,7 +335,7 @@ DayChips.propTypes = {
  * {@code onGoToPlan} line survives only for an entry over the cap). Its
  * single door named only the peak day, so most of the run had nowhere to go. The chip row replaces
  * the action line, each chip is its own real {@code <button>} (a live one sends the same
- * {@code kind:'coming-up'} handoff the single door does, with ITS date; a day with no forecast is
+ * {@code kind:'further-ahead'} handoff the single door does, with ITS date; a day with no forecast is
  * {@code disabled}), and the card itself is the plain {@code <div>} — never a button, so there are no
  * nested controls — without {@code wf-cu-card-inert}, since the card is not a dead door. This is the
  * stated exception to "a click on the card invokes the entry's single action"; clicking the card body
@@ -362,7 +362,7 @@ DayChips.propTypes = {
  * threshold line, which is why a screen-reader user got a one-line reading of "See the plan for 12
  * Sept →" for a full feature card and nothing else — the richer content ended up reachable only on
  * the entries that are NOT clickable. Leaving the name to compute from content is the fix (the same
- * approach the At a Glance days-ahead lanes in {@code WindowGlanceLanes} use; they are built from content too), which is why the
+ * approach the This week days-ahead lanes in {@code WindowGlanceLanes} use; they are built from content too), which is why the
  * title-row spans below are interleaved with bare {@code {' '}} text-node siblings: JSX drops
  * whitespace-only text that contains a line break rather than collapsing it to a space, so they
  * are what keeps the phrases apart in that one computed name.
@@ -430,7 +430,7 @@ DayChips.propTypes = {
  * @param {object}   props
  * @param {object}   props.entry       a view from {@code buildEntryView}
  * @param {function} props.onGoToPlan  switches to the Plan tab and moves focus there, given a date
- * @param {function} props.onShowOnMap opens the Map tab (the structured door) for a `kind:'coming-up'` handoff object
+ * @param {function} props.onShowOnMap opens the Map tab (the structured door) for a `kind:'further-ahead'` handoff object
  *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
  * @param {boolean}  [props.open]      whether the card shows its body (default true). Closed, only the title
  *                                     line and the date's day are drawn (collapse-and-topic-pips-plan.md §5)
@@ -466,7 +466,7 @@ export default function WindowComingUpEntry({
   /**
    * The one destination a card's action can carry. Switches on the SERVED kind, not on
    * `interactive` (see the class doc's "click seam" section) — `coastal-spots`/`dark-sky-spots` both
-   * route through the same new `kind:'coming-up'` map trigger (D8), differing only in which flag
+   * route through the same new `kind:'further-ahead'` map trigger (D8), differing only in which flag
    * they carry: `filterAction` for a location-type filter (coastal), `darkSky` for the Bortle-class
    * toggle (dark sky) — never both, and never `kind:'topic'`, which P6 deletes.
    */
@@ -475,11 +475,11 @@ export default function WindowComingUpEntry({
       onGoToPlan(entry.action.date);
     } else if (entry.action.kind === 'coastal-spots') {
       onShowOnMap({
-        kind: 'coming-up', filterAction: 'SEASCAPE', label: entry.title, date: entry.action.date,
+        kind: 'further-ahead', filterAction: 'SEASCAPE', label: entry.title, date: entry.action.date,
       });
     } else if (entry.action.kind === 'dark-sky-spots') {
       onShowOnMap({
-        kind: 'coming-up', darkSky: true, label: entry.title, date: entry.action.date,
+        kind: 'further-ahead', darkSky: true, label: entry.title, date: entry.action.date,
       });
     }
   };

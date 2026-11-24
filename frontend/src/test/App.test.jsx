@@ -1,3 +1,4 @@
+import { mapOffered, menuRow, openMapView, openMapWhenOffered, pressMenuRow } from './shellMapDoor.js';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -57,6 +58,9 @@ vi.mock('../api/subRegionApi.js', () => ({ getSubRegions: vi.fn(), saveSubRegion
 // file asserts only that the Map TAB exists, which is `WindowFirstShell`'s doing off a non-null
 // `mapPane` — so a stub pane leaves them all untouched.
 const mapPaneProps = { last: null };
+vi.mock('../components/WindowFirstShell.jsx', async (importOriginal) => (
+  (await import('./shellMapDoor.js')).withMapDoors(await importOriginal())
+));
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: (props) => {
     mapPaneProps.last = props;
@@ -69,14 +73,6 @@ vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ vi
 vi.mock('../components/AuroraFieldThumb.jsx', () => ({
   default: () => <div data-testid="aurora-field-stub" />,
 }));
-// This whole file assumes Plan-first — nearly every test below opens on Plan and clicks its own
-// way to Map. jsdom's `matchMedia` stub answers "no match" for everything (`test/setup.js`), so
-// the real `resolveInitialTab()` would resolve 'map' here, same as it does on an un-mocked
-// desktop-shaped test run — moving every one of those tests' starting point out from under it.
-// Pinned to 'plan' here rather than widening the stub, which would hide the feature from its own
-// tests (default-tab-by-device-plan.md §5). `AppInitialTab.test.jsx` is the file that exercises
-// the real resolution.
-vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
 // The banner asks for per-location scores whenever a real alert is up (aurora-banner-plan.md B2);
 // empty answers keep it on its pending slot, which is all this suite needs of it.
 vi.mock('../api/auroraApi.js', () => ({
@@ -176,6 +172,8 @@ const renderApp = ({ role = 'PRO_USER' } = {}) => {
 };
 
 beforeEach(() => {
+  // Operations is open exactly while the address says `#manage`: no test starts on another's address.
+  window.history.replaceState(null, '', '/');
   resetLinkTokenForTests(); // the link token is read once per page load; tests are separate loads
   resetInviteTokenForTests();
   localStorage.clear();
@@ -235,7 +233,7 @@ describe('App — the Plan shell', () => {
     providerSpy.mockImplementation(() => { throw new Error('boom'); });
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'At a Glance stopped working' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'This week stopped working' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 
     // The boundary now sits OUTSIDE App's <main> (aurora-banner-plan.md §4 D1), so the fallback brings
@@ -268,7 +266,7 @@ describe('App — WindowFirstBriefingProvider wiring', () => {
     // The Map tab exists only once `allDates` is non-empty, which is derived from the same
     // `visibleLocations` render that re-hands the provider its roster — so once the tab is on
     // screen, the provider's latest props are the post-fetch ones.
-    await screen.findByTestId('window-first-tab-map');
+    await mapOffered();
 
     const lastProps = providerSpy.mock.calls.at(-1)[0];
     // The roster, with the fields the heat join is built on (id-first join, lat/lon geometry,
@@ -339,14 +337,16 @@ const SAVED_KESWICK = { ...SETTINGS_KESWICK, homePlaceName: null };
 
 /** Opens the settings dialog from the masthead cog and waits for its own settings fetch. */
 async function openSettings() {
-  fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+  await screen.findByTestId('masthead-menu-button');
+  fireEvent.click(menuRow('window-first-settings'));
   await screen.findByTestId('settings-postcode-input');
   return screen.getByTestId('settings-modal');
 }
 
 /** Opens the settings dialog and returns it while its own read is still out — its form not yet drawn. */
 async function openSettingsStillLoading() {
-  fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+  await screen.findByTestId('masthead-menu-button');
+  fireEvent.click(menuRow('window-first-settings'));
   const dialog = await screen.findByTestId('settings-modal');
   expect(within(dialog).queryByTestId('settings-postcode-input')).toBeNull();
   return dialog;
@@ -359,8 +359,7 @@ function closeSettings(dialog) {
 
 /** The shell mounts a pane on first selection, so the Map tab is opened to read its props. */
 async function openMapPane() {
-  const tab = await screen.findByTestId('window-first-tab-map');
-  await act(async () => { fireEvent.click(tab); });
+  await openMapWhenOffered();
   await screen.findByTestId('map-pane-stub');
 }
 
@@ -911,7 +910,8 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
 describe('App — panes handed to WindowFirstShell', () => {
   it('hands over the Map pane once forecast dates exist', async () => {
     renderApp();
-    expect(await screen.findByTestId('window-first-tab-map')).toBeInTheDocument();
+    await openMapWhenOffered();
+    expect(screen.getByTestId('map-screen')).toBeInTheDocument();
   });
 
   it('withholds the Map pane while no forecast date exists', async () => {
@@ -928,9 +928,11 @@ describe('App — panes handed to WindowFirstShell', () => {
     // timing.
     await act(async () => {});
 
-    expect(screen.queryByTestId('window-first-tab-map')).toBeNull();
-    // The arm itself is intact — the missing tab is a withheld pane, not a broken shell.
-    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toBeInTheDocument();
+    // No pane was handed over, so no door can open a view onto it.
+    openMapView();
+    expect(screen.queryByTestId('map-screen')).toBeNull();
+    // The arm itself is intact — the missing view is a withheld pane, not a broken shell.
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
   });
 
   /**
@@ -984,8 +986,7 @@ describe('App — panes handed to WindowFirstShell', () => {
 
     /** The shell mounts a pane on first selection, so the tab has to be opened to read its props. */
     const openMapTab = async () => {
-      const tab = await screen.findByTestId('window-first-tab-map');
-      await act(async () => { fireEvent.click(tab); });
+      await openMapWhenOffered();
       return screen.findByTestId('map-pane-stub');
     };
 
@@ -1144,16 +1145,24 @@ describe('App — panes handed to WindowFirstShell', () => {
     });
   });
 
-  it('hands the Operations pane to an admin', async () => {
+  it('hands the Operations pane to an admin: the ☰ menu has the row, and pressing it opens the view', async () => {
     renderApp({ role: 'ADMIN' });
-    expect(await screen.findByRole('tab', { name: 'Operations' })).toBeInTheDocument();
+    await screen.findByTestId('masthead-menu-button');
+    pressMenuRow('masthead-menu-operations');
+    expect(await screen.findByTestId('operations-screen')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#manage/runs');
   });
 
-  it('withholds the Operations pane from a pro user', async () => {
+  it('withholds the Operations pane from a pro user: no row in the menu, and a #manage address is cleared', async () => {
     renderApp();
-    // Settle on the Map tab so the absence claim is made against the fully-loaded tab bar.
-    await screen.findByTestId('window-first-tab-map');
-    expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();
+    // Settle on the loaded screen so the absence claim is made against the fully-loaded masthead.
+    await mapOffered();
+    fireEvent.click(screen.getByTestId('masthead-menu-button'));
+    expect(screen.getByTestId('window-first-settings')).toBeInTheDocument();
+    expect(screen.queryByTestId('masthead-menu-operations')).toBeNull();
+    await act(async () => { window.location.hash = 'manage/runs'; });
+    await waitFor(() => expect(window.location.hash).toBe(''));
+    expect(screen.queryByTestId('operations-screen')).toBeNull();
   });
 });
 
@@ -1177,8 +1186,7 @@ describe('App — the page keeps one layout whether or not the map view is open'
     expect(classTokens(root)).toContain('app-safe');
     expect(classTokens(root)).toContain('min-h-screen');
 
-    const door = await screen.findByTestId('window-first-tab-map');
-    await act(async () => { door.click(); });
+    await openMapWhenOffered();
     await screen.findByTestId('map-screen');
 
     expect(main.className).toBe(mainBefore);
@@ -1207,8 +1215,7 @@ describe('App — the page keeps one layout whether or not the map view is open'
     renderApp();
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
 
-    const door = await screen.findByTestId('window-first-tab-map');
-    await act(async () => { door.click(); });
+    await openMapWhenOffered();
     await screen.findByTestId('map-screen');
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
@@ -1355,8 +1362,10 @@ describe('App — a wildlife hide\'s hourly rows add no window to the Map pane\'
   it('still withholds the Map tab when no visible location has any forecast row at all', async () => {
     fetchForecasts.mockResolvedValue([]);
     renderApp();
-    await screen.findByRole('tab', { name: /^At a Glance/ });
-    expect(screen.queryByTestId('window-first-tab-map')).toBeNull();
+    await screen.findByTestId('this-week-heading');
+    await act(async () => {});
+    openMapView();
+    expect(screen.queryByTestId('map-screen')).toBeNull();
   });
 });
 
@@ -1461,7 +1470,8 @@ describe('App — one line of colour saves for the page, across the dialog\'s op
     choose(dialog, 'temp'); // out at once
     choose(dialog, 'verdict'); // waits behind it
     await closeAndWait(dialog);
-    await act(async () => { fireEvent.click(screen.getByTestId('window-first-signout')); });
+    fireEvent.click(await screen.findByTestId('masthead-menu-button'));
+    await act(async () => { fireEvent.click(await screen.findByTestId('window-first-signout')); });
     await screen.findByTestId('login-username'); // control: signed out
     localStorage.setItem('goldenhour_token', 'the-next-account'); // whoever signs in next
     const rampCallsAtSignOut = setModeSpy.mock.calls.length;
@@ -1597,10 +1607,10 @@ describe('App — the settings dialog hands focus back to the tick line\'s origi
     closeSettings(nudgeDialog);
     await waitFor(() => expect(nudge, 'control: the close restored to the nudge').toHaveFocus());
 
-    // A pointer press on the cog — which macOS Safari does not focus — opens it with focus nowhere.
+    // A pointer press on the menu's Settings row — which macOS Safari does not focus — opens it with focus nowhere.
     nudge.blur();
     expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(menuRow('window-first-settings'));
     const cogDialog = await screen.findByTestId('settings-modal');
     await within(cogDialog).findByTestId('settings-postcode-input');
     await waitFor(() => expect(cogDialog).toHaveFocus()); // its own landing is spent
@@ -1610,8 +1620,10 @@ describe('App — the settings dialog hands focus back to the tick line\'s origi
 
     expect(nudge.isConnected, 'precondition: a stale return address would still have somewhere to send focus')
       .toBe(true);
-    expect(document.activeElement, 'the cog\'s opening had no return address — nothing moves focus')
-      .toBe(document.body);
+    // The menu's row hands focus to the ☰ button before it opens settings (so the dialog records the button as its opener),
+    // which is where the close returns: never the stale nudge, whose address was forgotten.
+    expect(document.activeElement, 'the menu\'s opening returns to the ☰ button, not to the forgotten nudge')
+      .toBe(screen.getByTestId('masthead-menu-button'));
   });
 });
 

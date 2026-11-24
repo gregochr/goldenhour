@@ -1,3 +1,4 @@
+import { menuRow } from './shellMapDoor.js';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -76,10 +77,6 @@ vi.mock('../api/authApi.js', () => ({
   setPasswordForNewUser: vi.fn(),
   submitWaitlist: vi.fn(),
 }));
-// Plan-first, as `App.test.jsx` pins it: jsdom's `matchMedia` answers "no match", which the real
-// `resolveInitialTab()` reads as a desktop and opens on Map, and the banner's door is judged by the
-// tab in force when it is pressed.
-vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
 /** What the callout's `Four days here ›` hands `App` — the peek, which does not move the tab. */
 const PEEK = {
   id: 1, name: 'Derwentwater', regionName: 'Lake District',
@@ -323,7 +320,7 @@ describe('the settings dialog while its chunk is pending', () => {
     try {
       renderApp();
       await screen.findByTestId('wf-heat-strip');
-      await press(screen.getByRole('button', { name: 'Settings' }));
+      await press(menuRow('window-first-settings'));
       await screen.findByTestId('settings-fallback');
       await b.settle();
       expect(b.history.pushState).toHaveBeenCalledTimes(1);
@@ -341,8 +338,8 @@ describe('the settings dialog while its chunk is pending', () => {
     const b = installBackBrowser();
     renderApp();
     await screen.findByTestId('wf-heat-strip');
-    const cog = screen.getByRole('button', { name: 'Settings' });
-    await press(cog);
+    const cog = screen.getByTestId('masthead-menu-button');
+    await press(menuRow('window-first-settings'));
 
     const fallback = await screen.findByTestId('settings-fallback');
     expect(screen.queryByTestId('settings-modal')).toBeNull();

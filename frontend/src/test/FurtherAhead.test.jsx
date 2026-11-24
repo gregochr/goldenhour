@@ -144,7 +144,7 @@ describe('FurtherAhead — the four states', () => {
 
   it('⚠️ scopes the empty note to the DATED list — "No dates", never a bare "Nothing coming up"', () => {
     // `totalEntries` counts `events.entries` alone, while weather-driven topics (which have no row here) are shown
-    // on At a Glance's day headers, so a broader sentence would deny content the app does show. Caught by a Codex
+    // on This week's day headers, so a broader sentence would deny content the app does show. Caught by a Codex
     // review of #748, where the copy pass had dropped the scoping word.
     renderPane({
       status: 'ready',
@@ -420,7 +420,7 @@ describe('FurtherAhead — the Recurring conditions panel is gone (coming-up-gla
   });
 });
 
-describe('FurtherAhead — the "Next four days" block has moved to At a Glance (glance-topic-strip-plan.md)', () => {
+describe('FurtherAhead — the "Next four days" block has moved to This week (glance-topic-strip-plan.md)', () => {
   it('renders no four-days block, in any status, hot topics or not', () => {
     for (const status of ['idle', 'loading', 'error', 'ready']) {
       const { unmount } = renderPane({ status });
@@ -431,7 +431,7 @@ describe('FurtherAhead — the "Next four days" block has moved to At a Glance (
   });
 });
 
-describe('FurtherAhead — a focus request from At a Glance (glance-topic-strip-plan.md R4)', () => {
+describe('FurtherAhead — a focus request from This week (glance-topic-strip-plan.md R4)', () => {
   const PERSEIDS = ENTRIES[0].id;
   const SPRING = ENTRIES[1].id;
 
@@ -620,7 +620,7 @@ describe('FurtherAhead — map doors follow the reader’s forecast dates (plan 
     fireEvent.click(spring);
     expect(onShowOnMap).not.toHaveBeenCalled();
     fireEvent.click(perseids);
-    expect(onShowOnMap).toHaveBeenCalledWith(expect.objectContaining({ kind: 'coming-up', date: '2026-08-12' }));
+    expect(onShowOnMap).toHaveBeenCalledWith(expect.objectContaining({ kind: 'further-ahead', date: '2026-08-12' }));
   });
 
   it('withholds every map door when the list is known to be empty, and draws no button', () => {
@@ -682,7 +682,7 @@ describe('FurtherAhead — a run’s day chips follow the reader’s forecast da
     expect(dayChip('Sun 11, peak day, Oct — no forecast yet')).toBeDisabled();
     fireEvent.click(dayChip('Show coastal spots for Sat 10 Oct'));
     expect(onShowOnMap).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-10-10' }),
+      expect.objectContaining({ kind: 'further-ahead', filterAction: 'SEASCAPE', date: '2026-10-10' }),
     );
   });
 
@@ -767,7 +767,7 @@ describe('FurtherAhead — a single-day map entry draws a one-box row (plan §11
     });
     fireEvent.click(screen.getByRole('button', { name: 'Show dark-sky spots for Wed 21, peak day, Oct' }));
     expect(onShowOnMap).toHaveBeenCalledWith({
-      kind: 'coming-up', filterAction: null, darkSky: true, label: 'Orionids · Wed 21 Oct', date: '2026-10-21',
+      kind: 'further-ahead', filterAction: null, darkSky: true, label: 'Orionids · Wed 21 Oct', date: '2026-10-21',
     });
   });
 });
@@ -790,7 +790,7 @@ describe('FurtherAhead — a plan entry’s chips open the map, not the Plan tab
     expect(screen.getByRole('group', { name: 'All spots by day' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Show all spots for Sat 19 Dec' }));
     expect(onShowOnMap).toHaveBeenCalledWith({
-      kind: 'coming-up', filterAction: null, darkSky: false,
+      kind: 'further-ahead', filterAction: null, darkSky: false,
       label: 'Winter solstice · Sat 19 Dec', date: '2026-12-19',
     });
     expect(onGoToPlan).not.toHaveBeenCalled();
@@ -816,7 +816,7 @@ describe('FurtherAhead — a single-day plan entry draws a one-box All spots row
     expect(screen.queryByText(/See the plan/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show all spots for Wed 21, peak day, Oct' }));
     expect(onShowOnMap).toHaveBeenCalledWith({
-      kind: 'coming-up', filterAction: null, darkSky: false,
+      kind: 'further-ahead', filterAction: null, darkSky: false,
       label: 'Partial eclipse · Wed 21 Oct', date: '2026-10-21',
     });
     expect(onGoToPlan).not.toHaveBeenCalled();

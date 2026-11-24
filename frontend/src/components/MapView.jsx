@@ -1281,7 +1281,7 @@ CentreOnHomeControl.propTypes = {
  *   `openFullMapTab`'s shape in reverse): opens this location's `LocationFourDaySheet` as the only
  *   dialog layer. The payload's `inPlan` says where the reader ends up — `false` for the prose's
  *   `Four days here ›`, which leaves the map on screen behind the sheet, `true` for the actions
- *   row's `Open in Plan`, which additionally moves the tab via `WindowFirstShell`'s `selectTab`.
+ *   row's `Open in Plan`, which additionally closes the map view via `WindowFirstShell`'s `closeShellLayers`.
  * - `tideAlignmentIndex` — from `utils/locationSheet.buildTideAlignmentIndex` over the SAME
  *   `briefing.days` `regionGlossIndex`/`regionBestIndex` already read (bundle rev 2's tide-chip
  *   tweak): whether THIS window's water lands on the light for a location, read through
@@ -1326,7 +1326,7 @@ CentreOnHomeControl.propTypes = {
  *       leaves an answer that is still being fetched alone.</li>
  *   <li>{@code panelShown} — the shell is showing this pane's tab. Going false closes the Ask section
  *       (the table's "tab switch away and back": closed with nothing settled, minimised with an answer),
- *       which `selectTab` cannot do: the pane is mounted but hidden between visits and `openMapMenu` is
+ *       which `closeShellLayers` cannot do: the pane is mounted but hidden between visits and `openMapMenu` is
  *       this component's own state.</li>
  * </ul>
  *
@@ -2436,7 +2436,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * <ul>
    *   <li>{@code panelShown} going false — the table's "tab switch away and back" row: nothing settled
    *       comes back closed, an answer comes back minimised, a minimised one is already null. This is
-   *       the Map pane's own signal because the shell cannot reach this state: `selectTab` runs during
+   *       the Map pane's own signal because the shell cannot reach this state: `closeShellLayers` runs during
    *       the shell's render and may only call the shell's own setters, and the pane is mounted but
    *       hidden between visits (it gets no `active` prop, which `panelShown` is the stand-in for).</li>
    *   <li>{@code askOffered} going false (Ask switched off, a rewind, a widening past the phone) —

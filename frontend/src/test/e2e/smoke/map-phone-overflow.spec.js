@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { test, expect, loginAndWaitForForecast, openMapTab } from './fixture.js';
+import { test, expect, loginAndWaitForForecast, openMapView } from './fixture.js';
 
 /**
  * Phone-width overflow check for the Glance-to-Map Map surfaces. At 360, 375 and 390 wide, with mobile and touch
@@ -73,11 +73,11 @@ for (const W of REPORT_WIDTHS) {
       await loginAndWaitForForecast(page);
       expect(await page.evaluate(() => window.innerWidth), 'emulated width').toBe(W);
       expect(await page.evaluate(() => window.visualViewport.scale), 'page scale').toBe(1);
-      // Phones open on the screen: open the map view through its door first.
-      await openMapTab(page);
+      // Phones open on the screen: open the map view from a card first (there is no Map button). The first card is the next window still to come: the one the old Map button opened, and the one with a served pick.
+      await openMapView(page, 0, { plain: true });
       await check('map-default');
 
-      // The Best bet reason (the pill is on the plain Map, not on a Map opened from a card).
+      // The Best bet reason (the pill shows once the card's lens note is cleared: `plain` above).
       const why = page.getByTestId('map-best-bet-why');
       await expect(why).toBeVisible();
       await why.click();

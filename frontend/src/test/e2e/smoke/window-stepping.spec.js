@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, chipStars, fetchForecast, starsOf, readWindowRows,
+  test, expect, loginAndWaitForForecast, openMapView, chipStars, fetchForecast, starsOf, readWindowRows,
   SOLAR_ID,
 } from './fixture.js';
 
@@ -51,7 +51,7 @@ function expectChangedStars(before, after, label) {
 test.describe('Map window control: stepping through the windows', () => {
   test.beforeEach(async ({ page }) => {
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
   });
 
   test('forward to the end, back through the past, then loading the two older days down to the floor', async ({ page }) => {
@@ -66,7 +66,7 @@ test.describe('Map window control: stepping through the windows', () => {
     // ---- the list ends at T+3 ----------------------------------------------------------------------
     // The fixture serves forecast rows to T+4, but nothing rates T+4, so the Map must not list it: the
     // menu's last window is a day earlier than the served forecast's last sunrise/sunset date, and it is
-    // the sunset of that day (whole days, like At a Glance).
+    // the sunset of that day (whole days, like This week).
     const lastServedDate = forecast
       .filter((row) => row.targetType === 'SUNRISE' || row.targetType === 'SUNSET')
       .map((row) => row.targetDate).sort().at(-1);
@@ -157,7 +157,7 @@ test.describe('Map window control on a phone', () => {
 
   test('the pill opens the peek sheet, whose rows choose a window; the steppers still step', async ({ page }) => {
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
     const forecast = await fetchForecast(page);
     const sheetButton = page.getByTestId('wf-map-peek-btn-win');
     const sheetRows = page.getByTestId('wf-map-peek-win-row');

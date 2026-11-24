@@ -40,7 +40,7 @@ describe('HotTopicSimulation', () => {
     render(<HotTopicSimulation />);
     expect(await screen.findByTestId('simulation-master-toggle')).toHaveTextContent('OFF');
     expect(screen.getByText('2 of 3 topics selected — toggle ON to activate')).toBeInTheDocument();
-    expect(screen.queryByText(/Switch to the At a Glance tab/)).toBeNull();
+    expect(screen.queryByText(/Scroll up to This week/)).toBeNull();
     expect(screen.getByTestId('simulation-checkbox-KING_TIDE')).toBeChecked();
     expect(screen.getByTestId('simulation-checkbox-AURORA')).not.toBeChecked();
   });
@@ -58,7 +58,7 @@ describe('HotTopicSimulation', () => {
     render(<HotTopicSimulation />);
     expect(await screen.findByTestId('simulation-master-toggle')).toHaveTextContent('ON');
     expect(screen.getByText('Simulating 1 of 3 topics')).toBeInTheDocument();
-    expect(screen.getByText('Switch to the At a Glance tab to see the pills')).toBeInTheDocument();
+    expect(screen.getByText('Scroll up to This week to see the pills')).toBeInTheDocument();
   });
 
   it('the master toggle adopts the server state it returns', async () => {

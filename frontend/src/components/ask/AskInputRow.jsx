@@ -49,7 +49,7 @@ const MAX_QUESTION_LENGTH = 200;
  *
  * @param {object} props
  * @param {React.Ref} props.inputRef the input's node, so the surface can move focus to it
- * @param {'map'|'plan'|'coming-up'} props.view the view the question is sent with
+ * @param {'map'|'plan'} props.view the view the question is sent with
  * @param {string} [props.viewLabel] the surface's own chip text, for the views the Map says nothing about
  */
 export default function AskInputRow({ inputRef, view, viewLabel = undefined }) {
@@ -156,6 +156,6 @@ export default function AskInputRow({ inputRef, view, viewLabel = undefined }) {
 
 AskInputRow.propTypes = {
   inputRef: refShape.isRequired,
-  view: PropTypes.oneOf(['map', 'plan', 'coming-up']).isRequired,
+  view: PropTypes.oneOf(['map', 'plan']).isRequired,
   viewLabel: PropTypes.string,
 };

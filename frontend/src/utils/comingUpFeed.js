@@ -435,7 +435,7 @@ export function rangeBarHeight(value, scale) {
  *
  * <p>All three served actions now have a real destination (plan §6b, D8): {@code plan} switches tabs
  * and focuses Plan; {@code coastal-spots}/{@code dark-sky-spots} open the map overlay through the
- * new {@code kind:'coming-up'} channel. {@code interactive} names all three — the P3a-era refusal
+ * new {@code kind:'further-ahead'} channel. {@code interactive} names all three — the P3a-era refusal
  * (the map channel did not exist yet) no longer applies.
  *
  * <p>A map door ({@code coastal-spots}/{@code dark-sky-spots}) is also withheld when the reader holds
@@ -593,7 +593,7 @@ export function buildChronology(entries, todayStr, filterId, lastSeenDate, forec
 }
 
 /**
- * The footer's note (coming-up-glance plan P2; the four days moved to At a Glance's day headers by
+ * The footer's note (coming-up-glance plan P2; the four days moved to This week's day headers by
  * glance-topic-strip-plan.md), shown in every status. It states a rule, not
  * a count, so it is true before the feed has answered and after. "Fixed in advance", not "fixed by
  * orbital mechanics": two of the six sources compute nothing orbital — the NLC season boundary is a

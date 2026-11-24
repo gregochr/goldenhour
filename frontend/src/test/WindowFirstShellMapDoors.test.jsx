@@ -24,7 +24,7 @@ vi.mock('../components/FurtherAhead.jsx', () => ({
         type="button"
         data-testid="coming-up-coastal"
         onClick={() => onShowOnMap({
-          kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: '2026-08-10',
+          kind: 'further-ahead', filterAction: 'SEASCAPE', label: 'Spring tide run', date: '2026-08-10',
         })}
       >
         coastal
@@ -33,7 +33,7 @@ vi.mock('../components/FurtherAhead.jsx', () => ({
         type="button"
         data-testid="coming-up-dark-sky"
         onClick={() => onShowOnMap({
-          kind: 'coming-up', darkSky: true, label: 'Meteor shower', date: '2026-08-11',
+          kind: 'further-ahead', darkSky: true, label: 'Meteor shower', date: '2026-08-11',
         })}
       >
         dark sky
@@ -118,7 +118,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
     await act(async () => { fireEvent.click(screen.getByTestId('coming-up-coastal')); });
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
-      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
+      kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
       date: '2026-08-10', inPlace: false, minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
@@ -129,7 +129,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
     await act(async () => { fireEvent.click(screen.getByTestId('coming-up-dark-sky')); });
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      kind: 'coming-up', darkSky: true, filterAction: null, date: '2026-08-11',
+      kind: 'further-ahead', darkSky: true, filterAction: null, date: '2026-08-11',
       minRating: 4, limitMinutes: 60,
     }));
   });

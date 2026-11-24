@@ -1,3 +1,4 @@
+import { menuRow, openMapWhenOffered } from './shellMapDoor.js';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -96,10 +97,6 @@ vi.mock('../api/authApi.js', () => ({
   setPasswordForNewUser: vi.fn(),
   submitWaitlist: vi.fn(),
 }));
-// Plan-first, as `App.test.jsx` pins it: jsdom's `matchMedia` answers "no match", which the real
-// `resolveInitialTab()` reads as a desktop and opens on Map, and the banner's door is judged by the
-// tab in force when it is pressed.
-vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
 /** What the callout's `Four days here ›` hands `App` — the peek, which does not move the tab. */
 const PEEK = {
   id: 1, name: 'Derwentwater', regionName: 'Lake District',
@@ -111,6 +108,9 @@ const PEEK = {
  * its real counterpart has, so the test reads as the reader's route; the test-ids say they are
  * stand-ins.
  */
+vi.mock('../components/WindowFirstShell.jsx', async (importOriginal) => (
+  (await import('./shellMapDoor.js')).withMapDoors(await importOriginal())
+));
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: ({ onOpenSettings, onOpenLocationSheet, handoff }) => (
     <div data-testid="map-pane-stub">
@@ -320,12 +320,10 @@ async function openPlanSheet() {
   return tookFocus(await screen.findByTestId('location-sheet'));
 }
 
-/** Selects the Map tab — the pane mounts on first selection — and waits for the stub pane. */
+/** Opens the map view — the pane mounts on first open — and waits for the stub pane. */
 async function openMapTab() {
-  const tab = await screen.findByTestId('window-first-tab-map');
-  await act(async () => { fireEvent.click(tab); });
-  await screen.findByTestId('map-pane-stub');
-  return tab;
+  await openMapWhenOffered();
+  return screen.findByTestId('map-pane-stub');
 }
 
 /** Opens the four-day sheet OVER the map, the way the callout's `Four days here ›` does. */
@@ -400,7 +398,7 @@ describe('App — every route into settings takes down the dialog it would open 
       renderApp();
       await openPlanSheet();
 
-      await press(screen.getByRole('button', { name: 'Settings' }));
+      await press(menuRow('window-first-settings'));
       await settingsSettled();
 
       expect(modals()).toHaveLength(1);
@@ -438,8 +436,8 @@ describe('App — every route into settings takes down the dialog it would open 
     it('Escape closes Settings opened from the cog and hands focus back to the cog, as the × does', async () => {
       renderApp();
       await screen.findByTestId('wf-heat-strip');
-      const cog = screen.getByRole('button', { name: 'Settings' });
-      await press(cog);
+      const cog = screen.getByTestId('masthead-menu-button');
+      await press(menuRow('window-first-settings'));
       await settingsSettled();
 
       await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
@@ -571,13 +569,13 @@ describe('App — every route into settings takes down the dialog it would open 
     it('the ⚙ cog over the four-day sheet takes it down too, and moves no tab either', async () => {
       // The masthead is on every tab, and the cog is not taken out of the tab order under a sheet,
       // so it is the Map tab's other route into settings over the peek. It closes through the same
-      // `selectTab` naming the tab in force — the peek's own rule (O-18) is that nothing here moves
+      // `closeShellLayers` naming the tab in force — the peek's own rule (O-18) is that nothing here moves
       // the reader off the map.
       renderApp();
       await openMapTab();
       await openPeek();
 
-      await press(screen.getByRole('button', { name: 'Settings' }));
+      await press(menuRow('window-first-settings'));
       await settingsSettled();
 
       expect(modals()).toHaveLength(1);
@@ -633,7 +631,7 @@ describe('App — every route into settings takes down the dialog it would open 
       expect(modals()).toHaveLength(0);
       expect(screen.queryByRole('dialog', { name: 'Aurora tonight' })).toBeNull();
 
-      await press(screen.getByRole('button', { name: 'Settings' }));
+      await press(menuRow('window-first-settings'));
       await settingsSettled();
 
       expect(modals()).toHaveLength(1);
@@ -689,7 +687,7 @@ describe('App — deleting the account from the real settings dialog (R5b)', () 
     deleteAccount.mockReset().mockResolvedValue(undefined);
     renderApp();
     await screen.findByTestId('wf-heat-strip');
-    await press(screen.getByRole('button', { name: 'Settings' }));
+    await press(menuRow('window-first-settings'));
     const dialog = await settingsSettled();
     expect(localStorage.getItem('goldenhour_token')).toBe('test-token');
 
@@ -708,7 +706,7 @@ describe('App — deleting the account from the real settings dialog (R5b)', () 
     deleteAccount.mockReset().mockRejectedValue({ response: { status: 403, data: { error: 'Password is incorrect' } } });
     renderApp();
     await screen.findByTestId('wf-heat-strip');
-    await press(screen.getByRole('button', { name: 'Settings' }));
+    await press(menuRow('window-first-settings'));
     const dialog = await settingsSettled();
 
     await press(within(dialog).getByTestId('settings-delete-open'));
@@ -743,7 +741,7 @@ describe('App — the Back button and the settings dialog', () => {
     renderApp();
     await screen.findByTestId('wf-heat-strip');
 
-    await press(screen.getByRole('button', { name: 'Settings' }));
+    await press(menuRow('window-first-settings'));
     await settingsSettled();
     await b.settle();
     expect(b.history.pushState).toHaveBeenCalledTimes(1);
@@ -751,7 +749,7 @@ describe('App — the Back button and the settings dialog', () => {
     await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
     expect(b.index).toBe(0);
 
-    await press(screen.getByRole('button', { name: 'Settings' }));
+    await press(menuRow('window-first-settings'));
     const dialog = await settingsSettled();
     await b.settle();
     await closeSettings(dialog);

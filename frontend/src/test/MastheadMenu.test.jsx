@@ -4,7 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import MastheadMenu from '../components/MastheadMenu.jsx';
 
 /**
- * The phone masthead's ⋯ menu (map-mobile-compact-plan.md C1, D-2, R3–R5).
+ * The masthead's ☰ menu, one mount at every width (map-mobile-compact-plan.md C1, D-2, R3–R5; one-screen-plan.md D9, D14).
  *
  * <p>Hosted in a harness that owns the open state exactly as the shell does, beside a stand-in for
  * the Map pane that listens for Escape and presses the way the real pane does — the menu floats over
@@ -27,6 +27,9 @@ function Harness({ initialOpen = false, statusLine = null, handlers = {}, onMapE
         onSignOut={handlers.onSignOut ?? vi.fn()}
         onWarmSettings={handlers.onWarmSettings}
         onGuide={handlers.onGuide}
+        onOperations={handlers.onOperations}
+        guideOpen={handlers.guideOpen}
+        guideControls={handlers.guideControls}
       />
       <button type="button" data-testid="elsewhere">elsewhere</button>
       {/* The Map pane stand-in: a document-level Escape listener and a press listener, as the real
@@ -63,7 +66,7 @@ describe('MastheadMenu — opening and the button', () => {
     render(<Harness />);
     openMenu();
     expect(screen.getByTestId('masthead-menu-button')).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('group', { name: 'Account and settings' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Menu' })).toBeInTheDocument();
     openMenu();
     expect(screen.queryByTestId('masthead-menu')).toBeNull();
   });
@@ -130,7 +133,7 @@ describe('MastheadMenu — closing', () => {
     expect(screen.queryByTestId('masthead-menu')).toBeNull();
     expect(screen.queryByTestId('masthead-menu-catcher')).toBeNull();
     expect(onMapPress).not.toHaveBeenCalled();
-    // Focus returns to ⋯, never to <body>, after a tap on dead space.
+    // Focus returns to ☰, never to <body>, after a tap on dead space.
     expect(screen.getByTestId('masthead-menu-button')).toHaveFocus();
   });
 
@@ -163,7 +166,7 @@ describe('MastheadMenu — the rows', () => {
     ['window-first-settings', 'onSettings'],
     ['masthead-menu-postcode', 'onChangePostcode'],
     ['window-first-signout', 'onSignOut'],
-  ])('%s calls its handler once, after closing the menu and focusing ⋯', (testId, key) => {
+  ])('%s calls its handler once, after closing the menu and focusing ☰', (testId, key) => {
     const handler = vi.fn();
     let focusWhenCalled = null;
     let openWhenCalled = null;
@@ -176,7 +179,7 @@ describe('MastheadMenu — the rows', () => {
     fireEvent.click(screen.getByTestId(testId));
 
     expect(handler).toHaveBeenCalledTimes(1);
-    // R5: ⋯ already holds focus when the handler runs, so a dialog it opens records ⋯ as its opener
+    // R5: ☰ already holds focus when the handler runs, so a dialog it opens records ☰ as its opener
     // rather than a row that is about to unmount. (The menu itself unmounts on the next commit.)
     expect(focusWhenCalled).toBe(screen.getByTestId('masthead-menu-button'));
     expect(openWhenCalled).toBe(true);
@@ -211,7 +214,7 @@ describe('MastheadMenu — the admin status line', () => {
     expect(screen.queryByTestId('health-status-line')).toBeNull();
   });
 
-  it('closes the menu around a press on it and hands focus to ⋯, after the line has acted', () => {
+  it('closes the menu around a press on it and hands focus to ☰, after the line has acted', () => {
     const acted = vi.fn();
     const line = <button type="button" data-testid="health-status-line" onClick={acted}>UP</button>;
     render(<Harness initialOpen statusLine={line} />);
@@ -237,7 +240,7 @@ describe('MastheadMenu — the Guide row (G2)', () => {
     expect(screen.queryByTestId('masthead-menu-guide')).toBeNull();
   });
 
-  it('closes the menu, focuses ⋯ first and then calls the handler, as every row does', () => {
+  it('closes the menu, focuses ☰ first and then calls the handler, as every row does', () => {
     let focusedWhenCalled = null;
     const onGuide = vi.fn(() => { focusedWhenCalled = document.activeElement; });
     render(<Harness initialOpen handlers={{ onGuide }} />);
@@ -245,5 +248,64 @@ describe('MastheadMenu — the Guide row (G2)', () => {
     expect(onGuide).toHaveBeenCalledTimes(1);
     expect(focusedWhenCalled).toBe(screen.getByTestId('masthead-menu-button'));
     expect(screen.queryByTestId('masthead-menu')).toBeNull();
+  });
+});
+
+describe('MastheadMenu — the Operations row (one-screen-plan.md D9)', () => {
+  it('is drawn only when the shell passes a handler (an admin\'s), between the guide and Sign out', () => {
+    render(<Harness initialOpen handlers={{ onGuide: vi.fn(), onOperations: vi.fn() }} />);
+    const rows = Array.from(screen.getByTestId('masthead-menu').querySelectorAll('.wf-mast-menu-row'))
+      .map((row) => row.textContent);
+    expect(rows).toEqual(['Settings', 'Change home postcode', 'Guide', 'Operations', 'Sign out']);
+  });
+
+  it('is absent for everyone else: no row, no pill, no greyed stand-in', () => {
+    render(<Harness initialOpen handlers={{ onGuide: vi.fn() }} />);
+    expect(screen.queryByTestId('masthead-menu-operations')).toBeNull();
+    expect(screen.queryByText(/operations/i)).toBeNull();
+    expect(screen.getByTestId('masthead-menu').querySelector('.wf-lens-pro')).toBeNull();
+  });
+
+  it('closes the menu, focuses ☰ first and then calls the handler, as every row does', () => {
+    let focusedWhenCalled = null;
+    const onOperations = vi.fn(() => { focusedWhenCalled = document.activeElement; });
+    render(<Harness initialOpen handlers={{ onOperations }} />);
+    fireEvent.click(screen.getByTestId('masthead-menu-operations'));
+    expect(onOperations).toHaveBeenCalledTimes(1);
+    expect(focusedWhenCalled).toBe(screen.getByTestId('masthead-menu-button'));
+    expect(screen.queryByTestId('masthead-menu')).toBeNull();
+  });
+});
+
+describe('MastheadMenu — the ☰ button', () => {
+  it('draws the ☰ glyph, aria-hidden, so the accessible name stays "Menu"', () => {
+    render(<Harness />);
+    const button = screen.getByTestId('masthead-menu-button');
+    expect(button).toHaveTextContent('☰');
+    expect(button.querySelector('[aria-hidden="true"]')).not.toBeNull();
+    expect(button).toHaveAccessibleName('Menu');
+  });
+});
+
+describe('MastheadMenu — the Guide row is a toggle', () => {
+  it('reads "Guide", not expanded, while the guide is shut', () => {
+    render(<Harness initialOpen handlers={{ onGuide: vi.fn() }} />);
+    const row = screen.getByTestId('masthead-menu-guide');
+    expect(row).toHaveTextContent(/^Guide$/);
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(row).not.toHaveAttribute('aria-controls');
+  });
+
+  it('reads "Close guide" and says expanded while it is open, naming the docked column', () => {
+    render(<Harness initialOpen handlers={{ onGuide: vi.fn(), guideOpen: true, guideControls: 'wf-guide-dock' }} />);
+    const row = screen.getByTestId('masthead-menu-guide');
+    expect(row).toHaveTextContent(/^Close guide$/);
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(row).toHaveAttribute('aria-controls', 'wf-guide-dock');
+  });
+
+  it('names no controlled element for a guide that is open as a dialog or sheet', () => {
+    render(<Harness initialOpen handlers={{ onGuide: vi.fn(), guideOpen: true }} />);
+    expect(screen.getByTestId('masthead-menu-guide')).not.toHaveAttribute('aria-controls');
   });
 });

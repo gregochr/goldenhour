@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, visibleChips, fetchForecast,
+  test, expect, loginAndWaitForForecast, openMapView, visibleChips, fetchForecast,
   installDialogDepthObserver, dialogDepth, CHIP_NAME,
 } from './fixture.js';
 import { waitForDetail, servedRow, sheetRows, expectExpandedRow } from './sheet-helpers.js';
@@ -14,7 +14,7 @@ test.describe('Forecast drill-down from the Map', () => {
     test.setTimeout(60_000);
     await installDialogDepthObserver(page);
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
     const forecast = await fetchForecast(page);
 
     // Chip -> callout. The callout names the place and agrees with its served star.
@@ -74,7 +74,7 @@ test.describe('Forecast drill-down from the Map', () => {
 
   test('the sheet closes with its own close button too', async ({ page }) => {
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
     await visibleChips(page).first().click();
     await page.getByTestId('map-callout-reason').click();
     const sheet = page.getByTestId('location-sheet');

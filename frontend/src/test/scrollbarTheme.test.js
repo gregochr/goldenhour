@@ -53,13 +53,13 @@ describe('themed scrollbars', () => {
   });
 
   it('leaves the hidden-scrollbar scrollers unlayered so their own rules still win', () => {
-    const tabs = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .find(([, sel, body]) => sel.split(',').some((s) => s.trim() === '.wf-tabs') && body.includes('scrollbar-width'));
-    expect(tabs).toBeDefined();
-    expect(tabs[2]).toMatch(/scrollbar-width:\s*none;/);
-    const idx = css.indexOf(tabs[0]);
-    const insideLayer = [...layers('base'), ...layers('components'), ...layers('utilities')]
-      .some((l) => idx > l.start && idx < l.start + l.body.length + 20);
-    expect(insideLayer).toBe(false);
+    const hidden = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, , body]) => /scrollbar-width:\s*none;/.test(body));
+    expect(hidden.length, 'at least one scroller still hides its bar').toBeGreaterThan(0);
+    const layered = [...layers('base'), ...layers('components'), ...layers('utilities')];
+    hidden.forEach((rule) => {
+      const idx = css.indexOf(rule[0]);
+      expect(layered.some((l) => idx > l.start && idx < l.start + l.body.length + 20)).toBe(false);
+    });
   });
 });

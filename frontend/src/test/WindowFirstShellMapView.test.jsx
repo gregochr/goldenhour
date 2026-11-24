@@ -18,6 +18,7 @@ import { installViewport, resetViewport } from './askViewport.js';
 import { matrixCtx, shellCtx, TODAY } from './askShellHarness.jsx';
 import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
 import { __inspectForTests } from '../utils/dialogHistory.js';
+import { openMapView, registerMapDoor } from './shellMapDoor.js';
 
 /**
  * The map view (`docs/engineering/one-screen-plan.md` O1), through the real shell: `openMap` per door, the region that
@@ -101,7 +102,8 @@ function StubPane() {
 let browser;
 const view = () => screen.getByTestId('map-screen');
 const viewIsOpen = () => !screen.getByTestId('map-screen').hasAttribute('hidden');
-const door = () => screen.getByTestId('window-first-tab-map');
+/** The opener a test presses: any element the view can return focus to (a card, a button), standing in for a door. */
+const door = () => screen.getByTestId('test-door');
 const layers = () => __inspectForTests().layers;
 const hash = () => browser.win.location.hash;
 
@@ -120,12 +122,16 @@ function mount({
     onOpenMapTab,
     onFindOnMap,
     forecastDates: [TODAY],
+    registerOpenMap: registerMapDoor,
     ...props,
   };
   const ui = (next = {}) => (
-    <AskProvider>
-      <WindowFirstShell {...base} {...next} />
-    </AskProvider>
+    <>
+      <button type="button" data-testid="test-door" onClick={() => openMapView()}>door</button>
+      <AskProvider>
+        <WindowFirstShell {...base} {...next} />
+      </AskProvider>
+    </>
   );
   const rendered = render(ui());
   return { ...rendered, onOpenMapTab, onFindOnMap, rerenderShell: (next) => rendered.rerender(ui(next)) };
@@ -156,29 +162,18 @@ afterEach(() => {
   document.querySelectorAll('[data-test-foreign]').forEach((node) => node.remove());
 });
 
-describe('the Map door beside the tabs', () => {
-  it('is a plain button outside the tablist, and the tablist holds no Map tab', () => {
+describe('there is no Map button', () => {
+  it('draws no Map button in the masthead, and no tab list for one to sit beside', () => {
     mount();
-    expect(door().tagName).toBe('BUTTON');
-    expect(door().getAttribute('role')).toBeNull();
-    expect(screen.getByRole('tablist').contains(door())).toBe(false);
-    expect(screen.getAllByRole('tab').map((tab) => tab.id)).not.toContain('window-first-tab-map');
-  });
-
-  it('is withheld when the shell has no map pane', () => {
-    mount({ props: { mapPane: null } });
     expect(screen.queryByTestId('window-first-tab-map')).toBeNull();
-    expect(screen.queryByTestId('map-screen')).toBeNull();
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^◍?\s*Map$/ })).toBeNull();
   });
 
-  it('is out of the roving index: arrowing along the tabs never lands on it', () => {
-    mount();
-    const tabs = screen.getAllByRole('tab');
-    tabs[0].focus();
-    fireEvent.keyDown(tabs[0], { key: 'End' });
-    // Coming up is a door, so the arrows skip it: with no other tab End lands on Plan, never on the map door.
-    expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^At a Glance/ }));
-    expect(document.activeElement).not.toBe(door());
+  it('opens nothing when the shell has no map pane: a door onto no map is withheld upstream and does nothing here', () => {
+    mount({ props: { mapPane: null } });
+    openMapView();
+    expect(screen.queryByTestId('map-screen')).toBeNull();
   });
 });
 
@@ -312,7 +307,7 @@ describe('closing: focus returns to the door, Back is the same close', () => {
     expect(document.activeElement).toBe(door());
   });
 
-  it('falls back to the selected tab when the opener is no longer on screen', async () => {
+  it('falls back to This week\'s heading when the opener is no longer on screen', async () => {
     mount();
     await openView();
     // A fresh opener that is gone by the time the view closes.
@@ -321,7 +316,7 @@ describe('closing: focus returns to the door, Back is the same close', () => {
     await act(async () => { fireEvent.click(screen.getByTestId('map-screen-close')); });
     await browser.settle();
     gone.remove();
-    expect(document.activeElement).toBe(door());
+    expect(document.activeElement).toBe(screen.getByTestId('this-week-heading'));
   });
 
   it('a Glance card opens the view, and close returns focus to that same card', async () => {
@@ -335,8 +330,8 @@ describe('closing: focus returns to the door, Back is the same close', () => {
       kind: 'event', date: TODAY, eventType: 'SUNSET', inPlace: false, limitMinutes: 45,
     }));
     expect(viewIsOpen()).toBe(true);
-    // The tab in force never moved.
-    expect(screen.getByRole('tab', { selected: true }).id).toBe('window-first-tab-plan');
+    // The screen never moved: it is still under the view.
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
 
     await act(async () => { fireEvent.click(screen.getByTestId('map-screen-close')); });
     await browser.settle();
@@ -585,17 +580,6 @@ describe('the load-time route', () => {
     expect(viewIsOpen()).toBe(true);
   });
 
-  it('drops the landing preference once the reader has acted first, and spends it', async () => {
-    const handled = vi.fn();
-    const { rerenderShell } = mount({
-      props: { mapPane: null, loadMapRoute: { preferred: true }, onLoadMapRouteHandled: handled },
-    });
-    await act(async () => { fireEvent.pointerDown(screen.getByTestId('window-first-shell')); });
-    await act(async () => { rerenderShell({ mapPane: <StubPane /> }); });
-    expect(screen.queryByTestId('map-screen')).toBeNull();
-    expect(handled).toHaveBeenCalledTimes(1);
-  });
-
   it('honours an address even after the reader has acted (a request, not a preference)', async () => {
     const { rerenderShell } = mount({ props: { mapPane: null, loadMapRoute: route() } });
     await act(async () => { fireEvent.pointerDown(screen.getByTestId('window-first-shell')); });
@@ -682,17 +666,17 @@ describe('Find in both contexts', () => {
 });
 
 describe('Ask with the view open', () => {
-  it('on a tablet the Ask field is in the header and not in the tab row', async () => {
+  it('on a tablet the Ask field is in the header and not in the masthead', async () => {
     mount({ width: 800 });
     await screen.findByTestId('ask-field');
-    expect(screen.getByTestId('window-first-tabrow').contains(screen.getByTestId('ask-field'))).toBe(true);
+    expect(screen.getByTestId('window-first-masthead').contains(screen.getByTestId('ask-field'))).toBe(true);
 
     await openView();
 
     const fields = screen.getAllByTestId('ask-field');
     expect(fields).toHaveLength(1);
     expect(screen.getByTestId('map-screen-header').contains(fields[0])).toBe(true);
-    expect(screen.getByTestId('window-first-tabrow').contains(fields[0])).toBe(false);
+    expect(screen.getByTestId('window-first-masthead').contains(fields[0])).toBe(false);
   });
 
   it('on a phone the Ask bar is withdrawn while the view is open and returns when it closes', async () => {
@@ -711,7 +695,7 @@ describe('Ask with the view open', () => {
     await openView();
     const headerField = screen.getAllByTestId('ask-field')[0];
     expect(screen.getByTestId('map-screen-header').contains(headerField)).toBe(true);
-    expect(field.isConnected && screen.getByTestId('window-first-tabrow').contains(field)).toBe(false);
+    expect(field.isConnected && screen.getByTestId('window-first-masthead').contains(field)).toBe(false);
 
     await act(async () => { fireEvent.click(headerField); });
     const dock = await screen.findByTestId('ask-dock');
@@ -796,7 +780,7 @@ describe('openMap request shapes (the plan\'s window and focus arguments)', () =
 });
 
 describe('review round 1: focus, the address and the origin', () => {
-  const selectedTab = () => screen.getByRole('tab', { selected: true });
+  const selectedTab = () => screen.getByTestId('this-week-heading');
 
   it('✕ after a load-time open puts focus on the selected tab, never on the hidden title', async () => {
     mount({ props: { loadMapRoute: { date: TODAY, eventType: 'SUNSET', locationId: 11 } } });
@@ -939,23 +923,23 @@ describe('review round 1: focus, the address and the origin', () => {
     expect(again.onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ kind: 'astro', date: TODAY }));
   });
 
-  it('reports no tab at all when the shell goes away with the view open, so the page behind never stays inert', async () => {
-    const onTabChange = vi.fn();
-    const { unmount } = mount({ props: { onTabChange } });
+  it('reports no screen at all when the shell goes away with the view open, so the page behind never stays inert', async () => {
+    const onScreenChange = vi.fn();
+    const { unmount } = mount({ props: { onScreenChange } });
     await openView();
-    expect(onTabChange).toHaveBeenLastCalledWith('map');
+    expect(onScreenChange).toHaveBeenLastCalledWith('map');
 
     unmount();
 
-    expect(onTabChange).toHaveBeenLastCalledWith(null);
+    expect(onScreenChange).toHaveBeenLastCalledWith(null);
   });
 
-  it('a re-render with a new onTabChange does not report null while the shell is still mounted', async () => {
+  it('a re-render with a new onScreenChange does not report null while the shell is still mounted', async () => {
     const first = vi.fn();
-    const { rerenderShell } = mount({ props: { onTabChange: first } });
+    const { rerenderShell } = mount({ props: { onScreenChange: first } });
     await openView();
     const second = vi.fn();
-    await act(async () => { rerenderShell({ onTabChange: second }); });
+    await act(async () => { rerenderShell({ onScreenChange: second }); });
     expect(first).not.toHaveBeenCalledWith(null);
     expect(second).not.toHaveBeenCalledWith(null);
   });

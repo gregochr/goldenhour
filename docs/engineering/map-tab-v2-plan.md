@@ -1,5 +1,7 @@
 # Map tab v2 + the heat bloom — implementation plan
 
+> **Tab parts superseded (one-screen-plan.md O1 and O3, 2026-11-24).** The Map is a full-screen view over the one screen, not a tab: no tab bar, no `tabRequest`, no `wf-body--map`, no opening tab. The map's own content (window control, heat field, callout, Regions, tide strip) is unchanged. See `docs/engineering/one-screen-plan.md`.
+
 **Source**: the design handoff vendored at `docs/design/map-tab-v2/` (README, `Map Tab v2.html`,
 `map-tab-v2.js`, `heat-field.js`, `plan-tab-v5.js`, the light/dark and six-way basemap comparisons,
 `plan-data.js`). Read the bundle README before any phase — it is the spec; this document is the

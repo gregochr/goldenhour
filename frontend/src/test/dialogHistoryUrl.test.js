@@ -120,29 +120,6 @@ describe('a layer url, written by the engine', () => {
     expect(b.win.location.hash).toBe('#manage/runs/start');
   });
 
-  it('pushes its own entry over a stale Operations address, and Back restores that address', async () => {
-    // The reported bug: Operations left `#manage/...` standing, so a view opened from This week showed it.
-    b.history.replaceState(null, '', '#manage/runs?view=cost');
-    const { layer } = await open({ url: '#map/2026-11-27/sunrise' });
-    expect(b.win.location.hash).toBe('#map/2026-11-27/sunrise');
-    expect(b.index).toBe(1);
-    // Later route changes replace the view's own address as ever.
-    layer.update({ url: '#map/2026-11-27/sunset' });
-    expect(b.win.location.hash).toBe('#map/2026-11-27/sunset');
-    layer.release();
-    await tick();
-    b.flush();
-    expect(b.index).toBe(0);
-    expect(b.win.location.hash).toBe('#manage/runs?view=cost');
-  });
-
-  it('an entry-less layer (no activation) still never overwrites an Operations address', async () => {
-    b.setActivation(false);
-    b.history.replaceState(null, '', '#manage/runs?view=cost');
-    await open({ url: '#map/2026-11-27/sunrise' });
-    expect(b.win.location.hash).toBe('#manage/runs?view=cost');
-  });
-
   it('never overwrites a foreign hash when the url changes', async () => {
     b.setActivation(false);
     const { layer } = await open({ url: '#map/2026-11-24/sunrise' });

@@ -2,7 +2,6 @@ import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo
 import PropTypes from 'prop-types';
 import { computeAutoSelection, colourForecastDates } from './utils/conversions.js';
 import { normalizeMapTrigger, doorFromTrigger } from './utils/mapDoor.js';
-import { clearStaleManageAddress } from './utils/manageAddress.js';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBannerRoot from './components/AuroraBannerRoot.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
@@ -24,7 +23,7 @@ import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
 import useModalPresent from './hooks/useModalPresent.js';
 import { createColourSaveQueue, keepColourSaveLineOpen } from './utils/colourSaveQueue.js';
-import { resolveInitialTab } from './utils/initialTab.js';
+import useOperationsRoute from './hooks/useOperationsRoute.js';
 import { appNow } from './utils/rewind.js';
 import { lastPlanDateStr } from './utils/comingUpHandoff.js';
 import { useRewind } from './hooks/useRewind.js';
@@ -317,64 +316,27 @@ function AppInner() {
   const rewind = useRewind();
   const [showSettings, setShowSettings] = useState(false);
   /**
-   * The device's opening tab (default-tab-by-device-plan.md §4.2) — Plan on a phone, Map on
-   * anything larger, resolved ONCE per mount by a pure viewport read and handed to the shell as
-   * `initialTab`. A `useState` initialiser, so `resolveInitialTab()` runs exactly once regardless
-   * of how many times `AppInner` re-renders (plan §3.3 — rotating or resizing after load must not
-   * move the reader to another tab).
+   * The map view to open at load (one-screen-plan.md D4): the page's own `#map/...` address, read here once (after
+   * `takeLinkToken` / `takeInviteToken` had their turn in `main.jsx`) and rewritten to the bare path. Every device opens
+   * on This week (owner, 2026-11-23), so with no address nothing opens. Spent by the shell once it has acted on it, so a
+   * rewind remount does not replay it. Read through the module's memo, so React's StrictMode double-invoked initialiser
+   * sees the same answer.
    */
-  const [initialTab] = useState(() => resolveInitialTab());
+  const [loadMapRoute] = useState(() => takeMapRoute());
   /**
-   * The map view to open at load (one-screen-plan.md D4, owner Q1): the page's own `#map/...` address, read here once
-   * (after `takeLinkToken` / `takeInviteToken` had their turn in `main.jsx`) and rewritten to the bare path, or else the
-   * device's Map landing (`initialTab`, kept until the tab model goes), which is only a preference. Spent by the shell
-   * once it has acted on it, so a rewind remount does not replay it. Read through the module's memo, so React's
-   * StrictMode double-invoked initialiser sees the same answer.
-   */
-  const [loadMapRoute] = useState(() => {
-    const route = takeMapRoute();
-    if (route) return route;
-    return initialTab === 'map' ? { preferred: true } : null;
-  });
-  /**
-   * The Plan shell's own active tab (map-tab-v2-plan.md §3 P7's first full-frame owner). `App`
-   * cannot otherwise learn this — `WindowFirstShell`'s `effectiveTab` is shell-internal — and it
-   * needs to know in order to recast the page as a flex column on the Map tab (see the root
-   * `<div>` below). Defaults to `'plan'` regardless of `initialTab`: on the very first render the
-   * shell itself is ALWAYS on Plan too, because the Map pane does not exist yet at that point
-   * (`hasForecastData` below is false before the first forecast fetch resolves) — a device
-   * whose preference is Map only reaches it once the shell's own mount effect (`onTabChange`, wired
-   * below) reports the move, which corrects this state one render later. See
-   * `WindowFirstShell.jsx`'s "Tab selection is deliberately not persisted" section for the full
-   * preference/commit mechanism that makes that move happen at most once, and never after the
-   * reader has touched the page.
+   * The screen in force, as the shell reports it: {@code 'plan'}, {@code 'map'} (the view is open) or {@code 'operations'}.
+   * `App` cannot otherwise learn it (the view's state is shell-internal), and it needs it to lift the session notice over
+   * the view, inert its own banners behind it, and tell the guide which page to follow. Defaults to `'plan'`: the shell
+   * is on the screen at first render whatever the device.
    *
-   * <p>⚠️ A `calc(100dvh - …)` height chain (measured masthead + tab bar + banner block, each via
-   * its own `ResizeObserver`) was tried here first and shipped, then reverted: a live measurement
-   * found 16px of page scroll surviving with every banner suppressed — the panel's measured top
-   * sat 16px below the sum of the three measured terms, an inter-element MARGIN/gap a
-   * `ResizeObserver` on element BOXES structurally cannot see (RO measures boxes, not the space
-   * between them). Every additional term found so far has been a symptom of the same class of gap,
-   * not the last one — so the fix is not a fourth term. Flexbox is: it absorbs every margin, gap,
-   * rule and banner with no arithmetic to keep in sync, because the browser lays the column out
-   * itself rather than being told the answer.
+   * <p>⚠️ A `calc(100dvh - …)` height chain (measured masthead + banner block, each via its own `ResizeObserver`) was
+   * tried here first for the old full-frame Map tab and reverted: a live measurement found 16px of page scroll surviving
+   * with every banner suppressed, an inter-element MARGIN/gap a `ResizeObserver` on element BOXES structurally cannot
+   * see. The map is a fixed VIEW now (`MapScreen`), so no height arithmetic remains.
    */
-  const [activePlanTab, setActivePlanTab] = useState('plan');
-  /**
-   * The tab before this one, so leaving Operations takes its `#manage/...` address off the page. Operations never clears
-   * it, and while it stands the map view cannot show its own `#map/...` address (`utils/manageAddress.js`). A move to the
-   * map view is not a leave: the view sits over the tab and closing it returns there.
-   */
-  const previousPlanTab = useRef(null);
-  useEffect(() => {
-    const previous = previousPlanTab.current;
-    previousPlanTab.current = activePlanTab;
-    if (previous === 'operations' && activePlanTab && activePlanTab !== 'operations' && activePlanTab !== 'map') {
-      clearStaleManageAddress();
-    }
-  }, [activePlanTab]);
+  const [activeScreen, setActiveScreen] = useState('plan');
   /** Whether the map view is open (the shell reports `'map'` while it is). */
-  const isMapTabActive = activePlanTab === 'map';
+  const mapViewOpen = activeScreen === 'map';
   /**
    * The session notice's slot. While the map view is open the slot is fixed over the page (so the notice stays usable),
    * which would cover the view's header; the view starts below it instead, through one custom property on the root
@@ -383,7 +345,7 @@ function AppInner() {
   const sessionSlotRef = useRef(null);
   useLayoutEffect(() => {
     const slot = sessionSlotRef.current;
-    if (!isMapTabActive || !slot) return undefined;
+    if (!mapViewOpen || !slot) return undefined;
     const root = document.documentElement;
     const apply = () => root.style.setProperty('--wf-session-banner-h', `${slot.offsetHeight}px`);
     apply();
@@ -393,7 +355,7 @@ function AppInner() {
       observer?.disconnect();
       root.style.removeProperty('--wf-session-banner-h');
     };
-  }, [isMapTabActive]);
+  }, [mapViewOpen]);
   const {
     locations, loading: forecastsLoading, error: forecastsError, refresh,
     loadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
@@ -596,7 +558,7 @@ function AppInner() {
   // comfort rows reach a day further than the colour pipeline evaluates, and a date holding only
   // those would otherwise become a Sunrise/Sunset window nothing rates (`colourForecastDates`).
   //
-  // ⚠️ Bounded above at the last day At a Glance shows (T+3, `lastPlanDateStr`, the client mirror of
+  // ⚠️ Bounded above at the last day This week shows (T+3, `lastPlanDateStr`, the client mirror of
   // backend `PlanHorizon`): `GET /api/forecast` runs to T+5, but nothing rates T+4 or T+5 (Gate 4 scores
   // to T+3), so those rows would only show star chips over an empty field (whole-day-horizon-plan.md §5).
   // Past dates are kept, exactly as before: past windows and the older-day loader live below today. The
@@ -718,7 +680,7 @@ function AppInner() {
       minRating,
       limitMinutes,
     };
-    if (isMapTabActive) {
+    if (mapViewOpen) {
       closeShellDialogs.current?.();
       openMapTabFromPlan({ ...trigger, inPlace: true });
     } else {
@@ -728,15 +690,7 @@ function AppInner() {
   };
 
   /**
-   * A tab the window-first shell should select, asked for from out here. Nonce'd for the same
-   * reason map handoffs are: the reader can press a door twice running,
-   * and the second press has to land even though the destination has not changed.
-   */
-  const [tabRequest, setTabRequest] = useState(null);
-  const tabRequestNonce = useRef(0);
-
-  /**
-   * The handoff the MAP TAB should act on.
+   * The handoff the MAP VIEW should act on.
    *
    * <p>⚠️ Found by review and reproduced at 390px (when plan-card taps still opened an overlay). The
    * shell mounts a pane once and then hides it rather than unmounting it, so once the Map tab has
@@ -745,14 +699,14 @@ function AppInner() {
    * `z-index: 10000`, so `display: none` on the panel cannot suppress it: a handoff the reader did
    * not ask for would raise a sheet from a map that is not on screen and lock body scroll.
    *
-   * <p>So the tab is handed a handoff only when the reader explicitly asks to be taken to it - a
+   * <p>So the view is handed a handoff only when the reader explicitly asks to be taken to it - a
    * door (`openMapTabFromPlan`) and nothing else.
    */
   const [mapTabHandoff, setMapTabHandoff] = useState(() => (rewind?.focus ? {
     // The rewind's window, as a map-sourced handoff: `source: 'map'` is the one shape that selects
     // a window as an EXPLICIT choice (so the auto-selection effect cannot replace it a tick later)
-    // while carrying no lens — no floor, tier, scope or camera to overwrite, and no `tabRequest`,
-    // since `initialTab` already decides where the page opens.
+    // while carrying no lens — no floor, tier, scope or camera to overwrite. It opens nothing: every device opens on
+    // This week.
     source: 'map',
     eventType: rewind.focus.eventType,
     date: rewind.focus.date,
@@ -763,17 +717,15 @@ function AppInner() {
   /**
    * The location a four-day sheet should be opened for, asked for from the Map tab's selection
    * callout (map-tab-v2-plan.md §3 P9) — the Map door's shape, in reverse. Kept SEPARATE from
-   * `tabRequest` for the identical reason `mapTabHandoff` is kept separate from it in the forward
-   * direction: the Plan tab's body is `hidden` rather than unmounted while another tab is active
-   * (`WindowFirstShell.jsx`'s own sticky-pane idiom), so a handoff that arrived on some OTHER
-   * channel while it was hidden must not be mistaken for one the reader explicitly asked for.
+   * `mapTabHandoff`, which is the forward direction, so a handoff that arrived on some OTHER channel must not be
+   * mistaken for one the reader explicitly asked for.
    */
   const [locationSheetHandoff, setLocationSheetHandoff] = useState(null);
 
   /**
    * A place or region the reader picked in FIND while on the Map tab (find-and-favourites-plan.md F1): fly
    * there and open its callout, or pan and frame the region. Its own channel, for the reason the two above are
-   * kept apart from `tabRequest`: the Map pane is never unmounted, so only an explicit pick may reach it, and
+   * kept apart from the others: the Map pane is never unmounted, so only an explicit pick may reach it, and
    * it is nonce'd because the same place can be picked twice running and the second pick must move the map
    * back if the reader has moved it since. Not `mapTabHandoff`: that channel is a DOOR (it carries a window
    * and, from the Plan tab, the Plan's whole lens), and a Find pick keeps the reader's own window and filters.
@@ -786,16 +738,14 @@ function AppInner() {
   /**
    * Open one location's four-day sheet, asked for from the Map tab's selection callout.
    *
-   * <p>⚠️ <b>The tab move is the callout's choice, not this function's, and it does NOT ride
-   * `tabRequest`.</b> The callout has two routes into the same sheet and they differ only in where
+   * <p>⚠️ <b>The move off the map is the callout's choice, not this function's.</b> The callout has two routes into the same sheet and they differ only in where
    * the reader ends up: the clamped prose's `Four days here ›` opens it OVER the map, so closing it
    * puts the reader back on the callout they pressed it from (an owner ask — "I'd like it to stay
    * with the map behind, then I can back track on my user journey"), while the actions row's
-   * `Open in Plan` names the Plan tab and still goes there. `spot.inPlan` carries which, and
-   * `WindowFirstShell`'s handoff effect performs the move ITSELF rather than App raising a second
-   * `tabRequest` alongside this one — that effect calls `selectTab('plan')` and then writes
+   * `Open in Plan` names the screen and still goes there. `spot.inPlan` carries which, and
+   * `WindowFirstShell`'s handoff effect performs the move ITSELF: it closes the layers and then writes
    * `sheetSpot` in the SAME synchronous body (i.e. the same React batch), which is the whole reason
-   * the sheet survives `selectTab`'s own dialog-clearing. Two channels would put those two writes
+   * the sheet survives the dialog-clearing. Two channels would put those two writes
    * in two effects and make the outcome depend on their declaration order.
    *
    * @param {{id: *, name: string, regionName: ?string, inPlan: boolean, date: ?string,
@@ -814,7 +764,7 @@ function AppInner() {
    * locationName: ?string}`, already carrying the Plan's own lens values (read at the moment of the
    * tap by `WindowFirstShell`'s internal `openMapTab`, never re-read here).
    *
-   * <p>Rides the `mapTabHandoff`/`tabRequest` channel documented above: the Map pane is never
+   * <p>Rides the `mapTabHandoff` channel documented above: the Map pane is never
    * unmounted, so a handoff on it must only ever arrive when the reader explicitly asked to be
    * taken there, which a door tap is. A door is told apart from a window change made in place by
    * `source: 'plan'` against `source: 'map'`.
@@ -857,15 +807,14 @@ function AppInner() {
       // had just set a 4★ floor and jumped to a region on this very map would have all three
       // silently undone by a press that only ever asked to change the WINDOW. The breadcrumb would
       // then appear over it reading "Where you came from · ← Plan", which is not where they came
-      // from, and the `tabRequest` would move focus to the Map tab button of the tab they are on.
+      // from.
       //
       // ⚠️ `source: 'map'`, NOT an absent source. A source-less payload is no longer a handoff at
       // all (the overlay hatch's per-field effects, which set `userHasOverriddenEvent` to FALSE and
       // so let `autoEventType` replace the named window a tick later, were deleted in overlay
       // convergence C5, and the pane drops it). The payload rides the STRUCTURED channel, where the
       // event is treated as an explicit selection, and carries no lens fields at all — `MapView` skips the lens/scope/camera block
-      // and the landing strip for a map-sourced one. No `tabRequest` either: there is no tab to
-      // change.
+      // and the landing strip for a map-sourced one.
       setMapTabHandoff({
         source: 'map',
         eventType: door.targetType,
@@ -904,26 +853,32 @@ function AppInner() {
   };
 
   /**
-   * The Operations tab, asked for from the aurora banner: a SIMULATED alert has no map to show (it
-   * has no scores and no stored run - `utils/auroraTab.js`), and the place it is made and its scores
-   * generated is Operations -> Runs -> Start a run. ADMIN only, because the pane is withheld from everyone else.
+   * Operations, the admin's full-screen view (one-screen-plan.md D9): open exactly while the page's address says
+   * `#manage...`, for an admin only. A non-admin's `#manage` is cleared from the address and no `ManageView` is ever
+   * imported for them. Never a Back layer: its own hashes already give Back, and registering a `#manage` panel with the
+   * dialog history is banned (`docs/engineering/reference/plan-tab.md`, "Back").
+   */
+  const operations = useOperationsRoute({ allowed: isAdmin });
+
+  /**
+   * Operations, asked for from the aurora banner: a SIMULATED alert has no map to show (it has no scores and no stored
+   * run - `utils/auroraTab.js`), and the place it is made and its scores generated is Operations -> Runs -> Start a run.
+   * ADMIN only, because the pane is withheld from everyone else.
    *
-   * <p>`ManageView` reads the `#manage/runs/start` hash at mount AND follows it afterwards (a guarded
-   * `hashchange` listener, data-tabs-redesign-plan.md §5.1), so it lands on the Start a run panel whether the
-   * Operations pane is opened for the first time this session or is already mounted on another
-   * sub-tab. Only a `manage/<known tab>` hash moves it; any other fragment is ignored.
+   * <p>`ManageView` reads the `#manage/runs/start` hash when it mounts (the view mounts as the address changes), so it
+   * lands on the Start a run panel. DEFENSIVE: the banner sits under the map view's inert block, so a reader cannot press
+   * it with the view open, but a view that IS open goes first and the hash waits for the dialog-history engine to settle
+   * (a hash set while the view's entry is still being unwound would be taken for the engine's own, D4, D9). Tested
+   * against the real engine in `AppAuroraBannerDoor.test.jsx`.
    */
   const openOperations = async () => {
-    // With the map view open it goes first, and the hash waits for the dialog-history engine to settle: a hash set
-    // while the view's entry is still being unwound would be taken for the engine's own (one-screen-plan.md D4, D9).
-    if (isMapTabActive) {
+    closeShellDialogs.current?.();
+    if (mapViewOpen) {
       mapViewDoors.current?.close({ restoreFocus: false });
       await new Promise((resolve) => { setTimeout(resolve, 0); });
       await whenSettled();
     }
-    window.location.hash = 'manage/runs/start';
-    tabRequestNonce.current += 1;
-    setTabRequest({ id: 'operations', nonce: tabRequestNonce.current });
+    operations.open('manage/runs/start');
   };
 
   /**
@@ -947,7 +902,7 @@ function AppInner() {
     // while the map is showing.
     // Your places: a boolean, never the role, so a Lite reader's provider never calls the endpoint.
     <FavouritesProvider pro={role === 'PRO_USER' || role === 'ADMIN'}>
-    <GuideProvider closeShellDialogs={closeAllShellDialogs} activeTab={activePlanTab}>
+    <GuideProvider closeShellDialogs={closeAllShellDialogs} activeScreen={activeScreen}>
     <div className="app-safe min-h-screen bg-plex-bg">
       {/* The boundary and the provider wrap BOTH the banner block and <main>, in that order
           (aurora-banner-plan.md §4 D1). The aurora banner frames its field to the reader's
@@ -961,7 +916,7 @@ function AppInner() {
           (session expiry, the rewind pill, the run-complete and backend-down notices) behind the
           fallback, which carries its own Sign out and its own <main> (the boundary now sits outside
           this file's <main>, so the fallback supplies the landmark and the inset itself). */}
-      <PlanErrorBoundary onSignOut={logout} onCrash={() => setActivePlanTab('plan')}>
+      <PlanErrorBoundary onSignOut={logout} onCrash={() => setActiveScreen('plan')}>
         {/* `locations` joins `homeSettingsVersion` here because the heat field's catalogue is
             a join across two contracts and only ONE of them carries geography: the briefing
             and scores payloads have no lat/lng and are not to be given any (plan §3). The
@@ -983,14 +938,14 @@ function AppInner() {
             and `Modal`'s 50), because a reader about to be signed out must be able to refresh the session. */}
         <div
           ref={sessionSlotRef}
-          className={isMapTabActive ? 'fixed top-0 inset-x-0 z-[49]' : undefined}
+          className={mapViewOpen ? 'fixed top-0 inset-x-0 z-[49]' : undefined}
           data-testid="session-banner-slot"
         >
           <SessionExpiryBanner />
         </div>
         {/* Everything else up here is covered by the view, so it is inert while the view stands (the screen column is
             made inert by the shell; this block and the footer sit outside it). */}
-        <div inert={isMapTabActive} data-testid="app-banner-block">
+        <div inert={mapViewOpen} data-testid="app-banner-block">
         {isAdmin && rewind && <RewindPill rewind={rewind} />}
         <div className="max-w-4xl mx-auto px-4 mt-4">
           {/* The banner's two doors, each WITHHELD when it would lead nowhere (the dead-control ban): the
@@ -1036,7 +991,7 @@ function AppInner() {
             <AskWhenLive rewound={Boolean(rewind)}>
             <WindowFirstShell
               mapColourScale={mapColourScale}
-              onTabChange={setActivePlanTab}
+              onScreenChange={setActiveScreen}
               registerOpenMap={registerOpenMap}
               loadMapRoute={loadMapRoute}
               onLoadMapRouteHandled={consumeMapRoute}
@@ -1086,7 +1041,6 @@ function AppInner() {
               onEvaluationScoresChange={handleEvaluationScoresChange}
               onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
               locations={visibleLocations}
-              tabRequest={tabRequest}
               locationSheetHandoff={locationSheetHandoff}
               // Find's Map picks (a place or a region), and Find's open state for the Map's menus. Withheld
               // with the Map door, under the same rule: a pick onto no map is a control that does nothing.
@@ -1128,22 +1082,25 @@ function AppInner() {
                   />
                 </Suspense>
               ) : null}
-              // The admin gate, in full. The shell takes no role, no `isAdmin` boolean and no
-              // prop shaped like one — it simply renders a tab for each pane it was handed, so
-              // withholding the pane withholds the tab. The role stays here, where it already
-              // lives, and nothing role-derived crosses this boundary (plan §5c).
+              // The admin gate, in full. The shell takes no role, no `isAdmin` boolean and no prop shaped like one: it
+              // draws the ☰ menu's Operations row and the view only for a pane it was handed, so withholding the pane
+              // (and the opener) withholds both. The role stays here, where it already lives, and nothing role-derived
+              // crosses this boundary (plan §5c).
               operationsPane={isAdmin ? (
                 <Suspense fallback={<ViewFallback />}>
                   <ManageView onComplete={refresh} />
                 </Suspense>
               ) : null}
+              operationsOpen={operations.isOpen}
+              onOpenOperations={isAdmin ? () => operations.open() : undefined}
+              onCloseOperations={operations.close}
             />
             </AskWhenLive>
       </main>
         </WindowFirstBriefingProvider>
       </PlanErrorBoundary>
 
-      <footer className="border-t border-plex-border px-4 py-4 mt-8" inert={isMapTabActive}>
+      <footer className="border-t border-plex-border px-4 py-4 mt-8" inert={mapViewOpen} hidden={operations.isOpen}>
           <div className="max-w-4xl mx-auto text-center text-xs text-plex-text-muted">
             <div className="flex justify-center gap-4">
               <a
