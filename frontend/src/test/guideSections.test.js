@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  GUIDE_PAGES, GUIDE_SECTIONS, TAB_GUIDE, guideUrl, pageIdFromMessage, resolveGuideOrigin,
+  GUIDE_PAGES, GUIDE_SECTIONS, SCREEN_GUIDE, guideUrl, pageIdFromMessage, resolveGuideOrigin,
 } from '../utils/guide.js';
 
 /**
@@ -12,13 +12,25 @@ import {
  * makes it, because CI runs the frontend suite on a `landing/guide/` change.
  */
 const GUIDE_DIR = resolve(process.cwd(), '../landing/guide');
-const files = readdirSync(GUIDE_DIR).filter((f) => f.endsWith('.html'));
+const allFiles = readdirSync(GUIDE_DIR).filter((f) => f.endsWith('.html'));
 const pageSource = (page) => readFileSync(resolve(GUIDE_DIR, `${page}.html`), 'utf8');
+/** `at-a-glance.html` and `coming-up.html` stay as redirect stubs (one-screen-plan.md O4a): links in the wild still land. */
+const isStub = (f) => /http-equiv="refresh"/.test(pageSource(f.replace(/\.html$/, '')));
+const files = allFiles.filter((f) => !isStub(f));
+const stubs = allFiles.filter(isStub);
 const hasId = (page, id) => new RegExp(`\\sid="${id}"`).test(pageSource(page));
 
 describe('GUIDE_PAGES', () => {
   it('names exactly the pages that exist in landing/guide', () => {
     expect(files.map((f) => f.replace(/\.html$/, '')).sort()).toEqual(Object.keys(GUIDE_PAGES).sort());
+  });
+
+  it('keeps exactly the two retired pages as redirect stubs, and names neither as a guide page', () => {
+    expect(stubs.sort()).toEqual(['at-a-glance.html', 'coming-up.html']);
+    expect(Object.keys(GUIDE_PAGES)).not.toContain('at-a-glance');
+    expect(Object.keys(GUIDE_PAGES)).not.toContain('coming-up');
+    expect(pageSource('at-a-glance')).toContain('content="0;url=planning.html"');
+    expect(pageSource('coming-up')).toContain('content="0;url=planning.html#further-ahead"');
   });
 
   it('is frozen, so a door cannot invent a page', () => {
@@ -37,20 +49,20 @@ describe('GUIDE_SECTIONS', () => {
 
   it('is the 20 sections the plan\'s contract lists, no more and no fewer', () => {
     expect(entries.map(([, { page, section }]) => `${page}#${section}`).sort()).toEqual([
-      'ask-photocast#typed', 'at-a-glance#bestbet', 'at-a-glance#lens', 'coming-up#new', 'coming-up#tides',
-      'coming-up#topics', 'map#filters', 'map#hot-topics', 'map#tide', 'map#window', 'night-sky#alerts',
-      'night-sky#aurora-map', 'reading-the-forecast#colour', 'reading-the-forecast#fiery',
+      'ask-photocast#typed', 'map#filters', 'map#hot-topics', 'map#tide', 'map#window', 'night-sky#alerts',
+      'night-sky#aurora-map', 'planning#bestbet', 'planning#lens', 'planning#new', 'planning#tides',
+      'planning#topics', 'reading-the-forecast#colour', 'reading-the-forecast#fiery',
       'reading-the-forecast#fixed', 'settings#drive', 'settings#radius', 'settings#sub-regions',
       'weather-warnings#fresh', 'weather-warnings#what',
     ]);
   });
 });
 
-describe('TAB_GUIDE', () => {
-  it('maps the three guided tabs to existing pages and has no Operations entry', () => {
-    expect(TAB_GUIDE).toEqual({ plan: 'at-a-glance', map: 'map' });
-    Object.values(TAB_GUIDE).forEach((page) => expect(Object.keys(GUIDE_PAGES)).toContain(page));
-    expect(TAB_GUIDE.operations).toBeUndefined();
+describe('SCREEN_GUIDE', () => {
+  it('maps the two guided screens to existing pages and has no Operations entry', () => {
+    expect(SCREEN_GUIDE).toEqual({ plan: 'planning', map: 'map' });
+    Object.values(SCREEN_GUIDE).forEach((page) => expect(Object.keys(GUIDE_PAGES)).toContain(page));
+    expect(SCREEN_GUIDE.operations).toBeUndefined();
   });
 });
 
@@ -116,7 +128,7 @@ describe('the Find and Your places guides (docs/engineering/find-and-favourites-
 
   it('states the honesty rule, the cap, the tie-break only rule and that Ready answers do not use favourites', () => {
     const page = pageSource('your-places');
-    expect(page).toContain('You can keep up to 25 places.');
+    expect(page).toContain('You can keep up to 25 places and dates.');
     expect(page).toMatch(/never changes a star rating, a verdict or a Best bet/);
     expect(page).toContain('Mary\'s Lighthouse is yours, and Bamburgh Castle also scores 4★');
     expect(page).toMatch(/Ready questions[^<]*do not use your places/);
@@ -129,7 +141,7 @@ describe('the Find and Your places guides (docs/engineering/find-and-favourites-
   });
 
   it.each([
-    ['at-a-glance', 'find'], ['map', 'find'], ['coming-up', 'watchlist'], ['ask-photocast', 'favourites'],
+    ['planning', 'find'], ['map', 'find'], ['planning', 'your-places'], ['ask-photocast', 'favourites'],
   ])('%s has a #%s section that links to the new guides', (name, id) => {
     expect(hasId(name, id)).toBe(true);
     expect(pageSource(name)).toMatch(/href="(finding|your)-places\.html/);
@@ -172,7 +184,7 @@ describe('the weather warnings guide (docs/engineering/weather-warnings-plan.md,
   });
 
   it.each([
-    ['at-a-glance'], ['map'], ['coming-up'], ['reading-the-forecast'],
+    ['planning'], ['map'], ['reading-the-forecast'],
   ])('%s has a warnings section that links to the guide', (name) => {
     expect(hasId(name, 'warnings')).toBe(true);
     expect(pageSource(name)).toContain('href="#warnings"');
@@ -184,5 +196,44 @@ describe('the weather warnings guide (docs/engineering/weather-warnings-plan.md,
     expect(readFileSync(resolve(GUIDE_DIR, 'guide-search.js'), 'utf8')).toContain("'weather-warnings.html'");
     expect(pageSource('map')).toContain('href="weather-warnings.html"><small>Next');
     expect(pageSource('night-sky')).toContain('href="weather-warnings.html"><small>← Previous');
+  });
+});
+
+describe('the one-screen guides (docs/engineering/one-screen-plan.md, O4a)', () => {
+  const ids = ['this-week', 'further-ahead', 'watch-a-date', 'your-places', 'screen'];
+  /** Every id the two retired pages carried, so an old `#section` link still lands on planning.html. */
+  const OLD_IDS = ['top', 'lens', 'days', 'windows', 'spread', 'open', 'bestbet', 'away', 'find', 'warnings', 'tips',
+    'topics', 'new', 'filters', 'entries', 'tides', 'actions'];
+
+  it.each([...ids, ...OLD_IDS])('planning carries the %s section', (id) => {
+    expect(hasId('planning', id)).toBe(true);
+  });
+
+  it('the guide describes one screen: no tab bar, no Coming up tab, no "At a Glance", no Map tab', () => {
+    files.forEach((f) => {
+      const text = readFileSync(resolve(GUIDE_DIR, f), 'utf8').replace(/<[^>]+>/g, ' ');
+      expect(text, `${f} still names the old screens`).not.toMatch(/At a Glance|Map tab|Coming up tab|\bGlance\b/);
+    });
+  });
+
+  it('every internal link points at a page and a section that exist', () => {
+    const known = new Set(files.map((f) => f.replace(/\.html$/, '')));
+    const problems = [];
+    files.forEach((f) => {
+      const html = readFileSync(resolve(GUIDE_DIR, f), 'utf8');
+      [...html.matchAll(/href="([^"#]*)(?:#([^"]*))?"/g)].forEach(([, path, hash]) => {
+        if (/^(https?:|mailto:)/.test(path)) return;
+        const target = path === '' ? f.replace(/\.html$/, '') : path.replace(/\.html$/, '');
+        if (path && (path.startsWith('..') || path.endsWith('.css') || path.endsWith('.png'))) return;
+        if (path === 'index.html' || path === '') {
+          if (path === 'index.html' && !known.has('index')) problems.push(`${f}: ${path}`);
+        } else if (!known.has(target)) {
+          problems.push(`${f}: ${path}`);
+          return;
+        }
+        if (hash && !hasId(target, hash)) problems.push(`${f}: ${path}#${hash}`);
+      });
+    });
+    expect(problems).toEqual([]);
   });
 });

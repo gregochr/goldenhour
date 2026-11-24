@@ -154,7 +154,7 @@ describe('WindowFirstHeatStrip — guide doors (G3)', () => {
     fireEvent.click(trigger);
     const why = within(screen.getByTestId('wf-heat-bestbets-upsell-popover')).getByTestId('wf-heat-bestbets-upsell-guide');
     fireEvent.click(why);
-    expect(mockOpenGuide).toHaveBeenCalledWith('at-a-glance', 'bestbet', expect.any(Object));
+    expect(mockOpenGuide).toHaveBeenCalledWith('planning', 'bestbet', expect.any(Object));
     expect(mockOpenGuide.mock.calls[0][2].returnFocus()).toBe(trigger);
   });
 

@@ -452,7 +452,7 @@ export default function FurtherAhead({
                 <span className="wf-cu-chip-count">{chip.count}</span>
               </button>
             ))}
-            <GuideLink section="comingUpTopics" label="Every topic explained" />
+            <GuideLink section="furtherAheadTopics" label="Every topic explained" />
           </div>
         )}
 

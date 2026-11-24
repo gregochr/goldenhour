@@ -119,7 +119,7 @@ describe('the guide\'s door on desktop and tablet is the ☰ menu\'s Guide row',
     await screen.findByTestId('ask-field');
     expect(guideRow()).toHaveTextContent('Guide');
     openGuide();
-    expect(frameSrc()).toBe(page('at-a-glance'));
+    expect(frameSrc()).toBe(page('planning'));
     expect(guideDock()).toHaveAttribute('data-guide-surface');
     expect(guideDock().tagName).toBe('ASIDE');
     expect(modalCount()).toBe(0);
@@ -129,7 +129,7 @@ describe('the guide\'s door on desktop and tablet is the ☰ menu\'s Guide row',
     mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
     openGuide();
-    expect(frameSrc()).toBe(page('at-a-glance'));
+    expect(frameSrc()).toBe(page('planning'));
     openMapView();
     await waitFor(() => expect(frameSrc()).toBe(page('map')));
   });
@@ -170,11 +170,11 @@ describe('the guide\'s door on desktop and tablet is the ☰ menu\'s Guide row',
     mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
     openGuide();
-    expect(frameSrc()).toBe(page('at-a-glance'));
+    expect(frameSrc()).toBe(page('planning'));
     // Coming up is a door onto Further ahead, the bottom of the same screen (O2): the page does not move.
     fireEvent.click(screen.getByTestId('further-ahead-jump'));
     await act(async () => { await Promise.resolve(); });
-    expect(frameSrc()).toBe(page('at-a-glance'));
+    expect(frameSrc()).toBe(page('planning'));
     openMapView();
     await waitFor(() => expect(frameSrc()).toBe(page('map')));
   });
@@ -200,7 +200,7 @@ describe('review round 1', () => {
     // Arrows skip the Coming up door: the guide stays on the screen's page and focus stays on the tab.
     await act(async () => { await Promise.resolve(); });
     expect(plan).toHaveFocus();
-    expect(frameSrc()).toBe(page('at-a-glance'));
+    expect(frameSrc()).toBe(page('planning'));
     expect(screen.getByTestId('guide-close')).not.toHaveFocus();
     // The Map is a view now: opening it moves the docked guide to the map page, and focus is the view's title.
     openMapView();
@@ -238,7 +238,7 @@ describe('the phone', () => {
     fireEvent.click(screen.getByTestId('masthead-menu-guide'));
     expect(screen.queryByTestId('masthead-menu')).toBeNull();
     expect(screen.getByRole('dialog', { name: 'PhotoCast guide' })).toBe(screen.getByTestId('bottom-sheet'));
-    expect(frameSrc()).toBe(page('at-a-glance'));
+    expect(frameSrc()).toBe(page('planning'));
   });
 
   it('the Guide row follows the screen, and is absent on Operations', async () => {
