@@ -658,6 +658,8 @@ describe('the section bars\' stylesheet half (one-screen-plan.md O2)', () => {
     expect(css.slice(at, css.indexOf('}', at)))
       .toContain('scroll-margin-top: calc(var(--safe-t) + var(--wf-lens-reserve, 98px) + 2px)');
     expect(css.slice(at, css.indexOf('{', at))).toContain('.wf-yp :is(button, a, [tabindex])');
+    // The heading (a [tabindex] element) keeps its own, smaller margin: the sum above would override it.
+    expect(css.slice(at, css.indexOf('{', at))).toContain('.wf-further-ahead :is(button, a, [tabindex]):not(.wf-sec-h)');
   });
 
   it('does not touch the matrix\'s own sticky declarations: the bar rides --wf-lens-h instead', () => {

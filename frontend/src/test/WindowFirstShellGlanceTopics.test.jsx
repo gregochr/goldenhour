@@ -168,10 +168,10 @@ const FEED = {
 
 let originalGetContext;
 
-async function renderShell() {
+async function renderShell(ctxOverrides = {}) {
   originalGetContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = () => ({});
-  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(ctxOverrides));
   const onOpenMapTab = vi.fn();
   await act(async () => {
     render(
@@ -233,6 +233,35 @@ describe('WindowFirstShell — Further ahead lists what This week does not draw 
     const coastal = screen.getAllByTestId('coming-up-chip').find((c) => c.getAttribute('data-chip') === 'coastal');
     expect(all.querySelector('.wf-cu-chip-count').textContent).toBe('1');
     expect(coastal.querySelector('.wf-cu-chip-count').textContent).toBe('0');
+  });
+});
+
+describe('WindowFirstShell — one badge, counted from what Further ahead lists', () => {
+  it('shows the same number on the jump and the heading, leaving out a new entry a lane already draws', async () => {
+    const fresh = { bits: 8.2, interim: false, enteredWindow: '2026-08-08' };
+    getAlmanac.mockResolvedValue({
+      ...FEED,
+      bands: { list: 5, announce: 7.5, interrupt: 10 },
+      entries: [entry(fresh), { ...TIDE_ENTRY, ...fresh }],
+    });
+    vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx({ comingUpLastSeenDate: '2026-08-01' }));
+    await act(async () => {
+      render(<WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()} onOpenMapTab={vi.fn()} locations={[]} />);
+    });
+    // The tide has a lane (graduated), so only the meteor shower is listed and only it is counted.
+    await waitFor(() => expect(listedIds()).toEqual(['meteor:2026-08-12:2026-08-12']));
+    expect(screen.getByTestId('further-ahead-jump-badge')).toHaveTextContent('1');
+    expect(screen.getByTestId('further-ahead-heading-badge')).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Further ahead, 1 new date' })).toBeInTheDocument();
+  });
+});
+
+describe('WindowFirstShell — an entry never vanishes from both places', () => {
+  it('lists every entry when the strip draws nothing (no spots), because no lane carries any', async () => {
+    await renderShell({ heatSpots: [] });
+    await waitFor(() => expect(getAlmanac).toHaveBeenCalled());
+    await waitFor(() => expect(listedIds()).toContain(TIDE_ENTRY.id));
+    expect(listedIds()).toContain('meteor:2026-08-12:2026-08-12');
   });
 });
 

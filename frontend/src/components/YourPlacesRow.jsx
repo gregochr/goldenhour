@@ -4,6 +4,7 @@ import { useFavourites } from '../context/FavouritesContext.jsx';
 import { useAreaOutlook } from '../hooks/useAreaFind.js';
 import useInViewOnce from '../hooks/useInViewOnce.js';
 import { areaFigure, topWindowFor } from '../utils/planSearch.js';
+import { areaMapWindow } from '../utils/areaFind.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { isOutsidePicks } from '../utils/pickScope.js';
 import { YOUR_PLACES } from '../utils/favourites.js';
@@ -127,8 +128,13 @@ export default function YourPlacesRow({
   const windowOf = (row) => {
     const figure = row.kind === 'area' ? row.figure : row.top;
     const rating = row.kind === 'area' ? figure?.topRating : figure?.rating;
-    if (row.gated || rating == null || rating < QUIET_BELOW || !figure?.date || !figure?.targetType) return null;
-    return { date: figure.date, eventType: figure.targetType };
+    if (row.gated || rating == null || rating < QUIET_BELOW) return null;
+    if (row.kind === 'area') {
+      // The window the area sheet's "Show on map" foot opens (`areaMapWindow`), so the chip and the sheet agree.
+      const target = areaMapWindow(windows, outlook?.get(row.area.id));
+      return target ? { date: target.date, eventType: target.targetType } : null;
+    }
+    return figure?.date && figure?.targetType ? { date: figure.date, eventType: figure.targetType } : null;
   };
 
   const press = (row, event) => {

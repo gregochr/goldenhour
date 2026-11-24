@@ -8,6 +8,12 @@ import {
 } from '../utils/planSearch.js';
 import { useFavourites } from '../context/FavouritesContext.jsx';
 
+/** The tick line counts as scrolled out of view once its bottom edge is above this line (CSS px from the viewport top). */
+const OFF_SCREEN_BELOW = 8;
+
+/** Where the panel sits when the tick line is out of view: just inside the top edge of the viewport. */
+const OFF_SCREEN_TOP = 8;
+
 /**
  * The tick line's box in viewport coordinates, kept fresh — or null when it cannot be measured.
  *
@@ -68,8 +74,12 @@ function useTickLineBox() {
     const node = document.querySelector('.wf-tick');
     const rect = node?.getBoundingClientRect?.();
     if (!rect || rect.width <= 0) { cache.current = null; return null; }
+    // The tick line is not sticky, so a reader scrolled far down (Further ahead is the bottom of the screen) has it
+    // above the viewport, and a panel that followed it would open off-screen. Out of view, the panel sits at the top
+    // of the viewport instead, over whatever is there (the Modal covers the sticky bars too).
+    const outOfView = rect.bottom < OFF_SCREEN_BELOW;
     const next = {
-      top: Math.round(rect.top), left: Math.round(rect.left), width: Math.round(rect.width),
+      top: outOfView ? OFF_SCREEN_TOP : Math.round(rect.top), left: Math.round(rect.left), width: Math.round(rect.width),
     };
     const prev = cache.current;
     if (prev && prev.top === next.top && prev.left === next.left && prev.width === next.width) {

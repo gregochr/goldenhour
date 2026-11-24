@@ -186,6 +186,7 @@ async function renderStrip({ wrap = (node) => node, ...props } = {}) {
   const spots = props.spots ?? [spot()];
   const pointSets = props.pointSets ?? scoredWindows(cards);
   let rerenderRoot;
+  let unmountRoot;
   await act(async () => {
     const result = render(wrap(
       <WindowFirstHeatStrip
@@ -198,6 +199,7 @@ async function renderStrip({ wrap = (node) => node, ...props } = {}) {
       />,
     ));
     rerenderRoot = result.rerender;
+    unmountRoot = result.unmount;
   });
   // Re-renders the SAME props this call used — a flip test calls this once, mutates the hook mock,
   // then `await rerender()` with no arguments to re-commit against the new branch, rather than
@@ -215,7 +217,8 @@ async function renderStrip({ wrap = (node) => node, ...props } = {}) {
       />,
     ));
   });
-  return { onOpenWindow, rerender };
+  const unmount = async () => act(async () => { unmountRoot(); });
+  return { onOpenWindow, rerender, unmount };
 }
 
 /**
@@ -4882,6 +4885,35 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
       const calls = onLaneEntryIds.mock.calls.length;
       await view.rerender();
       expect(onLaneEntryIds.mock.calls.length).toBe(calls);
+    });
+
+    it('reports no entries when the strip withdraws (no spots), so the entry is not left out of both places', async () => {
+      const onLaneEntryIds = vi.fn();
+      await renderStrip({
+        cards: COLUMNS,
+        spots: [],
+        hotTopics: [tide(D4)],
+        comingUpEntries: [SPRING_RUN],
+        renderedEntryIds: new Set([SPRING_RUN.id]),
+        onLaneEntryIds,
+      });
+      expect(screen.queryByTestId('wf-glance-lane')).toBeNull();
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+      expect(onLaneEntryIds).not.toHaveBeenCalledWith(new Set([SPRING_RUN.id]));
+    });
+
+    it('takes its entries back when it unmounts', async () => {
+      const onLaneEntryIds = vi.fn();
+      const view = await renderStrip({
+        cards: COLUMNS,
+        hotTopics: [tide(D4)],
+        comingUpEntries: [SPRING_RUN],
+        renderedEntryIds: new Set([SPRING_RUN.id]),
+        onLaneEntryIds,
+      });
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([SPRING_RUN.id]));
+      await view.unmount();
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
     });
 
     it('is not an entry the feed has not rendered: a jump needs a listed entry to point at', async () => {

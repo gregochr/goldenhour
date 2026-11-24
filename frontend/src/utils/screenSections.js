@@ -14,9 +14,11 @@ export const THIS_WEEK_HEADING = 'This week';
 export const THIS_WEEK_SUBHEADING = 'forecast';
 
 /**
- * Scrolls a section heading to the top of the screen and puts focus on it, the one move every "go to this section"
- * door makes. {@code preventScroll} on the focus because {@code scrollIntoView} has just placed it, and the heading's
- * {@code scroll-margin-top} (index.css) keeps it clear of the sticky stack.
+ * Scrolls a section to the top of the screen and puts focus on its heading, the one move every "go to this section"
+ * door makes. The SECTION is scrolled, not the heading: the heading sits in a sticky bar, and scrolling a sticky
+ * element aims at where it happens to be stuck now, not at where its section starts. The section's own
+ * {@code scroll-margin-top} (index.css) keeps its top clear of the lens bar. {@code preventScroll} on the focus because
+ * the scroll has been made.
  *
  * @param {string} headingId a heading id from this module
  * @returns {boolean} whether the heading was found
@@ -24,7 +26,7 @@ export const THIS_WEEK_SUBHEADING = 'forecast';
 export function focusSectionHeading(headingId) {
   const heading = document.getElementById(headingId);
   if (!heading) return false;
-  heading.scrollIntoView?.({ block: 'start' });
+  (heading.closest('section') ?? heading).scrollIntoView?.({ block: 'start' });
   heading.focus({ preventScroll: true });
   return true;
 }

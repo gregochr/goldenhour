@@ -14,6 +14,7 @@ import WindowSpotCard from '../components/WindowSpotCard.jsx';
 import RegionsJump from '../components/map/RegionsJump.jsx';
 import YourPlacesRow from '../components/YourPlacesRow.jsx';
 import { buildScoreIndex } from '../utils/locationSheet.js';
+import { areaMapWindow } from '../utils/areaFind.js';
 import { favouritesValue, withFavourites } from './favouritesKit.jsx';
 import { FavouritesContext } from '../context/FavouritesContext.jsx';
 
@@ -325,6 +326,17 @@ describe('Your places, the row at the top of This week', () => {
       focus: { kind: 'location', id: 1, name: 'Bamburgh' },
       from: chips[1],
     });
+  });
+
+  it('an area chip opens the same window the area sheet\'s "Show on map" foot would (areaMapWindow)', async () => {
+    const onOpenWindow = vi.fn();
+    render(list({ areas: [9], starredAreas: [AREA] }, { onOpenWindow }));
+    await screen.findByText(/best Steel Rigg/);
+    fireEvent.click(await screen.findByTestId('your-places-chip'));
+    const foot = areaMapWindow(WINDOWS, [{
+      date: '2026-10-05', targetType: 'SUNRISE', ratedMembers: 1, totalMembers: 1, gatedMembers: 0, topRating: 5, topLocationId: 3,
+    }]);
+    expect(onOpenWindow.mock.calls[0][0].window).toEqual({ date: foot.date, eventType: foot.targetType });
   });
 
   it('a chip with no window worth a trip opens the place\'s or area\'s own sheet instead, never nothing', async () => {

@@ -6,7 +6,6 @@ import GuideLink from './guide/GuideLink.jsx';
 import { buildChronology, chipCounts, chipCountsOf, FOOTER } from '../utils/comingUpFeed.js';
 import { readFurtherAheadFilter, writeFurtherAheadFilter } from '../utils/furtherAheadFilter.js';
 import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
-import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 import { comingUpOutsideFacts, entrySubject, outsideLineText } from '../utils/comingUpOutside.js';
 import { scrollToEntry } from '../utils/scrollToEntry.js';
@@ -14,8 +13,7 @@ import { isEntryOpen, readOpenOverrides, writeOpenOverrides } from '../utils/com
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useWarnings } from '../context/WarningsContext.jsx';
 import { WarningFooter } from './WarningChip.jsx';
-import { reconcileFeed } from '../utils/comingUpWarnings.js';
-import { appNow } from '../utils/rewind.js';
+import useListedFeed from '../hooks/useListedFeed.js';
 
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
  * legacy shape ({@code {entries: []}}, which carries no {@code counts} key at all). */
@@ -138,28 +136,21 @@ export default function FurtherAhead({
     setActiveFilter(filterId);
     writeFurtherAheadFilter(filterId);
   };
-  // Met Office warning entries (W3b) are checked against the polled warnings before anything is built from the feed:
-  // the feed is fetched far less often than the two-minute poll, so the poll decides whether a warning still exists.
-  // Everything below reads this reconciled payload; with no warning entry it is the wire payload itself.
+  // Met Office warning entries (W3b) are reconciled against the polled warnings, and the entries This week draws as
+  // lanes are taken out, in ONE place shared with the "Further ahead ↓" jump (`hooks/useListedFeed.js`), so the badge on
+  // the jump and on this heading are the same number and neither counts an entry this section does not list.
+  const {
+    events, listedEntries, badge, sinceEntry,
+  } = useListedFeed(wireEvents, graduatedIds, comingUpLastSeenDate);
   const served = useWarnings();
-  const events = useMemo(
-    () => reconcileFeed(wireEvents, served, appNow().getTime()),
-    [wireEvents, served],
-  );
   // The reader's own open and close presses, by entry id, kept for the session and overriding the default
   // (collapse-and-topic-pips-plan.md §5; utils/comingUpOpen.js).
   const [openOverrides, setOpenOverrides] = useState(readOpenOverrides);
   useEffect(() => { writeOpenOverrides(openOverrides); }, [openOverrides]);
   const { allowedLocationIds } = useWindowFirstBriefing();
 
-  // What this section lists (D5): the served entries less those This week already draws as a lane. With nothing
-  // graduated it is the served array itself, and the chips read the served counts as they always did.
-  const listedEntries = useMemo(() => {
-    const all = events?.entries;
-    if (!Array.isArray(all) || graduatedIds.size === 0) return all;
-    return all.filter((entry) => !graduatedIds.has(entry.id));
-  }, [events, graduatedIds]);
-  const graduatedAny = listedEntries !== events?.entries;
+  // With nothing graduated the listed array is the served one, and the chips read the served counts as they always did.
+  const graduatedAny = Array.isArray(events?.entries) && listedEntries.length !== events.entries.length;
   const counts = events?.counts ?? EMPTY_COUNTS;
   const totalEntries = listedEntries?.length ?? 0;
   const chips = useMemo(
@@ -203,18 +194,6 @@ export default function FurtherAhead({
     });
     return { byId, doorId: doorId ?? firstId };
   }, [outsideFacts, status, monthGroups]);
-  // The since-line's own two derivations (plan D3/D12) — read straight off the UNFILTERED served
-  // entries/bands, never the active chip's filtered subset: the badge and the since-line describe
-  // "what is new anywhere in the feed", not "what is new in the currently selected family".
-  const badge = useMemo(
-    () => deriveBadge(events?.entries, events?.bands, comingUpLastSeenDate),
-    [events, comingUpLastSeenDate],
-  );
-  const sinceEntry = useMemo(
-    () => selectSinceEntry(events?.entries, events?.bands, comingUpLastSeenDate),
-    [events, comingUpLastSeenDate],
-  );
-
   // The heading is the section's focus target, and what the NEW badge's bootstrap watches for (D6): every time it
   // reaches the viewport the shell is told, and the shell's own guard decides whether that is the one write. A browser
   // that cannot observe never tells it (the bootstrap is a write, so it does not fail open).

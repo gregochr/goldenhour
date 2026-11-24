@@ -914,12 +914,19 @@ export default function WindowFirstHeatStrip({
    * date shows once: here as a lane, or there as an entry. Reported only when the SET changes (a sorted key), so a
    * re-render that draws the same lanes is not a state write upstream.
    */
+  // Only lanes that are DRAWN carry an entry: the strip withdraws entirely with no cards or no spots (the early
+  // return below), and then nothing shows the entry, so Further ahead must keep listing it. Same guard, same place.
+  const lanesDrawn = cards.length > 0 && spots.length > 0;
   const laneEntryKey = useMemo(
-    () => [...new Set(glanceLanes.filter((lane) => lane.jump).map((lane) => lane.jump.entryId))].sort().join('\n'),
-    [glanceLanes],
+    () => (lanesDrawn
+      ? [...new Set(glanceLanes.filter((lane) => lane.jump).map((lane) => lane.jump.entryId))].sort().join('\n')
+      : ''),
+    [glanceLanes, lanesDrawn],
   );
   useEffect(() => {
     onLaneEntryIds?.(new Set(laneEntryKey === '' ? [] : laneEntryKey.split('\n')));
+    // A strip that goes (a viewport flip, the Plan pane unmounting) leaves no lanes behind.
+    return () => onLaneEntryIds?.(new Set());
   }, [laneEntryKey, onLaneEntryIds]);
   /**
    * Where a lane's press goes: the Map door, else this strip's own window, else nowhere. Nothing opens Coming up any

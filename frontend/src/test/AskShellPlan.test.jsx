@@ -255,20 +255,20 @@ describe('on the dock (1024px and up)', () => {
   });
 
   it('the way out never yanks a reader who arrowed to another tab (which closes the sheet too)', async () => {
-    await dockWithAnswer({ props: { mapPane: MAP_PANE } });
+    await dockWithAnswer({ props: { mapPane: MAP_PANE, operationsPane: <p>operations</p> } });
     await planThis(1);
     const open = screen.getByTestId('ask-plan-open');
     open.focus();
     fireEvent.click(open);
     await screen.findByTestId('location-sheet');
 
-    // ArrowRight from the Plan tab moves to the next tab, which is Coming up: a door onto Further ahead. It takes the
-    // dialogs down and leaves focus on that section's heading, not back on the Ask control the sheet was opened from.
+    // ArrowRight steps over the Coming up door to Operations. It takes the dialogs down and leaves focus on the tab
+    // the reader arrowed to, not back on the Ask control the sheet was opened from.
     fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowRight' });
 
     await waitFor(() => expect(locationSheet()).toBeNull());
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-    expect(document.activeElement).toBe(screen.getByTestId('further-ahead-heading'));
+    expect(tab('Operations')).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(tab('Operations'));
   });
 
   it('the way out never yanks a reader who has gone elsewhere', async () => {

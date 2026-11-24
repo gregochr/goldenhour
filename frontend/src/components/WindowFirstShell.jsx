@@ -50,7 +50,7 @@ import { areaMapWindow } from '../utils/areaFind.js';
 import { normalizeMapTrigger, outlierKeysOf } from '../utils/mapDoor.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
 import { isFindKey, isTypingTarget } from '../utils/findKey.js';
-import { deriveBadge } from '../utils/comingUpArrivals.js';
+import useListedFeed from '../hooks/useListedFeed.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
 import useAreaFind from '../hooks/useAreaFind.js';
@@ -714,10 +714,7 @@ export default function WindowFirstShell({
    * showing: the badge answers "is anything new anywhere in the feed", a question the active filter
    * must not narrow.
    */
-  const comingUpBadge = useMemo(
-    () => deriveBadge(comingUp.events?.entries, comingUp.events?.bands, comingUpLastSeenDate),
-    [comingUp.events, comingUpLastSeenDate],
-  );
+  const { badge: comingUpBadge } = useListedFeed(comingUp.events, graduatedIds, comingUpLastSeenDate);
   /**
    * The "Further ahead ↓" jump's accessible name (D6). With a badge it carries the badge's meaning, which the
    * `aria-hidden` badge span cannot; without one the name computes from the button's own text. The two band names
@@ -898,11 +895,15 @@ export default function WindowFirstShell({
     // handling it: Alt+Left and Cmd+Left are the browser's Back, and Ctrl/Cmd+Home is "top of
     // document". The bar's own bindings are the UNMODIFIED keys only.
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const last = tabs.length - 1;
+    // The Coming up button is a door onto Further ahead (O2), not a tab the arrows select: they skip it, so focus never
+    // leaves the bar for the section and Operations stays one press away. It stays clickable.
+    const stops = tabs.map((t, i) => i).filter((i) => tabs[i].id !== 'coming-up');
+    const first = stops[0];
+    const last = stops[stops.length - 1];
     let next = null;
-    if (event.key === 'ArrowRight') next = index === last ? 0 : index + 1;
-    else if (event.key === 'ArrowLeft') next = index === 0 ? last : index - 1;
-    else if (event.key === 'Home') next = 0;
+    if (event.key === 'ArrowRight') next = stops.find((i) => i > index) ?? first;
+    else if (event.key === 'ArrowLeft') next = [...stops].reverse().find((i) => i < index) ?? last;
+    else if (event.key === 'Home') next = first;
     else if (event.key === 'End') next = last;
     if (next === null) return;
     // Home and End scroll the page by default, and Left/Right scroll a horizontally overflowing
@@ -1245,6 +1246,9 @@ export default function WindowFirstShell({
     // purpose — the selected tab is not derivable from props — and the nonce guard means this runs
     // once per ask rather than on every render, so there is no cascade to trigger.
     selectTab(requestedId);
+    // Coming up is a door onto Further ahead: `selectTab` has asked for that section's heading, which takes focus
+    // itself, so the tab-button focus below must not overwrite it a frame later.
+    if (requestedId === 'coming-up') return;
     // Focus follows the request, and only a request. A CLICK leaves focus on the tab the pointer or
     // the keyboard already put it on, so the bar needs nothing; an external ask arrives with focus
     // wherever the CALLER left it — and the caller here is a dialog that closes on the same press.

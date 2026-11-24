@@ -203,8 +203,9 @@ describe('review round 1', () => {
     const plan = tab('At a Glance');
     plan.focus();
     fireEvent.keyDown(plan, { key: 'ArrowRight' });
-    // Coming up is a door onto Further ahead: the guide stays on the screen's page and focus lands on that heading.
-    await waitFor(() => expect(screen.getByTestId('further-ahead-heading')).toHaveFocus());
+    // Arrows skip the Coming up door: the guide stays on the screen's page and focus stays on the tab.
+    await act(async () => { await Promise.resolve(); });
+    expect(plan).toHaveFocus();
     expect(frameSrc()).toBe(page('at-a-glance'));
     expect(screen.getByTestId('guide-close')).not.toHaveFocus();
     // The Map is a view now: opening it moves the docked guide to the map page, and focus is the view's title.

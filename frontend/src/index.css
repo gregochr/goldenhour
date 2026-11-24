@@ -1783,7 +1783,7 @@
   background: #241f33;
   border-color: #4a3f6e;
 }
-.wf-lane:hover::before,
+.wf-lane:where(button):hover::before,
 .wf-lane:focus-visible::before {
   border-color: var(--color-plex-text-muted);
 }
@@ -1851,7 +1851,7 @@
   .wf-lane[data-ends-after='true']::before { border-right-color: CanvasText; }
   .wf-lane-sw { border: 1px solid CanvasText; }
   .wf-lane:focus-visible { outline: 2px solid Highlight; }
-  .wf-lane:hover { outline: 1px solid Highlight; }
+  .wf-lane:where(button):hover { outline: 1px solid Highlight; }
 }
 /* Phone only: each day's lanes are a full-width cell of the flowing grid directly under its day's header, one lane per
    row (no spanning). Desktop and tablet are untouched. */
@@ -11462,6 +11462,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* A jump scrolls the SECTION to the top (`focusSectionHeading`); its sticky bar then rests under the lens bar. */
+  scroll-margin-top: calc(var(--safe-t) + var(--wf-bar-h, 54px));
 }
 .wf-sec-bar {
   position: sticky;
@@ -11516,7 +11518,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-sec-h .wf-tab-badge { margin-left: 8px; vertical-align: 1px; }
 /* Every focusable thing in Further ahead and in Your places reserves against the sticky stack, as the cards do. Written
    as a sum in a different order from the card rules, which a stylesheet test finds by their exact text. */
-.wf-further-ahead :is(button, a, [tabindex]),
+.wf-further-ahead :is(button, a, [tabindex]):not(.wf-sec-h),
 .wf-yp :is(button, a, [tabindex]) {
   scroll-margin-top: calc(var(--safe-t) + var(--wf-lens-reserve, 98px) + 2px);
 }

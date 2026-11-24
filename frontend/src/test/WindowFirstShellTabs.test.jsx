@@ -412,23 +412,32 @@ describe('WindowFirstShell — moving between tabs', () => {
     // there was nothing to copy, so the whole contract is pinned.
     renderShell({}, { operationsPane: OPS });
     tab('At a Glance').focus();
+    const ops = () => screen.getByRole('tab', { name: 'Operations' });
 
-    // Coming up is a door (O2): arrowing onto it keeps Plan selected and carries the reader to Further ahead.
+    // Coming up is a door onto Further ahead (O2), not a tab: the arrows step over it.
     fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowRight' });
-    await act(async () => { await Promise.resolve(); });
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(ops());
+    expect(ops()).toHaveAttribute('aria-selected', 'true');
 
-    fireEvent.keyDown(tab('Coming up'), { key: 'ArrowRight' });
-    expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: 'Operations' })).toHaveFocus();
-
-    fireEvent.keyDown(screen.getByRole('tab', { name: 'Operations' }), { key: 'ArrowRight' });
+    fireEvent.keyDown(ops(), { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(tab('At a Glance'));
     expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-    expect(tab('At a Glance')).toHaveFocus();
 
     fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowLeft' });
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(ops());
+    // The door never took selection, focus or the section's heading.
+    expect(screen.getByTestId('further-ahead-heading')).not.toHaveFocus();
+    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('arrowing from the Coming up button itself (clicked, so focused) goes on to the next real tab, either way', () => {
+    renderShell({}, { operationsPane: OPS });
+    tab('Coming up').focus();
+    fireEvent.keyDown(tab('Coming up'), { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Operations' }));
+    tab('Coming up').focus();
+    fireEvent.keyDown(tab('Coming up'), { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(tab('At a Glance'));
   });
 
   it('jumps to the ends with Home and End', async () => {
@@ -1038,6 +1047,16 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
       const { setRequest } = renderWithRequest();
       act(() => setRequest({ id: 'coming-up', nonce: 1 }));
+      expect(document.activeElement).toBe(screen.getByTestId('further-ahead-heading'));
+      raf.mockRestore();
+    });
+
+    it('a request for Coming up does not let the next frame move focus back onto the tab button', () => {
+      const frames = [];
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { frames.push(cb); return 0; });
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'coming-up', nonce: 1 }));
+      act(() => frames.forEach((cb) => cb()));
       expect(document.activeElement).toBe(screen.getByTestId('further-ahead-heading'));
       raf.mockRestore();
     });

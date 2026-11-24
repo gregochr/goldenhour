@@ -16,17 +16,26 @@ describe('screenSections', () => {
     expect(`${THIS_WEEK_HEADING} · ${THIS_WEEK_SUBHEADING}`).toBe('This week · forecast');
   });
 
-  it('scrolls the heading to the top and focuses it without a second scroll', () => {
-    document.body.innerHTML = `<h2 id="${FURTHER_AHEAD_HEADING_ID}" tabindex="-1">Further ahead</h2>`;
+  it('scrolls the SECTION to the top (never the sticky heading), then focuses the heading without a second scroll', () => {
+    document.body.innerHTML = `<section id="sec"><div class="bar"><h2 id="${FURTHER_AHEAD_HEADING_ID}" tabindex="-1">Further ahead</h2></div></section>`;
     const heading = document.getElementById(FURTHER_AHEAD_HEADING_ID);
-    Element.prototype.scrollIntoView = vi.fn();
-    const focus = vi.spyOn(heading, 'focus');
+    const section = document.getElementById('sec');
+    const order = [];
+    Element.prototype.scrollIntoView = vi.fn(function scroll() { order.push(['scroll', this]); });
+    vi.spyOn(heading, 'focus').mockImplementation((options) => order.push(['focus', options]));
 
     expect(focusSectionHeading(FURTHER_AHEAD_HEADING_ID)).toBe(true);
 
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
-    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
-    expect(heading).toHaveFocus();
+    expect(order).toEqual([['scroll', section], ['focus', { preventScroll: true }]]);
+  });
+
+  it('falls back to the heading itself when it is in no section', () => {
+    document.body.innerHTML = `<h2 id="${THIS_WEEK_HEADING_ID}" tabindex="-1">This week</h2>`;
+    const heading = document.getElementById(THIS_WEEK_HEADING_ID);
+    Element.prototype.scrollIntoView = vi.fn();
+    expect(focusSectionHeading(THIS_WEEK_HEADING_ID)).toBe(true);
+    expect(Element.prototype.scrollIntoView.mock.contexts[0]).toBe(heading);
   });
 
   it('still focuses where there is no scrollIntoView (jsdom, an old engine)', () => {

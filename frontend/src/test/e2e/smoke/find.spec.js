@@ -91,13 +91,12 @@ test.describe('Find everywhere', () => {
     const name = await aChipName(page);
     await closeMapView(page);
     await openFurtherAhead(page);
-    // Find's panel is anchored to the masthead's tick line, which is not sticky (a pre-existing rule that
-    // `PlanSearch`'s `useTickLineBox` documents), so from the bottom of a scrolled screen it would open off-screen.
-    // Back at the top, as the Coming up tab always was after a tab change, the pick is what is under test.
-    await page.evaluate(() => window.scrollTo(0, 0));
+    // Scrolled to the bottom of the screen the tick line is far above the viewport; the panel still opens in view.
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
 
     await press(page);
     await FIELD(page).fill(name);
+    await expect(page.getByTestId('plan-search-panel')).toBeInViewport();
     await page.getByRole('option', { name: new RegExp(name) }).first().click();
 
     await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');

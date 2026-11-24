@@ -881,6 +881,17 @@ describe('FurtherAhead — graduation: it lists what This week does not already 
     expect(counts).toMatchObject({ all: '1', coastal: '0', 'night-sky': '1' });
   });
 
+  it('keeps reading the served counts when the graduated ids name nothing in the feed (no source switch)', () => {
+    renderPane({
+      graduatedIds: new Set(['not-in-the-feed']),
+      events: { entries: ENTRIES, counts: { fixed: 9, forecast: 0, byFamily: { coastal: 7, 'night-sky': 2 } } },
+    });
+    const count = (id) => screen.getAllByTestId('coming-up-chip').find((c) => c.getAttribute('data-chip') === id)
+      .querySelector('.wf-cu-chip-count').textContent;
+    expect(count('all')).toBe('9');
+    expect(count('coastal')).toBe('7');
+  });
+
   it('reads the served counts when nothing has graduated', () => {
     renderPane();
     const all = screen.getAllByTestId('coming-up-chip').find((chip) => chip.getAttribute('data-chip') === 'all');
