@@ -82,8 +82,8 @@ describe('isUnroutableDropped — all three conditions are needed', () => {
 describe('formatLensCount — plurals of the reached count', () => {
   it('says "spot" for a single reached spot and "spots" otherwise', () => {
     expect(formatLensCount({ spotCount: 0, reachedCount: 1, windowCount: 2 }))
-      .toEqual({ lead: '0', rest: 'of 1 spot' });
+      .toEqual({ lead: '0', rest: 'of 1 spot within reach', tail: '2 windows' });
     expect(formatLensCount({ spotCount: 1, reachedCount: 5, windowCount: 3 }))
-      .toEqual({ lead: '1', rest: 'of 5 spots' });
+      .toEqual({ lead: '1', rest: 'of 5 spots within reach', tail: '3 windows' });
   });
 });

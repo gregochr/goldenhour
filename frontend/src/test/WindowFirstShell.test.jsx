@@ -713,7 +713,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       expect(screen.getByTestId('window-first-lens-readout'))
-        .toHaveTextContent(/^3 spots$/);
+        .toHaveTextContent(/^3 spots · 2 windows$/);
     });
 
     it('does not restate the rating floor: the pressed chip beside the count says it (screen-spec.md D7)', () => {
@@ -725,9 +725,9 @@ describe('WindowFirstShell — the strip it hosts', () => {
       expect(screen.getByTestId('window-first-lens-readout')).not.toHaveTextContent('4★+');
     });
 
-    it('⚠️ never says "within reach" or counts windows, whether or not a drive was measured', () => {
-      // §4 A7 names this readout as the one count statement on the page. It names no gate and no window count at all
-      // now (screen-spec.md D7), so an unmeasured drive cannot make it claim one.
+    it('⚠️ drops "within reach" from the page\'s ONE count when nothing measured a drive', () => {
+      // §4 A7 names this readout as the one count statement on the page, so it is the most load-bearing place the
+      // reach claim could be wrong. Same numbers and windows, no claim about which set the denominator is.
       const first = {
         ...CARD, reachTotal: 12, reachedTotal: 5, reachMeasured: false,
       };
@@ -738,8 +738,8 @@ describe('WindowFirstShell — the strip it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       const readout = screen.getByTestId('window-first-lens-readout');
-      expect(readout).toHaveTextContent(/^3 of 9 spots$/);
-      expect(readout).not.toHaveTextContent(/within reach|windows/);
+      expect(readout).toHaveTextContent(/^3 of 9 spots · 2 windows$/);
+      expect(readout).not.toHaveTextContent('within reach');
     });
 
     it('states what the floor cost, and only once it has cost something', () => {
@@ -757,7 +757,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       expect(screen.getByTestId('window-first-lens-readout'))
-        .toHaveTextContent(/^3 of 9 spots$/);
+        .toHaveTextContent(/^3 of 9 spots within reach · 2 windows$/);
     });
 
     it('renders the plan\'s own conflict message, built where both thresholds are known', async () => {

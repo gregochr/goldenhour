@@ -241,33 +241,44 @@ describe('reachLens — the gate', () => {
   });
 });
 
-describe('reachLens — the readout is the count only (screen-spec.md D7)', () => {
-  it('says N spots, in the plural', () => {
+describe('reachLens — the readout is the count and its windows (screen-spec.md D7, amended 2026-11-24)', () => {
+  it('says N spots · W windows, in the plural', () => {
     expect(formatLensCount({ spotCount: 34, reachedCount: 34, windowCount: 6 }))
-      .toEqual({ lead: '34', rest: 'spots' });
+      .toEqual({ lead: '34', rest: 'spots', tail: '6 windows' });
   });
 
   it('agrees with itself in the singular', () => {
     expect(formatLensCount({ spotCount: 1, reachedCount: 1, windowCount: 1 }))
-      .toEqual({ lead: '1', rest: 'spot' });
+      .toEqual({ lead: '1', rest: 'spot', tail: '1 window' });
   });
 
-  it('says N of M spots only when the rating floor removed some', () => {
+  it('says N of M spots within reach only when the rating floor removed some', () => {
     expect(formatLensCount({ spotCount: 42, reachedCount: 138, windowCount: 6 }))
-      .toEqual({ lead: '42', rest: 'of 138 spots' });
+      .toEqual({ lead: '42', rest: 'of 138 spots within reach', tail: '6 windows' });
     expect(formatLensCount({ spotCount: 0, reachedCount: 1, windowCount: 2 }))
-      .toEqual({ lead: '0', rest: 'of 1 spot' });
+      .toEqual({ lead: '0', rest: 'of 1 spot within reach', tail: '2 windows' });
   });
 
-  it('never says reach, windows, the tier, a default or a rating', () => {
-    // The pressed chips beside the count already say them: the line repeats none of it.
-    const { lead, rest } = formatLensCount({ spotCount: 42, reachedCount: 138, windowCount: 6 });
-    expect(`${lead} ${rest}`).not.toMatch(/reach|window|default|min|★/i);
+  /**
+   * ⚠️ §6 clause 7. A reader with no home postcode has no drive time, an unknown drive passes every tier, so
+   * {@code reachedCount} is simply everything and "within reach" would name a gate that gated nothing.
+   */
+  it('keeps both numbers and drops only "within reach" when no drive time is measured', () => {
+    expect(formatLensCount({ spotCount: 42, reachedCount: 138, windowCount: 6, reachMeasured: false }))
+      .toEqual({ lead: '42', rest: 'of 138 spots', tail: '6 windows' });
+    // The unqualified arm never used the words, so the flag changes nothing there.
+    expect(formatLensCount({ spotCount: 5, reachedCount: 5, windowCount: 2, reachMeasured: false }))
+      .toEqual(formatLensCount({ spotCount: 5, reachedCount: 5, windowCount: 2 }));
+  });
+
+  it('never says the tier, a default or a rating: the pressed chips say them', () => {
+    const { lead, rest, tail } = formatLensCount({ spotCount: 42, reachedCount: 138, windowCount: 6 });
+    expect(`${lead} ${rest} ${tail}`).not.toMatch(/default|min\b|★/i);
   });
 
   it('says a window that drew no spots, and nothing when there are no windows to count in', () => {
     expect(formatLensCount({ spotCount: 0, reachedCount: 0, windowCount: 1 }))
-      .toEqual({ lead: '0', rest: 'spots' });
+      .toEqual({ lead: '0', rest: 'spots', tail: '1 window' });
     expect(formatLensCount({ spotCount: 0, reachedCount: 0, windowCount: 0 })).toBeNull();
   });
 });

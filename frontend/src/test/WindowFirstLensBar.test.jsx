@@ -30,7 +30,7 @@ const SATURDAY = '2026-08-08';
  */
 function Lens({
   todayStr = TUESDAY, locked = false, spotCount = 34, reachedCount, windowCount = 6,
-  originBase = null,
+  originBase = null, reachMeasured = true,
 }) {
   const lens = useReachLens(todayStr, locked);
   const ratingLens = useRatingLens();
@@ -42,6 +42,7 @@ function Lens({
       reachedCount={reachedCount}
       windowCount={windowCount}
       originBase={originBase}
+      reachMeasured={reachMeasured}
     />
   );
 }
@@ -135,8 +136,8 @@ describe('WindowFirstLensBar — the control', () => {
   it('states the count it left and nothing the chips already say (screen-spec.md D7)', () => {
     render(<Lens todayStr={TUESDAY} spotCount={34} windowCount={6} />);
     const readout = screen.getByTestId('window-first-lens-readout');
-    expect(readout).toHaveTextContent(/^34 spots$/);
-    expect(readout).not.toHaveTextContent(/default|any rating|45 min|windows/);
+    expect(readout).toHaveTextContent(/^34 spots · 6 windows$/);
+    expect(readout).not.toHaveTextContent(/default|any rating|45 min/);
   });
 });
 
@@ -182,7 +183,7 @@ describe('WindowFirstLensBar — marking a temporary override', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Any' }));
 
     const readout = screen.getByTestId('window-first-lens-readout');
-    expect(readout).toHaveTextContent(/^34 spots$/);
+    expect(readout).toHaveTextContent(/^34 spots · 6 windows$/);
     expect(readout).not.toHaveTextContent('default');
   });
 
@@ -256,7 +257,7 @@ describe('WindowFirstLensBar — the LITE treatment', () => {
   it('claims no default either, because the readout is the count and nothing else', () => {
     render(<Lens locked todayStr={TUESDAY} />);
     const readout = screen.getByTestId('window-first-lens-readout');
-    expect(readout).toHaveTextContent(/^34 spots$/);
+    expect(readout).toHaveTextContent(/^34 spots · 6 windows$/);
     expect(readout).not.toHaveTextContent('default');
   });
 
@@ -366,7 +367,7 @@ describe('WindowFirstLensBar — the rating floor', () => {
   it('does not restate the floor in the readout: the pressed chip says it', () => {
     render(<Lens />);
     fireEvent.click(screen.getByRole('button', { name: '4★+' }));
-    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent(/^34 spots$/);
+    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent(/^34 spots · 6 windows$/);
     expect(flooredOn()).toEqual(['4★+']);
   });
 });
@@ -378,13 +379,29 @@ describe('WindowFirstLensBar — what the count costs', () => {
     // The handoff's whole reason for the line: a short list has to read as "I asked for this"
     // rather than "tonight is bad".
     render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
-    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent(/^42 of 138 spots$/);
+    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent(/^42 of 138 spots within reach · 6 windows$/);
   });
 
-  it('no longer claims a gate ran: no "within reach" and no window count (screen-spec.md D7)', () => {
+  it('names the denominator\'s set: "within reach", because a window card counts a different one', () => {
+    // M is the spots that cleared the DRIVE limit; a card's footer says "3 of 12" with 12 = every spot there. Two
+    // counts, one shape, different sets: unqualified, this one invites "138 spots exist". Pinned with its reason.
     render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
+    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('within reach');
+  });
 
-    expect(screen.getByTestId('window-first-lens-readout')).not.toHaveTextContent(/within reach|windows/);
+  it('⚠️ drops "within reach" when no drive time is measured, keeping both numbers and the windows', () => {
+    render(<Lens spotCount={42} reachedCount={138} windowCount={6} reachMeasured={false} />);
+    const readout = screen.getByTestId('window-first-lens-readout');
+    expect(readout).toHaveTextContent(/^42 of 138 spots · 6 windows$/);
+    expect(readout).not.toHaveTextContent('within reach');
+  });
+
+  it('hides the · separator from assistive tech, and keeps the lead number emphasised', () => {
+    render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
+    const readout = screen.getByTestId('window-first-lens-readout');
+    const dot = [...readout.querySelectorAll('span')].find((n) => n.textContent.trim() === '·');
+    expect(dot).toHaveAttribute('aria-hidden', 'true');
+    expect(readout.querySelector('b')).toHaveTextContent('42');
   });
 
   it('does not compare a set with itself when nothing was trimmed', () => {
@@ -393,7 +410,7 @@ describe('WindowFirstLensBar — what the count costs', () => {
     render(<Lens spotCount={138} reachedCount={138} windowCount={6} />);
 
     const readout = screen.getByTestId('window-first-lens-readout');
-    expect(readout).toHaveTextContent(/^138 spots$/);
+    expect(readout).toHaveTextContent(/^138 spots · 6 windows$/);
     expect(readout).not.toHaveTextContent('of 138');
   });
 
@@ -459,8 +476,8 @@ describe('WindowFirstLensBar — the phone branch', () => {
     const readout = screen.getByTestId('window-first-lens-readout');
     expect(readout).toHaveAttribute('data-variant', 'count');
     expect(readout).toHaveClass('wf-lens-count');
-    expect(readout).toHaveTextContent('42 of 138 spots');
-    expect(readout).not.toHaveTextContent(/within reach|weekday default/);
+    expect(readout).toHaveTextContent('42 of 138 spots within reach · 6 windows');
+    expect(readout).not.toHaveTextContent(/weekday default/);
   });
 
   it('folds the override marks into the count row on a phone: they follow the readout in the DOM', () => {
@@ -490,7 +507,7 @@ describe('WindowFirstLensBar — the phone branch', () => {
     const readout = screen.getByTestId('window-first-lens-readout');
     expect(readout).toHaveAttribute('data-variant', 'summary');
     expect(readout).toHaveClass('wf-lens-res');
-    expect(readout).toHaveTextContent(/^42 of 138 spots$/);
+    expect(readout).toHaveTextContent(/^42 of 138 spots within reach · 6 windows$/);
   });
 });
 

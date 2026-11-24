@@ -104,6 +104,26 @@ function MarkedText({ text }) {
 MarkedText.propTypes = { text: PropTypes.string.isRequired };
 
 /**
+ * The count line ({@code 6 spots · 4 windows}): the lead number emphasised, and the {@code ·} separator hidden from
+ * assistive tech so it is not read as "middle dot".
+ */
+function CountText({ count }) {
+  if (!count) return null;
+  return (
+    <>
+      <b>{count.lead}</b>
+      {` ${count.rest}`}
+      <span aria-hidden="true"> · </span>
+      {count.tail}
+    </>
+  );
+}
+
+CountText.propTypes = {
+  count: PropTypes.shape({ lead: PropTypes.string, rest: PropTypes.string, tail: PropTypes.string }),
+};
+
+/**
  * The verdict's one action — a button inside the readout, outside the ellipsising span on desktop
  * so it can never be clipped. Its label goes through {@code MarkedText} so "Drop to 3★+" is spoken
  * "Drop to 3 stars+" and the accessible name contains every visible word (WCAG 2.5.3).
@@ -223,7 +243,8 @@ VerdictAction.propTypes = {
  * <h2>The readout is the count only, at every width</h2>
  *
  * <p>The pressed chips already say what both controls are set to, so the readout does not repeat them
- * (screen-spec.md D7): {@code 6 spots}, or {@code 6 of 9 spots} when the rating floor removed some. A
+ * (screen-spec.md D7, amended 2026-11-24): {@code 6 spots · 4 windows}, or {@code 6 of 9 spots within reach ·
+ * 4 windows} when the rating floor removed some. A
  * short list still has to read as "I asked for this" rather than "tonight is bad", and the count is the
  * half of the line that is not legible from the chips.
  *
@@ -266,14 +287,14 @@ VerdictAction.propTypes = {
  *        bar must not say. Null is home, and the caption names it.
  */
 export default function WindowFirstLensBar({
-  lens, ratingLens, spotCount, reachedCount = spotCount, windowCount,
+  lens, ratingLens, spotCount, reachedCount = spotCount, windowCount, reachMeasured = true,
   originBase = null, stuck = false, verdict = null, onVerdictAction,
 }) {
   const {
     tierId, defaultTier, overridden, locked, selectTier, resetToDefault,
   } = lens;
   const isMobile = useIsMobile();
-  const count = formatLensCount({ spotCount, reachedCount, windowCount });
+  const count = formatLensCount({ spotCount, reachedCount, windowCount, reachMeasured });
   // The override's marks and the Lite upsell. On a desktop they sit between the two controls, as they always have; on a
   // phone they follow the count so they fold into ITS row instead of taking a row of their own (screen-spec.md section 4:
   // the lens is two chip rows and a 14px count line), and the focus order stays the visual order.
@@ -375,7 +396,7 @@ export default function WindowFirstLensBar({
                   </>
                 )}
               </>
-            ) : (count && <><b>{count.lead}</b>{` ${count.rest}`}</>)}
+            ) : <CountText count={count} />}
             {/* On a phone the readout owns its row, so the ? ends that line rather than starting another. */}
             <GuideLink section="lens" label="How the drive and rating bar works" />
           </>
@@ -391,7 +412,7 @@ export default function WindowFirstLensBar({
                   {' '}
                   <MarkedText text={verdict.text} />
                 </>
-              ) : (count && <><b>{count.lead}</b>{` ${count.rest}`}</>)}
+              ) : <CountText count={count} />}
             </span>
             {verdict?.action && <VerdictAction action={verdict.action} onAction={onVerdictAction} />}
           </>
@@ -436,6 +457,11 @@ WindowFirstLensBar.propTypes = {
   /** Defaults to {@code spotCount} — with no floor set the two are equal and no "of N" is drawn. */
   reachedCount: PropTypes.number,
   windowCount: PropTypes.number.isRequired,
+  /**
+   * Whether ANY drive time exists for the reach tier to gate on: false for a reader with no home postcode. Withholds
+   * "within reach" from the count, never the numbers (see {@code formatLensCount}). Defaults true.
+   */
+  reachMeasured: PropTypes.bool,
   /** Whether the bar has left its resting place — the shell's sentinel answers it (M3). */
   stuck: PropTypes.bool,
   /** The plan-level verdict line, or null. See the component's own note. */

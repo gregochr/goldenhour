@@ -2493,6 +2493,9 @@ export default function WindowFirstShell({
           // rather than derived in the bar for the reason `spotCount` already is: the counts have to
           // be the lengths of the arrays that were drawn, and only this component can see all six.
           reachedCount={windowCards.reduce((total, card) => total + (card.reachedTotal ?? 0), 0)}
+          // ⚠️ Whether the reach axis COULD act, see `formatLensCount`. A reader with no home postcode has no drive
+          // time anywhere, so `reachedCount` is simply everything and "within reach" would name a gate that did nothing.
+          reachMeasured={windowCards.some((card) => card.reachMeasured)}
           // A reader with no pick has no spots to count: "0 spots across 4 windows" would be false of the picks (S5b-1).
           windowCount={picksFacts?.allowed === 0 ? 0 : windowCards.length}
           originBase={origin?.baseName ?? null}

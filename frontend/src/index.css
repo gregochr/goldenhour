@@ -1182,11 +1182,15 @@
        from the desktop value.
 
        screen-spec.md P1: the phone lens is ~90px now (two 30px chip rows, 5px padding, a 4px gap, a 14px count line),
-       and its marks fold into the count's row, so the tallest MEASURED state sets them. Measured at 390x844 on the seeded stack: Pro, default tier 93.4px; Pro on a non-default tier (today only + Back to X on the count row) 96.5px; Lite (Pro pill and why-link on the count row) 98.5px; the plan-conflict verdict could not be reached (the seed has no drive times), so it is unmeasured: it replaces the count and may wrap, the one case allowed past the band, and the measured height overwrites these literals within a frame. These two first-paint literals replace
-       the old 160 (153.5 + the ring, for the 130px stack) and the desktop 54px `--wf-bar-h` fallback. First paint
-       only: `useLensReserve` measures the bar and overwrites both within a frame. */
-    --wf-lens-reserve: 106px;
-    --wf-bar-h: 99px;
+       and its marks fold into the count's row, so the tallest MEASURED state sets them. Measured at 390x844 on the seeded stack with the count naming its windows
+       (`36 of 108 spots · 6 windows`): Pro on the default tier 93.4px (Lite 98.5px, its Pro pill sharing the count row);
+       Pro on a non-default tier 116.3px, because `today only` and `Back to X` no longer fit beside the longer count and
+       wrap to a second line; Lite with a rating floor set 121.5px, for the same reason (Pro pill and why-link); the
+       plan-conflict verdict could not be reached (the seed has no drive times), so it is unmeasured: it replaces the
+       count and may wrap, the one case allowed past the band. The measured height overwrites these literals within a
+       frame. */
+    --wf-lens-reserve: 128px;
+    --wf-bar-h: 122px;
   }
   /* The compact phone masthead (map-mobile-compact README §1; plan C1): 8px above ONE 34px line, then
      the 2px rule. Every phone tab, since a header that changes shape with the tab is worse than either

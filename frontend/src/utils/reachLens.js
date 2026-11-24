@@ -334,25 +334,53 @@ export function gateSpotsByReach(spots, limitMinutes, { measured = false } = {})
 }
 
 /**
- * The lens bar's readout (screen-spec.md D7): the count only, at every width. {@code N spots}, or {@code N of M spots}
- * when the rating floor removed some, split so the leading number can be emphasised on its own.
+ * The lens bar's readout (screen-spec.md D7, amended by the owner 2026-11-24 for honesty): the count, the windows it
+ * spans and, when the rating floor removed some, the set the count is out of. {@code N spots · W windows}, or
+ * {@code N of M spots within reach · W windows}. Split so the leading number can be emphasised on its own and the
+ * {@code ·} separator can be hidden from assistive tech.
+ *
+ * <p><b>Why the windows are named.</b> The cards across the windows count one place more than once (a spot that is good
+ * at sunrise and sunset is two), so a bare {@code 6 spots} would read as six distinct places. "W windows" says what the
+ * number counts. The tier, default and rating words stay gone: the pressed chips beside the count already say them
+ * ({@code formatLensReadout} is deleted).
+ *
+ * <p><b>Why the denominator is named.</b> {@code M} is the spots that cleared the DRIVE limit; the numerator has
+ * cleared the drive limit AND the rating floor. Unqualified, {@code 42 of 138 spots} invites "138 spots exist" and "96
+ * were hidden by my rating", when some of those 96 are simply further out than the tier allows, while a window card's
+ * footer reads {@code 3 of 12}, where 12 IS every spot at that window. Both are true and nothing on screen said they
+ * counted different things, so the line says {@code within reach}.
  *
  * <p>The second number appears <b>only when the floor actually removed something</b>, which is the rule
  * {@code browseCountLine} already holds one surface down: with nothing trimmed, {@code 138 of 138} is a count dressed
- * as a comparison. The two pressed chips beside it already say which tier and floor are set, so the line repeats
- * neither ("within reach", "across N windows" and the tier, default and rating words are gone).
+ * as a comparison.
+ *
+ * <p>⚠️ <b>"within reach" is withheld where the reach axis cannot have acted</b>: a reader with no home postcode has no
+ * drive time, an unknown drive passes every tier (plan §2.5, absence means unknown, never out of reach), so
+ * {@code reachedCount} is simply everything and naming a gate that gated nothing is §6 clause 7's own sentence ("no
+ * count describes a set that was never filtered"). The two NUMBERS are unchanged; what goes is the assertion about
+ * which set the denominator is.
  *
  * @param {object} args
  * @param {number} args.spotCount    spots drawn across every window, after both gates
  * @param {number} args.reachedCount spots the rating floor chose from, after reach and before rating
  * @param {number} args.windowCount  windows drawn
- * @returns {?{lead: string, rest: string}} the number to emphasise and the rest, or null when there are no windows
- *          to count across
+ * @param {boolean} [args.reachMeasured] whether any drive time exists for the tier to gate on. Defaults {@code true}
+ *        for a caller that cannot answer
+ * @returns {?{lead: string, rest: string, tail: string}} the number to emphasise, the words after it, and the window
+ *          clause after the separator; null when there are no windows to count across
  */
-export function formatLensCount({ spotCount, reachedCount, windowCount }) {
+export function formatLensCount({
+  spotCount, reachedCount, windowCount, reachMeasured = true,
+}) {
   if (!(windowCount > 0)) return null;
+  const tail = `${windowCount} window${windowCount === 1 ? '' : 's'}`;
   if (spotCount < reachedCount) {
-    return { lead: `${spotCount}`, rest: `of ${reachedCount} spot${reachedCount === 1 ? '' : 's'}` };
+    const spots = `spot${reachedCount === 1 ? '' : 's'}`;
+    return {
+      lead: `${spotCount}`,
+      rest: `of ${reachedCount} ${spots}${reachMeasured ? ' within reach' : ''}`,
+      tail,
+    };
   }
-  return { lead: `${spotCount}`, rest: `spot${spotCount === 1 ? '' : 's'}` };
+  return { lead: `${spotCount}`, rest: `spot${spotCount === 1 ? '' : 's'}`, tail };
 }

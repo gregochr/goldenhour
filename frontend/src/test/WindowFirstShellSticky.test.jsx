@@ -476,16 +476,16 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     // A whole-file `toContain` was the first shape here and it cannot see a breakpoint sweep: move
     // this declaration into the adjacent `max-width: 899px` block and the string is still present,
     // the test still passes, and every phone falls back to the desktop 98px against a bar that is
-    // ~99px tall there. 106 = the phone bar's tallest state (~99px, the override marks fold into the count row),
+    // ~122px tall there. 128 = the phone bar's tallest state (~122px, the override marks fold into the count row),
     // plus the ring — the state a returning reader gets on the FIRST paint, since `useReachLens`
     // restores the tier from `localStorage` in a lazy initialiser.
     const css = readCss();
     const at = css.indexOf('@media (max-width: 639px) {');
     expect(at, 'the phone media query must exist').toBeGreaterThan(-1);
     const phoneShell = css.slice(at, css.indexOf('\n  }', at));
-    expect(phoneShell).toContain('--wf-lens-reserve: 106px');
-    // The lens bar alone, for the first frame (screen-spec.md P1): the phone's tallest state is ~99px.
-    expect(phoneShell).toContain('--wf-bar-h: 99px');
+    expect(phoneShell).toContain('--wf-lens-reserve: 128px');
+    // The lens bar alone, for the first frame (screen-spec.md P1): the phone's tallest state is ~122px.
+    expect(phoneShell).toContain('--wf-bar-h: 122px');
   });
 
   it('⚠️ keeps EVERY fallback site equal to the declaration, whatever the site count', () => {
