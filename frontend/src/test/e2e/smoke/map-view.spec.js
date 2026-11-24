@@ -157,6 +157,25 @@ test.describe('The map view over the screen', () => {
     await expect(page.getByTestId('map-screen')).toBeHidden();
   });
 
+  test('the pinned session notice never covers the view\'s header: it starts below it, and the close button works', async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.evaluate(() => {
+      localStorage.setItem('goldenhour_refresh_expires', new Date(Date.now() + 2 * 86400000).toISOString());
+    });
+    await page.reload();
+    await expect(page.getByTestId('session-expiry-banner')).toBeVisible();
+    await (await cardAt(page)).card.click();
+    await expect(page.getByTestId('map-screen')).toBeVisible();
+
+    // The notice stays interactive over the view, and the header sits below it.
+    await expect(page.getByTestId('session-refresh-button')).toBeVisible();
+    const banner = await page.getByTestId('session-banner-slot').boundingBox();
+    const headerTop = (await page.getByTestId('map-screen-header').boundingBox()).y;
+    expect(headerTop).toBeGreaterThanOrEqual(banner.y + banner.height - 1);
+    await page.getByTestId('map-screen-close').click();
+    await expect(page.getByTestId('map-screen')).toBeHidden();
+  });
+
   test('Find opens over the view, and Back closes Find first and the view last', async ({ page }) => {
     test.setTimeout(60_000);
     await (await cardAt(page)).card.click();

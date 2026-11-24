@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeAutoSelection, colourForecastDates } from './utils/conversions.js';
 import { normalizeMapTrigger, doorFromTrigger } from './utils/mapDoor.js';
@@ -361,6 +361,25 @@ function AppInner() {
   const [activePlanTab, setActivePlanTab] = useState('plan');
   /** Whether the map view is open (the shell reports `'map'` while it is). */
   const isMapTabActive = activePlanTab === 'map';
+  /**
+   * The session notice's slot. While the map view is open the slot is fixed over the page (so the notice stays usable),
+   * which would cover the view's header; the view starts below it instead, through one custom property on the root
+   * (`--wf-session-banner-h`, read by `.wf-map-screen`'s `top`), kept equal to the slot's measured height.
+   */
+  const sessionSlotRef = useRef(null);
+  useLayoutEffect(() => {
+    const slot = sessionSlotRef.current;
+    if (!isMapTabActive || !slot) return undefined;
+    const root = document.documentElement;
+    const apply = () => root.style.setProperty('--wf-session-banner-h', `${slot.offsetHeight}px`);
+    apply();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(apply);
+    observer?.observe(slot);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty('--wf-session-banner-h');
+    };
+  }, [isMapTabActive]);
   const {
     locations, loading: forecastsLoading, error: forecastsError, refresh,
     loadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
@@ -926,7 +945,7 @@ function AppInner() {
           (session expiry, the rewind pill, the run-complete and backend-down notices) behind the
           fallback, which carries its own Sign out and its own <main> (the boundary now sits outside
           this file's <main>, so the fallback supplies the landmark and the inset itself). */}
-      <PlanErrorBoundary onSignOut={logout}>
+      <PlanErrorBoundary onSignOut={logout} onCrash={() => setActivePlanTab('plan')}>
         {/* `locations` joins `homeSettingsVersion` here because the heat field's catalogue is
             a join across two contracts and only ONE of them carries geography: the briefing
             and scores payloads have no lat/lng and are not to be given any (plan §3). The
@@ -946,7 +965,11 @@ function AppInner() {
       <div>
         {/* With the map view open the session notice stays reachable: fixed over the view (z 49, between the view's 48
             and `Modal`'s 50), because a reader about to be signed out must be able to refresh the session. */}
-        <div className={isMapTabActive ? 'fixed top-0 inset-x-0 z-[49]' : undefined} data-testid="session-banner-slot">
+        <div
+          ref={sessionSlotRef}
+          className={isMapTabActive ? 'fixed top-0 inset-x-0 z-[49]' : undefined}
+          data-testid="session-banner-slot"
+        >
           <SessionExpiryBanner />
         </div>
         {/* Everything else up here is covered by the view, so it is inert while the view stands (the screen column is

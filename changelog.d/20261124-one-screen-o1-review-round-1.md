@@ -10,3 +10,8 @@ night; a ⌘K pressed as the first gesture no longer inverts Back. The note over
 reach tier and region a door carried, with one Clear; an away origin can be reset from the view's header; the dock edge
 is measured in the commit that needs it. Removed the code the strip left behind (`doorHeadline`, the door's
 `title`/`caption`/`from`, `tabRequest.opener` and the masthead's `isMapTab`/`hideAtHome`).
+A `#map/<date>/night` or `/aurora` address dated yesterday no longer opens with "has passed" in the small hours: a night belongs to its evening's date, so only an earlier one has passed.
+The page behind the view no longer stays inert if the shell crashes with the view open; the view starts below the pinned
+session notice instead of under it; ←/→ on the header use the window control's own stepping rules (no stepping while an
+older day loads, ‹ at the oldest fetches the older day); Escape with focus on the page closes only the view even with an
+Operations panel open behind it; and a `#map/...` address the page loaded on is only taken down once a layer has adopted it.

@@ -10,7 +10,7 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent } from '@testing-library/react';
 
 let cornerEl;
 vi.mock('leaflet', () => {
@@ -124,6 +124,7 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
+import MapScreen from '../components/MapScreen.jsx';
 import { MapScreenContext } from '../context/MapScreenContext.jsx';
 import { escapeAnswered } from '../utils/mapEscape.js';
 
@@ -388,7 +389,7 @@ describe('MapView inside the map view: review round 1', () => {
     expect(route).toHaveBeenCalledTimes(2);
   });
 
-  it('publishes a stepper that moves to the neighbouring window, and stops at the ends', async () => {
+  it('hands the arrow keys the window control\'s OWN step, so it moves one window and stops at either end', async () => {
     await renderTab();
     const step = stepRegistered.mock.calls.at(-1)[0];
     expect(header).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringMatching(/sunset/i) }));
@@ -398,5 +399,73 @@ describe('MapView inside the map view: review round 1', () => {
     expect(header).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringMatching(/sunrise/i) }));
     await act(async () => { step(1); });
     expect(header).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringMatching(/sunset/i) }));
+    await act(async () => { step(1); });
+    expect(header).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringMatching(/sunset/i) }));
+  });
+
+  it('is inert while an older day is loading (the control\'s loading guard)', async () => {
+    await renderTab({ olderDayLoading: '2026-01-14' });
+    const step = stepRegistered.mock.calls.at(-1)[0];
+    header.mockClear();
+    await act(async () => { step(-1); });
+    await act(async () => { step(1); });
+    expect(header).not.toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringMatching(/sunrise/i) }));
+  });
+
+  it('at the oldest window ← fetches the next older day instead of stepping (the control\'s own rule)', async () => {
+    const onLoadOlderDay = vi.fn();
+    await renderTab({
+      autoEventType: 'SUNRISE', canLoadOlder: true, olderDayDate: '2026-01-14', onLoadOlderDay,
+    });
+    const step = stepRegistered.mock.calls.at(-1)[0];
+    await act(async () => { step(-1); });
+    expect(onLoadOlderDay).toHaveBeenCalledExactlyOnceWith('2026-01-14');
+  });
+
+  it('closes the window menu when it steps, as the control\'s own stepper does', async () => {
+    await renderTab();
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    expect(screen.getByTestId('wf-win-pill')).toHaveAttribute('aria-expanded', 'true');
+    const step = stepRegistered.mock.calls.at(-1)[0];
+    await act(async () => { step(-1); });
+    expect(screen.getByTestId('wf-win-pill')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('does nothing once the control is gone (unmounted pane)', async () => {
+    const view = await renderTab();
+    const step = stepRegistered.mock.calls.at(-1)[0];
+    view.unmount();
+    expect(() => step(1)).not.toThrow();
+  });
+
+  it('end to end: ← and → on the REAL view header step the real control, and are inert while loading', async () => {
+    const mount = async (extra = {}) => {
+      await act(async () => {
+        render(
+          <MapScreen open onClose={vi.fn()} onScrimPress={vi.fn()} onRoute={vi.fn()} titleRef={React.createRef()}>
+            <MapView
+              locations={[NEAR, OTHER]}
+              date={TODAY}
+              autoEventType="SUNSET"
+              forecastDates={[TODAY]}
+              heat={HEAT}
+              windowCardsByKey={new Map([[SUNSET_CARD.key, SUNSET_CARD]])}
+              {...extra}
+            />
+          </MapScreen>,
+        );
+      });
+    };
+    await mount();
+    expect(screen.getByTestId('map-screen-title')).toHaveTextContent(/sunset/i);
+    await act(async () => { fireEvent.keyDown(screen.getByTestId('map-screen-title'), { key: 'ArrowLeft' }); });
+    expect(screen.getByTestId('map-screen-title')).toHaveTextContent(/sunrise/i);
+    await act(async () => { fireEvent.keyDown(screen.getByTestId('map-screen-close'), { key: 'ArrowRight' }); });
+    expect(screen.getByTestId('map-screen-title')).toHaveTextContent(/sunset/i);
+    cleanup();
+
+    await mount({ olderDayLoading: '2026-01-14' });
+    await act(async () => { fireEvent.keyDown(screen.getByTestId('map-screen-title'), { key: 'ArrowLeft' }); });
+    expect(screen.getByTestId('map-screen-title')).toHaveTextContent(/sunset/i);
   });
 });

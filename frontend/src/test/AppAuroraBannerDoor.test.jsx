@@ -71,6 +71,8 @@ vi.mock('../components/WindowFirstShell.jsx', () => ({
   default: function ShellDouble(props) {
     ShellStub.lastProps = props;
     const { registerOpenMap } = props;
+    const [boom, setBoom] = React.useState(false);
+    if (boom) throw new Error('shell crashed with the map view open');
     React.useEffect(() => {
       ShellStub.doors = { open: vi.fn(), close: vi.fn() };
       registerOpenMap?.(ShellStub.doors);
@@ -81,6 +83,7 @@ vi.mock('../components/WindowFirstShell.jsx', () => ({
         <button type="button" data-testid="on-map-tab" onClick={() => props.onTabChange?.('map')}>
           map tab in force
         </button>
+        <button type="button" data-testid="crash-shell" onClick={() => setBoom(true)}>crash</button>
         {props.mapPane}
       </div>
     );
@@ -489,5 +492,35 @@ describe('App — what stays behind the map view (review round 1)', () => {
     renderApp();
     await screen.findByTestId('aurora-banner');
     expect(screen.getByTestId('session-banner-slot').className).not.toMatch(/fixed/);
+  });
+
+  it('a crash under the error boundary with the view open does not leave the footer and banners inert', async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+    expect(document.querySelector('footer')).toHaveAttribute('inert');
+
+    await act(async () => { fireEvent.click(screen.getByTestId('crash-shell')); });
+
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    expect(document.querySelector('footer')).not.toHaveAttribute('inert');
+    quiet.mockRestore();
+  });
+
+  it('starts the view below the pinned session notice: the root property follows the slot\'s height and clears on close', async () => {
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function measure() {
+      return this.dataset?.testid === 'session-banner-slot' ? 44 : 0;
+    });
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    expect(document.documentElement.style.getPropertyValue('--wf-session-banner-h')).toBe('');
+
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+    expect(document.documentElement.style.getPropertyValue('--wf-session-banner-h')).toBe('44px');
+
+    await act(async () => { ShellStub.lastProps.onTabChange('plan'); });
+    expect(document.documentElement.style.getPropertyValue('--wf-session-banner-h')).toBe('');
+    height.mockRestore();
   });
 });

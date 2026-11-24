@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  parseMapRoute, formatMapRoute, bareAddress, takeMapRoute, consumeMapRoute, __resetMapRouteForTests, MAP_HASH,
+  parseMapRoute, formatMapRoute, routeWindowStatus, bareAddress, takeMapRoute, consumeMapRoute, __resetMapRouteForTests, MAP_HASH,
 } from '../utils/mapRoute.js';
 
 describe('parseMapRoute', () => {
@@ -142,5 +142,36 @@ describe('takeMapRoute', () => {
     window.history.replaceState(null, '', '/#map');
     vi.spyOn(window.history, 'replaceState').mockImplementation(() => { throw new Error('SecurityError'); });
     expect(takeMapRoute()).toEqual({ date: null, eventType: null, locationId: null });
+  });
+});
+
+describe('routeWindowStatus: a night runs past midnight (the 01:30 case)', () => {
+  const facts = { todayStr: '2026-11-24', forecastDates: ['2026-11-24'], windowKeys: new Set() };
+
+  it('treats yesterday\'s aurora and astro nights as current, not passed', () => {
+    expect(routeWindowStatus({ date: '2026-11-23', eventType: 'AURORA' }, facts)).toBe('ok');
+    expect(routeWindowStatus({ date: '2026-11-23', eventType: 'ASTRO' }, facts)).toBe('ok');
+  });
+
+  it('calls a night from two days ago passed', () => {
+    expect(routeWindowStatus({ date: '2026-11-22', eventType: 'AURORA' }, facts)).toBe('past');
+    expect(routeWindowStatus({ date: '2026-11-22', eventType: 'ASTRO' }, facts)).toBe('past');
+  });
+
+  it('still calls yesterday\'s SOLAR window passed', () => {
+    expect(routeWindowStatus({ date: '2026-11-23', eventType: 'SUNSET' }, facts)).toBe('past');
+  });
+
+  it('crosses a month boundary: on the 1st, the last day of the previous month is yesterday', () => {
+    const first = { todayStr: '2026-12-01', forecastDates: null, windowKeys: null };
+    expect(routeWindowStatus({ date: '2026-11-30', eventType: 'AURORA' }, first)).toBe('ok');
+    expect(routeWindowStatus({ date: '2026-11-29', eventType: 'AURORA' }, first)).toBe('past');
+  });
+
+  it('a night address round-trips: format, then parse, names the same night', () => {
+    ['AURORA', 'ASTRO'].forEach((eventType) => {
+      const hash = formatMapRoute({ date: '2026-11-23', eventType, locationId: null });
+      expect(parseMapRoute(hash)).toEqual({ date: '2026-11-23', eventType, locationId: null });
+    });
   });
 });

@@ -48,6 +48,10 @@ describe('the map view\'s rules', () => {
     expect(z).toBeLessThan(50);
   });
 
+  it('starts below the session-expiry notice when it is pinned over the page, on every width', () => {
+    expect(declared(view, 'padding-top')).toBe('var(--wf-session-banner-h, 0px)');
+  });
+
   it('ends at the dock column\'s edge, through the measured custom property', () => {
     expect(declared(view, 'right')).toBe('var(--wf-map-right, 0px)');
   });

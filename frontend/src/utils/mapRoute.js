@@ -8,6 +8,8 @@
  * form, so a refresh keeps only the window and (for a place) its id.
  */
 
+import { shiftDateStr } from './mapDates.js';
+
 /** The hash prefix every map address starts with. */
 export const MAP_HASH = '#map';
 
@@ -99,8 +101,11 @@ export function formatMapRoute(route = null) {
  */
 export function routeWindowStatus(window, { todayStr, forecastDates = null, windowKeys = null }) {
   if (!window?.date || !window.eventType) return 'ok';
-  if (window.date < todayStr) return 'past';
   const solar = window.eventType === 'SUNRISE' || window.eventType === 'SUNSET';
+  // A night belongs to its EVENING's date and runs past midnight: in the small hours the running night is dated
+  // yesterday, so only a date before yesterday has passed. The map's own night data decides what to show for it.
+  const lastLiveDate = solar ? todayStr : shiftDateStr(todayStr, -1);
+  if (window.date < lastLiveDate) return 'past';
   if (Array.isArray(forecastDates) && solar && !forecastDates.includes(window.date)) return 'unforecast';
   if (solar && window.date === todayStr && windowKeys && !windowKeys.has(`${window.date}:${window.eventType}`)) {
     return 'past';

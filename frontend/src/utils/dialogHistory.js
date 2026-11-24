@@ -80,6 +80,11 @@ let settledWaiters = [];
  * entry (which carried the address) still shows it; rewritten bare once the history next lands at depth 0.
  */
 let baseAddressStale = false;
+/**
+ * Every address this engine itself wrote (a push or a replace). Only these are ever taken down again: a `#map/...`
+ * the page LOADED on (a deep link the gated layer has not adopted yet) is not ours until a layer writes it.
+ */
+let ownAddresses = new Set();
 
 const getWindow = () => seam.win || (typeof window === 'undefined' ? null : window);
 const getHistory = () => seam.history || getWindow()?.history;
@@ -211,16 +216,22 @@ function syncUrl() {
   if (!want) {
     // No layer wants an address, yet our own map hash is still showing: a layer with an address gave its entry to one
     // without (a same-depth swap), or the base entry kept the address of an entry-less layer that closed above it.
-    const lingering = currentHash().startsWith('#map') && addressIsOurs();
+    const lingering = ownAddresses.has(currentHash()) && addressIsOurs();
     if (lingering && (stack.length > 0 || (baseAddressStale && committedDepth === 0))) writeBareAddress();
     if (committedDepth === 0) baseAddressStale = false;
     return;
   }
   baseAddressStale = false;
-  if (currentHash() === want || !addressIsOurs()) return;
+  if (currentHash() === want) {
+    // Already showing it (a layer adopting the address the page loaded on): from now on it is this engine's to clear.
+    ownAddresses.add(want);
+    return;
+  }
+  if (!addressIsOurs()) return;
   try {
     const h = getHistory();
     h.replaceState(h.state, '', want);
+    ownAddresses.add(want);
   } catch {
     // The address is a nicety; the layers still work without it.
   }
@@ -247,8 +258,10 @@ function pushEntry() {
     }
     const state = { ...stateObject(), [MARKER_KEY]: { session: session(), depth: committedDepth + 1 } };
     const url = effectiveUrl();
-    if (url && addressIsOurs()) h.pushState(state, '', url);
-    else h.pushState(state, '');
+    if (url && addressIsOurs()) {
+      h.pushState(state, '', url);
+      ownAddresses.add(url);
+    } else h.pushState(state, '');
     committedDepth += 1;
     return true;
   } catch {
@@ -565,6 +578,7 @@ export function __resetForTests({ history = null, win = null, enabled: on = BACK
   seq = 0;
   committedDepth = 0;
   baseAddressStale = false;
+  ownAddresses = new Set();
   reconcileScheduled = false;
   scrollManual = false;
   booted = false;

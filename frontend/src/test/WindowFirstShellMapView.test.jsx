@@ -13,6 +13,7 @@ import { AskProvider } from '../context/AskContext.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { useMapScreen } from '../context/MapScreenContext.jsx';
 import { markEscapeAnswered } from '../utils/mapEscape.js';
+import { parseMapRoute } from '../utils/mapRoute.js';
 import { installViewport, resetViewport } from './askViewport.js';
 import { matrixCtx, shellCtx, TODAY } from './askShellHarness.jsx';
 import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
@@ -900,6 +901,62 @@ describe('review round 1: focus, the address and the origin', () => {
     await act(async () => {});
     expect(astro.onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ kind: 'astro', date: TODAY }));
     expect(viewIsOpen()).toBe(true);
+  });
+
+  it('a night dated YESTERDAY opens its door with no "passed" note (the running night in the small hours)', async () => {
+    const { onOpenMapTab } = mount({
+      props: { loadMapRoute: { date: '2026-10-04', eventType: 'AURORA', locationId: null } },
+    });
+    await act(async () => {});
+    expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ kind: 'aurora', date: '2026-10-04' }));
+    expect(screen.queryByTestId('screen-note')).toBeNull();
+  });
+
+  it('a night from two days ago is passed: the map\'s own window, with the note', async () => {
+    const { onOpenMapTab } = mount({
+      props: { loadMapRoute: { date: '2026-10-03', eventType: 'AURORA', locationId: null } },
+    });
+    await act(async () => {});
+    expect(onOpenMapTab).not.toHaveBeenCalled();
+    expect(screen.getByTestId('screen-note')).toHaveTextContent('That aurora has passed');
+  });
+
+  it('a night round-trips: open it, read the address it wrote, and the route reopens the same night door', async () => {
+    const register = vi.fn();
+    const first = mount({ props: { registerOpenMap: register } });
+    await act(async () => {
+      register.mock.calls[0][0].open({ window: { date: TODAY, eventType: 'ASTRO' }, focus: { kind: 'astro' } });
+    });
+    await browser.settle();
+    expect(hash()).toMatch(new RegExp(`^#map/${TODAY}/(night|sunset)`));
+    expect(first.onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ kind: 'astro', date: TODAY }));
+    cleanup();
+
+    const route = parseMapRoute(`#map/${TODAY}/night`);
+    const again = mount({ props: { loadMapRoute: route } });
+    await act(async () => {});
+    expect(again.onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ kind: 'astro', date: TODAY }));
+  });
+
+  it('reports no tab at all when the shell goes away with the view open, so the page behind never stays inert', async () => {
+    const onTabChange = vi.fn();
+    const { unmount } = mount({ props: { onTabChange } });
+    await openView();
+    expect(onTabChange).toHaveBeenLastCalledWith('map');
+
+    unmount();
+
+    expect(onTabChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it('a re-render with a new onTabChange does not report null while the shell is still mounted', async () => {
+    const first = vi.fn();
+    const { rerenderShell } = mount({ props: { onTabChange: first } });
+    await openView();
+    const second = vi.fn();
+    await act(async () => { rerenderShell({ onTabChange: second }); });
+    expect(first).not.toHaveBeenCalledWith(null);
+    expect(second).not.toHaveBeenCalledWith(null);
   });
 
   it('an away origin can be undone from the view\'s header, and focus lands on the title, not <body>', async () => {

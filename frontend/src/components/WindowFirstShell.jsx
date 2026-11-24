@@ -640,6 +640,11 @@ export default function WindowFirstShell({
    */
   const reportedTab = mapOpen ? 'map' : effectiveTab;
   useEffect(() => { onTabChange?.(reportedTab); }, [reportedTab, onTabChange]);
+  // Gone (a crash under `PlanErrorBoundary`, a sign-out): the page behind must not stay inert or pinned for a view that
+  // no longer exists, so the shell reports no tab at all.
+  const onTabChangeRef = useRef(onTabChange);
+  useEffect(() => { onTabChangeRef.current = onTabChange; });
+  useEffect(() => () => { onTabChangeRef.current?.(null); }, []);
   /**
    * While the reader has not chosen anything, a late opening preference (the device's Map landing, until the tab
    * model goes) may still open the map view; ANY interaction with the shell is a choice and ends that

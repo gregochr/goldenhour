@@ -14643,6 +14643,9 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
   position: fixed;
   top: 0;
   bottom: 0;
+  /* Below the session-expiry notice when it is pinned over the page (`App` keeps the property equal to its height):
+     padding, so the view still spans the viewport and the viewport-height budgets stay as they were. */
+  padding-top: var(--wf-session-banner-h, 0px);
   left: 0;
   right: var(--wf-map-right, 0px);
   z-index: 48;

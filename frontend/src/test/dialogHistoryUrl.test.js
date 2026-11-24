@@ -240,3 +240,38 @@ describe('an address nobody wants any more is taken down (review round 1)', () =
     expect(b.win.location.hash).toBe('#map/2026-11-26/sunset');
   });
 });
+
+describe('a load-time deep link is not the engine\'s until a layer adopts it (review round 2)', () => {
+  it('a layer with no address that registers before the first gesture leaves the loaded #map hash alone', async () => {
+    b.history.replaceState(b.history.state, '', '#map/2026-11-24/sunrise/5');
+    b.history.replaceState.mockClear();
+    b.setActivation(false);
+    // The gated map layer has not registered yet; something url-less (a sheet, Find) does.
+    registerBackLayer({ onBack: vi.fn() });
+    await tick();
+    expect(b.win.location.hash).toBe('#map/2026-11-24/sunrise/5');
+    expect(b.history.replaceState).not.toHaveBeenCalled();
+  });
+
+  it('then the gated layer registers with the same address, owns it, and closing it clears it', async () => {
+    b.history.replaceState(b.history.state, '', '#map/2026-11-24/sunrise/5');
+    b.setActivation(false);
+    registerBackLayer({ onBack: vi.fn() });
+    await tick();
+    const view = registerBackLayer({ onBack: vi.fn(), url: '#map/2026-11-24/sunrise/5' });
+    await tick();
+    expect(b.win.location.hash).toBe('#map/2026-11-24/sunrise/5');
+    view.release();
+    await tick();
+    // The url-less layer remains and the address nobody wants now is taken down.
+    expect(b.win.location.hash).toBe('');
+  });
+
+  it('an address the engine itself wrote is still taken down in the swap', async () => {
+    const view = await open({ url: '#map/2026-11-24/sunrise' });
+    view.layer.release();
+    registerBackLayer({ onBack: vi.fn() });
+    await tick();
+    expect(b.win.location.hash).toBe('');
+  });
+});

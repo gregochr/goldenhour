@@ -4130,11 +4130,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useEffect(() => {
     publishEscape?.(() => escapeCloseRef.current());
   }, [publishEscape]);
-  // The window stepper, reached the same way (assigned below, where the event list is in scope).
-  const stepWindowRef = useRef(() => {});
+  // The window stepper for the arrow keys on the view's header: the window control's OWN step (it keeps this ref
+  // pointed at it), so every guard it has (loading, either end, the older-day fetch) applies and none is re-derived.
+  const stepControlRef = useRef(null);
   const publishStep = mapScreen?.publishStep;
   useEffect(() => {
-    publishStep?.((delta) => stepWindowRef.current(delta));
+    publishStep?.((delta) => stepControlRef.current?.(delta));
   }, [publishStep]);
 
   /**
@@ -6940,6 +6941,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // the entry is the honest form — there is no answer to drill into.
       onOpenWindowPanel={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
       pillRef={winPillRef}
+      registerStep={(step) => { stepControlRef.current = step; }}
       // The older-day fetch (outcome-rating-plan.md §2 #2, O3b): `‹` on the oldest window and the
       // Load row fetch the next older stored day; the pill says so while it is out.
       canLoadOlder={canLoadOlder}
@@ -7096,15 +7098,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return false;
   }
   escapeCloseRef.current = closeInnerLayer;
-  /**
-   * One window step for the arrow keys pressed on the view's header (D12): the neighbouring row of the same list the
-   * stepper buttons walk. It stops at either end; the older-day fetch stays the stepper button's own business.
-   */
-  stepWindowRef.current = (delta) => {
-    const next = mapEvents[activeEvIndex + delta];
-    if (next) selectEvRow(next);
-  };
-
   return (
     // The pane root is a programmatic-only focus target (`tabIndex -1`) that hears Escape from
     // anything inside it, so it is not an interactive control in its own right.
