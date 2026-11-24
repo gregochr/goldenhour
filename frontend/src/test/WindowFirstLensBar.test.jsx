@@ -501,7 +501,7 @@ describe('WindowFirstLensBar — what it no longer offers', () => {
 describe('WindowFirstLensBar — guide doors (G3)', () => {
   beforeEach(() => mockOpenGuide.mockClear());
 
-  it('draws a ? after the readout that opens at-a-glance#lens', () => {
+  it('draws a ? after the readout that opens planning#lens', () => {
     render(<Lens />);
     const link = within(screen.getByTestId('window-first-lens')).getByTestId('guide-link');
     expect(link).toHaveAccessibleName('How the drive and rating bar works');

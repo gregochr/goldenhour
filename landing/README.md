@@ -137,7 +137,7 @@ which carries every id the two pages had. They are not in `GUIDE_PAGES` or the s
 site (`release-landing.sh`) before any app build that links `planning.html`**, or those in-app links 404.
 
 **Filling a placeholder screenshot.** Placeholders (`map#shot-tide-match`, `planning#shot-warn-coming-up`,
-`night-sky#shot-banner`, `night-sky#shot-aurora-map`) are `<figure id="shot-…">`
+`night-sky#shot-banner`) are `<figure id="shot-…">`
 blocks holding a `<div class="ph">`. Add the WebP to `guide/shots/`, replace the `ph` div with an
 `<img src="shots/name.webp" width height alt>` like its neighbours, and deploy; no `COPY` line is needed.
 

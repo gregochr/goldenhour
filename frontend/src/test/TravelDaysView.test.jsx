@@ -501,7 +501,7 @@ describe('TravelDaysView: the range panel', () => {
     expect(screen.getByTestId('travel-panel-to')).toHaveTextContent('Fri 6 Nov');
     expect(screen.getByTestId('travel-panel-note')).toHaveTextContent('London — work');
     expect(screen.getByTestId('travel-panel-effect'))
-      .toHaveTextContent('The Plan tab shows these as Away. No forecast is generated for them, so nothing is rated.');
+      .toHaveTextContent('This week shows these as Away. No forecast is generated for them, so nothing is rated.');
     expect(screen.getByTestId('travel-panel-remove-section'))
       .toHaveTextContent('These days are forecast again from the next run.');
   });

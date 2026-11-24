@@ -29,8 +29,8 @@ describe('GUIDE_PAGES', () => {
     expect(stubs.sort()).toEqual(['at-a-glance.html', 'coming-up.html']);
     expect(Object.keys(GUIDE_PAGES)).not.toContain('at-a-glance');
     expect(Object.keys(GUIDE_PAGES)).not.toContain('coming-up');
-    expect(pageSource('at-a-glance')).toContain('content="0;url=planning.html"');
-    expect(pageSource('coming-up')).toContain('content="0;url=planning.html#further-ahead"');
+    expect(pageSource('at-a-glance')).toContain('content="3;url=planning.html"');
+    expect(pageSource('coming-up')).toContain('content="3;url=planning.html#further-ahead"');
   });
 
   it('is frozen, so a door cannot invent a page', () => {
@@ -211,8 +211,13 @@ describe('the one-screen guides (docs/engineering/one-screen-plan.md, O4a)', () 
 
   it('the guide describes one screen: no tab bar, no Coming up tab, no "At a Glance", no Map tab', () => {
     files.forEach((f) => {
-      const text = readFileSync(resolve(GUIDE_DIR, f), 'utf8').replace(/<[^>]+>/g, ' ');
-      expect(text, `${f} still names the old screens`).not.toMatch(/At a Glance|Map tab|Coming up tab|\bGlance\b/);
+      const source = readFileSync(resolve(GUIDE_DIR, f), 'utf8');
+      const description = source.match(/<meta name="description" content="([^"]*)"/)?.[1] ?? '';
+      const text = `${description} ${source.replace(/<[^>]+>/g, ' ')}`
+        .replace(/\b(new|browser|browser's) tab\b/gi, '');
+      expect(text, `${f} still names the old screens`)
+        .not.toMatch(/At a Glance|Map tab|Coming up tab|\bComing up\b|\bGlance\b/);
+      expect(text, `${f} still talks about tabs`).not.toMatch(/\btabs?\b/i);
     });
   });
 
@@ -235,5 +240,29 @@ describe('the one-screen guides (docs/engineering/one-screen-plan.md, O4a)', () 
       });
     });
     expect(problems).toEqual([]);
+  });
+});
+
+describe('moved.js, the redirect behind the two retired pages', () => {
+  const code = readFileSync(resolve(GUIDE_DIR, 'moved.js'), 'utf8');
+  /** Runs the script against a stubbed `location` and returns the URL it replaced to. */
+  const redirectOf = (pathname, search, hash) => {
+    let target = null;
+    new Function('location', code)({ pathname, search, hash, replace: (url) => { target = url; } });
+    return target;
+  };
+
+  it.each([
+    ['/guide/coming-up.html', '', '', 'planning.html#further-ahead'],
+    ['/guide/coming-up.html', '', '#list', 'planning.html#further-ahead'],
+    ['/guide/coming-up.html', '', '#watchlist', 'planning.html#your-places'],
+    ['/guide/coming-up.html', '?embed=1', '#tides', 'planning.html?embed=1#tides'],
+    ['/guide/coming-up.html', '', '#topics', 'planning.html#topics'],
+    ['/guide/at-a-glance.html', '', '', 'planning.html'],
+    ['/guide/at-a-glance.html', '', '#bestbet', 'planning.html#bestbet'],
+    ['/guide/at-a-glance.html', '?embed=1', '#lens', 'planning.html?embed=1#lens'],
+    ['/guide/at-a-glance.html', '', '#list', 'planning.html#list'],
+  ])('%s%s%s lands on %s', (pathname, search, hash, expected) => {
+    expect(redirectOf(pathname, search, hash)).toBe(expected);
   });
 });

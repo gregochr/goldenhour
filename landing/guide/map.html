@@ -34,7 +34,7 @@
 <div class="g-body">
 <section class="g-sec" id="view"><h2>Opening and closing the map</h2>
 <p>The map is a full-screen view over the forecast screen. There is no Map button: you open it from the thing you want to look at.</p>
-<ul><li>A <b>sunrise or sunset card</b> or an <b>event lane</b> in <a href="planning.html#this-week">This week</a> opens the map on that sunrise or sunset. A card also frames your home and the card's best place together and opens that place's callout.</li>
+<ul><li>A <b>sunrise or sunset card</b> or an <b>event lane</b> in <a href="planning.html#this-week">This week</a> opens the map on that sunrise or sunset. A card, a lane or a Your places chip also frames your home and the card's best place together (when you have a home set) and opens that place's callout.</li>
 <li>A chip in <a href="your-places.html">Your places</a> opens the map on that place's best sunrise or sunset, or on a watched date's morning.</li>
 <li>A day button on a <a href="planning.html#actions">Further ahead</a> entry opens the map on that day.</li>
 <li><span class="ui">⌕ Find</span> opens it when you pick a sunrise or sunset. <a href="finding-places.html#pick">More on Find</a>.</li>
@@ -43,7 +43,7 @@
 <p>To close it, press <span class="ui">✕</span> at the top right, press Escape, or use your browser's Back button. Back and Escape close whatever is on top first, such as a sheet or a menu, and the map last. Closing returns you to the card or lane you opened it from.</p>
 <h3>The map's address</h3>
 <p>The map has its own web address in the form <span class="ui">#map/2026-12-03/sunrise</span> (a date, then <span class="ui">sunrise</span>, <span class="ui">sunset</span>, <span class="ui">night</span> or <span class="ui">aurora</span>, and sometimes a place). Bookmark it, or send it, and PhotoCast opens the map on that sunrise or sunset after you sign in. If that sunrise or sunset has passed, or isn't forecast yet, the map opens with a short note saying so. The address never carries your home, your drive time or your filters.</p>
-<p>A place or area focus that Find gives you is not part of the address, so refreshing the page keeps the sunrise or sunset and not the place.</p>
+<p>An area or region focus that Find gives you is not part of the address, so a refresh keeps the sunrise or sunset but not the area. A place whose callout is open is kept.</p>
 </section>
 <section class="g-sec" id="window"><h2>Choosing a sunrise, sunset or night</h2>
 <p>The header names the sunrise or sunset you're looking at in a title, with its verdict, best rating and confidence beside it. Next to it, the control names the sunrise or sunset, such as <span class="ui">SUNSET Friday 16:17</span>, with the verdict, how many locations were rated, and the regions that look best. <span class="ui">◎ BEST BET</span> marks the one sunrise or sunset PhotoCast recommends most across the days ahead. Use <span class="ui">‹</span> and <span class="ui">›</span> to step through the days, or tap the middle to choose from the full list. The left and right arrow keys step too, while focus is in the header.</p>
@@ -73,7 +73,7 @@
 </section>
 <section class="g-sec" id="places"><h2>Locations and the callout</h2>
 <p>Tap a location marker for its callout, a summary of that place for the sunrise or sunset you're on: its rating, the drive time, a <span class="ui">Leave by</span> time, how dark the sky is, and the tide if it's on the coast. If a Met Office weather warning covers the location, a chip on the callout gives its level and type. Open it for the full forecast over the coming days. From here you can also choose <span class="ui">Plan from here</span> to plan from that area for a while. <a href="planning.html#away">More on planning from elsewhere</a>.</p>
-<p><span class="ui">Show in This week</span> in the callout closes the map and opens that place's next-days sheet on the forecast screen, which is the way back to the days around a place you have found on the map.</p>
+<p><span class="ui">Show in This week</span> in the callout closes the map and opens that place's next-days sheet on the forecast screen, which is the way back to the days around a place you have found on the map. It is not offered on a sunrise or sunset that has passed.</p>
 <p class="pro-line"><span class="pro">Pro</span><span>Drive and leave-by times, Red Sky and Golden Hour scores and the tide at the light are available with Pro.</span></p>
 </section>
 <section class="g-sec" id="rate"><h2>How was it?<span class="pro">Pro</span></h2>
@@ -106,13 +106,13 @@
 </section>
 <section class="g-sec" id="hot-topics"><h2>Hot topics panel</h2>
 <p>The Hot topics panel sits at the bottom left and starts closed. Open it with <span class="ui">▴</span> to see the next four days, each split into sunrise <span class="ui">↑</span> and sunset <span class="ui">↓</span>. Each topic gets a row, with a bar across the sunrises and sunsets it covers. The day you're looking at is outlined.</p>
-<figure class="shot" id="shot-hot-topics"><img src="shots/map-hot-topics.webp" width="1600" height="736" alt="The Hot topics panel open over the map, showing Tuesday 3 to Friday 6 with a sunrise and sunset column each, and a bar for Mist on Wednesday."><figcaption>The Hot topics panel open: mist forecast on Wednesday.</figcaption></figure>
+<figure class="shot" id="shot-hot-topics"><img src="shots/map-hot-topics.webp" width="904" height="422" alt="The Hot topics panel open over the map, showing Tuesday 24 to Friday 27 with a sunrise and sunset column each, a King tide bar across Tuesday and Wednesday with HW marks, a Supermoon bar on Tuesday, and a line saying high water falls at sunset."><figcaption>The Hot topics panel open: a king tide with high water marked, and a supermoon.</figcaption></figure>
 </section>
 <section class="g-sec" id="tide"><h2>Tide panel<span class="pro">Pro</span></h2>
 <p>When the map shows any coast, a Tide panel appears at the bottom left. It answers the coastal question a sky forecast can't: will the water be where you want it at sunrise or sunset?</p>
 <h3>The tide curve</h3>
 <p>Open the panel to see the whole day's tide, from midnight to midnight. There's a lot in it, so here it is piece by piece, using Friday's 16:17 sunset.</p>
-<figure class="anno" id="shot-tide"><div class="crop"><img src="shots/map-tide.webp" width="2164" height="994" alt="The Tide panel open for Friday's 16:17 sunset: a curve from midnight to midnight with high water at 00:40 and 13:20, low water at 07:07 and 19:27, sunrise at 07:10 and sunset at 16:17 marked, and a dot at 0.2 m on the falling tide. The footer reads 13 of 25 coastal spots are dimmed, 11 of them want high water."><span class="pin xy-33_5-7_2">1</span><span class="pin xy-1_8-39_3">2</span><span class="pin xy-26_6-42_6">3</span><span class="pin xy-48_3-28_9">4</span><span class="pin xy-52_2-51_8">5</span><span class="pin xy-72_6-45_9">6</span><span class="pin xy-84_2-75_7">7</span><span class="pin xy-27_6-88_9">8</span><span class="pin xy-95-26_9">9</span></div></figure>
+<figure class="anno" id="shot-tide"><div class="crop full"><img src="shots/map-tide.webp" width="896" height="360" alt="The Tide panel open for Friday's 16:17 sunset: a curve from midnight to midnight with high water at 00:40 and 13:20, low water at 07:07 and 19:27, sunrise at 07:10 and sunset at 16:17 marked, and a dot at 0.2 m on the falling tide. The footer reads 13 of 25 coastal spots are dimmed, 11 of them want high water."><span class="pin xy-33_5-7_2">1</span><span class="pin xy-1_8-39_3">2</span><span class="pin xy-26_6-42_6">3</span><span class="pin xy-48_3-28_9">4</span><span class="pin xy-52_2-51_8">5</span><span class="pin xy-72_6-45_9">6</span><span class="pin xy-84_2-75_7">7</span><span class="pin xy-27_6-88_9">8</span><span class="pin xy-95-26_9">9</span></div></figure>
 <ol class="anno-key">
 <li><span class="n">1</span><span><b>The answer in words.</b> The state of the tide at sunrise or sunset and whether the water level is rising or falling (<span class="ui">MID TIDE, FALLING</span>), then the height and how it compares with an average tide. If you read nothing else, read this.</span></li>
 <li><span class="n">2</span><span><b>High, mid and low.</b> Faint dashed lines across the chart mark high, mid and low water. The level that sunrise or sunset falls in is highlighted.</span></li>

@@ -1,5 +1,5 @@
 /* Redirect for the two guide pages that became "Planning a shoot" (at-a-glance.html and coming-up.html).
-   The stubs also carry a meta refresh, so the redirect works without script too, but only this script keeps
+   The stubs also carry a meta refresh (3 s, so the script always decides first), so the redirect works without script too, but only this script keeps
    the old #section (mapped to its new id) and the ?embed=1 the in-app guide panel adds. */
 (function(){
   var FROM_COMING_UP={'':'further-ahead',list:'further-ahead',watchlist:'your-places'};

@@ -148,7 +148,7 @@ describe('WindowFirstHeatStrip — guide doors (G3)', () => {
     expect(mockOpenGuide).toHaveBeenCalledWith('reading-the-forecast', 'fixed', expect.any(Object));
   });
 
-  it('puts "What does this do?" in the Best bets popover only for a locked reader, opening at-a-glance#bestbet', async () => {
+  it('puts "What does this do?" in the Best bets popover only for a locked reader, opening planning#bestbet', async () => {
     await renderStrip({ picksLocked: true });
     const trigger = screen.getByTestId('wf-heat-bestbets-upsell-trigger');
     fireEvent.click(trigger);

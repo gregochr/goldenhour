@@ -165,7 +165,7 @@ export default function TravelRangePanel({
       </PanelSection>
       <PanelSection label="Effect" testId="travel-panel-effect">
         <p className="text-[13px] text-plex-text-secondary">
-          The Plan tab shows these as Away. No forecast is generated for them, so nothing is rated.
+          This week shows these as Away. No forecast is generated for them, so nothing is rated.
         </p>
       </PanelSection>
       {/* One row, as the design draws it (no mono section label over the same words): the words on the left, the
