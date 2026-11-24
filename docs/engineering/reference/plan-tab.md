@@ -1,5 +1,7 @@
 # Plan tab, Daily Briefing, Plan-screen confidence and the neighbour guard
 
+> **The screen's specification is `docs/engineering/screen-spec.md`** (owner, 2026-11-24): it supersedes the screen parts of the earlier design handoffs and wins where this file disagrees. Its phases are `docs/engineering/screen-spec-plan.md` (P1–P5).
+
 > **One screen, no tabs (one-screen-plan.md O3, 2026-11-24).** There is no tab bar, no "At a Glance" name and no Coming up tab. The screen is **This week** (the matrix, Your places) over **Further ahead** (the almanac feed); the map is a full-screen **view** over it and **Operations** is an admin-only view. This file still says "Plan tab" for the matrix section and `plan` for the id (the Ask view, the `window-first-pane` test id). Read the sections below with that translation; the section "The one screen" is current truth.
 
 ## The one screen (one-screen-plan.md O3)
