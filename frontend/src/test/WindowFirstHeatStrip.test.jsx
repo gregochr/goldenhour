@@ -5405,15 +5405,15 @@ describe('WindowFirstHeatStrip — the reach split (reach-field plan)', () => {
 });
 
 describe('WindowFirstHeatStrip — Your places on the best-spot line (find-and-favourites-plan.md F4)', () => {
-  it('marks the best spot with ★ and says "your place" when the reader starred that place; rating and name are untouched', async () => {
+  it('marks the best spot with the bookmark mark and says "bookmarked" when the reader bookmarked that place; rating and name are untouched', async () => {
     await renderStrip({ cards: [ratedCard()], wrap: (node) => withFavourites(node, { places: [1] }) });
     expect(screen.getByTestId('wf-heat-best-fav')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('Bamburgh Beach');
     expect(screen.getByTestId('wf-heat-best-rating')).toHaveTextContent('4★');
-    expect(screen.getByTestId('wf-heat-card-button')).toHaveAccessibleName(/best Bamburgh Beach.*your place/);
+    expect(screen.getByTestId('wf-heat-card-button')).toHaveAccessibleName(/best Bamburgh Beach.*bookmarked/);
   });
 
-  it('⚠️ marks nothing for a place inside a starred area, an unstarred best, or no provider', async () => {
+  it('⚠️ marks nothing for a place inside a bookmarked area, an unbookmarked best, or no provider', async () => {
     await renderStrip({ cards: [ratedCard()], wrap: (node) => withFavourites(node, { places: [], locationIds: [1], areas: [4] }) });
     expect(screen.queryByTestId('wf-heat-best-fav')).toBeNull();
     cleanup();

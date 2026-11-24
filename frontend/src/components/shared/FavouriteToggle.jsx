@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useFavourites } from '../../context/FavouritesContext.jsx';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
+import BookmarkMark from './BookmarkMark.jsx';
 import { ProUpsellContent } from './ProUpsell.jsx';
 
 /** A stable empty list, so a place or area toggle's default prop is not a new array every render. */
@@ -9,14 +10,18 @@ const NO_KEYS = [];
 
 /** The upsell's words (roles-and-gating.md): worded, never a link, never an upgrade button; `/upgrade` is no route. */
 export const FAVOURITES_UPSELL_HEADING = 'Your places';
-export const FAVOURITES_UPSELL_BODY = 'Pro keeps your own list of places and areas. They come first in Find, have their own entry in the region pickers and a row of their own at the top of This week.';
+export const FAVOURITES_UPSELL_BODY = 'Pro keeps your own list of bookmarked places and areas. They come first in Find, have their own entry in the region pickers and a row of their own at the top of This week.';
 
 /** The upsell a Lite reader's "Watch this date" opens (one-screen-plan.md D16), in its own words. */
 export const WATCH_UPSELL_HEADING = 'Watch a date';
-export const WATCH_UPSELL_BODY = 'Pro can watch a date known in advance. It joins your places at the top of This week, and once it is forecast it names the morning to go and the best spot.';
+export const WATCH_UPSELL_BODY = 'Pro can watch a date known in advance. It joins Your places at the top of This week, and once it is forecast it names the morning to go and the best spot.';
 
-/** The watch toggle's one constant label. */
+/** The date toggle's two labels: the words carry the state (there is no {@code aria-pressed}). */
 export const WATCH_LABEL = 'Watch this date';
+export const WATCHING_LABEL = 'Watching';
+/** The place and area toggle's two labels. */
+export const BOOKMARK_LABEL = 'Bookmark';
+export const BOOKMARKED_LABEL = 'Bookmarked';
 
 /**
  * One Lite reader's open upsell, shared by the toggle that opens it and the panel the host draws under its header.
@@ -135,20 +140,22 @@ FavouriteUpsell.propTypes = {
 };
 
 /**
- * The ☆ / ★ toggle (find-and-favourites-plan.md F4): in the place sheet, the area sheet and the map callout header, and
- * nowhere else. Never inside a Find option row (an option is the one control there).
+ * The bookmark toggle (find-and-favourites-plan.md F4, screen-spec.md D1): in the place sheet, the area sheet and the
+ * map callout header, and nowhere else. Never inside a Find option row (an option is the one control there).
  *
- * <p><b>One constant label, {@code Your place}, with {@code aria-pressed}</b>: the state is the pressed state, never a
- * swapped name on top of it. Visible text on a desktop is {@code ☆ Your place} / {@code ★ Your place}; on a phone the
- * glyph stands alone (a 30px target in a 44px row, {@code index.css}) and the name is spoken only.
+ * <p><b>The words carry the state and there is no {@code aria-pressed}</b> (screen-spec-plan.md section 9.1): a place or
+ * area reads {@code Bookmark} / {@code Bookmarked}, a date {@code Watch this date} / {@code Watching}. A changing name
+ * on top of a pressed state would announce twice; the change is announced by the undo toast, a status region. The state
+ * is mirrored in {@code data-starred} for the CSS. The mark is the {@link BookmarkMark} ribbon, outline until it is
+ * set. On a phone a place's word is spoken only and the mark stands alone (a 30px target in a 44px row).
  *
- * <p>A Pro or Admin reader whose list has landed gets the toggle. A Lite reader gets the ☆ with a Pro pill, which
- * opens the worded upsell through {@code upsell} (the host draws {@link FavouriteUpsell}). Anyone else (no
- * provider, loading, failed) gets nothing: a toggle with a wrong {@code aria-pressed} would be a false statement.
+ * <p>A Pro or Admin reader whose list has landed gets the toggle. A Lite reader gets the outline mark with a Pro pill,
+ * which opens the worded upsell through {@code upsell} (the host draws {@link FavouriteUpsell}). Anyone else (no
+ * provider, loading, failed) gets nothing: a toggle with a wrong name would be a false statement.
  *
  * <p><b>{@code kind="date"} is the Further ahead entry's "Watch this date"</b> (one-screen-plan.md D16): {@code id} is
- * the entry's watch key, the label is {@link WATCH_LABEL} on every viewport (it sits in an entry, not a header, so it is
- * never glyph-only), and the Lite door opens the date-worded upsell. It reads as pressed when ANY of
+ * the entry's watch key, the words are {@link WATCH_LABEL} / {@link WATCHING_LABEL} on every viewport (it sits in an
+ * entry, not a header, so it is never mark-only), and the Lite door opens the date-worded upsell. It reads as pressed when ANY of
  * {@code matchedKeys} is watched (a stored watch can differ from the entry's own key after a drift), and a press on a
  * pressed toggle un-watches every one of them.
  *
@@ -168,9 +175,8 @@ export default function FavouriteToggle({
   const { setTrigger } = upsell;
   if (id == null) return null;
   const isDate = kind === 'date';
-  const label = isDate ? WATCH_LABEL : 'Your place';
-  // A date reads its words on every viewport; a place's collapses to the glyph on a phone.
-  const wordsClass = isMobile && !isDate ? 'sr-only' : 'wf-fav-t';
+  // A date reads its words on every viewport; a place's collapse to the mark on a phone.
+  const wordsClass = isMobile && !isDate ? 'sr-only' : `wf-fav-t${isDate ? ' wf-fav-t-date' : ''}`;
 
   if (favourites.status === 'locked') {
     return (
@@ -185,8 +191,8 @@ export default function FavouriteToggle({
           onClick={upsell.toggle}
           onKeyDown={upsellEscape(upsell)}
         >
-          <span aria-hidden="true" className="wf-fav-g">☆</span>
-          <span className={wordsClass}>{label}</span>
+          <span className="wf-fav-g"><BookmarkMark outline /></span>
+          <span className={wordsClass}>{isDate ? WATCH_LABEL : BOOKMARK_LABEL}</span>
           {' '}
           <span className="wf-lens-pro">Pro</span>
         </button>
@@ -195,12 +201,15 @@ export default function FavouriteToggle({
   }
   if (favourites.status !== 'ready') return null;
 
-  const starred = isDate
+  const bookmarked = isDate
     ? matchedKeys.some((key) => favourites.isDateWatched(key))
     : (kind === 'area' ? favourites.isAreaStarred(id) : favourites.isPlaceStarred(id));
+  const label = isDate
+    ? (bookmarked ? WATCHING_LABEL : WATCH_LABEL)
+    : (bookmarked ? BOOKMARKED_LABEL : BOOKMARK_LABEL);
   const press = () => {
     // Void presses: nothing waits on the request, the toast and the revert report it.
-    if (isDate && starred) {
+    if (isDate && bookmarked) {
       // One press, one Undo: each request carries the whole group, so the toast that survives restores all of them.
       const group = matchedKeys.filter((key) => favourites.isDateWatched(key));
       group.forEach((key) => { void favourites.setStar('date', key, name, false, false, group); });
@@ -214,11 +223,10 @@ export default function FavouriteToggle({
         type="button"
         className="wf-fav"
         data-testid={testId}
-        data-starred={starred ? 'true' : 'false'}
-        aria-pressed={starred}
+        data-starred={bookmarked ? 'true' : 'false'}
         onClick={press}
       >
-        <span aria-hidden="true" className="wf-fav-g">{starred ? '★' : '☆'}</span>
+        <span className="wf-fav-g"><BookmarkMark outline={!bookmarked} /></span>
         <span className={wordsClass}>{label}</span>
       </button>
     </span>
@@ -241,8 +249,9 @@ FavouriteToggle.propTypes = {
 };
 
 /**
- * A ★ beside a starred PLACE's name on a surface that lists places (map markers, popup spot cards, the Glance best
- * spot). Only a place the reader starred itself: a place inside a starred area is not marked individually. A mark and
+ * A bookmark mark beside a bookmarked PLACE's name on a surface that lists places (map markers, popup spot cards, the
+ * Glance best spot). Only a place the reader bookmarked itself: a place inside a bookmarked area is not marked
+ * individually. A mark and
  * nothing more: it never moves, restyles or re-ranks the row it sits on.
  *
  * @param {object} props
@@ -252,7 +261,11 @@ FavouriteToggle.propTypes = {
 export function FavouriteMark({ id, className = 'wf-fav-mark' }) {
   const { status, isPlaceStarred } = useFavourites();
   if (status !== 'ready' || id == null || !isPlaceStarred(id)) return null;
-  return <span aria-hidden="true" className={className} data-testid="favourite-mark">★</span>;
+  return (
+    <span aria-hidden="true" className={className} data-testid="favourite-mark">
+      <BookmarkMark />
+    </span>
+  );
 }
 
 FavouriteMark.propTypes = {
@@ -261,7 +274,7 @@ FavouriteMark.propTypes = {
 };
 
 /**
- * Whether a place is one the reader starred, for a surface that adds a spoken word beside the mark.
+ * Whether a place is one the reader bookmarked, for a surface that adds a spoken word beside the mark.
  *
  * @param {?number} id the location id
  * @returns {boolean}

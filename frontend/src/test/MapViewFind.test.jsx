@@ -548,7 +548,7 @@ describe('an area picked in Find (F2)', () => {
 describe('Your places in the Regions list (find-and-favourites-plan.md F4)', () => {
   const openRegions = async () => { await act(async () => { fireEvent.click(screen.getByTestId('wf-jump-chip')); }); };
 
-  it('★ My places frames the served merged ids as the named-spot lens, with the chip and a clear', async () => {
+  it('My places frames the served merged ids as the named-spot lens, with the chip and a clear', async () => {
     favourites = favouritesValue({ places: [FAR.id], locationIds: [FAR.id] });
     await renderTab();
     expect(lastLabelNames()).toEqual(['Near']);
@@ -566,10 +566,10 @@ describe('Your places in the Regions list (find-and-favourites-plan.md F4)', () 
     expect(screen.queryByTestId('map-find-area')).toBeNull();
   });
 
-  it('a starred area is its own entry, framing only that area\'s members', async () => {
+  it('a bookmarked area is its own entry, framing only that area\'s members', async () => {
     favourites = favouritesValue({
       places: [], areas: [9], locationIds: [NEAR.id, FAR.id],
-      starredAreas: [{ id: 9, name: 'Lake District', locationIds: [FAR.id] }],
+      bookmarkedAreas: [{ id: 9, name: 'Lake District', locationIds: [FAR.id] }],
     });
     await renderTab();
     await openRegions();
@@ -578,7 +578,7 @@ describe('Your places in the Regions list (find-and-favourites-plan.md F4)', () 
     expect(lastLabelNames()).toEqual(['Far']);
   });
 
-  it('a Lite reader\'s ★ My places is the Pro door and frames nothing', async () => {
+  it('a Lite reader\'s My places is the Pro door and frames nothing', async () => {
     favourites = favouritesValue({ status: 'locked' });
     await renderTab();
     await openRegions();

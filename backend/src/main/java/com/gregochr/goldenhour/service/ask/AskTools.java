@@ -91,7 +91,7 @@ public class AskTools {
     static final String NO_HOME_NOTE = "nearHome is not available: no home postcode is saved.";
 
     /** The note {@code rank_spots} gives when {@code favourites} is asked of a reader who has starred nothing. */
-    static final String NO_FAVOURITES_NOTE = "favourites is not available: no places or areas are starred.";
+    static final String NO_FAVOURITES_NOTE = "favourites is not available: no places or areas are bookmarked.";
 
     /** The most spots {@code rank_night_spots} returns. */
     public static final int MAX_NIGHT_SPOTS = 10;

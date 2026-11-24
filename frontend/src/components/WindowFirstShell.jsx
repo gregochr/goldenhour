@@ -1801,7 +1801,7 @@ export default function WindowFirstShell({
     // nothing, which is the whole point of building it here rather than in the provider.
     // ⚠️ A THIRD reader since F2: the area sheet prints each of its spots' own best window from this index. It stays
     // open after Find has closed (`searchSeed` is null by then), so without it every row read "Not rated".
-    // ⚠️ A FOURTH reader since F4: the Coming up watchlist prints each starred place's own best window from it.
+    // ⚠️ A FOURTH reader since F4: the Coming up watchlist prints each bookmarked place's own best window from it.
     () => ((sheetSpot || searchSeed != null || areaSheet != null || watchlistShown) ? buildScoreIndex(scoreRows) : null),
     [sheetSpot, searchSeed, areaSheet, watchlistShown, scoreRows],
   );
@@ -2493,14 +2493,6 @@ export default function WindowFirstShell({
           // rather than derived in the bar for the reason `spotCount` already is: the counts have to
           // be the lengths of the arrays that were drawn, and only this component can see all six.
           reachedCount={windowCards.reduce((total, card) => total + (card.reachedTotal ?? 0), 0)}
-          // ⚠️ Whether the reach axis COULD act — see `formatLensCount`. A reader with no home
-          // postcode has no drive time anywhere, so `reachedCount` is simply everything and the
-          // readout's "within reach" would name a gate that did nothing. This is the page's ONE
-          // count statement (§4 A7), so it is the most load-bearing place that claim could be
-          // wrong; an adversarial review of M5 found it still making it after the deleted window popup was fixed.
-          // Asked of `allSpots` — the origin scope BEFORE the reach gate — for the reason
-          // the deleted window popup's author recorded (the deleted window popup is gone): the drawn set would make the wording flicker per window.
-          reachMeasured={windowCards.some((card) => card.reachMeasured)}
           // A reader with no pick has no spots to count: "0 spots across 4 windows" would be false of the picks (S5b-1).
           windowCount={picksFacts?.allowed === 0 ? 0 : windowCards.length}
           originBase={origin?.baseName ?? null}
@@ -2558,7 +2550,7 @@ export default function WindowFirstShell({
           </button>
         </div>
 
-        {/* Your places (F4, D15): the reader's own starred places and areas as one row of chips at the top of the
+        {/* Your places (F4, D15): the reader's own bookmarked places and areas as one row of chips at the top of the
             forecast, or a Lite reader's one-line Pro teaser. Renders nothing for anyone else. */}
         <YourPlacesRow
           spots={heatSpots}

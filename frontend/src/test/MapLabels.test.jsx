@@ -1968,19 +1968,19 @@ describe('MapLabels — Your places marks (find-and-favourites-plan.md F4)', () 
     expect(chipFor('Bamburgh').querySelector('[data-testid="favourite-mark"]')).not.toBeNull();
   });
 
-  it('marks a starred place\'s chip with ★ and says "your place"; an unstarred chip is untouched', async () => {
+  it('marks a bookmarked place\'s chip with the mark and says "bookmarked"; an unbookmarked chip is untouched', async () => {
     restoreMeasure = withMeasuredLabels(50, 14);
     currentMap = makeFullMap({ zoom: 13 });
     await mount({ spots: IDENTIFIED }, (node) => withFavourites(node, { places: [1] }));
     await act(async () => { runFrames(); });
-    const starred = chipFor('Bamburgh');
-    expect(starred.querySelector('[data-testid="favourite-mark"]')).not.toBeNull();
-    expect(starred.getAttribute('aria-label')).toContain('your place');
+    const bookmarked = chipFor('Bamburgh');
+    expect(bookmarked.querySelector('[data-testid="favourite-mark"]')).not.toBeNull();
+    expect(bookmarked.getAttribute('aria-label')).toContain('bookmarked');
     // The rating and its square are the served ones, unchanged by the mark.
-    expect(starred.querySelector('.wf-maplab-chip-r')).toHaveTextContent('5★');
+    expect(bookmarked.querySelector('.wf-maplab-chip-r')).toHaveTextContent('5★');
     const other = chipFor('Whitby');
     expect(other.querySelector('[data-testid="favourite-mark"]')).toBeNull();
-    expect(other.getAttribute('aria-label')).not.toContain('your place');
+    expect(other.getAttribute('aria-label')).not.toContain('bookmarked');
   });
 
   it('draws no mark without a provider', async () => {

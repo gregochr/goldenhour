@@ -9,15 +9,16 @@ import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { isOutsidePicks } from '../utils/pickScope.js';
 import { YOUR_PLACES } from '../utils/favourites.js';
 import { buildWatchedChips } from '../utils/watchedDates.js';
+import BookmarkMark from './shared/BookmarkMark.jsx';
 import { FavouriteUpsell, upsellEscape, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
 
 /** Below this the line reads quietly: the reader's own place has nothing worth a trip in the days we have scored. */
 const QUIET_BELOW = 3;
 const QUIET_LINE = 'nothing above 2★ in the next days';
-export const YOUR_PLACES_EMPTY = 'Tap ☆ on a place, an area or a date, and it lands here.';
+export const YOUR_PLACES_EMPTY = 'Bookmark a place or an area, or watch a date, and it lands here.';
 
 /**
- * Your places (find-and-favourites-plan.md F4, D3, D4; one-screen-plan.md D15): the reader's own starred areas and
+ * Your places (find-and-favourites-plan.md F4, D3, D4; one-screen-plan.md D15): the reader's own bookmarked areas and
  * places as ONE horizontal row of compact chips at the top of This week, a SEPARATE labelled section above the
  * forecast. It scrolls sideways (with scroll-snap on a phone). It was the Coming up tab's watchlist, one row each;
  * it moved because it is forecast-based, which is what This week is.
@@ -35,11 +36,11 @@ export const YOUR_PLACES_EMPTY = 'Tap ☆ on a place, an area or a date, and it 
  * opens the place's or area's own sheet instead, so a control never opens nothing.
  *
  * <p><b>Fetching.</b> {@code useAreaOutlook} fetches only once the row has been on screen, so a reader who never
- * scrolls to a starred area never pays for it.
+ * scrolls to a bookmarked area never pays for it.
  *
  * <p><b>Watched dates (one-screen-plan.md D16)</b> join the row as chips of their own, earliest date first, before the
  * places. Each leads with the same calendar tile Further ahead draws in its rail (day of week for a single day, the day
- * or {@code 23–29} range, the month), then the name ({@code ★ 🌊 King tide}) and a detail line. A date still beyond the
+ * or {@code 23–29} range, the month), then the name ({@code [mark] 🌊 King tide}, the bookmark mark) and a detail line. A date still beyond the
  * forecast reads {@code best spots once it's forecast} (or {@code in this week's forecast} once it has windows), and a
  * tap scrolls to its entry in Further ahead and opens it ({@code onOpenEntry}). Once its dates reach the forecast the
  * chip becomes that morning's plan, from served fields only ({@code utils/watchedDates.js}): the window, the best spot
@@ -83,7 +84,7 @@ export default function YourPlacesRow({
   const rows = useMemo(() => {
     if (!ready) return [];
     const byId = new Map((spots || []).map((spot) => [spot.id, spot]));
-    const areaRows = favourites.starredAreas.map((area) => {
+    const areaRows = favourites.bookmarkedAreas.map((area) => {
       const figure = areaFigure(outlook?.get(area.id), windows);
       const best = figure?.topLocationId == null ? null : byId.get(figure.topLocationId);
       return { kind: 'area', key: `area:${area.id}`, area, name: area.name, figure, bestName: best?.name ?? null };
@@ -100,7 +101,7 @@ export default function YourPlacesRow({
       .map((chip) => ({ kind: 'date', key: `date:${chip.key}`, name: chip.name, chip }));
     return [...dateRows, ...areaRows, ...placeRows];
   }, [
-    ready, favourites.starredAreas, favourites.placeIds, favourites.dates, spots, windows, scoreIndex, reachById,
+    ready, favourites.bookmarkedAreas, favourites.placeIds, favourites.dates, spots, windows, scoreIndex, reachById,
     allowedLocationIds, outlook, entries, hotTopics, todayStr,
   ]);
 
@@ -117,7 +118,7 @@ export default function YourPlacesRow({
           onClick={upsell.toggle}
           onKeyDown={upsellEscape(upsell)}
         >
-          <span aria-hidden="true" className="wf-fav-g">☆</span>
+          <span className="wf-fav-g"><BookmarkMark outline /></span>
           <span>{YOUR_PLACES}</span>
           {' '}
           <span className="wf-lens-pro">Pro</span>
@@ -199,7 +200,10 @@ export default function YourPlacesRow({
       aria-labelledby="your-places-h"
       data-testid="your-places"
     >
-      <h3 id="your-places-h" className="wf-fav-section-h">{`★ ${YOUR_PLACES}`}</h3>
+      <h3 id="your-places-h" className="wf-fav-section-h">
+        <BookmarkMark className="wf-yp-mark" />
+        {YOUR_PLACES}
+      </h3>
       {nothingStarred ? (
         <p className="wf-cu-note" data-testid="your-places-empty">{YOUR_PLACES_EMPTY}</p>
       ) : (
@@ -216,7 +220,7 @@ export default function YourPlacesRow({
                     <span className="wf-yp-name">
                       {isDate && (
                         <>
-                          <span aria-hidden="true" className="wf-yp-star">★</span>
+                          <BookmarkMark className="wf-yp-mark" />
                           <span className="sr-only">Watched date: </span>
                           {row.chip.glyph && <span aria-hidden="true">{`${row.chip.glyph} `}</span>}
                         </>
@@ -279,16 +283,16 @@ export default function YourPlacesRow({
               })}
             </ul>
           )}
-          {/* A starred area the directory has not named yet is said, never silently left out. */}
+          {/* A bookmarked area the directory has not named yet is said, never silently left out. */}
           {favourites.areasUnresolved > 0 && (
             <p className="wf-cu-note" data-testid="your-places-areas-pending">
-              {`${favourites.areasUnresolved} starred ${favourites.areasUnresolved === 1 ? 'area is' : 'areas are'} not shown yet.`}
+              {`${favourites.areasUnresolved} bookmarked ${favourites.areasUnresolved === 1 ? 'area is' : 'areas are'} not shown yet.`}
             </p>
           )}
           {rows.length === 0 && favourites.areasUnresolved === 0 && (
             <p className="wf-cu-note" data-testid="your-places-offplan">
               {favourites.placeIds.size + favourites.areaIds.size > 0
-                ? 'Your starred places are not on the plan right now.'
+                ? 'Your bookmarked places are not on the plan right now.'
                 : 'Your watched dates are not listed right now.'}
             </p>
           )}

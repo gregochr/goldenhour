@@ -194,22 +194,22 @@ test.describe('Accessibility scan (advisory)', () => {
     // Your places (find-and-favourites-plan.md F4): the toggle in the place sheet, then the undo toast it raises. The
     // toast scan WRITES one favourite and takes it straight back with Undo, so the seeded reader's list ends as it began
     // (the one exception to this suite's read-only rule, and the only way to show the toast).
-    test('location sheet with the Your places toggle, and its undo toast', async ({ page }, testInfo) => {
+    test('location sheet with the Bookmark toggle, and its undo toast', async ({ page }, testInfo) => {
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
       await page.getByTestId('window-first-search').click();
       await page.getByTestId('plan-search-input').fill('Bamburgh');
       await page.getByTestId('plan-search-row').filter({ hasText: 'Bamburgh Beach' }).first().click();
       const toggle = page.getByTestId('location-sheet-favourite');
       await expect(toggle).toBeVisible();
-      await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      await expect(toggle).toHaveAccessibleName('Bookmark');
       await expect(page.getByTestId('location-sheet-facts-skeleton')).toHaveCount(0);
       await scan(page, testInfo, 'favourite-toggle');
       await toggle.click();
-      await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-      await expect(page.getByTestId('undo-toast-status')).toContainText('Added Bamburgh Beach to your places.');
+      await expect(toggle).toHaveAccessibleName('Bookmarked');
+      await expect(page.getByTestId('undo-toast-status')).toContainText('Bookmarked Bamburgh Beach.');
       await scan(page, testInfo, 'undo-toast');
       await page.getByTestId('undo-toast-undo').click();
-      await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      await expect(toggle).toHaveAccessibleName('Bookmark');
     });
 
     test('Map view callout (the peek sheet on a phone)', async ({ page }, testInfo) => {

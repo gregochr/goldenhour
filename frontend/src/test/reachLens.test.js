@@ -7,7 +7,6 @@ import {
   WEEKEND_TIER_ID,
   defaultTierIdFor,
   formatLensCount,
-  formatLensReadout,
   gateSpotsByReach,
   isFarSpot,
   isWeekend,
@@ -242,82 +241,34 @@ describe('reachLens — the gate', () => {
   });
 });
 
-describe('reachLens — the readout', () => {
-  const base = { tierLabel: '45 min', isDefault: true, weekend: false, spotCount: 34, windowCount: 6 };
-
-  it('names the tier, which day derived it, and how much is drawn', () => {
-    expect(formatLensReadout(base)).toBe('45 min · weekday default · 34 spots across 6 windows');
-  });
-
-  it('says weekend when the weekend derived it', () => {
-    expect(formatLensReadout({ ...base, tierLabel: '2h 30min', weekend: true }))
-      .toBe('2h 30min · weekend default · 34 spots across 6 windows');
-  });
-
-  it('drops the default clause once the user has chosen something else', () => {
-    // The clause is a claim about where the value came from. On a deliberate choice it is false,
-    // and the "today only" pill beside the control is what marks that state instead.
-    expect(formatLensReadout({ ...base, tierLabel: 'Any', isDefault: false }))
-      .toBe('Any · 34 spots across 6 windows');
-  });
-
-  it('never says "within reach", whatever the tier', () => {
-    // Plan §2.5 rule 2: the word reach belongs to a set that was actually gated, and this number
-    // is drawn cards — true with or without a gate, which is exactly why it uses the other word.
-    expect(formatLensReadout({ ...base, tierLabel: 'Any', isDefault: false }))
-      .not.toMatch(/reach/i);
+describe('reachLens — the readout is the count only (screen-spec.md D7)', () => {
+  it('says N spots, in the plural', () => {
+    expect(formatLensCount({ spotCount: 34, reachedCount: 34, windowCount: 6 }))
+      .toEqual({ lead: '34', rest: 'spots' });
   });
 
   it('agrees with itself in the singular', () => {
-    expect(formatLensReadout({ ...base, spotCount: 1, windowCount: 1 }))
-      .toBe('45 min · weekday default · 1 spot across 1 window');
+    expect(formatLensCount({ spotCount: 1, reachedCount: 1, windowCount: 1 }))
+      .toEqual({ lead: '1', rest: 'spot' });
   });
 
-  it('says nothing about counts when there are no windows to count in', () => {
-    // "0 spots across 0 windows" is a true sentence nobody needs, on a page that is already
-    // visibly empty.
-    expect(formatLensReadout({ ...base, spotCount: 0, windowCount: 0 }))
-      .toBe('45 min · weekday default');
+  it('says N of M spots only when the rating floor removed some', () => {
+    expect(formatLensCount({ spotCount: 42, reachedCount: 138, windowCount: 6 }))
+      .toEqual({ lead: '42', rest: 'of 138 spots' });
+    expect(formatLensCount({ spotCount: 0, reachedCount: 1, windowCount: 2 }))
+      .toEqual({ lead: '0', rest: 'of 1 spot' });
   });
 
-  it('still states a window that drew no spots', () => {
-    // Distinct from the case above: the window exists and the lens emptied it, which is a fact
-    // about the control rather than about the forecast.
-    expect(formatLensReadout({ ...base, spotCount: 0, windowCount: 1 }))
-      .toBe('45 min · weekday default · 0 spots across 1 window');
+  it('never says reach, windows, the tier, a default or a rating', () => {
+    // The pressed chips beside the count already say them: the line repeats none of it.
+    const { lead, rest } = formatLensCount({ spotCount: 42, reachedCount: 138, windowCount: 6 });
+    expect(`${lead} ${rest}`).not.toMatch(/reach|window|default|min|★/i);
   });
 
-  /**
-   * ⚠️ §6 clause 7 on the page's ONE count statement (§4 A7).
-   *
-   * <p>A reader with no home postcode has no drive time at all, and an unknown drive passes every
-   * tier (plan §2.5), so {@code reachedCount} is simply everything — and "within reach" then names a
-   * gate that gated nothing. M5 fixed the same claim in the window popup and an adversarial review
-   * found it still standing here, on the more prominent surface.
-   */
-  describe('when no drive time exists for the tier to gate on', () => {
-    const floored = {
-      ...base, spotCount: 42, reachedCount: 138, isDefault: false,
-    };
-
-    it('keeps BOTH numbers and drops only the claim about which set they count', () => {
-      expect(formatLensReadout(floored))
-        .toBe('45 min · 42 of 138 spots within reach across 6 windows');
-      expect(formatLensReadout({ ...floored, reachMeasured: false }))
-        .toBe('45 min · 42 of 138 spots across 6 windows');
-    });
-
-    it('says nothing different where the floor withheld nothing, because there is no claim to drop', () => {
-      // The unqualified arm never used the word, so this is a no-op there — asserted so a future
-      // edit cannot quietly make the flag mean something on a branch it has no business touching.
-      expect(formatLensReadout({ ...base, reachMeasured: false }))
-        .toBe(formatLensReadout(base));
-    });
-
-    it('defaults to the pre-M5 wording for a caller that cannot answer', () => {
-      expect(formatLensCount({ spotCount: 42, reachedCount: 138, windowCount: 6 }).rest)
-        .toContain('within reach');
-    });
+  it('says a window that drew no spots, and nothing when there are no windows to count in', () => {
+    expect(formatLensCount({ spotCount: 0, reachedCount: 0, windowCount: 1 }))
+      .toEqual({ lead: '0', rest: 'spots' });
+    expect(formatLensCount({ spotCount: 0, reachedCount: 0, windowCount: 0 })).toBeNull();
   });
 });
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { REACH_TIERS, formatLensCount, formatLensReadout } from '../utils/reachLens.js';
+import { REACH_TIERS, formatLensCount } from '../utils/reachLens.js';
 import { LENS_RATING_FLOORS } from '../utils/ratingLens.js';
 import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
 
@@ -149,7 +149,7 @@ VerdictAction.propTypes = {
  * <p>It read {@code HOW FAR TONIGHT} until 2026-09-05, which is a claim this control does not
  * honour. The gate runs over <em>every</em> window the shell draws — up to eight of them
  * ({@code PlanRenderLimits.MAX_VISIBLE_EVENTS}), so sunrise and sunset across up to four whole days —
- * and the readout on this same row says so out loud, in the "N spots across M windows" clause.
+ * and the readout on this same row used to say so out loud, in an "N spots across M windows" clause.
  * Tomorrow's sunrise card is gated by these chips exactly as tonight's sunset is.
  * {@code reachLens.defaultTierIdFor} had already written the mismatch down while explaining why
  * Friday counts as a weekday: "the bar is one control over up to eight windows spanning four days".
@@ -157,8 +157,8 @@ VerdictAction.propTypes = {
  * <p><b>What "tonight" was reaching for is the setting's lifetime, not the gate's scope.</b> Two
  * things here really are day-bound — the default tier is a pure function of today's date, and a
  * manual choice is discarded at the day roll — and for an unlocked reader the bar states both
- * already: the readout's default clause ({@code weekday default} / {@code weekend default}, or
- * {@code default here} away) and the amber {@code today only} pill. A LITE reader sees neither,
+ * already: the amber {@code today only} pill (the readout's default clause, {@code weekday default}, went
+ * with the count-only readout, screen-spec.md D7). A LITE reader sees neither,
  * because {@code useReachLens} pins them to "Any" so nothing is in force to expire — which is why
  * the caption is the wrong place to carry the lifetime even for them. So it was spending its words
  * restating what the readout says, and getting the filter's reach wrong in exchange. Plan §6's
@@ -185,8 +185,8 @@ VerdictAction.propTypes = {
  * HOME} one row under the masthead's own {@code Set a postcode for light and drive times} nudge —
  * a from-point named by the caption while the page above asks them to create it. That looks like
  * the honesty rule CLAUDE.md states for reach, and is not it: that rule governs saying <em>"within
- * reach"</em>, a claim that a gate ran and produced a count, which is why {@code formatLensCount}
- * drops those two words when {@code reachMeasured} is false. A caption naming the origin a
+ * reach"</em>, a claim that a gate ran and produced a count, which the count line no longer makes at all
+ * (screen-spec.md D7). A caption naming the origin a
  * measurement would be taken from asserts no result and no filtering — {@code Rated} makes no claim
  * that anything is rated either. The two rows agree rather than argue: both point at the same
  * missing input, where {@code HOW FAR TONIGHT} named something the reader already had and gave no
@@ -220,12 +220,12 @@ VerdictAction.propTypes = {
  * boundary; the handoff says 620px, and a second breakpoint 19px away would be one more thing to
  * keep in step with {@code .wf-spots}, {@code .wf-lens} and the sheet for no gain.
  *
- * <h2>The readout says what both controls are set to, and the phone gets only the count</h2>
+ * <h2>The readout is the count only, at every width</h2>
  *
- * <p>One element, two strings. The full summary restates the two chips and would be the widest thing
- * on a phone bar; the count line is the half that is not already legible from the pressed chips —
- * and it is the half that matters, because a short list has to read as "I asked for this" rather
- * than "tonight is bad".
+ * <p>The pressed chips already say what both controls are set to, so the readout does not repeat them
+ * (screen-spec.md D7): {@code 6 spots}, or {@code 6 of 9 spots} when the rating floor removed some. A
+ * short list still has to read as "I asked for this" rather than "tonight is bad", and the count is the
+ * half of the line that is not legible from the chips.
  *
  * <h2>The override is marked twice, and both marks are cheap</h2>
  *
@@ -266,15 +266,38 @@ VerdictAction.propTypes = {
  *        bar must not say. Null is home, and the caption names it.
  */
 export default function WindowFirstLensBar({
-  lens, ratingLens, spotCount, reachedCount = spotCount, windowCount, reachMeasured = true,
+  lens, ratingLens, spotCount, reachedCount = spotCount, windowCount,
   originBase = null, stuck = false, verdict = null, onVerdictAction,
 }) {
   const {
-    tier, tierId, defaultTier, defaultTierId, weekend, overridden, locked, selectTier,
-    resetToDefault, defaultFromOrigin,
+    tierId, defaultTier, overridden, locked, selectTier, resetToDefault,
   } = lens;
   const isMobile = useIsMobile();
-  const count = formatLensCount({ spotCount, reachedCount, windowCount, reachMeasured });
+  const count = formatLensCount({ spotCount, reachedCount, windowCount });
+  // The override's marks and the Lite upsell. On a desktop they sit between the two controls, as they always have; on a
+  // phone they follow the count so they fold into ITS row instead of taking a row of their own (screen-spec.md section 4:
+  // the lens is two chip rows and a 14px count line), and the focus order stays the visual order.
+  const marks = (
+    <>
+      {overridden && (
+        <span data-testid="window-first-lens-temporary" className="wf-lens-stick">today only</span>
+      )}
+      {locked && (
+        <span data-testid="window-first-lens-upsell" className="wf-lens-pro">Pro</span>
+      )}
+      {locked && <GuideWhy section="lens" />}
+      {overridden && (
+        <button
+          type="button"
+          data-testid="window-first-lens-reset"
+          className="wf-lens-reset"
+          onClick={resetToDefault}
+        >
+          {`Back to ${defaultTier.label}`}
+        </button>
+      )}
+    </>
+  );
 
   return (
     <div
@@ -313,23 +336,7 @@ export default function WindowFirstLensBar({
         className="wf-lens-controls"
       />
 
-      {overridden && (
-        <span data-testid="window-first-lens-temporary" className="wf-lens-stick">today only</span>
-      )}
-      {locked && (
-        <span data-testid="window-first-lens-upsell" className="wf-lens-pro">Pro</span>
-      )}
-      {locked && <GuideWhy section="lens" />}
-      {overridden && (
-        <button
-          type="button"
-          data-testid="window-first-lens-reset"
-          className="wf-lens-reset"
-          onClick={resetToDefault}
-        >
-          {`Back to ${defaultTier.label}`}
-        </button>
-      )}
+      {!isMobile && marks}
 
       {/* Decorative, and it is the one element the phone layout loses: with each control on its own
           full-width row there is no seam left for a rule to mark. */}
@@ -384,25 +391,13 @@ export default function WindowFirstLensBar({
                   {' '}
                   <MarkedText text={verdict.text} />
                 </>
-              ) : formatLensReadout({
-                tierLabel: tier.label,
-                // The predicate itself, not `!overridden` — those differ for a locked control, which
-                // is pinned to Any and has overridden false while sitting nowhere near the default.
-                isDefault: tierId === defaultTierId,
-                weekend,
-                // Away the default is the ORIGIN's, so the readout must not call it the day's.
-                originDefault: Boolean(defaultFromOrigin),
-                ratingLabel: ratingLens.floor?.label,
-                spotCount,
-                reachMeasured,
-                reachedCount,
-                windowCount,
-              })}
+              ) : (count && <><b>{count.lead}</b>{` ${count.rest}`}</>)}
             </span>
             {verdict?.action && <VerdictAction action={verdict.action} onAction={onVerdictAction} />}
           </>
         )}
       </span>
+      {isMobile && marks}
       {!isMobile && <GuideLink section="lens" label="How the drive and rating bar works" />}
       {/* ⚠️ Always mounted, and a direct child of the bar: a `role` added to a node that mounts with
           its content is not announced, and the verdict appears in response to a chip press right
@@ -423,13 +418,8 @@ export default function WindowFirstLensBar({
 
 WindowFirstLensBar.propTypes = {
   lens: PropTypes.shape({
-    tier: PropTypes.shape({ id: PropTypes.string, label: PropTypes.string }).isRequired,
     tierId: PropTypes.string.isRequired,
     defaultTier: PropTypes.shape({ label: PropTypes.string }).isRequired,
-    defaultTierId: PropTypes.string.isRequired,
-    weekend: PropTypes.bool.isRequired,
-    /** True while the default on show is the origin's rather than the day's. */
-    defaultFromOrigin: PropTypes.bool,
     overridden: PropTypes.bool.isRequired,
     locked: PropTypes.bool.isRequired,
     selectTier: PropTypes.func.isRequired,
@@ -443,12 +433,6 @@ WindowFirstLensBar.propTypes = {
   /** The away origin's base town, or null at home. */
   originBase: PropTypes.string,
   spotCount: PropTypes.number.isRequired,
-  /**
-   * Whether ANY drive time exists for the reach tier to gate on — false for a reader with no home
-   * postcode. Withholds the "within reach" wording from the readout, never the numbers. §6 clause 7:
-   * "no count describes a set that was never filtered". Defaults true, the pre-M5 wording.
-   */
-  reachMeasured: PropTypes.bool,
   /** Defaults to {@code spotCount} — with no floor set the two are equal and no "of N" is drawn. */
   reachedCount: PropTypes.number,
   windowCount: PropTypes.number.isRequired,

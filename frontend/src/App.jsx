@@ -975,7 +975,7 @@ function AppInner() {
         </div>
       </div>
 
-      <main className="px-4 py-6">
+      <main className="px-4 pt-0 pb-6 sm:pt-6">
         {/* isDown is passed DOWN rather than applied here: the shell's masthead carries the cog
             and Sign out, and greying the whole subtree would strand a user with no route out of a
             broken app. */}

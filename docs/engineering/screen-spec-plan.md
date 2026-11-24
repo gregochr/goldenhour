@@ -75,7 +75,7 @@ Paths are under `frontend/src` unless they say otherwise.
 - Ratings keep `★`.
 
 **The lens (D7 and spec §4, phone).**
-- **The readout is the count only, at every width.** `formatLensCount` → `N spot(s)`, or `N of M spots` when the reach hides some.
+- **The readout is the count only, at every width.** `formatLensCount` → `N spot(s)`, or `N of M spots` when the rating floor removes some.
   - `within reach` and `across W windows` go.
   - `formatLensReadout` and its tier/default/rating branches are deleted with their tests, and the doc references to the readout are updated (`MapView.jsx:8398`, `planConflicts.js:44`).
   - The default words survive only as the selected drive button's `title`, if a test shows they are still read anywhere; otherwise they are deleted.

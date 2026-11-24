@@ -8,14 +8,14 @@ import { formatArrivalDate } from '../utils/comingUpFeed.js';
 import { watchKeyOf, watchKeysMatching } from '../utils/watchedDates.js';
 
 /**
- * "Watch this date" under an open Further ahead entry (one-screen-plan.md D16): a real {@code <button aria-pressed>}, a
- * sibling of the entry's own card and Open / Close button, never inside either (a single-action card is itself a
+ * "Watch this date" under an open Further ahead entry (one-screen-plan.md D16): a real {@code <button>} whose words carry the
+ * state ({@code Watch this date} / {@code Watching}, no {@code aria-pressed}), a sibling of the entry's own card and Open / Close button, never inside either (a single-action card is itself a
  * button).
  *
  * <p>Drawn only once the reader's favourites are known: a Pro or Admin reader whose list has landed gets the toggle, a
  * Lite reader gets the same control with the {@code Pro} pill, which opens the date-worded upsell under it. Anyone
  * else (no provider, loading, failed) and any entry that cannot be watched (a warning) gets nothing, because a toggle
- * with a wrong {@code aria-pressed} would be a false statement.
+ * with a wrong name would be a false statement.
  *
  * @param {object} props
  * @param {object} props.entry a view entry from {@code buildEntryView}

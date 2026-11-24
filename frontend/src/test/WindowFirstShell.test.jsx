@@ -713,24 +713,21 @@ describe('WindowFirstShell — the strip it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       expect(screen.getByTestId('window-first-lens-readout'))
-        .toHaveTextContent('45 min · weekday default · any rating · 3 spots across 2 windows');
+        .toHaveTextContent(/^3 spots$/);
     });
 
-    it('states the rating floor as well, so the summary names both controls', () => {
-      // A summary that names one of two lenses reads as though the page had only one — which was
-      // true until the floor arrived, and is exactly the misreading worth the twelve characters.
+    it('does not restate the rating floor: the pressed chip beside the count says it (screen-spec.md D7)', () => {
       renderWithBriefing({
         ...briefingWith('2026-08-04T12:00:00'),
         ratingLens: { ...RATING_LENS, floorId: '4', minRating: 4, floor: { id: '4', min: 4, label: '4★+' } },
       });
 
-      expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('4★+');
+      expect(screen.getByTestId('window-first-lens-readout')).not.toHaveTextContent('4★+');
     });
 
-    it('⚠️ drops "within reach" from the page’s ONE count when nothing measured a drive', () => {
-      // §4 A7 names this readout as the one count statement on the page, which makes it the most
-      // load-bearing place the reach claim could have been wrong. Same two numbers, no claim about
-      // which set they count. Found by an adversarial review of M5 after the popup was fixed.
+    it('⚠️ never says "within reach" or counts windows, whether or not a drive was measured', () => {
+      // §4 A7 names this readout as the one count statement on the page. It names no gate and no window count at all
+      // now (screen-spec.md D7), so an unmeasured drive cannot make it claim one.
       const first = {
         ...CARD, reachTotal: 12, reachedTotal: 5, reachMeasured: false,
       };
@@ -741,8 +738,8 @@ describe('WindowFirstShell — the strip it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       const readout = screen.getByTestId('window-first-lens-readout');
-      expect(readout).toHaveTextContent('3 of 9 spots across 2 windows');
-      expect(readout).not.toHaveTextContent('within reach');
+      expect(readout).toHaveTextContent(/^3 of 9 spots$/);
+      expect(readout).not.toHaveTextContent(/within reach|windows/);
     });
 
     it('states what the floor cost, and only once it has cost something', () => {
@@ -750,9 +747,6 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // this project's own qualifier from `browseCountLine`: with nothing trimmed, `3 of 3` is a
       // count dressed as a comparison. `reachedTotal` is the denominator, so the two cards below
       // drew 3 of the 9 that reach left.
-      // `reachMeasured` is what licenses the words "within reach" on the readout — the reader has a
-      // postcode and drive times, so the tier really did gate. Without it the count is the same and
-      // the clause is not, which is the §6 clause 7 fix M5 made across six surfaces.
       const first = {
         ...CARD, reachTotal: 12, reachedTotal: 5, reachMeasured: true,
       };
@@ -763,7 +757,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       expect(screen.getByTestId('window-first-lens-readout'))
-        .toHaveTextContent('3 of 9 spots within reach across 2 windows');
+        .toHaveTextContent(/^3 of 9 spots$/);
     });
 
     it('renders the plan\'s own conflict message, built where both thresholds are known', async () => {

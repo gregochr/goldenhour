@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 
 /**
- * A one-line toast with an Undo action (find-and-favourites-plan.md F4): "Added Steel Rigg to your places." and a
+ * A one-line toast with an Undo action (find-and-favourites-plan.md F4): "Bookmarked Steel Rigg." and a
  * button that takes it back. The app's only toast with an action, so it carries the accessibility rules a timed
  * action needs:
  * <ul>

@@ -864,13 +864,14 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
 
   it('shows Your places at the top of This week for a Pro reader, with served figures', async () => {
     favouritesCtx = favouritesValue({
-      places: [WHITBY], areas: [1], locationIds: [WHITBY], starredAreas: [WALL],
+      places: [WHITBY], areas: [1], locationIds: [WHITBY], bookmarkedAreas: [WALL],
     });
     mount({ ctx: favCtx() });
     await ready();
 
     const section = await screen.findByTestId('your-places');
-    expect(section).toHaveTextContent('★ Your places');
+    expect(section).toHaveTextContent('Your places');
+    expect(section.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
     expect(screen.getByTestId('this-week')).toContainElement(section);
     // Above the forecast, not among the almanac's entries.
     expect(screen.getByTestId('further-ahead')).not.toContainElement(section);
@@ -894,7 +895,7 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
 
   it('an area chip with a window opens the map view on it too, with its spots as the lens', async () => {
     const onOpenMapTab = vi.fn();
-    favouritesCtx = favouritesValue({ areas: [1], locationIds: [WHITBY], starredAreas: [WALL] });
+    favouritesCtx = favouritesValue({ areas: [1], locationIds: [WHITBY], bookmarkedAreas: [WALL] });
     mount({ ctx: favCtx(), props: { mapPane: MAP_PANE, onOpenMapTab } });
     await ready();
 
@@ -922,7 +923,7 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
         date: TODAY, targetType: 'SUNSET', ratedMembers: 0, totalMembers: 1, gatedMembers: 0, topRating: null, topLocationId: null,
       }],
     }]);
-    favouritesCtx = favouritesValue({ areas: [1], locationIds: [WHITBY], starredAreas: [WALL] });
+    favouritesCtx = favouritesValue({ areas: [1], locationIds: [WHITBY], bookmarkedAreas: [WALL] });
     mount({ ctx: favCtx() });
     await ready();
 
@@ -939,18 +940,18 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
     expect(screen.getByTestId('this-week')).toContainElement(screen.getByTestId('your-places-teaser'));
     fireEvent.click(findButton());
     await screen.findByTestId('plan-search-panel');
-    expect(screen.queryByRole('group', { name: '★ Your places' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Your places' })).toBeNull();
   });
 
-  it('a Pro reader\'s Find rests on ★ Your places, and a pick opens the place as any row does', async () => {
+  it('a Pro reader\'s Find rests on Your places, and a pick opens the place as any row does', async () => {
     favouritesCtx = favouritesValue({ places: [WHITBY], locationIds: [WHITBY] });
     mount({ ctx: favCtx() });
     await ready();
     fireEvent.click(findButton());
-    const group = await screen.findByRole('group', { name: '★ Your places' });
+    const group = await screen.findByRole('group', { name: 'Your places' });
     fireEvent.click(within(group).getByRole('option', { name: /Whitby/ }));
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(screen.getByTestId('location-sheet-favourite')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('location-sheet-favourite')).toHaveAttribute('data-starred', 'true');
   });
 
   it('no provider: the screen has no Your places row and no teaser', async () => {

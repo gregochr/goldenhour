@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   ANY_TIER_ID,
   defaultTierIdFor,
-  isWeekend,
   readStoredTierId,
   tierById,
   writeStoredTierId,
@@ -65,7 +64,7 @@ import {
  * @param {?string} [defaultOverrideId] a tier id that replaces the day-derived default while it is
  *        set — the away origin's 1h 30. Ignored if it names no tier this build has.
  * @returns {{tier: object, tierId: string, defaultTier: object, defaultTierId: string,
- *           weekend: boolean, overridden: boolean, locked: boolean,
+ *           overridden: boolean, locked: boolean,
  *           selectTier: function, resetToDefault: function}}
  */
 export default function useReachLens(todayStr, locked = false, defaultOverrideId = null) {
@@ -104,14 +103,10 @@ export default function useReachLens(todayStr, locked = false, defaultOverrideId
     tierId: activeId,
     defaultTier: tierById(defaultTierId),
     defaultTierId,
-    weekend: isWeekend(todayStr),
-    // Whether the default on show is the origin's rather than the day's. The bar reads it to say
-    // which, because "Back to 1h 30min" on a Tuesday is otherwise an unexplained number.
-    defaultFromOrigin: defaultTierId !== dayDefaultId,
     // False for a locked control however far Any sits from the default — see the class comment.
     overridden: !locked && activeId !== defaultTierId,
     locked,
     selectTier,
     resetToDefault,
-  }), [activeId, defaultTierId, dayDefaultId, todayStr, locked, selectTier, resetToDefault]);
+  }), [activeId, defaultTierId, locked, selectTier, resetToDefault]);
 }
