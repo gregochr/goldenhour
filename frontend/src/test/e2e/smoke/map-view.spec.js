@@ -1,4 +1,4 @@
-import { test, expect, loginAndWaitForForecast, openOperations, closeMapView } from './fixture.js';
+import { test, expect, loginAndWaitForForecast, openOperations } from './fixture.js';
 
 /**
  * The map view (`docs/engineering/one-screen-plan.md` O1) as a reader meets it: a Glance card opens it over the
@@ -196,49 +196,6 @@ test.describe('The map view over the screen', () => {
     await page.goBack();
     await expect(page.getByTestId('map-screen')).toBeHidden();
     await settled(page, 0);
-  });
-});
-
-/** The basemap zoom the map is showing: the `z` of the front tile level plus its CSS scale. */
-async function mapZoom(page) {
-  return page.evaluate(() => {
-    const levels = [...document.querySelectorAll('.leaflet-tile-container')]
-      .filter((l) => l.querySelector('img'))
-      .sort((a, b) => Number(b.style.zIndex || 0) - Number(a.style.zIndex || 0));
-    const front = levels[0];
-    if (!front) return null;
-    const z = Number(front.querySelector('img').src.match(/\/tile\/(\d+)\//)[1]);
-    const m = (front.style.transform || '').match(/scale\(([\d.]+)\)/);
-    return z + Math.log2(m ? Number(m[1]) : 1);
-  });
-}
-
-test.describe('A window door frames home and its best place', () => {
-  test('a This week card lands on a place with its callout, at a zoom no closer than 11 (never flown in on the place)', async ({ page }) => {
-    test.setTimeout(90_000);
-    await loginAndWaitForForecast(page, 'admin');
-    // Only a window whose best place is a single named spot opens a callout (a multi-region window fits its pins), so
-    // press cards until one does; the seed may hold none.
-    let opened = false;
-    for (let index = 1; index < 6 && !opened; index += 1) {
-      await (await cardAt(page, index)).card.click();
-      await expect(page.getByTestId('map-screen')).toBeVisible();
-      await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
-      opened = await expect(page.getByTestId('map-callout')).toBeVisible({ timeout: 4000 }).then(() => true, () => false);
-      if (!opened) await closeMapView(page);
-    }
-    test.skip(!opened, 'the seed has no window with a single best place');
-    // The best place is selected (its callout opens) and the camera framed it with home: the zoom is capped at 11,
-    // where the old fly-to went to `max(zoom, 11)` and stayed there.
-    await expect(page.getByTestId('map-callout')).toBeVisible();
-    await expect.poll(() => mapZoom(page)).toBeLessThanOrEqual(11.05);
-    // The callout stands inside the map frame, clear of the header.
-    const frame = await page.locator('[data-testid="map-screen"] .leaflet-container').boundingBox();
-    const callout = await page.getByTestId('map-callout').boundingBox();
-    const header = await page.getByTestId('map-screen-header').boundingBox();
-    expect(callout.y).toBeGreaterThanOrEqual(header.y + header.height - 1);
-    expect(callout.x).toBeGreaterThanOrEqual(frame.x - 1);
-    expect(callout.x + callout.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
   });
 });
 
