@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import PropTypes from 'prop-types';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
+import { resolveReturnTo } from '../../utils/focusReturn.js';
 
 /**
  * A one-line toast with an Undo action (find-and-favourites-plan.md F4): "Bookmarked Steel Rigg." and a
@@ -14,11 +15,12 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
  *       ({@code useUndoToast}, WCAG 2.2.1);</li>
  *   <li>it is portalled to {@code <body>} above every dialog, so a sheet cannot hide the one control that undoes
  *       what the reader just did; and it takes no Escape (Escape belongs to the layer under it);</li>
- *   <li>pressing Undo or the close button hands focus back to what the reader had pressed, when it is still there.</li>
+ *   <li>pressing Undo or the close button hands focus back to what the reader had pressed, when it is still there. The
+ *       target may be a function ({@code utils/focusReturn.js}), resolved at that moment, for a control that moves.</li>
  * </ul>
  *
  * @param {object} props
- * @param {?{id: number, message: string, onUndo: ?function, returnTo: ?Element}} props.toast what to show, or null
+ * @param {?{id: number, message: string, onUndo: ?function, returnTo: ?(Element|function)}} props.toast what to show, or null
  * @param {function(): void} props.onDismiss closes it
  * @param {function(): void} props.onPause the pointer or focus is on it
  * @param {function(): void} props.onResume the pointer and focus have left it
@@ -38,10 +40,14 @@ export default function UndoToast({ toast, onDismiss, onPause, onResume }) {
   };
   const closeAndReturn = (action) => {
     const target = toast?.returnTo;
-    action?.();
-    onDismiss();
+    // Flushed, so the target is resolved on the settled page: the undone change may have moved the control the reader
+    // pressed (a watched card changing lists), and a lazy target finds it where it is now, never where it was.
+    flushSync(() => {
+      action?.();
+      onDismiss();
+    });
     // The buttons unmount with the toast, which would drop focus to <body>.
-    if (target?.isConnected) target.focus({ preventScroll: true });
+    resolveReturnTo(target)?.focus({ preventScroll: true });
   };
 
   return createPortal(
@@ -88,7 +94,7 @@ UndoToast.propTypes = {
     id: PropTypes.number.isRequired,
     message: PropTypes.string.isRequired,
     onUndo: PropTypes.func,
-    returnTo: PropTypes.object,
+    returnTo: PropTypes.oneOfType([PropTypes.object, PropTypes.func]),
   }),
   onDismiss: PropTypes.func.isRequired,
   onPause: PropTypes.func.isRequired,

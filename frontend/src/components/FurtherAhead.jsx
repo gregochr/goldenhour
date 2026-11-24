@@ -1,9 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import PropTypes from 'prop-types';
 import WindowComingUpEntry from './WindowComingUpEntry.jsx';
 import WindowComingUpSinceLine from './WindowComingUpSinceLine.jsx';
 import GuideLink from './guide/GuideLink.jsx';
-import { buildChronology, chipCounts, chipCountsOf, FOOTER } from '../utils/comingUpFeed.js';
+import {
+  buildChronology, buildEntryView, chipCounts, chipCountsOf, FOOTER,
+} from '../utils/comingUpFeed.js';
+import { unlistedWatches, watchKeysMatching } from '../utils/watchedDates.js';
 import { readFurtherAheadFilter, writeFurtherAheadFilter } from '../utils/furtherAheadFilter.js';
 import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
@@ -12,6 +17,8 @@ import { scrollToEntry } from '../utils/scrollToEntry.js';
 import { isEntryOpen, readOpenOverrides, writeOpenOverrides } from '../utils/comingUpOpen.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useWarnings } from '../context/WarningsContext.jsx';
+import { useFavourites } from '../context/FavouritesContext.jsx';
+import BookmarkMark from './shared/BookmarkMark.jsx';
 import { WarningFooter } from './WarningChip.jsx';
 import useListedFeed from '../hooks/useListedFeed.js';
 
@@ -41,10 +48,26 @@ export const FURTHER_AHEAD_SUBHEADING = 'dates known in advance';
  *
  * <h2>What it lists (D5, "graduation")</h2>
  *
- * <p>An entry is left out only when This week renders a lane that carries its jump ({@code graduatedIds}, which the
- * heat strip reports from the lanes it drew). In-forecast entries with no lane stay, in date order, and everything past
- * the forecast days is listed; nothing shows twice and nothing vanishes from both. A graduated entry carries no mark
- * here or there (owner, 2026-11-23). The chips' counts follow what is listed.
+ * <p>An entry is left out only when This week renders a lane that carries its jump, or a watched date's lane
+ * ({@code graduatedIds}, which the heat strip reports from the lanes it drew). In-forecast entries with no lane stay,
+ * in date order, and everything past the forecast days is listed; nothing shows twice and nothing vanishes from both.
+ * A graduated entry carries no mark here or there, except that a watched date's lane wears the bookmark mark
+ * (owner, 2026-11-23; screen-spec.md D2). The chips' counts follow what is listed.
+ *
+ * <h2>Watching (screen-spec.md D2)</h2>
+ *
+ * <p>The reader's watched dates are a group at the TOP of this section, before the filter chips: an {@code <h3>}
+ * {@code [mark] Watching} and its own {@code role="list"} of the SAME {@code WindowComingUpEntry} cards (the same open
+ * panel, with {@code WatchDateControl} inside), drawn only when it has a member. A watched entry MOVES there from its
+ * month (it is never in both), and unwatching returns it. Members are the listed entries with
+ * {@code watchKeysMatching(dates, entry)} non-empty; the filter chips and their counts describe the month lists only.
+ * A watch whose key matches no entry in the SERVED feed is a quiet row, {@code [mark] <title> · no longer listed}, with a
+ * real Stop watching button. (An entry This week draws as a watched lane is served and not listed, so it is neither.)
+ *
+ * <p><b>Focus on a move.</b> The pressed toggle unmounts when its card changes list, so focus never falls to
+ * {@code <body>}: pressing Watch or Watching hands focus to that entry's toggle in its new place (found by entry id,
+ * scrolled into view); removing an unlisted row focuses the next row, or the Watching heading, or this section's
+ * heading when the group is gone. The Undo toast resolves its own target at Undo time (utils/focusReturn.js).
  *
  * <h2>The remembered filter (D7)</h2>
  *
@@ -131,6 +154,7 @@ export default function FurtherAhead({
   focusRequest = null, onFocusHandled = undefined,
 }) {
   // The remembered chip (D7), read once; a chip press writes it back (and the reset a deep link makes below does not).
+  const favourites = useFavourites();
   const [activeFilter, setActiveFilter] = useState(readFurtherAheadFilter);
   const chooseFilter = (filterId) => {
     setActiveFilter(filterId);
@@ -149,22 +173,53 @@ export default function FurtherAhead({
   useEffect(() => { writeOpenOverrides(openOverrides); }, [openOverrides]);
   const { allowedLocationIds } = useWindowFirstBriefing();
 
-  // With nothing graduated the listed array is the served one, and the chips read the served counts as they always did.
-  const graduatedAny = Array.isArray(events?.entries) && listedEntries.length !== events.entries.length;
+  // Watching: the listed entries the reader watches, soonest first. Only for a reader whose list has landed.
+  const watchesReady = favourites.status === 'ready';
+  const watchingEntries = useMemo(
+    () => (watchesReady && Array.isArray(listedEntries)
+      ? listedEntries.filter((entry) => watchKeysMatching(favourites.dates, entry).length > 0)
+        .sort((a, b) => a.startDate.localeCompare(b.startDate))
+      : []),
+    [watchesReady, listedEntries, favourites.dates],
+  );
+  const watchingViews = useMemo(
+    () => watchingEntries.map((entry) => buildEntryView(entry, todayStr, comingUpLastSeenDate, forecastDates)),
+    [watchingEntries, todayStr, comingUpLastSeenDate, forecastDates],
+  );
+  // The watches the SERVED feed does not name: a quiet row each, so they can still be taken away.
+  const unlisted = useMemo(
+    () => (watchesReady && status === 'ready'
+      ? unlistedWatches({ dates: favourites.dates, entries: events?.entries, todayStr }) : []),
+    [watchesReady, status, favourites.dates, events, todayStr],
+  );
+  const hasWatching = status === 'ready' && (watchingViews.length > 0 || unlisted.length > 0);
+  // The month lists hold everything listed that is not watched, so each entry appears once.
+  const monthEntries = useMemo(() => {
+    if (watchingEntries.length === 0) return listedEntries;
+    const watchingIds = new Set(watchingEntries.map((entry) => entry.id));
+    return listedEntries.filter((entry) => !watchingIds.has(entry.id));
+  }, [listedEntries, watchingEntries]);
+
+  // With nothing taken out the listed array is the served one, and the chips read the served counts as they always did.
+  const trimmedAny = Array.isArray(events?.entries) && monthEntries.length !== events.entries.length;
   const counts = events?.counts ?? EMPTY_COUNTS;
   const totalEntries = listedEntries?.length ?? 0;
   const chips = useMemo(
-    () => (graduatedAny ? chipCountsOf(listedEntries) : chipCounts(counts)),
-    [graduatedAny, listedEntries, counts],
+    () => (trimmedAny ? chipCountsOf(monthEntries) : chipCounts(counts)),
+    [trimmedAny, monthEntries, counts],
   );
   const activeChipLabel = chips.find((chip) => chip.id === activeFilter)?.label ?? 'active';
   const monthGroups = useMemo(
     () => buildChronology(
-      listedEntries, todayStr, activeFilter, comingUpLastSeenDate, forecastDates,
+      monthEntries, todayStr, activeFilter, comingUpLastSeenDate, forecastDates,
     ),
-    [listedEntries, todayStr, activeFilter, comingUpLastSeenDate, forecastDates],
+    [monthEntries, todayStr, activeFilter, comingUpLastSeenDate, forecastDates],
   );
-  const renderedEntries = useMemo(() => monthGroups.flatMap((group) => group.entries), [monthGroups]);
+  // Open all and the focus request read every card on screen, Watching's included.
+  const renderedEntries = useMemo(
+    () => [...watchingViews, ...monthGroups.flatMap((group) => group.entries)],
+    [watchingViews, monthGroups],
+  );
   const entryOpen = (entry) => isEntryOpen(entry, openOverrides, todayStr);
   // "Close all" while every rendered entry is open, otherwise "Open all"; either sets every rendered entry.
   const allOpen = renderedEntries.length > 0 && renderedEntries.every(entryOpen);
@@ -184,7 +239,7 @@ export default function FurtherAhead({
     if (!outsideFacts || status !== 'ready') return { byId, doorId: null };
     let doorId = null;
     let firstId = null;
-    monthGroups.flatMap((group) => group.entries).forEach((entry) => {
+    renderedEntries.forEach((entry) => {
       const subject = entrySubject(entry);
       const text = subject ? outsideLineText(subject, outsideFacts, entry.dayChips?.length === 1) : null;
       if (!text) return;
@@ -193,7 +248,7 @@ export default function FurtherAhead({
       if (doorId === null && !entry.lightRowsWithheld) doorId = entry.id;
     });
     return { byId, doorId: doorId ?? firstId };
-  }, [outsideFacts, status, monthGroups]);
+  }, [outsideFacts, status, renderedEntries]);
   // The heading is the section's focus target, and what the NEW badge's bootstrap watches for (D6): every time it
   // reaches the viewport the shell is told, and the shell's own guard decides whether that is the one write. A browser
   // that cannot observe never tells it (the bootstrap is a write, so it does not fail open).
@@ -211,6 +266,40 @@ export default function FurtherAhead({
     observer.observe(headingNode);
     return () => observer.disconnect();
   }, [headingNode, onHeadingSeen]);
+  const watchingHeadingRef = useRef(null);
+  /** Where focus is owed after a press moved or removed what the reader pressed (see "Focus on a move" above). */
+  const moveIntent = useRef(null);
+  /** A press on an entry's Watch toggle (capture phase, before the toggle's own handler): the entry that will move. */
+  const noteWatchPress = (event) => {
+    const toggle = event.target.closest?.('[data-testid="coming-up-watch-toggle"]');
+    const entryId = toggle?.closest('[data-entry-id]')?.getAttribute('data-entry-id') ?? null;
+    if (entryId !== null) moveIntent.current = { kind: 'entry', entryId };
+  };
+  /** Stop watching an unlisted row: the next row (or the one before it) takes focus, else a heading. */
+  const stopUnlisted = (row, index) => {
+    const rest = unlisted.filter((each) => each.key !== row.key);
+    const next = rest[index] ?? rest[index - 1] ?? null;
+    moveIntent.current = next ? { kind: 'row', watchKey: next.key } : { kind: 'heading' };
+    void favourites.setStar('date', row.key, row.name, false);
+  };
+  useLayoutEffect(() => {
+    const intent = moveIntent.current;
+    if (!intent) return;
+    moveIntent.current = null;
+    const within = (attribute, value) => [...document.querySelectorAll(`[${attribute}]`)]
+      .find((node) => node.getAttribute(attribute) === value);
+    let target = null;
+    if (intent.kind === 'entry') {
+      target = within('data-entry-id', intent.entryId)?.querySelector('[data-testid="coming-up-watch-toggle"]');
+    } else if (intent.kind === 'row') {
+      target = within('data-watch-key', intent.watchKey)?.querySelector('[data-testid="watching-unlisted-stop"]');
+    }
+    // A card the filter now hides, or the last row of a group that has gone: the nearest heading that is still there.
+    const landing = target ?? watchingHeadingRef.current ?? headingRef.current;
+    if (!landing) return;
+    landing.focus();
+    landing.scrollIntoView?.({ block: 'nearest' });
+  });
   const retryRef = useRef(null);
   const retriedRef = useRef(false);
   /** The last focus request this pane answered, so a re-run of the effect below never answers it twice. */
@@ -248,7 +337,7 @@ export default function FurtherAhead({
     setSeenFocusSeq(focusRequest.seq);
     const wanted = focusRequest.entryId;
     if (wanted != null && status === 'ready' && activeFilter !== 'all'
-        && !monthGroups.some((group) => group.entries.some((entry) => entry.id === wanted))
+        && !renderedEntries.some((entry) => entry.id === wanted)
         && listedEntries?.some((entry) => entry.id === wanted)) {
       // Not persisted: the reader pressed a topic, not a filter, so their remembered chip is left alone.
       setActiveFilter('all');
@@ -271,9 +360,30 @@ export default function FurtherAhead({
     const { entryId, seq } = focusRequest;
     handledFocusSeq.current = seq;
     const rendered = entryId != null && status === 'ready'
-      && monthGroups.some((group) => group.entries.some((entry) => entry.id === entryId));
+      && renderedEntries.some((entry) => entry.id === entryId);
     onFocusHandled?.(rendered ? scrollToEntry(entryId) : false);
-  }, [focusRequest, status, monthGroups, onFocusHandled]);
+  }, [focusRequest, status, renderedEntries, onFocusHandled]);
+
+  /** One entry card: the month lists and Watching draw the very same component with the very same props. */
+  const renderEntry = (entry) => {
+    const outside = outsideByEntry.byId.get(entry.id);
+    return (
+      <WindowComingUpEntry
+        key={entry.id}
+        entry={entry}
+        open={entryOpen(entry)}
+        onToggleOpen={() => setEntries([entry.id], !entryOpen(entry))}
+        onGoToPlan={onGoToPlan}
+        onShowOnMap={onShowOnMap}
+        outsideLine={outside?.text ?? null}
+        outsideDoor={outside && entry.id === outsideByEntry.doorId ? {
+          subject: outside.subject,
+          count: outsideFacts[outside.subject].roster,
+          zeroPicks: outsideFacts.zeroPicks,
+        } : null}
+      />
+    );
+  };
 
   return (
     <section
@@ -281,6 +391,7 @@ export default function FurtherAhead({
       aria-labelledby={headingId}
       className="wf-sec wf-further-ahead"
       data-testid="further-ahead"
+      onClickCapture={noteWatchPress}
     >
       {/* The sticky heading (D5/D11): an `<h2>` inside a sticky bar, so the bar can stick under the lens while the
           heading's own accessible name stays its text. The badge is `aria-hidden`; the jump on This week's heading
@@ -388,7 +499,7 @@ export default function FurtherAhead({
               (because the feed itself is not empty) and no rows — a silent blank pane with no clue
               why. Naming the filter, not just "nothing here", is what tells a reader to check the
               chip rather than assume the feed broke. */}
-          {status === 'ready' && totalEntries > 0 && monthGroups.length === 0 && (
+          {status === 'ready' && monthEntries.length > 0 && monthGroups.length === 0 && (
             <p className="wf-cu-note" data-testid="coming-up-filter-empty">
               {`Nothing matches the ${activeChipLabel} filter.`}
             </p>
@@ -417,6 +528,58 @@ export default function FurtherAhead({
             href={served.metOfficeUrl}
             className="mb-2"
           />
+        )}
+
+        {/* WATCHING (screen-spec.md D2): the reader's watched dates, pinned above the chips and untouched by them, as the
+            same entry cards. Only when it has a member. */}
+        {hasWatching && (
+          <div className="wf-cu-watching" data-testid="further-ahead-watching">
+            <h3
+              id="further-ahead-watching-h"
+              ref={watchingHeadingRef}
+              tabIndex={-1}
+              className="wf-fav-section-h wf-cu-watching-h"
+              data-testid="further-ahead-watching-heading"
+            >
+              <BookmarkMark className="wf-yp-mark" />
+              Watching
+            </h3>
+            <div
+              role="list"
+              data-testid="watching-list"
+              aria-labelledby="further-ahead-watching-h"
+            >
+              {watchingViews.map(renderEntry)}
+              {unlisted.map((row, index) => (
+                <div
+                  key={row.key}
+                  role="listitem"
+                  className="wf-cu-unlisted"
+                  data-testid="watching-unlisted"
+                  data-watch-key={row.key}
+                >
+                  <span className="wf-cu-unlisted-text">
+                    <BookmarkMark className="wf-yp-mark" />
+                    {row.title}
+                    <span aria-hidden="true">{' · '}</span>
+                    <span className="sr-only">,</span>
+                    {' '}
+                    no longer listed
+                  </span>
+                  <button
+                    type="button"
+                    className="wf-cu-unlisted-stop"
+                    data-testid="watching-unlisted-stop"
+                    onClick={() => stopUnlisted(row, index)}
+                  >
+                    Stop watching
+                    {' '}
+                    <span className="sr-only">{row.name}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Chips and the chronology itself are gated on `ready`, unlike the head/handoff/footer
@@ -477,25 +640,7 @@ export default function FurtherAhead({
               data-testid="coming-up-list"
               aria-label={`${group.monthLabel} ${group.year}`}
             >
-              {group.entries.map((entry) => {
-                const outside = outsideByEntry.byId.get(entry.id);
-                return (
-                  <WindowComingUpEntry
-                    key={entry.id}
-                    entry={entry}
-                    open={entryOpen(entry)}
-                    onToggleOpen={() => setEntries([entry.id], !entryOpen(entry))}
-                    onGoToPlan={onGoToPlan}
-                    onShowOnMap={onShowOnMap}
-                    outsideLine={outside?.text ?? null}
-                    outsideDoor={outside && entry.id === outsideByEntry.doorId ? {
-                      subject: outside.subject,
-                      count: outsideFacts[outside.subject].roster,
-                      zeroPicks: outsideFacts.zeroPicks,
-                    } : null}
-                  />
-                );
-              })}
+              {group.entries.map(renderEntry)}
             </div>
           </div>
         ))}

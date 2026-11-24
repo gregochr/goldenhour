@@ -57,6 +57,8 @@ import useAskSurface from '../hooks/useAskSurface.js';
 import useAreaFind from '../hooks/useAreaFind.js';
 import { useFavourites } from '../context/FavouritesContext.jsx';
 import YourPlacesRow from './YourPlacesRow.jsx';
+import BookmarkMark from './shared/BookmarkMark.jsx';
+import { watchedStillToCome } from '../utils/watchedDates.js';
 import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
@@ -578,10 +580,20 @@ export default function WindowFirstShell({
    * ({@code interrupt}, {@code announce}) are the surprise model's, not the reader's, so a screen-reader user hears
    * only the difference they encode: one exceptional arrival versus several ordinary ones.
    */
-  const furtherAheadJumpLabel = comingUpBadge
-    ? `Further ahead, ${comingUpBadge.band === 'interrupt'
-      ? 'one rare date added'
-      : `${comingUpBadge.count} new date${comingUpBadge.count === 1 ? '' : 's'}`}`
+  const favouritesState = useFavourites();
+  // The watched dates not yet past (screen-spec.md D2), drawn beside the jump. Only for a reader whose list has landed,
+  // and only above zero: a Lite reader or the error state never shows a "0".
+  const watchingCount = favouritesState.status === 'ready'
+    ? watchedStillToCome({ dates: favouritesState.dates, entries: comingUp.events?.entries, todayStr })
+    : 0;
+  const furtherAheadJumpLabel = (comingUpBadge || watchingCount > 0)
+    ? [
+      'Further ahead',
+      comingUpBadge && (comingUpBadge.band === 'interrupt'
+        ? 'one rare date added'
+        : `${comingUpBadge.count} new date${comingUpBadge.count === 1 ? '' : 's'}`),
+      watchingCount > 0 && `${watchingCount} watching`,
+    ].filter(Boolean).join(', ')
     : undefined;
   /**
    * Marks the feed seen — both `Mark seen`'s own press and the quiet bootstrap write below share
@@ -690,8 +702,9 @@ export default function WindowFirstShell({
     focusSectionHeading(THIS_WEEK_HEADING_ID);
   };
   /**
-   * Opens Further ahead (one-screen-plan.md O2), at one entry when one is named: the "Further ahead ↓" jump and any
-   * producer that names an entry. A lane no longer calls it (a lane's entry is not listed there, D5).
+   * Opens Further ahead (one-screen-plan.md O2), at one entry when one is named: the "Further ahead ↓" jump (no entry)
+   * and any producer that names an entry. None does today: a lane's entry is not listed there (D5), and Your places'
+   * date chips, which did, are gone (screen-spec.md D2). Further ahead still honours a named entry, Watching's included.
    *
    * <p>Stores a request {@code {entryId, seq}} and takes the dialogs down. The request lives in this shell's state, so it
    * survives the commit that closes them; {@code FurtherAhead} answers it (resetting its filter if the entry is hidden,
@@ -1791,7 +1804,6 @@ export default function WindowFirstShell({
    */
   // Your places (F4): whether the row at the top of This week holds anything to rate (a Pro reader's list has landed
   // and is not empty; a Lite reader's teaser needs no scores).
-  const favouritesState = useFavourites();
   const watchlistShown = favouritesState.status === 'ready'
     && (favouritesState.placeIds.size > 0 || favouritesState.areaIds.size > 0);
   const detailScoreIndex = useMemo(
@@ -2541,6 +2553,12 @@ export default function WindowFirstShell({
           >
             Further ahead
             <span aria-hidden="true">{' ↓'}</span>
+            {watchingCount > 0 && (
+              <span aria-hidden="true" data-testid="further-ahead-jump-watching" className="wf-jump-watching">
+                <BookmarkMark className="wf-yp-mark" />
+                {watchingCount}
+              </span>
+            )}
             {comingUpBadge && (
               <span
                 aria-hidden="true"
@@ -2562,11 +2580,6 @@ export default function WindowFirstShell({
           reachById={effectiveReachById}
           allowedLocationIds={allowedLocationIds}
           onOpenWindow={openYourPlace}
-          entries={comingUp.events?.entries}
-          hotTopics={briefing?.hotTopics}
-          todayStr={todayStr}
-          onOpenEntry={openFurtherAhead}
-          graduatedIds={graduatedIds}
           onOpenPlace={(spot) => {
             warmStackedChunks();
             openSheetLayer({ spot });
@@ -2617,6 +2630,7 @@ export default function WindowFirstShell({
             onLaneEntryIds={setGraduatedIds}
             onShowOnMap={showOnMap ?? NO_MAP_DOOR}
             onOpenLaneOnMap={openWindowOnMap}
+            onOpenWatched={openYourPlace}
             highlightKeys={askHighlight}
             todayStr={todayStr}
             runAge={age}

@@ -78,7 +78,7 @@ describe('favourites helpers', () => {
   it('words the toast for a place and for an area', () => {
     expect(starToastText('place', 'Steel Rigg', true)).toBe('Bookmarked Steel Rigg.');
     expect(starToastText('area', "Hadrian's Wall", false)).toBe("Removed the bookmark from Hadrian's Wall (area).");
-    expect(starToastText('date', 'King tide · 3 Dec', true)).toBe('Watching King tide · 3 Dec. It joins Your places.');
+    expect(starToastText('date', 'King tide · 3 Dec', true)).toBe("Watching King tide · 3 Dec. It's at the top of Further ahead.");
     expect(starToastText('date', 'King tide · 3 Dec', false)).toBe('Stopped watching King tide · 3 Dec.');
   });
 });

@@ -7,6 +7,7 @@ import { fetchAreaDirectory } from '../api/areasApi.js';
 import useUndoToast from '../hooks/useUndoToast.js';
 import UndoToast from '../components/shared/UndoToast.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
+import { lazyReturnTo } from '../utils/focusReturn.js';
 import {
   applyStar, favouriteSets, FAVOURITE_FAILED, NO_FAVOURITES, starToastText,
 } from '../utils/favourites.js';
@@ -149,12 +150,15 @@ export function FavouritesProvider({ pro, children }) {
    * @param {boolean} [undo] true for an Undo press: the toast then says "Undone." and offers no second Undo
    * @param {?Array<number|string>} [group] every id one press changes together (un-watching several matched dates), so the
    *        one Undo on the last answer's toast puts them ALL back; omitted, the Undo restores just {@code id}
+   * @param {?function(): ?Element} [focusBack] an Undo press only: the original press's lazy focus target, so "Undone."
+   *        returns focus to where the reader was and not to the toast's own (unmounting) Undo button
    * @returns {Promise<boolean>} whether the server took it
    */
-  const setStar = useCallback((kind, id, name, on, undo = false, group = null) => {
+  const setStar = useCallback((kind, id, name, on, undo = false, group = null, focusBack = null) => {
     if (bodyRef.current == null) return Promise.resolve(false);
-    // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands.
-    const returnTo = document.activeElement;
+    // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands. A function
+    // resolved at Undo time, because the control may have MOVED by then (a watched date's card changes lists).
+    const returnTo = focusBack ?? lazyReturnTo(document.activeElement);
     setBody(applyStar(bodyRef.current, kind, id, on));
     epoch.current += 1;
     pending.current += 1;
@@ -184,7 +188,9 @@ export function FavouritesProvider({ pro, children }) {
               returnTo,
               // Void: Undo is a press handler, nothing waits on the second request.
               onUndo: () => {
-                (group ?? [id]).forEach((each) => { void setStarRef.current(kind, each, name, !on, true); });
+                (group ?? [id]).forEach((each) => {
+                  void setStarRef.current(kind, each, name, !on, true, null, returnTo);
+                });
               },
             });
         }

@@ -119,7 +119,7 @@ export function pickerEntries(sets, bookmarkedAreas) {
  * @returns {string}
  */
 export function starToastText(kind, name, on) {
-  if (kind === 'date') return on ? `Watching ${name}. It joins Your places.` : `Stopped watching ${name}.`;
+  if (kind === 'date') return on ? `Watching ${name}. It's at the top of Further ahead.` : `Stopped watching ${name}.`;
   const what = kind === 'area' ? `${name} (area)` : name;
   return on ? `Bookmarked ${what}.` : `Removed the bookmark from ${what}.`;
 }

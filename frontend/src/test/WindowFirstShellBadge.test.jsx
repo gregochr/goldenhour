@@ -5,6 +5,7 @@ import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { getAlmanac } from '../api/almanacApi.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
+import { withFavourites } from './favouritesKit.jsx';
 
 /**
  * The NEW badge on the "Further ahead ↓" jump and on Further ahead's heading, the `lastSeenAt` bootstrap
@@ -131,16 +132,20 @@ const ctx = (overrides = {}) => {
   };
 };
 
-const renderShell = (overrides = {}) => {
+const renderShell = (overrides = {}, favourites = null) => {
   const useBriefing = vi.spyOn(briefingContext, 'useWindowFirstBriefing');
   useBriefing.mockReturnValue(ctx(overrides));
   const props = {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
   };
-  const view = render(<WindowFirstShell {...props} />);
+  const tree = () => {
+    const shell = <WindowFirstShell {...props} />;
+    return favourites ? withFavourites(shell, favourites) : shell;
+  };
+  const view = render(tree());
   const withContext = (next) => {
     useBriefing.mockReturnValue(ctx({ ...overrides, ...next }));
-    view.rerender(<WindowFirstShell {...props} />);
+    view.rerender(tree());
   };
   return { ...view, withContext };
 };
@@ -453,5 +458,57 @@ describe('WindowFirstShell — Mark seen', () => {
     // The design's own safe-failure bias: a dropped write must not flash the badge back on.
     withContext({ comingUpLastSeenDate: TODAY });
     expect(screen.queryByTestId('further-ahead-jump-badge')).toBeNull();
+  });
+});
+
+describe('WindowFirstShell — the watched count on the jump (screen-spec.md D2)', () => {
+  const MOON = {
+    ...ANNOUNCE_ENTRY, id: 'supermoon:2026-08-20:2026-08-20', startDate: '2026-08-20', endDate: '2026-08-20',
+  };
+
+  it('shows the mark and the number beside the jump, and names them: ", N watching"', async () => {
+    getAlmanac.mockResolvedValue(FEED([MOON]));
+    renderShell({ comingUpLastSeenDate: '2026-08-08' }, { dates: ['supermoon:2026-08-20'] });
+    await settle();
+
+    const count = screen.getByTestId('further-ahead-jump-watching');
+    expect(count).toHaveTextContent('1');
+    expect(count.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
+    expect(count).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('further-ahead-jump')).toHaveAccessibleName('Further ahead, 1 watching');
+  });
+
+  it('sits beside the NEW badge, and the name carries both', async () => {
+    getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY, MOON]));
+    renderShell({ comingUpLastSeenDate: '2026-08-01' }, { dates: ['supermoon:2026-08-20'] });
+    await settle();
+
+    expect(screen.getByTestId('further-ahead-jump-watching')).toBeInTheDocument();
+    expect(screen.getByTestId('further-ahead-jump-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('further-ahead-jump')).toHaveAccessibleName('Further ahead, 2 new dates, 1 watching');
+  });
+
+  it('is never "0": nothing watched, a Lite reader, a list that has not landed or failed, or a date that has passed', async () => {
+    getAlmanac.mockResolvedValue(FEED([MOON]));
+    for (const favourites of [
+      { dates: [] },
+      { status: 'locked', dates: ['supermoon:2026-08-20'] },
+      { status: 'loading', dates: ['supermoon:2026-08-20'] },
+      { status: 'error', dates: ['supermoon:2026-08-20'] },
+      { dates: ['supermoon:2026-08-01'] },
+    ]) {
+      const { unmount } = renderShell({ comingUpLastSeenDate: '2026-08-08' }, favourites);
+      await settle();
+      expect(screen.queryByTestId('further-ahead-jump-watching')).toBeNull();
+      expect(screen.getByTestId('further-ahead-jump')).not.toHaveAttribute('aria-label');
+      unmount();
+    }
+  });
+
+  it('counts a watch the feed no longer names by its own date, once the feed has arrived', async () => {
+    getAlmanac.mockResolvedValue(FEED([]));
+    renderShell({ comingUpLastSeenDate: '2026-08-08' }, { dates: ['meteor:2026-09-14', 'king-tide:2026-10-05'] });
+    await settle();
+    expect(screen.getByTestId('further-ahead-jump-watching')).toHaveTextContent('2');
   });
 });

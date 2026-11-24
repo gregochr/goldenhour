@@ -877,7 +877,7 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
     expect(screen.getByTestId('further-ahead')).not.toContainElement(section);
     const chips = within(section).getAllByTestId('your-places-chip');
     expect(chips.map((r) => r.dataset.kind)).toEqual(['area', 'place']);
-    expect(within(chips[1]).getByTestId('your-places-detail').textContent).toMatch(/^4★/);
+    expect(within(chips[1]).getByTestId('your-places-detail').textContent).toMatch(/4★/);
   });
 
   it('a chip with a window opens the map view on it, focused on the place', async () => {

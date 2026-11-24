@@ -1,35 +1,81 @@
-import React, { useMemo } from 'react';
+import React, {
+  useEffect, useLayoutEffect, useMemo, useRef,
+} from 'react';
 import PropTypes from 'prop-types';
 import { useFavourites } from '../context/FavouritesContext.jsx';
 import { useAreaOutlook } from '../hooks/useAreaFind.js';
 import useInViewOnce from '../hooks/useInViewOnce.js';
 import { areaFigure, topWindowFor } from '../utils/planSearch.js';
 import { areaMapWindow } from '../utils/areaFind.js';
-import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { isOutsidePicks } from '../utils/pickScope.js';
 import { YOUR_PLACES } from '../utils/favourites.js';
-import { buildWatchedChips } from '../utils/watchedDates.js';
 import BookmarkMark from './shared/BookmarkMark.jsx';
+import StarFigure from './shared/StarFigure.jsx';
 import { FavouriteUpsell, upsellEscape, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
 
 /** Below this the line reads quietly: the reader's own place has nothing worth a trip in the days we have scored. */
 const QUIET_BELOW = 3;
-const QUIET_LINE = 'nothing above 2★ in the next days';
-export const YOUR_PLACES_EMPTY = 'Bookmark a place or an area, or watch a date, and it lands here.';
+const YOUR_PLACES_EMPTY = 'Bookmark a place or an area, and it lands here.';
 
 /**
- * Your places (find-and-favourites-plan.md F4, D3, D4; one-screen-plan.md D15): the reader's own bookmarked areas and
- * places as ONE horizontal row of compact chips at the top of This week, a SEPARATE labelled section above the
- * forecast. It scrolls sideways (with scroll-snap on a phone). It was the Coming up tab's watchlist, one row each;
- * it moved because it is forecast-based, which is what This week is.
+ * The row's order once its figures are in (screen-spec.md D2): best served rating first, then drive minutes (an area
+ * has none, so it ties like a place with an unknown drive), then name. A row that reads quiet (under 3★, not rated yet, or outside
+ * the reader's picks) goes after every worthwhile one, in the same order among themselves, rated before unrated.
  *
- * <p>Not a ranked list: the order is areas first, then places, each in the order the reader holds them, and a
- * favourite is never placed by its rating.
+ * @param {Array<{rating: ?number, drive: ?number, name: string}>} rows the rows in insertion order
+ * @returns {Array} a new, sorted array
+ */
+function orderRows(rows) {
+  const quiet = (row) => row.rating == null || row.rating < QUIET_BELOW;
+  return [...rows].sort((a, b) => (
+    Number(quiet(a)) - Number(quiet(b))
+    || (b.rating ?? -1) - (a.rating ?? -1)
+    || (a.drive ?? Infinity) - (b.drive ?? Infinity)
+    || a.name.localeCompare(b.name)
+  ));
+}
+
+/**
+ * What follows a chip's name: the served figure with its window, or the honest reason there is none.
+ *
+ * @param {object} row an area or place row
+ * @returns {{node: React.ReactNode, quiet: boolean}}
+ */
+function lineOf(row) {
+  const NOT_RATED = { node: 'not rated yet', quiet: true };
+  const quietLine = { node: <>nothing above <StarFigure n={2} /></>, quiet: true };
+  if (row.kind === 'area') {
+    const { figure } = row;
+    if (!figure || (figure.topRating == null && figure.gatedMembers === 0)) return NOT_RATED;
+    if (figure.topRating == null) return { node: `${figure.gatedMembers} outside your picks`, quiet: true };
+    if (figure.topRating < QUIET_BELOW) return quietLine;
+    return { node: <>{`${figure.label} `}<StarFigure n={figure.topRating} /></>, quiet: false };
+  }
+  if (row.gated) return { node: 'outside your picks', quiet: true };
+  if (!row.top) return NOT_RATED;
+  if (row.top.rating < QUIET_BELOW) return quietLine;
+  return { node: <>{`${row.top.label} `}<StarFigure n={row.top.rating} /></>, quiet: false };
+}
+
+/**
+ * Your places (find-and-favourites-plan.md F4, D3, D4; one-screen-plan.md D15; screen-spec.md D2): the reader's own
+ * bookmarked areas and places as ONE horizontal row of one-line chips at the top of This week, a SEPARATE labelled
+ * section above the forecast. It scrolls sideways (with scroll-snap on a phone). Places and areas only: a watched date
+ * is never here (it is its day's lane in This week, or Watching at the top of Further ahead).
+ *
+ * <p><b>The order</b> (a licensed client derivation, architecture-decisions.md "Backend-heavy"): best served rating
+ * first, the figure the chip prints; ties by drive minutes, then by name (an area has no drive, so it sorts with a
+ * place whose drive is unknown: by name). Quiet rows (nothing above 2★, not rated yet, outside the reader's picks) come
+ * last and read muted ({@code wf-yp-quiet}). It is a sort of the reader's own rows by a served figure, never a
+ * verdict, a pick or a re-rank of any rating (screen-spec.md "Honesty"). <b>It sorts only once its figures are in</b>:
+ * until the area outlook and the place scores have landed the row keeps its insertion order, areas then places, so
+ * nothing re-orders under the reader's thumb once they have started to reach for a chip.
  *
  * <p>Every figure is served. A place's is its own best window (the same walk Find's place row and the area sheet make,
- * {@code topWindowFor}); an area's is the per-reader outlook ({@code GET /api/areas/outlook}) with its window and
- * {@code N rated}, never "best of the area" as a verdict, and a Lite-style gated member is counted and never rated.
- * Below 3★ a chip reads quietly ({@code nothing above 2★ in the next days}); a place or area with nothing rated says so.
+ * {@code topWindowFor}); an area's is the per-reader outlook ({@code GET /api/areas/outlook}) with its window, never
+ * "best of the area" as a verdict, and a Lite-style gated member is counted and never rated. One line per chip, about
+ * 34 px: {@code [mark] Crimdon Beach · Fri sunrise 4★}. Below 3★ a chip reads quietly ({@code nothing above 2★}); a
+ * place or area with nothing rated says so.
  *
  * <p><b>What a tap does.</b> A chip with a worthwhile window opens the map view on that window, focused on the place
  * or area ({@code onOpenWindow}). A chip with no window to open (quiet, outside the reader's picks, not rated yet)
@@ -37,16 +83,6 @@ export const YOUR_PLACES_EMPTY = 'Bookmark a place or an area, or watch a date, 
  *
  * <p><b>Fetching.</b> {@code useAreaOutlook} fetches only once the row has been on screen, so a reader who never
  * scrolls to a bookmarked area never pays for it.
- *
- * <p><b>Watched dates (one-screen-plan.md D16)</b> join the row as chips of their own, earliest date first, before the
- * places. Each leads with the same calendar tile Further ahead draws in its rail (day of week for a single day, the day
- * or {@code 23–29} range, the month), then the name ({@code [mark] 🌊 King tide}, the bookmark mark) and a detail line. A date still beyond the
- * forecast reads {@code best spots once it's forecast} (or {@code in this week's forecast} once it has windows), and a
- * tap scrolls to its entry in Further ahead and opens it ({@code onOpenEntry}). Once its dates reach the forecast the
- * chip becomes that morning's plan, from served fields only ({@code utils/watchedDates.js}): the window, the best spot
- * and its stars, and for a tide {@code tide on the light}; a tap opens the map view on that window. A date with no
- * window of its own (a meteor peak) is a plain chip that says {@code clear-sky check on the night} and opens nothing.
- * A date that has passed draws nothing (the row is kept, not shown).
  *
  * <p>A Lite reader gets one line, {@code Your places · PRO}, opening the worded upsell. Anyone else (no provider, the
  * list not yet landed) gets nothing.
@@ -57,19 +93,13 @@ export const YOUR_PLACES_EMPTY = 'Bookmark a place or an area, or watch a date, 
  * @param {?object} props.scoreIndex from {@code buildScoreIndex}
  * @param {?Map} props.reachById the reach map the page plans from
  * @param {*} props.allowedLocationIds the briefing's served allowed list, on a shaped body only
- * @param {?Array} [props.entries] the served almanac entries ({@code comingUp.events.entries}), which name a watched date
- * @param {?Array} [props.hotTopics] the served {@code briefing.hotTopics}, for a watched topic's own window
- * @param {string} [props.todayStr] the reader's UK today (from {@code appNow}, Rewind)
  * @param {function(object): void} props.onOpenWindow opens the map view; given
  *        {@code {window: {date, eventType}, focus, from}}
  * @param {function(object): void} props.onOpenPlace opens a place's next-days sheet, given the heat spot
  * @param {function(object): void} props.onOpenArea opens an area's sheet, given the directory entry
- * @param {?Set<string>} [props.graduatedIds] the entries This week already draws as lanes (not listed in Further ahead)
- * @param {function(string): void} [props.onOpenEntry] scrolls to and opens a Further ahead entry, given its id
  */
 export default function YourPlacesRow({
   spots, windows, scoreIndex, reachById, allowedLocationIds, onOpenWindow, onOpenPlace, onOpenArea,
-  entries = null, hotTopics = null, todayStr = '', onOpenEntry = undefined, graduatedIds = undefined,
 }) {
   const favourites = useFavourites();
   const upsell = useFavouriteUpsell();
@@ -77,8 +107,7 @@ export default function YourPlacesRow({
   const [viewRef, inView] = useInViewOnce();
   const ready = favourites.status === 'ready';
   // Empty only when the SERVED list holds nothing: places and areas both zero, whatever has or has not resolved yet.
-  const nothingStarred = favourites.placeIds.size === 0 && favourites.areaIds.size === 0
-    && favourites.dateKeys.size === 0;
+  const nothingStarred = favourites.placeIds.size === 0 && favourites.areaIds.size === 0;
   const outlook = useAreaOutlook(inView && ready && favourites.areaIds.size > 0);
 
   const rows = useMemo(() => {
@@ -86,24 +115,46 @@ export default function YourPlacesRow({
     const byId = new Map((spots || []).map((spot) => [spot.id, spot]));
     const areaRows = favourites.bookmarkedAreas.map((area) => {
       const figure = areaFigure(outlook?.get(area.id), windows);
-      const best = figure?.topLocationId == null ? null : byId.get(figure.topLocationId);
-      return { kind: 'area', key: `area:${area.id}`, area, name: area.name, figure, bestName: best?.name ?? null };
+      return {
+        kind: 'area', key: `area:${area.id}`, area, name: area.name, figure, rating: figure?.topRating ?? null,
+        drive: null,
+      };
     });
     const placeRows = [...favourites.placeIds].map((id) => byId.get(id)).filter(Boolean).map((spot) => {
       const gated = isOutsidePicks(allowedLocationIds, spot.id);
       const top = gated ? null : topWindowFor(spot, windows, scoreIndex);
       return {
         kind: 'place', key: `place:${spot.id}`, spot, name: spot.name, gated, top,
-        drive: reachById?.get(spot.id)?.driveMinutes ?? null,
+        rating: top?.rating ?? null, drive: reachById?.get(spot.id)?.driveMinutes ?? null,
       };
     });
-    const dateRows = buildWatchedChips({ dates: favourites.dates, entries, windows: windows || [], hotTopics, todayStr })
-      .map((chip) => ({ kind: 'date', key: `date:${chip.key}`, name: chip.name, chip }));
-    return [...dateRows, ...areaRows, ...placeRows];
+    const insertion = [...areaRows, ...placeRows];
+    // Sorted only once the figures are in: an area's arrive with the outlook, a place's with the score index.
+    const figuresIn = (areaRows.length === 0 || outlook != null) && (placeRows.length === 0 || scoreIndex != null);
+    return figuresIn ? orderRows(insertion) : insertion;
   }, [
-    ready, favourites.bookmarkedAreas, favourites.placeIds, favourites.dates, spots, windows, scoreIndex, reachById,
-    allowedLocationIds, outlook, entries, hotTopics, todayStr,
+    ready, favourites.bookmarkedAreas, favourites.placeIds, spots, windows, scoreIndex, reachById, allowedLocationIds,
+    outlook,
   ]);
+
+  // The row keeps scroll-snap on a phone, and a browser re-snaps to the chip it had snapped to when the chips reorder,
+  // which would scroll the best chip out of view the moment the sort lands. So a reorder puts an untouched row back at
+  // its start; a reader who has already reached for it (pointer, touch, wheel, keys) is never moved.
+  const listRef = useRef(null);
+  const touched = useRef(false);
+  const orderKey = rows.map((row) => row.key).join('|');
+  useLayoutEffect(() => {
+    if (listRef.current && !touched.current) listRef.current.scrollLeft = 0;
+  }, [orderKey]);
+  const hasRow = rows.length > 0;
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return undefined;
+    const note = () => { touched.current = true; };
+    const gestures = ['pointerdown', 'touchstart', 'wheel', 'keydown'];
+    gestures.forEach((gesture) => list.addEventListener(gesture, note, { passive: true }));
+    return () => gestures.forEach((gesture) => list.removeEventListener(gesture, note));
+  }, [hasRow]);
 
   if (favourites.status === 'locked') {
     return (
@@ -129,26 +180,6 @@ export default function YourPlacesRow({
   }
   if (!ready) return null;
 
-  /** The words after the name: the served figure with its window, or the honest reason there is none. */
-  const detail = (row) => {
-    if (row.kind === 'date') return row.chip.detail;
-    if (row.kind === 'area') {
-      const { figure } = row;
-      if (!figure || (figure.topRating == null && figure.gatedMembers === 0)) return 'not rated yet';
-      if (figure.topRating == null) return `${figure.gatedMembers} outside your picks`;
-      if (figure.topRating < QUIET_BELOW) return QUIET_LINE;
-      return [
-        row.bestName ? `best ${row.bestName}` : null, `${figure.topRating}★`, figure.label,
-        `${figure.ratedMembers} rated`,
-      ].filter(Boolean).join(' · ');
-    }
-    if (row.gated) return 'outside your picks';
-    if (!row.top) return 'not rated yet';
-    if (row.top.rating < QUIET_BELOW) return QUIET_LINE;
-    return [`${row.top.rating}★`, row.top.label, row.drive == null ? null : formatDriveDuration(row.drive)]
-      .filter(Boolean).join(' · ');
-  };
-
   /** The window a chip opens the map on, or null when it opens its sheet instead (quiet, gated or unrated). */
   const windowOf = (row) => {
     const figure = row.kind === 'area' ? row.figure : row.top;
@@ -163,23 +194,6 @@ export default function YourPlacesRow({
   };
 
   const press = (row, event) => {
-    if (row.kind === 'date') {
-      const { chip } = row;
-      if (chip.kind === 'window') {
-        onOpenWindow({
-          window: chip.window,
-          focus: chip.bestSpot ? { kind: 'location', id: chip.bestSpot.id, name: chip.bestSpot.name } : null,
-          from: event.currentTarget,
-        });
-      } else if (chip.kind === 'beyond' && chip.firstWindow && graduatedIds?.has(chip.entryId)) {
-        // The entry is a lane in This week now, so it is not listed in Further ahead to scroll to: open the map on the
-        // first window the date has reached instead.
-        onOpenWindow({ window: chip.firstWindow, focus: null, from: event.currentTarget });
-      } else {
-        onOpenEntry?.(chip.entryId);
-      }
-      return;
-    }
     const win = windowOf(row);
     if (!win) {
       if (row.kind === 'area') onOpenArea(row.area);
@@ -209,75 +223,30 @@ export default function YourPlacesRow({
       ) : (
         <>
           {rows.length > 0 && (
-            <ul className="wf-yp-row m-0 list-none p-0" data-testid="your-places-row">
+            <ul
+              ref={listRef}
+              className="wf-yp-row m-0 list-none p-0"
+              data-testid="your-places-row"
+            >
               {rows.map((row) => {
-                const isDate = row.kind === 'date';
-                // A chip that opens nothing is drawn as text, so a control never opens nothing: a date with no window
-                // of its own, and a watch whose entry the feed no longer lists.
-                const inert = isDate && (row.chip.kind === 'static' || row.chip.kind === 'unlisted');
-                const textBlock = (
-                  <>
-                    <span className="wf-yp-name">
-                      {isDate && (
-                        <>
-                          <BookmarkMark className="wf-yp-mark" />
-                          <span className="sr-only">Watched date: </span>
-                          {row.chip.glyph && <span aria-hidden="true">{`${row.chip.glyph} `}</span>}
-                        </>
-                      )}
-                      {isDate ? row.chip.label : row.name}
-                    </span>
-                    <span className="wf-yp-detail" data-testid="your-places-detail">{detail(row)}</span>
-                  </>
-                );
-                // A date chip leads with the calendar tile Further ahead draws, then the name and detail in a column.
-                const nameBlock = isDate ? (
-                  <>
-                    <span className="wf-cu-dbox wf-yp-dbox" data-testid="your-places-date-tile">
-                      {row.chip.rail.dow && <span className="wf-cu-dow">{row.chip.rail.dow}</span>}
-                      <span className={row.chip.rail.isRange ? 'wf-cu-dn wf-cu-dn-run' : 'wf-cu-dn'}>
-                        {row.chip.rail.day}
-                      </span>
-                      <span className="wf-cu-mo">{row.chip.rail.month}</span>
-                    </span>
-                    <span className="wf-yp-text">{textBlock}</span>
-                  </>
-                ) : textBlock;
+                const line = lineOf(row);
                 return (
-                  <li key={row.key} className={isDate ? 'wf-yp-item wf-yp-item-date' : 'wf-yp-item'}>
-                    {inert ? (
-                      <div
-                        data-testid="your-places-chip"
-                        data-kind="date"
-                        data-date-state={row.chip.kind}
-                        className="wf-yp-chip wf-yp-chip-static wf-yp-chip-date text-left"
-                      >
-                        {nameBlock}
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        data-testid="your-places-chip"
-                        data-kind={row.kind}
-                        data-date-state={isDate ? row.chip.kind : undefined}
-                        className={`wf-yp-chip text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold${isDate ? ' wf-yp-chip-date' : ''}`}
-                        onClick={(event) => press(row, event)}
-                      >
-                        {nameBlock}
-                      </button>
-                    )}
-                    {/* Every watched date can be taken away from its own chip: a sibling of the chip, never inside it. */}
-                    {isDate && (
-                      <button
-                        type="button"
-                        data-testid="your-places-stop-watching"
-                        className="wf-yp-stop focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold"
-                        aria-label={`Stop watching ${row.name}`}
-                        onClick={() => { void favourites.setStar('date', row.chip.key, row.name, false); }}
-                      >
-                        <span aria-hidden="true">×</span>
-                      </button>
-                    )}
+                  <li key={row.key} className="wf-yp-item">
+                    <button
+                      type="button"
+                      data-testid="your-places-chip"
+                      data-kind={row.kind}
+                      data-quiet={line.quiet ? 'true' : undefined}
+                      className={`wf-yp-chip text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold${line.quiet ? ' wf-yp-quiet' : ''}`}
+                      onClick={(event) => press(row, event)}
+                    >
+                      <BookmarkMark className="wf-yp-mark" />
+                      <span className="wf-yp-name">{row.name}</span>
+                      <span className="sr-only">,</span>
+                      {' '}
+                      <span aria-hidden="true" className="wf-yp-sep">{' · '}</span>
+                      <span className="wf-yp-detail" data-testid="your-places-detail">{line.node}</span>
+                    </button>
                   </li>
                 );
               })}
@@ -291,9 +260,7 @@ export default function YourPlacesRow({
           )}
           {rows.length === 0 && favourites.areasUnresolved === 0 && (
             <p className="wf-cu-note" data-testid="your-places-offplan">
-              {favourites.placeIds.size + favourites.areaIds.size > 0
-                ? 'Your bookmarked places are not on the plan right now.'
-                : 'Your watched dates are not listed right now.'}
+              Your bookmarked places are not on the plan right now.
             </p>
           )}
         </>
@@ -311,9 +278,4 @@ YourPlacesRow.propTypes = {
   onOpenWindow: PropTypes.func.isRequired,
   onOpenPlace: PropTypes.func.isRequired,
   onOpenArea: PropTypes.func.isRequired,
-  entries: PropTypes.arrayOf(PropTypes.object),
-  hotTopics: PropTypes.arrayOf(PropTypes.object),
-  todayStr: PropTypes.string,
-  onOpenEntry: PropTypes.func,
-  graduatedIds: PropTypes.instanceOf(Set),
 };

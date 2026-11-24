@@ -10,12 +10,11 @@ vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
 import { fetchFavourites, setFavourite } from '../api/favouritesApi.js';
 import WatchDateControl from '../components/WatchDateControl.jsx';
 import WindowComingUpEntry from '../components/WindowComingUpEntry.jsx';
-import YourPlacesRow, { YOUR_PLACES_EMPTY } from '../components/YourPlacesRow.jsx';
 import { FavouritesContext, FavouritesProvider, useFavourites } from '../context/FavouritesContext.jsx';
 import { buildEntryView } from '../utils/comingUpFeed.js';
 import { favouritesValue, withFavourites } from './favouritesKit.jsx';
 
-/** Watch a date (one-screen-plan.md D16): the toggle in an open Further ahead entry, and the chips in Your places. */
+/** Watch a date (one-screen-plan.md D16): the toggle in an open Further ahead entry. Where a watched date lives (Watching, the lane) is in FurtherAheadWatching.test.jsx. */
 
 const TODAY = '2026-12-02';
 
@@ -34,10 +33,6 @@ const served = (over = {}) => ({
   ...over,
 });
 const view = (over = {}) => buildEntryView(served(over), TODAY, null, null);
-
-const card = (date, targetType, over = {}) => ({
-  key: `${date}:${targetType}`, date, targetType, dow: 'Fri', sunrise: targetType === 'SUNRISE', time: '07:48', away: false, ...over,
-});
 
 beforeEach(() => { mockIsMobile = false; vi.clearAllMocks(); });
 
@@ -94,9 +89,9 @@ describe('Watch this date, the toggle in an entry', () => {
     fireEvent.click(door);
     const panel = screen.getByTestId('coming-up-watch-upsell-panel');
     expect(panel).toHaveTextContent('Watch a date');
-    expect(panel).toHaveTextContent(/joins Your places at the top of This week/);
+    expect(panel).toHaveTextContent(/moves to the top of Further ahead/);
+    expect(panel).not.toHaveTextContent(/joins Your places/);
     expect(panel.querySelector('a')).toBeNull();
-    expect(panel.textContent).not.toMatch(/Your places\b.*places and areas/);
     fireEvent.keyDown(panel, { key: 'Escape' });
     expect(screen.queryByTestId('coming-up-watch-upsell-panel')).toBeNull();
   });
@@ -164,7 +159,7 @@ describe('the watch in the provider', () => {
     expect(spy.current.isDateWatched('king-tide:2026-12-03')).toBe(true);
     expect(spy.current.dates).toEqual([{ key: 'king-tide:2026-12-03', createdAt: 't' }]);
     expect(spy.current.locationIds.size).toBe(0);
-    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('Watching King tide · 3 Dec. It joins Your places.');
+    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent("Watching King tide · 3 Dec. It's at the top of Further ahead.");
   });
 
   it('a refused watch at the cap reverts and prints the server sentence', async () => {
@@ -196,176 +191,5 @@ describe('the watch in the provider', () => {
     expect(setFavourite).toHaveBeenCalledTimes(4);
     expect(setFavourite).toHaveBeenCalledWith('date', 'king-tide:2026-12-03', true);
     expect(setFavourite).toHaveBeenCalledWith('date', 'spring-tide:2026-12-01', true);
-  });
-});
-
-describe('Your places, watched dates', () => {
-  const ENTRIES = [served()];
-  const WINDOWS = [
-    card('2026-12-03', 'SUNRISE', { dow: 'Thu', tide: { lightAlignment: 'NONE' } }),
-    card('2026-12-04', 'SUNRISE', {
-      tide: { lightAlignment: 'HW' }, bestReach: { rating: 4, locationId: 7, locationName: 'Crimdon Beach' },
-    }),
-  ];
-  const mount = (options, extra = {}) => {
-    const props = {
-      spots: [{ id: 7, name: 'Crimdon Beach' }],
-      windows: [],
-      scoreIndex: null,
-      reachById: new Map(),
-      allowedLocationIds: null,
-      onOpenWindow: vi.fn(),
-      onOpenPlace: vi.fn(),
-      onOpenArea: vi.fn(),
-      onOpenEntry: vi.fn(),
-      graduatedIds: undefined,
-      entries: ENTRIES,
-      hotTopics: [],
-      todayStr: TODAY,
-      ...extra,
-    };
-    render(withFavourites(<YourPlacesRow {...props} />, options));
-    return props;
-  };
-
-  it('beyond the forecast the chip shows the calendar tile, no countdown, and a tap opens its entry in Further ahead', () => {
-    const props = mount({ dates: ['king-tide:2026-12-03'] });
-    const chip = screen.getByTestId('your-places-chip');
-    expect(chip).toHaveAttribute('data-kind', 'date');
-    expect(chip).toHaveAttribute('data-date-state', 'beyond');
-    const tile = screen.getByTestId('your-places-date-tile');
-    expect(chip).toContainElement(tile);
-    expect(tile).toHaveTextContent('3–7Dec');
-    expect(tile.querySelector('.wf-cu-dn-run')).not.toBeNull();
-    expect(tile.querySelector('.wf-cu-dow')).toBeNull();
-    expect(chip).toHaveTextContent('Watched date: 🌊 King tide');
-    expect(chip.textContent).not.toMatch(/in \d+ days|tomorrow/);
-    expect(screen.getByTestId('your-places-detail')).toHaveTextContent("best spots once it's forecast");
-    expect(screen.getByTestId('your-places-stop-watching')).toHaveAttribute('aria-label', 'Stop watching King tide · 3 Dec');
-    fireEvent.click(chip);
-    expect(props.onOpenEntry).toHaveBeenCalledWith('king-tide:2026-12-03:2026-12-07');
-    expect(props.onOpenWindow).not.toHaveBeenCalled();
-  });
-
-  it('inside the forecast the chip is that morning\'s plan, and a tap opens the map view on that window', () => {
-    const props = mount({ dates: ['king-tide:2026-12-03'] }, { windows: WINDOWS });
-    const chip = screen.getByTestId('your-places-chip');
-    expect(chip).toHaveAttribute('data-date-state', 'window');
-    expect(chip).toHaveTextContent('King tide · Fri');
-    expect(screen.getByTestId('your-places-detail').textContent)
-      .toBe('sunrise 07:48 · best Crimdon Beach 4★ · tide on the light');
-    fireEvent.click(chip);
-    expect(props.onOpenWindow).toHaveBeenCalledWith({
-      window: { date: '2026-12-04', eventType: 'SUNRISE' },
-      focus: { kind: 'location', id: 7, name: 'Crimdon Beach' },
-      from: chip,
-    });
-    expect(props.onOpenEntry).not.toHaveBeenCalled();
-  });
-
-  it('a window with no rated spot opens the map on the window alone', () => {
-    const windows = [card('2026-12-04', 'SUNRISE', { tide: { lightAlignment: 'HW' } })];
-    const props = mount({ dates: ['king-tide:2026-12-03'] }, { windows });
-    fireEvent.click(screen.getByTestId('your-places-chip'));
-    expect(props.onOpenWindow).toHaveBeenCalledWith(expect.objectContaining({
-      window: { date: '2026-12-04', eventType: 'SUNRISE' }, focus: null,
-    }));
-  });
-
-  it('⚠️ a date with no window of its own is a chip that is not a button, and opens nothing', () => {
-    const meteor = served({
-      id: 'meteor:2026-12-04', type: 'meteor', family: 'night-sky', title: 'Geminids',
-      startDate: '2026-12-04', endDate: '2026-12-04',
-    });
-    const props = mount({ dates: ['meteor:2026-12-04'] }, { entries: [meteor], windows: [card('2026-12-04', 'SUNSET')] });
-    const chip = screen.getByTestId('your-places-chip');
-    expect(chip.tagName).not.toBe('BUTTON');
-    expect(chip).toHaveAttribute('data-date-state', 'static');
-    expect(screen.getByTestId('your-places-date-tile')).toHaveTextContent('Fri4Dec');
-    expect(screen.getByTestId('your-places-detail')).toHaveTextContent('clear-sky check on the night');
-    fireEvent.click(chip);
-    expect(props.onOpenEntry).not.toHaveBeenCalled();
-    expect(props.onOpenWindow).not.toHaveBeenCalled();
-  });
-
-  it('is the reader\'s own sections: dates first, then areas, then places, and a date is never an empty row', () => {
-    mount({ dates: ['king-tide:2026-12-03'], places: [7] });
-    const chips = screen.getAllByTestId('your-places-chip');
-    expect(chips.map((c) => c.dataset.kind)).toEqual(['date', 'place']);
-    expect(screen.getAllByTestId('your-places-date-tile')).toHaveLength(1);
-    expect(chips[1].querySelector('[data-testid="your-places-date-tile"]')).toBeNull();
-    expect(screen.queryByTestId('your-places-empty')).toBeNull();
-  });
-
-  it('a reader with nothing bookmarked or watched still gets the advice, which names dates', () => {
-    mount({});
-    expect(screen.getByTestId('your-places-empty')).toHaveTextContent(YOUR_PLACES_EMPTY);
-    expect(YOUR_PLACES_EMPTY).toBe('Bookmark a place or an area, or watch a date, and it lands here.');
-  });
-
-  it('a watched date with no feed yet says so, rather than the starred-places line', () => {
-    mount({ dates: ['king-tide:2026-12-03'] }, { entries: null });
-    expect(screen.queryByTestId('your-places-chip')).toBeNull();
-    expect(screen.getByTestId('your-places-offplan')).toHaveTextContent('Your watched dates are not listed right now.');
-  });
-
-  it('a bookmarked place that is off the plan keeps the original line beside a watched date', () => {
-    mount({ dates: ['king-tide:2026-12-03'], places: [99] }, { entries: null });
-    expect(screen.getByTestId('your-places-offplan')).toHaveTextContent('Your bookmarked places are not on the plan right now.');
-  });
-
-  it('a Lite reader still gets the one-line teaser and no chips', () => {
-    mount({ status: 'locked' });
-    expect(screen.getByTestId('your-places-teaser-button')).toBeInTheDocument();
-    expect(screen.queryByTestId('your-places-chip')).toBeNull();
-  });
-
-  it('⚠️ every date chip has its own stop-watching button, a sibling outside the chip, that un-watches that key', () => {
-    const value = favouritesValue({ dates: ['king-tide:2026-12-03'] });
-    render(<FavouritesContext.Provider value={value}><YourPlacesRow
-      spots={[]} windows={[]} scoreIndex={null} reachById={new Map()} allowedLocationIds={null}
-      onOpenWindow={vi.fn()} onOpenPlace={vi.fn()} onOpenArea={vi.fn()} entries={ENTRIES} hotTopics={[]} todayStr={TODAY}
-    /></FavouritesContext.Provider>);
-    const stop = screen.getByTestId('your-places-stop-watching');
-    expect(stop).toHaveAccessibleName('Stop watching King tide · 3 Dec');
-    expect(screen.getByTestId('your-places-chip').contains(stop)).toBe(false);
-    fireEvent.click(stop);
-    expect(value.setStar).toHaveBeenCalledWith('date', 'king-tide:2026-12-03', 'King tide · 3 Dec', false);
-  });
-
-  it('the stop button is on a window chip, a static chip and an unlisted chip too, and not on a place', () => {
-    const meteor = served({ id: 'meteor:2026-12-04', type: 'meteor', title: 'Geminids', startDate: '2026-12-04', endDate: '2026-12-04' });
-    mount(
-      { dates: ['king-tide:2026-12-03', 'meteor:2026-12-04', 'supermoon:2026-12-20'], places: [7] },
-      { entries: [...ENTRIES, meteor], windows: [...WINDOWS, card('2026-12-04', 'SUNSET')] },
-    );
-    const states = screen.getAllByTestId('your-places-chip').map((c) => c.dataset.dateState ?? c.dataset.kind);
-    expect(states).toEqual(['window', 'static', 'unlisted', 'place']);
-    expect(screen.getAllByTestId('your-places-stop-watching')).toHaveLength(3);
-    const unlisted = screen.getAllByTestId('your-places-chip')[2];
-    expect(unlisted.tagName).not.toBe('BUTTON');
-    expect(unlisted).toHaveTextContent('Sun20DecWatched date: Supermoon');
-    expect(unlisted).toHaveTextContent('no longer listed');
-  });
-
-  it('a beyond chip whose entry is a lane now opens the map on its first window, never Further ahead', () => {
-    const windows = [card('2026-12-03', 'SUNSET', { tide: { lightAlignment: 'NONE' } })];
-    const props = mount({ dates: ['king-tide:2026-12-03'] }, { windows, graduatedIds: new Set([ENTRIES[0].id]) });
-    fireEvent.click(screen.getByTestId('your-places-chip'));
-    expect(props.onOpenWindow).toHaveBeenCalledWith(expect.objectContaining({
-      window: { date: '2026-12-03', eventType: 'SUNSET' }, focus: null,
-    }));
-    expect(props.onOpenEntry).not.toHaveBeenCalled();
-  });
-
-  it('a graduated beyond chip with no window yet still opens its entry', () => {
-    const props = mount({ dates: ['king-tide:2026-12-03'] }, { graduatedIds: new Set([ENTRIES[0].id]) });
-    fireEvent.click(screen.getByTestId('your-places-chip'));
-    expect(props.onOpenEntry).toHaveBeenCalledWith(ENTRIES[0].id);
-  });
-
-  it('a tap with no handler to open the entry does nothing and does not throw', () => {
-    mount({ dates: ['king-tide:2026-12-03'] }, { onOpenEntry: undefined });
-    expect(() => fireEvent.click(screen.getByTestId('your-places-chip'))).not.toThrow();
   });
 });

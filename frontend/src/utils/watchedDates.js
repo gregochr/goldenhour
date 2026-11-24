@@ -1,15 +1,14 @@
 import { ALMANAC_TYPES_BY_TOPIC, holdsType, tideSpan } from './fourDayTiles.js';
-import { buildDateRail, formatArrivalDate } from './comingUpFeed.js';
-import { entryGlyph } from './comingUpGlyphs.js';
+import { formatArrivalDate } from './comingUpFeed.js';
 import { shiftDateStr } from './mapDates.js';
 import { topicWindowKeys } from './windowFirstTopics.js';
 
 /**
  * Watch a date (one-screen-plan.md D16, O2b): the pure helpers behind the "Watch this date" toggle in Further ahead and
- * the date chips in Your places.
+ * the watched lane in This week (a watched date is never in Your places).
  *
  * <p><b>A named, licensed client derivation</b> (architecture-decisions.md, "Backend-heavy"): matching a stored watch to
- * a served almanac entry, and choosing which served window a watched date's chip opens, are done here. Both are joins
+ * a served almanac entry, and choosing which served window a watched date's lane opens, are done here. Both are joins
  * over fields the server already stated (the entry's type and dates, each window's served tide alignment and rating,
  * the served hot topics' own windows). Nothing here computes a rating, a verdict or a pick, and no fact the server did
  * not print is printed.
@@ -43,7 +42,7 @@ const TYPE_NAMES = {
   eclipse: 'Solar eclipse', 'lunar-eclipse': 'Lunar eclipse', equinox: 'Equinox', solstice: 'Solstice',
 };
 
-/** What a watched chip says when its date has no window of its own to open (a meteor peak). */
+/** What a watched lane says when its date has no window of its own to open (a meteor peak). */
 export const WATCH_NO_WINDOW_LINE = 'clear-sky check on the night';
 
 /** The two served {@code lightAlignment} values that mean the water's extreme lands on the light. */
@@ -183,9 +182,8 @@ function topicWindow(type, cards, hotTopics, span) {
  *
  * @param {object} entry the matched served entry
  * @param {{type: string}} watch the parsed stored watch (its type decides the rule, not the host entry's)
- * @returns {{state: 'window', card: object, tideOnLight: boolean}|{state: 'static'}|null} the window to open; a chip
- *          that opens nothing (a meteor peak has no window of its own); or null to fall back to the beyond-forecast chip
- *          (the entry is not in the forecast yet, or a served field the choice needs is missing)
+ * @returns {{state: 'window', card: object, tideOnLight: boolean}|{state: 'static'}|null} the window to open; a lane
+ *          that opens nothing (a meteor peak has no window of its own); or null for no lane (stays in Watching): the entry is not in the forecast yet, or a served field the choice needs is missing
  */
 function planFor(entry, watch, windows, hotTopics) {
   const tide = TIDE_FAMILY.includes(watch.type);
@@ -201,23 +199,20 @@ function planFor(entry, watch, windows, hotTopics) {
   return card ? { state: 'window', card, tideOnLight: false } : null;
 }
 
-/** The calendar tile's fields (the same rail Further ahead draws), without its countdown. */
-function railOf(first, last, todayStr) {
-  const { dow, day, month, isRange } = buildDateRail(first, last, todayStr);
-  return { dow, day, month, isRange };
-}
-
 /**
- * The chips for the reader's watched dates, ready to draw in Your places. A watch whose entry is not in the served feed
- * (not loaded, or gone) draws nothing, and so does one whose dates have passed (the row is kept, not shown). Earliest
- * date first. Each chip carries {@code rail} (the calendar tile) and {@code label} (the visible name, without the date;
- * {@code name} keeps the date for the stop-watching label).
+ * The lanes for the reader's watched dates once their entries reach the forecast (screen-spec.md D2). A watch whose
+ * entry is not in the served feed, whose dates have passed, or whose plan finds no window yields nothing (it stays in
+ * Watching, or is "no longer listed"). Earliest day first, one lane per entry.
  *
- * <p>Every field read is served: the entry's {@code id}, {@code type}, {@code title}, {@code family},
- * {@code startDate}, {@code endDate}, {@code coincidence[].type} and {@code dayRanges}; a window's {@code key},
- * {@code date}, {@code targetType}, {@code dow}, {@code sunrise}, {@code time}, {@code away},
- * {@code tide.lightAlignment}, {@code bestReach.{rating, locationId, locationName}} and {@code bestRating}; a hot topic's
- * {@code type}, {@code date} and {@code eventType}.
+ * <p>This is the licensed "watched lane's plan" derivation (architecture-decisions.md, "Backend-heavy"): a join over
+ * served fields only. Every field read is served: the entry's {@code id}, {@code type}, {@code title},
+ * {@code metric}, {@code family}, {@code startDate}, {@code endDate}, {@code coincidence[].type} and {@code dayRanges};
+ * a window's {@code key}, {@code date}, {@code targetType}, {@code dow}, {@code sunrise}, {@code time}, {@code away},
+ * {@code tide.lightAlignment}, {@code bestReach.{rating, locationId, locationName}} and {@code bestRating}; a hot
+ * topic's {@code type}, {@code date} and {@code eventType}.
+ *
+ * <p>Where the lane sits is the strip's concern: a topic lane that already carries the entry's jump id on that day is
+ * decorated with the plan instead of a second lane being drawn (the two-question rule: a topic lane is never removed).
  *
  * @param {object} args
  * @param {Array<{key: string}>} args.dates the reader's watched dates
@@ -225,72 +220,100 @@ function railOf(first, last, todayStr) {
  * @param {Array<object>} args.windows the strip's window descriptors
  * @param {?Array<object>} args.hotTopics the served {@code briefing.hotTopics}
  * @param {string} args.todayStr the reader's UK today
- * @returns {Array<{key: string, kind: 'beyond'|'window'|'static', entryId: string, glyph: ?string, title: string,
- *   name: string, label: string, rail: {dow: ?string, day: string, month: string, isRange: boolean},
- *   detail: string, window: ?{date: string, eventType: string}, bestSpot: ?{id: number, name: string},
- *   sortDate: string}>}
+ * @returns {Array<{key: string, entryId: string, date: string, kind: 'window'|'static', title: string,
+ *   name: string, plan: ?{event: string, best: ?{id: number, name: string, rating: number}, tideOnLight: boolean},
+ *   window: ?{date: string, eventType: string}, bestSpot: ?{id: number, name: string}}>}
  */
-export function buildWatchedChips({ dates, entries, windows, hotTopics, todayStr }) {
-  const chips = [];
+export function buildWatchedLanes({ dates, entries, windows, hotTopics, todayStr }) {
+  const lanes = [];
+  const seen = new Set();
+  const cards = windows ?? [];
   for (const { key } of dates ?? []) {
     const entry = matchWatchToEntry(key, entries);
     const watch = parseWatchKey(key);
-    if (!entry) {
-      // The feed has arrived and does not list this watch: kept as a chip of its own, so it can still be taken away.
-      if (Array.isArray(entries) && watch && watch.date >= todayStr) {
-        chips.push({
-          key, kind: 'unlisted', entryId: null, glyph: null, title: TYPE_NAMES[watch.type],
-          label: TYPE_NAMES[watch.type], rail: railOf(watch.date, watch.date, todayStr),
-          name: `${TYPE_NAMES[watch.type]} · ${formatArrivalDate(watch.date)}`, detail: 'no longer listed',
-          window: null, bestSpot: null, firstWindow: null, sortDate: watch.date,
-        });
-      }
+    if (!entry || !watch || seen.has(entry.id)) continue;
+    const span = spanOf(entry, TIDE_FAMILY.includes(watch.type));
+    if (!span || span.last < todayStr) continue;
+    const plan = planFor(entry, watch, cards, hotTopics);
+    if (!plan) continue;
+    seen.add(entry.id);
+    const base = {
+      key, entryId: entry.id, title: entry.title,
+      name: entry.metric ? `${entry.title} · ${entry.metric}` : entry.title,
+    };
+    if (plan.state === 'static') {
+      lanes.push({
+        ...base, kind: 'static', date: windowsIn(cards, span)[0].date, plan: null, window: null, bestSpot: null,
+      });
       continue;
     }
-    const span = spanOf(entry, TIDE_FAMILY.includes(watch.type));
-    if (span.last < todayStr) continue;
-    const glyph = entryGlyph(entry);
-    const dateLabel = formatArrivalDate(span.first);
-    const base = {
-      key, entryId: entry.id, glyph, title: entry.title, label: entry.title, sortDate: span.first, window: null,
-      bestSpot: null, firstWindow: null, rail: railOf(span.first, span.last, todayStr),
-    };
-    const plan = planFor(entry, watch, windows, hotTopics);
-    if (plan?.state === 'window') {
-      const { card } = plan;
-      const best = card.bestReach;
-      const event = card.sunrise ? 'sunrise' : 'sunset';
-      chips.push({
-        ...base,
-        kind: 'window',
-        name: `${entry.title} · ${card.dow}`,
-        // The date is in the tile; a window chip names the chosen window's day instead.
-        label: `${entry.title} · ${card.dow}`,
-        detail: [
-          card.time ? `${event} ${card.time}` : event,
-          best ? `best ${best.locationName} ${best.rating}★` : null,
-          plan.tideOnLight ? 'tide on the light' : null,
-        ].filter(Boolean).join(' · '),
-        window: { date: card.date, eventType: card.targetType },
-        bestSpot: best?.locationId != null ? { id: best.locationId, name: best.locationName } : null,
-      });
-    } else if (plan?.state === 'static') {
-      chips.push({
-        ...base, kind: 'static', name: `${entry.title} · ${dateLabel}`, detail: WATCH_NO_WINDOW_LINE,
-      });
-    } else {
-      const live = windowsIn(windows, span);
-      const forecast = live.length > 0;
-      chips.push({
-        ...base,
-        kind: 'beyond',
-        // The first window this date reaches, for a watch whose entry has graduated to a lane (it is not listed in
-        // Further ahead, so a tap goes to the map instead).
-        firstWindow: forecast ? { date: live[0].date, eventType: live[0].targetType } : null,
-        name: `${entry.title} · ${dateLabel}`,
-        detail: forecast ? "in this week's forecast" : "best spots once it's forecast",
-      });
-    }
+    const { card } = plan;
+    const best = card.bestReach;
+    const event = card.sunrise ? 'sunrise' : 'sunset';
+    lanes.push({
+      ...base,
+      kind: 'window',
+      date: card.date,
+      plan: {
+        event: card.time ? `${event} ${card.time}` : event,
+        best: best ? { id: best.locationId, name: best.locationName, rating: best.rating } : null,
+        tideOnLight: plan.tideOnLight,
+      },
+      window: { date: card.date, eventType: card.targetType },
+      bestSpot: best?.locationId != null ? { id: best.locationId, name: best.locationName } : null,
+    });
   }
-  return chips.sort((a, b) => a.sortDate.localeCompare(b.sortDate));
+  return lanes.sort((a, b) => a.date.localeCompare(b.date));
 }
+
+/**
+ * The watches the served feed no longer names (the key matches no entry in the SERVED {@code entries}, which is a
+ * different set from the listed one: an entry This week draws as a lane is served and listed nowhere). They stay in
+ * Watching as a quiet row so they can be taken away. A watch whose date has passed is not shown (the row is kept).
+ *
+ * @param {object} args
+ * @param {Array<{key: string}>} args.dates the reader's watched dates
+ * @param {?Array<object>} args.entries the served almanac entries; null while the feed has not arrived (nothing is
+ *        called unlisted before the feed has answered)
+ * @param {string} args.todayStr the reader's UK today
+ * @returns {Array<{key: string, title: string, name: string, date: string}>} earliest date first
+ */
+export function unlistedWatches({ dates, entries, todayStr }) {
+  if (!Array.isArray(entries)) return [];
+  const rows = [];
+  for (const { key } of dates ?? []) {
+    const watch = parseWatchKey(key);
+    if (!watch || watch.date < todayStr || matchWatchToEntry(key, entries) !== null) continue;
+    rows.push({
+      key,
+      title: TYPE_NAMES[watch.type],
+      name: `${TYPE_NAMES[watch.type]} · ${formatArrivalDate(watch.date)}`,
+      date: watch.date,
+    });
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * How many of the reader's watched dates are not yet past: the figure beside the "Further ahead" jump. An entry still
+ * running counts; an unmatched watch counts by its own start date; two stored keys that are one entry (a tide drift)
+ * count once.
+ *
+ * @param {object} args
+ * @param {Array<{key: string}>} args.dates the reader's watched dates
+ * @param {?Array<object>} args.entries the served almanac entries, or null before they arrive
+ * @param {string} args.todayStr the reader's UK today
+ * @returns {number}
+ */
+export function watchedStillToCome({ dates, entries, todayStr }) {
+  const counted = new Set();
+  for (const { key } of dates ?? []) {
+    const watch = parseWatchKey(key);
+    if (!watch) continue;
+    const entry = matchWatchToEntry(key, entries);
+    const last = entry ? spanOf(entry, TIDE_FAMILY.includes(watch.type))?.last : watch.date;
+    if (last != null && last >= todayStr) counted.add(entry ? entry.id : key);
+  }
+  return counted.size;
+}
+

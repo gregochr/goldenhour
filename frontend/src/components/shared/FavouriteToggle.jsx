@@ -14,7 +14,7 @@ export const FAVOURITES_UPSELL_BODY = 'Pro keeps your own list of bookmarked pla
 
 /** The upsell a Lite reader's "Watch this date" opens (one-screen-plan.md D16), in its own words. */
 export const WATCH_UPSELL_HEADING = 'Watch a date';
-export const WATCH_UPSELL_BODY = 'Pro can watch a date known in advance. It joins Your places at the top of This week, and once it is forecast it names the morning to go and the best spot.';
+export const WATCH_UPSELL_BODY = 'Pro can watch a date known in advance. It moves to the top of Further ahead, and once it is forecast it becomes a lane on its day in This week, naming the morning to go and the best spot.';
 
 /** The date toggle's two labels: the words carry the state (there is no {@code aria-pressed}). */
 export const WATCH_LABEL = 'Watch this date';

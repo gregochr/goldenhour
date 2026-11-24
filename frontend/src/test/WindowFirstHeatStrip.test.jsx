@@ -5421,3 +5421,149 @@ describe('WindowFirstHeatStrip — Your places on the best-spot line (find-and-f
     expect(screen.queryByTestId('wf-heat-best-fav')).toBeNull();
   });
 });
+
+describe('WindowFirstHeatStrip — a watched date is its day\'s lane (screen-spec.md D2)', () => {
+  const D4 = '2026-08-04';
+  const D5 = '2026-08-05';
+  const D6 = '2026-08-06';
+  const RUN = {
+    id: 'spring-tide:run', type: 'spring-tide', title: 'Spring tide', metric: '4.6 m', family: 'coastal',
+    startDate: D4, endDate: D6, coincidence: [], dayRanges: [],
+  };
+  const CARDS = [
+    stripCard(),
+    stripCard({
+      key: `${D5}:SUNRISE`, date: D5, targetType: 'SUNRISE', sunrise: true, dow: 'Wed', time: '05:20',
+      tide: { lightAlignment: 'HW' }, bestReach: { rating: 4, locationId: 7, locationName: 'Crimdon Beach' },
+    }),
+    stripCard({ key: `${D5}:SUNSET`, date: D5, targetType: 'SUNSET', dow: 'Wed', time: '21:09' }),
+    stripCard({ key: `${D6}:SUNRISE`, date: D6, targetType: 'SUNRISE', sunrise: true, dow: 'Thu', time: '05:22' }),
+  ];
+  const tideTopic = (date, n) => ({
+    type: 'SPRING_TIDE',
+    label: 'Spring tide',
+    date,
+    eventType: null,
+    regions: [],
+    tideRun: { runLabel: 'SPRING RUN', dayNumber: n, dayCount: 3 },
+    glance: { weather: false, value: '4.8 m', badge: 'PEAK' },
+  });
+  const inversion = (date) => ({
+    type: 'INVERSION', label: 'Cloud inversion', date, eventType: 'SUNRISE', regions: [],
+    glance: { weather: true, value: 'dawn · 9/10' },
+  });
+  const watching = (dates, props = {}) => renderStrip({
+    cards: CARDS,
+    comingUpEntries: [RUN],
+    renderedEntryIds: new Set([RUN.id]),
+    wrap: (node) => withFavourites(node, { dates }),
+    ...props,
+  });
+
+  afterEach(() => { useIsMobile.mockReturnValue(false); });
+
+  it('with no topic lane carrying the entry, adds a watched lane of its own: mark, name and metric over the plan', async () => {
+    const onLaneEntryIds = vi.fn();
+    await watching(['spring-tide:2026-08-04'], { onLaneEntryIds, onOpenWatched: vi.fn() });
+    const lane = screen.getByTestId('wf-watched-lane');
+    expect(lane.tagName).toBe('BUTTON');
+    expect(lane.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
+    expect(lane).toHaveTextContent('Spring tide · 4.6 m');
+    expect(within(lane).getByTestId('wf-watched-plan').textContent)
+      .toBe('sunrise 05:20 · , best Crimdon Beach 4★ stars · , tide on the light →');
+    expect(lane).toHaveAccessibleName(/^Spring tide · 4.6 m sunrise 05:20, best Crimdon Beach 4 stars, tide on the light, watching, Wednesday, opens that window on the map$/);
+    // The entry is reported, so Further ahead and Watching do not list it a second time.
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([RUN.id]));
+    expect(screen.queryByTestId('wf-glance-lane')).toBeNull();
+  });
+
+  it('sits in its own date column, after the warnings and before the topic lanes, which shift down a row', async () => {
+    await watching(['spring-tide:2026-08-04'], { hotTopics: [inversion(D5)], onOpenWatched: vi.fn() });
+    const items = [...screen.getByTestId('wf-glance-lanes').children];
+    expect(items.map((li) => li.getAttribute('data-testid') ?? 'topic')).toEqual(['wf-watched-lane-item', 'topic']);
+    // Wednesday is the second column; the watched lane takes row 1 and the topic lane (model row 1) row 2.
+    expect(items[0].style.getPropertyValue('--ls')).toBe('2');
+    expect(items[0].style.getPropertyValue('--le')).toBe('3');
+    expect(items.map((li) => li.style.getPropertyValue('--lr'))).toEqual(['1', '2']);
+  });
+
+  it('presses through onOpenWatched with the window, the best place to focus and the pressed element', async () => {
+    const onOpenWatched = vi.fn();
+    await watching(['spring-tide:2026-08-04'], { onOpenWatched });
+    const lane = screen.getByTestId('wf-watched-lane');
+    fireEvent.click(lane);
+    expect(onOpenWatched).toHaveBeenCalledWith({
+      window: { date: D5, eventType: 'SUNRISE' },
+      focus: { kind: 'location', id: 7, name: 'Crimdon Beach' },
+      from: lane,
+    });
+  });
+
+  it('is plain text when the strip has no map route to give it', async () => {
+    await watching(['spring-tide:2026-08-04']);
+    expect(screen.getByTestId('wf-watched-lane').tagName).toBe('DIV');
+  });
+
+  it('⚠️ DECORATES a topic lane that carries the entry that day, and never removes it (the two-question rule)', async () => {
+    const onLaneEntryIds = vi.fn();
+    await watching(['spring-tide:2026-08-04'], {
+      hotTopics: [tideTopic(D4, 1), tideTopic(D5, 2), tideTopic(D6, 3)],
+      onLaneEntryIds,
+      onOpenWatched: vi.fn(),
+      onOpenLaneOnMap: vi.fn(),
+      openableKeys: new Set([`${D5}:SUNRISE`, `${D4}:SUNSET`]),
+    });
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane).toHaveAttribute('data-watched', 'true');
+    expect(lane.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
+    expect(within(lane).getByTestId('wf-watched-plan').textContent)
+      .toBe('sunrise 05:20 · , best Crimdon Beach 4★ stars · , tide on the light →');
+    expect(lane).toHaveAccessibleName(/, watching/);
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([RUN.id]));
+    // Its own route is unchanged: it still opens its own window.
+    fireEvent.click(lane);
+    expect(lane.tagName).toBe('BUTTON');
+  });
+
+  it('draws a meteor peak as text that says so, with no map route, and still takes the entry out of Further ahead', async () => {
+    const meteor = {
+      id: 'meteor:2026-08-05', type: 'meteor', title: 'Perseids', metric: '~100/hr', startDate: D5, endDate: D5,
+      coincidence: [], dayRanges: [],
+    };
+    const onLaneEntryIds = vi.fn();
+    await watching(['meteor:2026-08-05'], { comingUpEntries: [meteor], onLaneEntryIds, onOpenWatched: vi.fn() });
+    const lane = screen.getByTestId('wf-watched-lane');
+    expect(lane.tagName).toBe('DIV');
+    expect(lane).toHaveAttribute('data-kind', 'static');
+    expect(within(lane).getByTestId('wf-watched-plan').textContent).toBe('clear-sky check on the night');
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([meteor.id]));
+  });
+
+  it('draws nothing for a watch with no window in the forecast, a reader whose list has not landed, or no watch', async () => {
+    const onLaneEntryIds = vi.fn();
+    await watching(['spring-tide:2026-08-04'], {
+      cards: [stripCard(), CARDS[3]], onLaneEntryIds, onOpenWatched: vi.fn(),
+    });
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+    cleanup();
+    await renderStrip({
+      cards: CARDS, comingUpEntries: [RUN], wrap: (node) => withFavourites(node, { status: 'loading', dates: ['spring-tide:2026-08-04'] }),
+    });
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    cleanup();
+    await watching([]);
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+  });
+
+  it('phone: the lane is in its own day\'s cell only, before that day\'s topic lanes', async () => {
+    useIsMobile.mockReturnValue(true);
+    await watching(['spring-tide:2026-08-04'], { hotTopics: [inversion(D5)], onOpenWatched: vi.fn() });
+    const cells = screen.getAllByTestId('wf-glance-lanes-day');
+    expect(cells).toHaveLength(1);
+    expect([...cells[0].querySelector('ul').children].map((li) => li.getAttribute('data-testid') ?? 'topic'))
+      .toEqual(['wf-watched-lane-item', 'topic']);
+    expect(screen.getAllByTestId('wf-watched-lane')).toHaveLength(1);
+  });
+});

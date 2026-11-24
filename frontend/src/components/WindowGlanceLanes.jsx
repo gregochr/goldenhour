@@ -3,9 +3,15 @@ import {
   compareWarnings, levelClasses, warningLabel,
 } from '../utils/warnings.js';
 import { WarningFooter } from './WarningChip.jsx';
+import BookmarkMark from './shared/BookmarkMark.jsx';
+import StarFigure from './shared/StarFigure.jsx';
+import { WATCH_NO_WINDOW_LINE } from '../utils/watchedDates.js';
 
 /** Every lane is tappable unless the strip says otherwise. */
 const ALWAYS = () => true;
+
+/** No watched lanes: the default, so a strip with none costs no allocation per render. */
+const NO_WATCHED = [];
 
 /** `Friday` — long weekday for a spoken form, noon UTC so no zone moves the date. */
 function longWeekday(dateStr) {
@@ -161,9 +167,16 @@ function spokenTail(lane, date) {
  * @param {function} [props.onWarningTap] called with the pressed warning lane (opens its first window's popup)
  * @param {?object}  [props.warningFooter] the source line under the warning lanes ({@code showAttribution},
  *                   {@code stale}, {@code lastCheckedAt}, {@code attribution}, {@code href}); null draws none
+ * @param {Array}    [props.watchedLanes] the reader's watched dates that reached the forecast and that no topic lane
+ *                   already carries (screen-spec.md D2), each with its own {@code startCol}, {@code endCol} and
+ *                   {@code row}; drawn AFTER the warnings and BEFORE the topic lanes, in their own date column,
+ *                   wrapping to two lines there. A topic lane that carries the watched entry is not here: it is
+ *                   decorated instead (its {@code watched} field) and never removed (the two-question rule)
+ * @param {function} [props.onWatchedTap] {@code (lane, element)} a watched lane was pressed; the strip opens the map
  */
 export default function WindowGlanceLanes({
   lanes, date = null, onTap, canTap = ALWAYS, warningLanes = [], onWarningTap = null, warningFooter = null,
+  watchedLanes = NO_WATCHED, onWatchedTap = null,
 }) {
   const phone = date !== null;
   const shown = phone ? lanes.filter((lane) => lane.dates.includes(date)) : lanes;
@@ -173,10 +186,14 @@ export default function WindowGlanceLanes({
       .sort((a, b) => compareWarnings(a.warning, b.warning))
     : warningLanes;
   const footer = warningFooter && (warningFooter.showAttribution || warningFooter.stale) ? warningFooter : null;
-  if (shown.length === 0 && shownWarnings.length === 0 && footer === null) return null;
-  // The warning lanes take the top rows, then their source line, and the topic lanes follow (their model rows start at 1).
+  const shownWatched = phone ? watchedLanes.filter((lane) => lane.date === date) : watchedLanes;
+  if (shown.length === 0 && shownWarnings.length === 0 && shownWatched.length === 0 && footer === null) return null;
+  // The warning lanes take the top rows, then their source line, then the watched lanes, and the topic lanes follow
+  // (their model rows start at 1).
   const warningRows = shownWarnings.reduce((max, lane) => Math.max(max, lane.row), 0);
-  const rowOffset = warningRows + (footer ? 1 : 0);
+  const watchedRows = shownWatched.reduce((max, lane) => Math.max(max, lane.row), 0);
+  const watchedOffset = warningRows + (footer ? 1 : 0);
+  const rowOffset = watchedOffset + watchedRows;
   const list = (
     <ul className="wf-lanes" data-testid={phone ? undefined : 'wf-glance-lanes'}>
       {shownWarnings.map((lane) => (
@@ -203,6 +220,15 @@ export default function WindowGlanceLanes({
           />
         </li>
       )}
+      {shownWatched.map((lane) => (
+        <WatchedLane
+          key={lane.key}
+          lane={lane}
+          phone={phone}
+          row={lane.row + watchedOffset}
+          onTap={onWatchedTap}
+        />
+      ))}
       {shown.map((lane) => {
         const first = lane.dates[0];
         const last = lane.dates[lane.dates.length - 1];
@@ -211,6 +237,8 @@ export default function WindowGlanceLanes({
         // A lane with no route is text, not a control that opens nothing (D5). The same class draws both.
         const tappable = Boolean(canTap(lane));
         const Tag = tappable ? 'button' : 'div';
+        // A topic lane that carries a watched entry wears its mark and plan (never replaced: the two-question rule).
+        const decorated = Boolean(lane.watched) && (!phone || lane.watched.date === date);
         return (
           <li
             key={lane.key}
@@ -226,9 +254,11 @@ export default function WindowGlanceLanes({
               data-starts-before={startsBefore ? 'true' : undefined}
               data-ends-after={endsAfter ? 'true' : undefined}
               data-testid="wf-glance-lane"
+              data-watched={decorated ? 'true' : undefined}
               onClick={tappable ? () => onTap(lane) : undefined}
             >
               <span className="wf-lane-sw" aria-hidden="true" />
+              {decorated && <BookmarkMark className="wf-wt-mark" />}
               <span className="wf-lane-name">{lane.name}</span>
               {lane.peak && (!phone || lane.peak === date) && (
                 <span className="wf-lane-peak" aria-hidden="true">PEAK</span>
@@ -239,7 +269,15 @@ export default function WindowGlanceLanes({
                   <span className="wf-lane-val">{lane.detail}</span>
                 </>
               )}
-              <span className="sr-only">{spokenTail(lane, phone ? date : null)}</span>
+              {decorated && (
+                <>
+                  {' '}
+                  <span className="wf-lane-val wf-wt-plan" data-testid="wf-watched-plan">
+                    <WatchedPlan plan={lane.watched.plan} />
+                  </span>
+                </>
+              )}
+              <span className="sr-only">{`${spokenTail(lane, phone ? date : null)}${decorated ? ', watching' : ''}`}</span>
             </Tag>
           </li>
         );
@@ -248,6 +286,98 @@ export default function WindowGlanceLanes({
   );
   return phone ? <div className="wf-lanecell" data-testid="wf-glance-lanes-day">{list}</div> : list;
 }
+
+/**
+ * A watched date's plan clause: {@code sunrise 07:54 · best Crimdon Beach 4★ · tide on the light →}. The stars are
+ * spoken as words and the arrow is decoration. A plan-less (meteor) date reads {@code clear-sky check on the night}.
+ */
+function WatchedPlan({ plan }) {
+  if (!plan) return <>{WATCH_NO_WINDOW_LINE}</>;
+  return (
+    <>
+      {plan.event}
+      {plan.best && (
+        <>
+          <span aria-hidden="true"> · </span>
+          <span className="sr-only">,</span>
+          {' '}
+          {`best ${plan.best.name} `}
+          <StarFigure n={plan.best.rating} />
+        </>
+      )}
+      {plan.tideOnLight && (
+        <>
+          <span aria-hidden="true"> · </span>
+          <span className="sr-only">,</span>
+          {' '}
+          tide on the light
+        </>
+      )}
+      <span aria-hidden="true">{' →'}</span>
+    </>
+  );
+}
+
+WatchedPlan.propTypes = {
+  plan: PropTypes.shape({
+    event: PropTypes.string.isRequired,
+    best: PropTypes.shape({ name: PropTypes.string.isRequired, rating: PropTypes.number.isRequired }),
+    tideOnLight: PropTypes.bool,
+  }),
+};
+
+/**
+ * One watched-date lane (screen-spec.md D2): {@code [mark] King tide · 4.6 m} over its plan clause, in the lane's own
+ * date column (wrapping to two lines there). A button that opens the map on its window and best place when the strip
+ * can; a date with no window of its own (a meteor peak) is plain text, never a control that opens nothing.
+ */
+function WatchedLane({ lane, phone, row, onTap }) {
+  const tappable = lane.tappable === true && typeof onTap === 'function';
+  const Tag = tappable ? 'button' : 'div';
+  return (
+    <li
+      className="wf-lane-item"
+      data-testid="wf-watched-lane-item"
+      style={phone ? undefined : { '--ls': lane.startCol, '--le': lane.endCol + 1, '--lr': row }}
+    >
+      <Tag
+        type={tappable ? 'button' : undefined}
+        className="wf-lane wf-wtlane"
+        data-testid="wf-watched-lane"
+        data-kind={lane.kind}
+        onClick={tappable ? (event) => onTap(lane, event.currentTarget) : undefined}
+      >
+        <span className="wf-wtlane-name">
+          <BookmarkMark className="wf-wt-mark" />
+          <span className="wf-lane-name">{lane.name}</span>
+        </span>
+        {' '}
+        <span className="wf-lane-val wf-wt-plan" data-testid="wf-watched-plan">
+          <WatchedPlan plan={lane.plan} />
+        </span>
+        <span className="sr-only">
+          {`, watching, ${longWeekday(lane.date)}${tappable ? ', opens that window on the map' : ''}`}
+        </span>
+      </Tag>
+    </li>
+  );
+}
+
+WatchedLane.propTypes = {
+  lane: PropTypes.shape({
+    key: PropTypes.string.isRequired,
+    name: PropTypes.string.isRequired,
+    kind: PropTypes.oneOf(['window', 'static']).isRequired,
+    date: PropTypes.string.isRequired,
+    startCol: PropTypes.number.isRequired,
+    endCol: PropTypes.number.isRequired,
+    plan: PropTypes.object,
+    tappable: PropTypes.bool,
+  }).isRequired,
+  phone: PropTypes.bool.isRequired,
+  row: PropTypes.number.isRequired,
+  onTap: PropTypes.func,
+};
 
 /**
  * One Met Office warning lane: text in the official level colour (never an icon or a triangle), the level word always
@@ -332,6 +462,7 @@ const laneShape = PropTypes.shape({
   jump: PropTypes.shape({ entryId: PropTypes.string.isRequired }),
   mapDoor: PropTypes.shape({ date: PropTypes.string.isRequired, eventType: PropTypes.string.isRequired }),
   target: PropTypes.string,
+  watched: PropTypes.shape({ date: PropTypes.string.isRequired, plan: PropTypes.object }),
 });
 
 WindowGlanceLanes.propTypes = {
@@ -341,6 +472,8 @@ WindowGlanceLanes.propTypes = {
   canTap: PropTypes.func,
   warningLanes: PropTypes.arrayOf(PropTypes.object),
   onWarningTap: PropTypes.func,
+  watchedLanes: PropTypes.arrayOf(PropTypes.object),
+  onWatchedTap: PropTypes.func,
   warningFooter: PropTypes.shape({
     showAttribution: PropTypes.bool.isRequired,
     stale: PropTypes.bool.isRequired,
