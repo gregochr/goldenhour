@@ -93,7 +93,7 @@ test.describe('The map view mounts visible, whatever the chunk is doing', () => 
   // The reader closes the view before the lazy pane has landed (a slow chunk, or a quick reader): the pane then mounts
   // behind `hidden`, `panelShown` is still its initial true for a tick, and the door's camera must not fit against the
   // 0x0 box (it clamped to zoom 12 and the reopened view showed an empty field with no chips: CI's nginx smoke).
-  test('close before the held chunk lands, then reopen through the door: the camera still frames the planning area', async ({ page }) => {
+  test('close before the held chunk lands, then reopen from the same card: the camera still frames the planning area', async ({ page }) => {
     test.setTimeout(90_000);
     const { release, hits } = await holdMapChunk(page);
     await loginAndWaitForForecast(page, 'admin');
@@ -107,7 +107,8 @@ test.describe('The map view mounts visible, whatever the chunk is doing', () => 
     // The pane lands and mounts while the view is hidden.
     await expect(page.locator('.leaflet-container')).toHaveCount(1);
 
-    await page.getByTestId('window-first-tab-map').click();
+    // There is no Map button any more: the reader reopens through a card, the same door they opened with.
+    await pressCard(page, 2);
     await expect(page.getByTestId('map-screen')).toBeVisible();
     await expectFramed(page);
   });
