@@ -45,16 +45,18 @@ describe('Watch this date, the toggle in an entry', () => {
   const entry = () => view();
   const toggle = () => screen.getByTestId('coming-up-watch-toggle');
 
-  it('⚠️ a real button with one constant label and aria-pressed, for a Pro reader whose list has landed', () => {
+  it('⚠️ a real button whose words carry the state (Watch this date, then Watching), for a Pro reader whose list has landed', () => {
     const { rerender } = render(withFavourites(<WatchDateControl entry={entry()} />));
     expect(toggle().tagName).toBe('BUTTON');
     expect(toggle()).toHaveAccessibleName('Watch this date');
-    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
-    expect(toggle()).toHaveTextContent(/☆\s*Watch this date/);
+    expect(toggle()).not.toHaveAttribute('aria-pressed');
+    expect(toggle()).toHaveAttribute('data-starred', 'false');
+    expect(toggle().querySelector('[data-testid="bookmark-mark"]')).toHaveAttribute('data-form', 'outline');
     rerender(withFavourites(<WatchDateControl entry={entry()} />, { dates: ['king-tide:2026-12-03'] }));
-    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
-    expect(toggle()).toHaveAccessibleName('Watch this date');
-    expect(toggle()).toHaveTextContent(/★\s*Watch this date/);
+    expect(toggle()).toHaveAccessibleName('Watching');
+    expect(toggle()).not.toHaveAttribute('aria-pressed');
+    expect(toggle()).toHaveAttribute('data-starred', 'true');
+    expect(toggle().querySelector('[data-testid="bookmark-mark"]')).toHaveAttribute('data-form', 'filled');
   });
 
   it('the words stay on a phone: it sits in an entry, not a header', () => {
@@ -74,7 +76,8 @@ describe('Watch this date, the toggle in an entry', () => {
   it('a stored watch that drifted still reads as pressed, and un-watching removes the STORED key', () => {
     const value = favouritesValue({ dates: ['spring-tide:2026-12-01'] });
     render(<FavouritesContext.Provider value={value}><WatchDateControl entry={entry()} /></FavouritesContext.Provider>);
-    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle()).toHaveAttribute('data-starred', 'true');
+    expect(toggle()).toHaveAccessibleName('Watching');
     fireEvent.click(toggle());
     expect(value.setStar).toHaveBeenCalledWith(
       'date', 'spring-tide:2026-12-01', 'King tide · 3 Dec', false, false, ['spring-tide:2026-12-01'],
@@ -91,7 +94,7 @@ describe('Watch this date, the toggle in an entry', () => {
     fireEvent.click(door);
     const panel = screen.getByTestId('coming-up-watch-upsell-panel');
     expect(panel).toHaveTextContent('Watch a date');
-    expect(panel).toHaveTextContent(/joins your places at the top of This week/);
+    expect(panel).toHaveTextContent(/joins Your places at the top of This week/);
     expect(panel.querySelector('a')).toBeNull();
     expect(panel.textContent).not.toMatch(/Your places\b.*places and areas/);
     fireEvent.keyDown(panel, { key: 'Escape' });
@@ -161,7 +164,7 @@ describe('the watch in the provider', () => {
     expect(spy.current.isDateWatched('king-tide:2026-12-03')).toBe(true);
     expect(spy.current.dates).toEqual([{ key: 'king-tide:2026-12-03', createdAt: 't' }]);
     expect(spy.current.locationIds.size).toBe(0);
-    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('Watching King tide · 3 Dec. It joins your places.');
+    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('Watching King tide · 3 Dec. It joins Your places.');
   });
 
   it('a refused watch at the cap reverts and prints the server sentence', async () => {
@@ -294,10 +297,10 @@ describe('Your places, watched dates', () => {
     expect(screen.queryByTestId('your-places-empty')).toBeNull();
   });
 
-  it('a reader with nothing starred or watched still gets the advice, which names dates', () => {
+  it('a reader with nothing bookmarked or watched still gets the advice, which names dates', () => {
     mount({});
     expect(screen.getByTestId('your-places-empty')).toHaveTextContent(YOUR_PLACES_EMPTY);
-    expect(YOUR_PLACES_EMPTY).toBe('Tap ☆ on a place, an area or a date, and it lands here.');
+    expect(YOUR_PLACES_EMPTY).toBe('Bookmark a place or an area, or watch a date, and it lands here.');
   });
 
   it('a watched date with no feed yet says so, rather than the starred-places line', () => {
@@ -306,9 +309,9 @@ describe('Your places, watched dates', () => {
     expect(screen.getByTestId('your-places-offplan')).toHaveTextContent('Your watched dates are not listed right now.');
   });
 
-  it('a starred place that is off the plan keeps the original line beside a watched date', () => {
+  it('a bookmarked place that is off the plan keeps the original line beside a watched date', () => {
     mount({ dates: ['king-tide:2026-12-03'], places: [99] }, { entries: null });
-    expect(screen.getByTestId('your-places-offplan')).toHaveTextContent('Your starred places are not on the plan right now.');
+    expect(screen.getByTestId('your-places-offplan')).toHaveTextContent('Your bookmarked places are not on the plan right now.');
   });
 
   it('a Lite reader still gets the one-line teaser and no chips', () => {
@@ -341,7 +344,7 @@ describe('Your places, watched dates', () => {
     expect(screen.getAllByTestId('your-places-stop-watching')).toHaveLength(3);
     const unlisted = screen.getAllByTestId('your-places-chip')[2];
     expect(unlisted.tagName).not.toBe('BUTTON');
-    expect(unlisted).toHaveTextContent('Sun20Dec★Watched date: Supermoon');
+    expect(unlisted).toHaveTextContent('Sun20DecWatched date: Supermoon');
     expect(unlisted).toHaveTextContent('no longer listed');
   });
 

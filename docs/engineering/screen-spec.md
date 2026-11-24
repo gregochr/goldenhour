@@ -35,7 +35,7 @@ One screen, read top to bottom in that order. The map is a view opened *from* a 
 | Band | Height | Rule |
 |---|---|---|
 | Masthead | ≤ 52 px | brand, ⌕ Find, ☰. No light times on a phone (§6.4 has them). |
-| Lens, full | ≈ 80 px | sticky; two rows, then a one-word count. |
+| Lens, full | ≈ 80 px | sticky; two rows, then a short count (`6 spots · 4 windows`). |
 | Lens, collapsed | ≈ 36 px | after scrolling past This week's last day (§6.2). |
 | This week heading | ≈ 28 px | carries the week's best (§6.3). |
 | Your places | ≈ 34 px | one line, scrolls sideways; absent for a reader with nothing bookmarked (the hint replaces it once). |
@@ -46,7 +46,7 @@ A new element must state its height and what it displaces, and must fit this tab
 
 ## 5. The screen, top to bottom
 1. **Masthead:** brand · origin chip (desktop) · ⌕ Find (⌘K) · Ask (`/`, desktop field / phone as today) · ☰ (Operations for admin, Settings, Guide, Sign out). **Desktop only:** today's light times (`07:11 blue · 07:53 golden · 15:52 golden · 16:34 blue`), labelled "today".
-2. **Lens** (sticky): Drive · Rated, then the count only (`6 spots`).
+2. **Lens** (sticky): Drive · Rated, then the count (`6 spots · 4 windows`).
 3. **This week** heading: `This week — best Fri sunrise, Crimdon Beach 4★ →` · `Further ahead ↓` with the watched count.
 4. **Your places:** one line of chips, places and areas only.
 5. **The days:** four day columns (one column on a phone). Each day has its lanes (warnings first, then watched dates, then topics) and its sunrise and sunset cards, or a folded quiet line.
@@ -82,11 +82,11 @@ Each D below is one change. Files are starting points; the planner confirms them
 - Topic lanes on a quiet day (mist, snow) still show **inside** the folded line as a count (`· 1 topic`) so nothing is hidden silently. An unscored window never counts as quiet.
 
 ### 6.6 D6: the lens collapses while scrolling (phones only)
-- After the reader scrolls past This week's last day, the sticky lens becomes one line: `Drive 45 min · any rating · 6 spots ▾`. Tapping it opens the full lens in place (it stays open until the reader scrolls back to the top). No animation; reserve the height so the page doesn't jump.
+- After the reader scrolls past This week's last day, the sticky lens becomes one line: `Drive 45 min · any rating · 6 spots · 4 windows ▾`. Tapping it opens the full lens in place (it stays open until the reader scrolls back to the top). No animation; reserve the height so the page doesn't jump.
 - Desktop and tablet: unchanged.
 
 ### 6.7 D7: remove repetition
-- The lens summary becomes the count only (`6 spots`). Delete the reach/default/rating words that repeat the buttons (`formatLensReadout` parts) and their tests; keep "weekday default" only as the drive button's own title/tooltip if it's still needed.
+- The lens summary becomes the count (`6 spots · 4 windows`). Delete the reach/default/rating words that repeat the buttons (`formatLensReadout` parts) and their tests; keep "weekday default" only as the drive button's own title/tooltip if it's still needed. Amended 2026-11-24 (owner): the count names the windows it spans, and 'within reach' when the drive tier hid some, because cards across windows count one place more than once.
 
 ### 6.8 D8: the empty state teaches
 - A Pro reader with nothing bookmarked or watched sees, once, in place of Your places: `[mark] Bookmark places and watch dates to build your plan.` with ✕. It's gone after the first save or a dismissal (per reader, stored with their settings). Lite sees the same line with the `PRO` pill and the upsell.

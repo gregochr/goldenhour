@@ -3,6 +3,7 @@ import React, {
 } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
+import BookmarkMark from './shared/BookmarkMark.jsx';
 import {
   buildSearchGroups, firstSelectable, flattenRows, nextSelectable,
 } from '../utils/planSearch.js';
@@ -187,7 +188,7 @@ export default function PlanSearch({
   // rather than overwriting what the reader has since typed into an open one.
   const [query, setQuery] = useState(initialQuery);
   const inputRef = useRef(null);
-  // Your places (F4): a Pro reader's starred sets, for the resting group, the marks and the within-tier tie-break.
+  // Your places (F4): a Pro reader's bookmarked sets, for the resting group, the marks and the within-tier tie-break.
   // Null for Lite and for no provider, so the box is exactly what it was.
   const favouriteState = useFavourites();
   const favourites = useMemo(
@@ -321,7 +322,10 @@ export default function PlanSearch({
           className="wf-search-list" data-testid="plan-search-list">
           {groups.map((group) => (
             <div key={group.id} role="group" aria-label={group.title}>
-              <p className="wf-search-head" data-testid="plan-search-group">{group.title}</p>
+              <p className="wf-search-head" data-testid="plan-search-group">
+                {group.mark && <BookmarkMark className="wf-yp-mark" />}
+                {group.title}
+              </p>
               {group.rows.map((row) => {
                 const index = rows.indexOf(row);
                 return (
@@ -350,11 +354,13 @@ export default function PlanSearch({
                   >
                     {/* Decorative: the group heading above already names the kind, and a screen
                         reader hearing "white diamond" learns nothing. */}
-                    <span aria-hidden="true" className="wf-search-glyph-col">{row.starred ? '★' : row.glyph}</span>
+                    <span aria-hidden="true" className="wf-search-glyph-col">
+                      {row.bookmarked ? <BookmarkMark /> : row.glyph}
+                    </span>
                     <span className="wf-search-text">
                       <span className="wf-search-label">
                         <Highlight text={row.label} range={row.marks} />
-                        {row.starred && <span className="sr-only">, your place</span>}
+                        {row.bookmarked && <span className="sr-only">, bookmarked</span>}
                       </span>
                       {/* Clauses rather than one joined string, and the reason is truncation: the
                           sub-line's LAST clause is the one that changes what the row means

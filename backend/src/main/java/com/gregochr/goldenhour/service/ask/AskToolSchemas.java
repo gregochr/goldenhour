@@ -124,8 +124,8 @@ public final class AskToolSchemas {
                             + "'near', 'nearby' or 'local' with no number. The result says the "
                             + "radius: quote it as 'within N miles of home'."));
             props.put("favourites", m("type", "boolean",
-                    "description", "True only when the reader asks about their own favourite or starred "
-                            + "places: just those, and the places in starred areas, are ranked. A result may "
+                    "description", "True only when the reader asks about their own bookmarked (favourite or "
+                            + "saved) places: just those, and the places in bookmarked areas, are ranked. A result may "
                             + "show favourites without it, as a lead (the answer) and a companion with a "
                             + "companionKind."));
         }

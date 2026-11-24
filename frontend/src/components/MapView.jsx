@@ -4373,7 +4373,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * Puts the map on a named set of places: fits the camera to them and applies the named-spot lens
    * ({@code focusLensNames}) with its visible {@code Showing X · clear} chip. Shared by an area picked in Find, a
-   * starred area picked in the Regions list and that list's {@code ★ My places} (find-and-favourites-plan.md F4); the
+   * bookmarked area picked in the Regions list and that list's {@code My places} (find-and-favourites-plan.md F4); the
    * ids are the SERVED ones (an area's {@code locationIds}, or the favourites' merged {@code locationIds}), resolved
    * to names against this roster. Never a cluster or an area marker, and it changes no rating.
    *
@@ -6902,7 +6902,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     onOpenChange: (next) => setOpenMapMenu(next ? 'jump' : null),
     rows: jumpRows,
     onSelectRegion: jumpToRegion,
-    // Your places (F4): `★ My places` and each starred area frame their served member ids as a named-spot lens.
+    // Your places (F4): `My places` and each bookmarked area frame their served member ids as a named-spot lens.
     onSelectFavourite: (entry) => {
       applyAreaLens(entry.name, entry.ids, entry.key);
       setOpenMapMenu(null);

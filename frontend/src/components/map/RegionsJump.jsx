@@ -9,6 +9,7 @@ import useDialogFocus from '../../hooks/useDialogFocus.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 import { useFavourites } from '../../context/FavouritesContext.jsx';
+import BookmarkMark from '../shared/BookmarkMark.jsx';
 import { FavouriteUpsell, upsellEscape, useFavouriteUpsell } from '../shared/FavouriteToggle.jsx';
 import { pickerEntries } from '../../utils/favourites.js';
 
@@ -64,8 +65,8 @@ import { pickerEntries } from '../../utils/favourites.js';
  * @param {?string} [props.resetLabel] the scope the reset row returns to, already resolved by the
  *        caller — "My area", "Everywhere", or an away origin's own "Around …"
  * @param {?Function} [props.onReset] clears the standing jump ({@code MapView.clearRegionJump})
- * @param {?Function} [props.onSelectFavourite] Your places (F4): frames a starred set ({@code ★ My places}, or one
- *        starred area) the way a region is framed, given the entry from {@code pickerEntries}. Absent, the section is
+ * @param {?Function} [props.onSelectFavourite] Your places (F4): frames a bookmarked set ({@code My places}, or one
+ *        bookmarked area) the way a region is framed, given the entry from {@code pickerEntries}. Absent, the section is
  *        not drawn. The entries are a separate labelled section, never a rank position among the regions
  * @param {?string} [props.activeFavourite] the entry key whose frame is in force
  */
@@ -138,7 +139,7 @@ export default function RegionsJump({
     </button>
   ) : null;
 
-  // Your places (F4): `★ My places` (the served merged set) and one entry per starred area, above the regions. A Lite
+  // Your places (F4): `My places` (the served merged set) and one entry per bookmarked area, above the regions. A Lite
   // reader gets the same first entry with the Pro pill, opening the worded upsell. Nothing for anyone else.
   let favouriteSection = null;
   if (onSelectFavourite && favourites.status === 'locked') {
@@ -154,7 +155,7 @@ export default function RegionsJump({
           onClick={favouriteUpsell.toggle}
           onKeyDown={upsellEscape(favouriteUpsell)}
         >
-          <span className="wf-jump-name"><span aria-hidden="true">★ </span>My places</span>
+          <span className="wf-jump-name"><BookmarkMark outline className="wf-yp-mark" />My places</span>
           <span className="wf-jump-drive" />
           <span className="wf-jump-score"><span className="wf-lens-pro">Pro</span></span>
         </button>
@@ -162,7 +163,7 @@ export default function RegionsJump({
       </div>
     );
   } else if (onSelectFavourite && favourites.status === 'ready') {
-    const entries = pickerEntries(favourites, favourites.starredAreas);
+    const entries = pickerEntries(favourites, favourites.bookmarkedAreas);
     if (entries.length > 0) {
       favouriteSection = (
         <div className="wf-fav-section" role="group" aria-label="Your places" data-testid="wf-jump-favourites">
@@ -175,7 +176,10 @@ export default function RegionsJump({
               aria-current={entry.key === activeFavourite ? 'true' : undefined}
               onClick={() => onSelectFavourite(entry)}
             >
-              <span className="wf-jump-name"><span aria-hidden="true">★ </span>{entry.name}</span>
+              <span className="wf-jump-name">
+                {entry.mark && <BookmarkMark className="wf-yp-mark" />}
+                {entry.name}
+              </span>
               <span className="wf-jump-drive">{`${entry.count} ${entry.count === 1 ? 'place' : 'places'}`}</span>
               <span className="wf-jump-score" />
             </button>

@@ -1182,7 +1182,7 @@ describe('App — the page keeps one layout whether or not the map view is open'
     const root = main.parentElement;
     const mainBefore = main.className;
     const rootBefore = root.className;
-    expect(classTokens(main)).toEqual(expect.arrayContaining(['px-4', 'py-6']));
+    expect(classTokens(main)).toEqual(expect.arrayContaining(['px-4', 'pt-0', 'pb-6', 'sm:pt-6']));
     expect(classTokens(root)).toContain('app-safe');
     expect(classTokens(root)).toContain('min-h-screen');
 

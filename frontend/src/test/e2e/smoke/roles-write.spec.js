@@ -87,9 +87,11 @@ test.describe('Pro reader watches a date', () => {
     await expect(openAll).toBeVisible();
     if ((await openAll.textContent()).trim() === 'Open all') await openAll.click();
 
-    const toggle = page.getByTestId('coming-up-watch-toggle').and(page.locator('[aria-pressed="false"]')).first();
+    // By accessible name, never `aria-pressed` (screen-spec.md D1): an unwatched toggle is named "Watch this date", a
+    // watched one "Watching".
+    const toggle = page.getByTestId('coming-up-watch-toggle').and(page.getByRole('button', { name: 'Watch this date', exact: true })).first();
     await expect(toggle, 'an open entry offers Watch this date to a Pro reader').toBeVisible();
-    // Fixed by id now: once the toggle is pressed the locator above (which asks for an unpressed one) matches nothing.
+    // Fixed by id now: once the toggle is pressed the locator above (which asks for an unwatched one) matches nothing.
     const entryId = await page.getByTestId('coming-up-entry').filter({ has: toggle }).first().getAttribute('data-entry-id');
     const entry = page.locator(`[data-testid="coming-up-entry"][data-entry-id="${entryId}"]`);
     const title = (await entry.getByTestId('coming-up-title').textContent()).trim();
@@ -106,7 +108,7 @@ test.describe('Pro reader watches a date', () => {
       expect(key).toMatch(/^[a-z-]+:\d{4}-\d{2}-\d{2}$/);
       expect((await response.json()).dates.map((d) => d.key)).toContain(key);
 
-      await expect(entry.getByTestId('coming-up-watch-toggle')).toHaveAttribute('aria-pressed', 'true');
+      await expect(entry.getByTestId('coming-up-watch-toggle')).toHaveAccessibleName('Watching');
       await expect(watchedChips).toHaveCount(before + 1);
       await expect(watchedChips.filter({ hasText: title })).toHaveCount(1);
 
@@ -116,9 +118,9 @@ test.describe('Pro reader watches a date', () => {
       expect((await own.json()).dates.map((d) => d.key)).toContain(key);
     } finally {
       const pressed = entry.getByTestId('coming-up-watch-toggle');
-      if ((await pressed.getAttribute('aria-pressed')) === 'true') {
+      if ((await pressed.getAttribute('data-starred')) === 'true') {
         await pressed.click();
-        await expect(pressed).toHaveAttribute('aria-pressed', 'false');
+        await expect(pressed).toHaveAccessibleName('Watch this date');
       }
     }
     await expect(watchedChips).toHaveCount(before);

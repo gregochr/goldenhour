@@ -54,17 +54,19 @@ describe('favourites helpers', () => {
     expect(applyStar(null, 'place', 5, true).places).toHaveLength(1);
   });
 
-  it('favouriteFirst is a stable partition and leaves the order alone with no predicate or nothing starred', () => {
+  it('favouriteFirst is a stable partition and leaves the order alone with no predicate or nothing bookmarked', () => {
     const rows = ['a', 'b', 'c', 'd'];
     expect(favouriteFirst(rows, (r) => r === 'c' || r === 'd')).toEqual(['c', 'd', 'a', 'b']);
     expect(favouriteFirst(rows, null)).toBe(rows);
     expect(favouriteFirst(rows, () => false)).toBe(rows);
   });
 
-  it('pickerEntries: My places first, then one entry per starred area; none when nothing is starred', () => {
+  it('pickerEntries: My places first, then one entry per bookmarked area; none when nothing is bookmarked', () => {
     const sets = { locationIds: new Set([1, 2, 3]) };
     const entries = pickerEntries(sets, [{ id: 8, name: "Hadrian's Wall", locationIds: [2, 3] }]);
-    expect(entries.map((e) => e.label)).toEqual(['★ My places', "★ Hadrian's Wall"]);
+    // The glyph is a field the renderer draws (`mark`), never a character in the name.
+    expect(entries.map((e) => e.name)).toEqual(['My places', "Hadrian's Wall"]);
+    expect(entries.every((e) => e.mark === true && !('label' in e))).toBe(true);
     expect(entries[0].count).toBe(3);
     expect(entries[1]).toMatchObject({ kind: 'area', ids: [2, 3], count: 2 });
     expect(pickerEntries({ locationIds: new Set() }, [])).toEqual([]);
@@ -74,9 +76,9 @@ describe('favourites helpers', () => {
   });
 
   it('words the toast for a place and for an area', () => {
-    expect(starToastText('place', 'Steel Rigg', true)).toBe('Added Steel Rigg to your places.');
-    expect(starToastText('area', "Hadrian's Wall", false)).toBe("Removed Hadrian's Wall (area) from your places.");
-    expect(starToastText('date', 'King tide · 3 Dec', true)).toBe('Watching King tide · 3 Dec. It joins your places.');
+    expect(starToastText('place', 'Steel Rigg', true)).toBe('Bookmarked Steel Rigg.');
+    expect(starToastText('area', "Hadrian's Wall", false)).toBe("Removed the bookmark from Hadrian's Wall (area).");
+    expect(starToastText('date', 'King tide · 3 Dec', true)).toBe('Watching King tide · 3 Dec. It joins Your places.');
     expect(starToastText('date', 'King tide · 3 Dec', false)).toBe('Stopped watching King tide · 3 Dec.');
   });
 });
@@ -91,25 +93,25 @@ describe('the honesty rule in Find: a favourite only breaks a tie among rows tha
   const fav = (placeIds = [], areaIds = []) => ({ placeIds: new Set(placeIds), areaIds: new Set(areaIds) });
   const ids = (groups, id) => groups.find((g) => g.id === id)?.rows.map((r) => r.spot?.id ?? r.area?.id);
 
-  it('a starred place goes first inside the matched group, before the cap of eight', () => {
+  it('a bookmarked place goes first inside the matched group, before the cap of eight', () => {
     const groups = buildSearchGroups('cove', { windows: WINDOWS, locations: SPOTS, favourites: fav([10]) });
     expect(ids(groups, 'locations')).toEqual([10, 1, 2, 3, 4, 5, 6, 7]);
   });
 
-  it('a starred place that does not match the query never appears (no group, no row)', () => {
+  it('a bookmarked place that does not match the query never appears (no group, no row)', () => {
     const groups = buildSearchGroups('zzz', { windows: WINDOWS, locations: SPOTS, favourites: fav([10]) });
     expect(groups).toEqual([]);
     const groups2 = buildSearchGroups('cove 3', { windows: WINDOWS, locations: SPOTS, favourites: fav([5]) });
     expect(ids(groups2, 'locations')).toEqual([3]);
   });
 
-  it('a starred row from the fuzzy tier never outranks an exact match', () => {
+  it('a bookmarked row from the fuzzy tier never outranks an exact match', () => {
     const spots = [{ id: 1, name: 'Seahouses' }, { id: 2, name: 'Seahouse Rocks' }, { id: 3, name: 'Seahoutes' }];
     // "seahouses" matches 1 exactly; "seahoutes" is one slip away. Star the fuzzy one.
     const groups = buildSearchGroups('seahouses', { windows: WINDOWS, locations: spots, favourites: fav([3]) });
     const rows = groups.find((g) => g.id === 'locations').rows;
     expect(rows[0].spot.id).toBe(1);
-    expect(rows.find((r) => r.spot.id === 3)?.starred).toBe(true);
+    expect(rows.find((r) => r.spot.id === 3)?.bookmarked).toBe(true);
     expect(rows.map((r) => r.spot.id).indexOf(3)).toBeGreaterThan(0);
   });
 
@@ -122,26 +124,27 @@ describe('the honesty rule in Find: a favourite only breaks a tie among rows tha
     expect(groups.find((g) => g.id === 'windows').rows.map((r) => r.windowKey)).toEqual(['a', 'b']);
   });
 
-  it('marks starred area and place rows', () => {
+  it('marks bookmarked area and place rows', () => {
     const groups = buildSearchGroups('hadrian', { windows: WINDOWS, areas: AREAS, favourites: fav([], [2]) });
-    expect(groups.find((g) => g.id === 'areas').rows[0].starred).toBe(true);
+    expect(groups.find((g) => g.id === 'areas').rows[0].bookmarked).toBe(true);
     const plain = buildSearchGroups('hadrian', { windows: WINDOWS, areas: AREAS });
-    expect(plain.find((g) => g.id === 'areas').rows[0].starred).toBe(false);
+    expect(plain.find((g) => g.id === 'areas').rows[0].bookmarked).toBe(false);
   });
 
-  it('rests with a ★ Your places group, areas first, above the windows, capped and never ranked by rating', () => {
+  it('rests with a Your places group (the mark is drawn, not typed), areas first, above the windows, capped and never ranked by rating', () => {
     const windows = [{ key: 'a', label: 'Mon sunrise', dow: 'Mon', time: '06:00', date: '2026-10-05', targetType: 'SUNRISE' }];
     const groups = buildSearchGroups('', {
       windows, areas: AREAS, locations: SPOTS, favourites: fav([4, 2], [2]),
     });
     expect(groups.map((g) => g.id)).toEqual(['favourites', 'windows']);
-    expect(groups[0].title).toBe('★ Your places');
+    expect(groups[0].title).toBe('Your places');
+    expect(groups[0].mark).toBe(true);
     expect(groups[0].rows.map((r) => r.kind)).toEqual(['area', 'location', 'location']);
-    expect(groups[0].rows.every((r) => r.starred && r.marks === null)).toBe(true);
+    expect(groups[0].rows.every((r) => r.bookmarked && r.marks === null)).toBe(true);
     expect(new Set(groups[0].rows.map((r) => r.key)).size).toBe(3);
   });
 
-  it('rests with no Your places group for a reader with no favourites (Lite) or nothing starred', () => {
+  it('rests with no Your places group for a reader with no favourites (Lite) or nothing bookmarked', () => {
     const windows = [{ key: 'a', label: 'Mon sunrise', dow: 'Mon', time: '06:00', date: '2026-10-05', targetType: 'SUNRISE' }];
     expect(buildSearchGroups('', { windows, locations: SPOTS, areas: AREAS }).map((g) => g.id)).toEqual(['windows']);
     expect(buildSearchGroups('', { windows, locations: SPOTS, favourites: fav() }).map((g) => g.id)).toEqual(['windows']);

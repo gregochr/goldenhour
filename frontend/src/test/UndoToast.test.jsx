@@ -79,9 +79,9 @@ describe('UndoToast', () => {
   });
 
   it('puts the sentence in the status region and the Undo button OUTSIDE it', () => {
-    setup({ id: 1, message: 'Added Steel Rigg to your places.', onUndo: vi.fn() });
+    setup({ id: 1, message: 'Bookmarked Steel Rigg.', onUndo: vi.fn() });
     const status = screen.getByRole('status');
-    expect(status).toHaveTextContent('Added Steel Rigg to your places.');
+    expect(status).toHaveTextContent('Bookmarked Steel Rigg.');
     expect(within(status).queryByRole('button')).toBeNull();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();

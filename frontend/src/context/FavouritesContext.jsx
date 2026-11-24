@@ -24,7 +24,7 @@ import {
 export const OFF_FAVOURITES = Object.freeze({
   status: 'off',
   ...NO_FAVOURITES,
-  starredAreas: Object.freeze([]),
+  bookmarkedAreas: Object.freeze([]),
   areasUnresolved: 0,
   isPlaceStarred: () => false,
   isAreaStarred: () => false,
@@ -46,9 +46,9 @@ export const FavouritesContext = createContext(OFF_FAVOURITES);
  * <p><b>A Lite reader never calls the endpoint</b> ({@code pro} false: the provider fetches nothing and its status is
  * {@code 'locked'}); the server's 403 is the real enforcement, this is only the courtesy of not asking.
  *
- * <p>The served body is already merged (D2): {@code locationIds} is the stars plus the members of the starred areas,
- * so nothing here walks membership. The area directory is read only to NAME the starred areas for the pickers and
- * Find, and only when at least one area is starred.
+ * <p>The served body is already merged (D2): {@code locationIds} is the stars plus the members of the bookmarked areas,
+ * so nothing here walks membership. The area directory is read only to NAME the bookmarked areas for the pickers and
+ * Find, and only when at least one area is bookmarked.
  *
  * <p><b>Toggling is optimistic, with a revert.</b> The star moves at once; the server's whole merged list replaces it
  * when it lands, and only the NEWEST request's answer is applied (writes are ordered by submission, never arrival). A
@@ -123,7 +123,7 @@ export function FavouritesProvider({ pro, children }) {
   }, [hasAreas, directory, directoryAttempt]);
 
   const sets = useMemo(() => (body ? favouriteSets(body) : NO_FAVOURITES), [body]);
-  const starredAreas = useMemo(
+  const bookmarkedAreas = useMemo(
     () => (directory ? directory.filter((entry) => sets.areaIds.has(entry.id)) : []),
     [directory, sets],
   );
@@ -213,9 +213,9 @@ export function FavouritesProvider({ pro, children }) {
     return {
       status,
       ...sets,
-      starredAreas,
-      // Starred areas the directory has not named (yet): the watchlist says so rather than hiding them.
-      areasUnresolved: Math.max(0, sets.areaIds.size - starredAreas.length),
+      bookmarkedAreas,
+      // Bookmarked areas the directory has not named (yet): the watchlist says so rather than hiding them.
+      areasUnresolved: Math.max(0, sets.areaIds.size - bookmarkedAreas.length),
       isPlaceStarred: (id) => sets.placeIds.has(id),
       isAreaStarred: (id) => sets.areaIds.has(id),
       isDateWatched: (key) => sets.dateKeys.has(key),
@@ -224,7 +224,7 @@ export function FavouritesProvider({ pro, children }) {
         kind, id, name, !({ area: sets.areaIds, date: sets.dateKeys }[kind] ?? sets.placeIds).has(id),
       ),
     };
-  }, [pro, body, failed, sets, starredAreas, setStar]);
+  }, [pro, body, failed, sets, bookmarkedAreas, setStar]);
 
   return (
     <FavouritesContext.Provider value={value}>

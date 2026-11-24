@@ -170,3 +170,6 @@ html.embed .g-cards{grid-template-columns:minmax(0,1fr)}
 .xy-84_5-40_6{left:84.5%;top:40.6%}
 .xy-90_4-18_6{left:90.4%;top:18.6%}
 .xy-31_8-82_5{left:31.8%;top:82.5%}
+
+/* The bookmark mark (screen-spec.md D1): lilac, decorative, inline in the text. */
+.bm{color:#C9A0E8;vertical-align:-1px}

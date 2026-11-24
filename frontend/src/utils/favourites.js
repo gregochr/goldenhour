@@ -4,10 +4,10 @@
  * <p><b>The honesty rule.</b> A favourite never changes a rating, a verdict or a Best pick, and nothing here
  * derives one. The only reordering a favourite may cause is {@link favouriteFirst}: a stable tie-break inside one
  * tier of a Find group, over rows that ALREADY matched the query, below every exact match. Everything else is a
- * separate, labelled section (Find's resting group, the pickers' {@code ★ My places}, the Coming up watchlist) or a
+ * separate, labelled section (Find's resting group, the pickers' {@code My places}, the Coming up watchlist) or a
  * mark.
  *
- * <p>Membership of a starred area is never walked here: the server serves the merged {@code locationIds}.
+ * <p>Membership of a bookmarked area is never walked here: the server serves the merged {@code locationIds}.
  */
 
 /** The label every surface prints for the reader's own set, one spelling. */
@@ -17,10 +17,10 @@ export const MY_PLACES = 'My places';
 /** What a failed star or un-star says when the server gave no sentence of its own. */
 export const FAVOURITE_FAILED = "Couldn't update your places. Try again.";
 
-/** An empty, frozen set so an unstarred reader costs no allocation per render. */
+/** An empty, frozen set so an unbookmarked reader costs no allocation per render. */
 const NONE = Object.freeze(new Set());
 
-/** The empty sets, for a reader with nothing starred or no favourites at all. */
+/** The empty sets, for a reader with nothing bookmarked or no favourites at all. */
 export const NO_FAVOURITES = Object.freeze({
   placeIds: NONE, areaIds: NONE, locationIds: NONE, dateKeys: NONE, dates: Object.freeze([]),
 });
@@ -48,7 +48,7 @@ export function favouriteSets(body) {
 
 /**
  * One star or un-star applied to a served body, ahead of the server's answer (the optimistic step). Only the two
- * lists the toggle itself reads move; {@code locationIds} is left for the server to re-expand, because a starred
+ * lists the toggle itself reads move; {@code locationIds} is left for the server to re-expand, because a bookmarked
  * area's members are the server's to name.
  *
  * @param {object} body the current body
@@ -67,7 +67,7 @@ export function applyStar(body, kind, id, on) {
 /**
  * Stable partition: the favourites first, every other row after, each half in its own order.
  *
- * <p>Used only inside one tier of an already matched Find group, so a starred row never outranks a better match and
+ * <p>Used only inside one tier of an already matched Find group, so a bookmarked row never outranks a better match and
  * a row that did not match is never here at all (the matched list is what is passed in).
  *
  * @template T
@@ -77,33 +77,34 @@ export function applyStar(body, kind, id, on) {
  */
 export function favouriteFirst(items, isFavourite) {
   if (!isFavourite) return items;
-  const starred = [];
+  const bookmarked = [];
   const rest = [];
-  for (const item of items) (isFavourite(item) ? starred : rest).push(item);
-  return starred.length === 0 ? items : [...starred, ...rest];
+  for (const item of items) (isFavourite(item) ? bookmarked : rest).push(item);
+  return bookmarked.length === 0 ? items : [...bookmarked, ...rest];
 }
 
 /**
- * The region pickers' extra entries (find-and-favourites-plan.md D4): {@code ★ My places} (the served merged set)
- * and one per starred area, directly under it. Sections, not rank positions.
+ * The region pickers' extra entries (find-and-favourites-plan.md D4): {@code My places} (the served merged set)
+ * and one per bookmarked area, directly under it. Sections, not rank positions. {@code mark} says the renderer draws the
+ * bookmark mark before the name; the name itself carries no glyph.
  *
  * @param {{locationIds: Set<number>}} sets the reader's sets
- * @param {Array<{id: number, name: string, locationIds: number[]}>} starredAreas the directory entries of the
- *        starred areas
- * @returns {Array<{key: string, kind: 'places'|'area', label: string, name: string, ids: number[], count: number}>}
- *          empty when nothing is starred
+ * @param {Array<{id: number, name: string, locationIds: number[]}>} bookmarkedAreas the directory entries of the
+ *        bookmarked areas
+ * @returns {Array<{key: string, kind: 'places'|'area', mark: boolean, name: string, ids: number[], count: number}>}
+ *          empty when nothing is bookmarked
  */
-export function pickerEntries(sets, starredAreas) {
+export function pickerEntries(sets, bookmarkedAreas) {
   const ids = [...(sets?.locationIds ?? [])];
-  const areas = starredAreas ?? [];
+  const areas = bookmarkedAreas ?? [];
   if (ids.length === 0 && areas.length === 0) return [];
   const entries = [{
-    key: 'places', kind: 'places', label: `★ ${MY_PLACES}`, name: MY_PLACES, ids, count: ids.length,
+    key: 'places', kind: 'places', mark: true, name: MY_PLACES, ids, count: ids.length,
   }];
   for (const area of areas) {
     const members = area.locationIds ?? [];
     entries.push({
-      key: `area:${area.id}`, kind: 'area', label: `★ ${area.name}`, name: area.name, ids: members, count: members.length,
+      key: `area:${area.id}`, kind: 'area', mark: true, name: area.name, ids: members, count: members.length,
     });
   }
   return entries;
@@ -118,7 +119,7 @@ export function pickerEntries(sets, starredAreas) {
  * @returns {string}
  */
 export function starToastText(kind, name, on) {
-  if (kind === 'date') return on ? `Watching ${name}. It joins your places.` : `Stopped watching ${name}.`;
+  if (kind === 'date') return on ? `Watching ${name}. It joins Your places.` : `Stopped watching ${name}.`;
   const what = kind === 'area' ? `${name} (area)` : name;
-  return on ? `Added ${what} to your places.` : `Removed ${what} from your places.`;
+  return on ? `Bookmarked ${what}.` : `Removed the bookmark from ${what}.`;
 }

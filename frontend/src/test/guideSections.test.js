@@ -113,7 +113,7 @@ describe('resolveGuideOrigin', () => {
 });
 
 describe('the Find and Your places guides (docs/engineering/find-and-favourites-plan.md, F5)', () => {
-  const findIds = ['open', 'search', 'areas', 'typos', 'pick', 'starred'];
+  const findIds = ['open', 'search', 'areas', 'typos', 'pick', 'bookmarks'];
   const placesIds = ['star', 'where', 'honest', 'ask', 'lite', 'private'];
 
   it.each(findIds)('finding-places carries the %s section, and the on-page contents links to it', (id) => {

@@ -8,6 +8,8 @@
   /* Kodachrome Field Guide palette (Option B) — brand/interactive accent is warm
      bone, identical to ink, so chrome never competes with the verdict semantics. */
   --color-plex-gold: #F2E7D3;
+  /* "Yours" (screen-spec.md D1): the bookmark mark's lilac. 8.5:1 on --color-plex-bg. The star is for ratings only. */
+  --wf-yours: #C9A0E8;
   --color-plex-gold-light: #FBF4E6;
   --color-plex-bg: #181210;
   --color-plex-surface: #221A15;
@@ -1179,15 +1181,16 @@
        not pinned and never was (see `.wf-mast`), so that term is gone here exactly as it is gone
        from the desktop value.
 
-       ⚠️ 160, NOT 136, and this is the taller-state rule biting on the phone as it does on the
-       desktop. 136 is the stacked bar's browser-measured 130px plus the ring — its BASE state. A
-       returning reader on a non-default tier gets the bar's two extra marks, measured at 153.5px,
-       and `useReachLens` restores that tier from `localStorage` in a lazy `useState` initialiser, so
-       the taller bar is what renders in the very first frame — the one frame this fallback exists
-       for. 160 = 153.5 + the ring, rounded up. The 270 it replaces covered that by accident; 136
-       would not have, making this fix a regression at 390px for precisely the readers who have set
-       a tier. */
-    --wf-lens-reserve: 160px;
+       screen-spec.md P1: the phone lens is ~90px now (two 30px chip rows, 5px padding, a 4px gap, a 14px count line),
+       and its marks fold into the count's row, so the tallest MEASURED state sets them. Measured at 390x844 on the seeded stack with the count naming its windows
+       (`36 of 108 spots · 6 windows`): Pro on the default tier 93.4px (Lite 98.5px, its Pro pill sharing the count row);
+       Pro on a non-default tier 116.3px, because `today only` and `Back to X` no longer fit beside the longer count and
+       wrap to a second line; Lite with a rating floor set 121.5px, for the same reason (Pro pill and why-link); the
+       plan-conflict verdict could not be reached (the seed has no drive times), so it is unmeasured: it replaces the
+       count and may wrap, the one case allowed past the band. The measured height overwrites these literals within a
+       frame. */
+    --wf-lens-reserve: 128px;
+    --wf-bar-h: 122px;
   }
   /* The compact phone masthead (map-mobile-compact README §1; plan C1): 8px above ONE 34px line, then
      the 2px rule. Every phone tab, since a header that changes shape with the tab is worse than either
@@ -1283,7 +1286,8 @@
     letter-spacing: 0.08em;
   }
   .wf-tick-origin-set { gap: 6px; }
-  .wf-body { padding: 12px var(--wf-gutter) 18px; }
+  /* 8px on a phone (screen-spec.md section 4); `<main>` gives no top padding there either (App.jsx). */
+  .wf-body { padding: 8px var(--wf-gutter) 18px; }
 }
 
 /* The ☰ menu, at every width (one-screen-plan.md D9, D14): a 30px box (1px #3A2C23, radius 8) in a 40px hit area, the extra ten pixels coming
@@ -9840,29 +9844,34 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    its two marks — and it is why `--wf-lens-reserve` is measured from the bar rather than written
    down: a literal would have to be right at all four of the bar's heights. */
 @media (max-width: 639px) {
+  /* screen-spec.md section 4 / plan section 2: the phone lens is about 90px (it was 130): two 30px chip rows, 5px of
+     padding, a 4px row gap and a 14px count line, with the override's marks folded into the count's row (the
+     component renders them after the count on a phone). */
   .wf-lens {
-    padding: 9px var(--wf-gutter);
-    gap: 6px 8px;
+    padding: 5px var(--wf-gutter);
+    gap: 4px 8px;
   }
   /* Each control owns a row; `flex: 1` inside it hands the chips everything the caption leaves. */
   .wf-lens-group { flex: 1 1 100%; }
   .wf-lens-group > .wf-seg { flex: 1; }
   .wf-lens .wf-seg-btn {
     flex: 1;
-    padding: 7px 4px;
-    /* The handoff's touch floor. The prototype draws 34px; 40 is what a thumb wants, and the
-       full-width row already gives roughly 80px of horizontal target per chip. Scoped to the bar
-       rather than to `.wf-seg-btn` at large, so the drill-down's own three controls — a modal, not
-       a sticky strip with a height budget — keep the geometry they were measured at. */
-    min-height: 40px;
+    padding: 0 4px;
+    /* 28px button inside the segment's 1px borders = a 30px chip row, from the handoff's 40: the spec's 80px band overrides the thumb choice, and 30 is above the 24px WCAG 2.5.8
+       floor with roughly 80px of horizontal target per chip. Scoped to the bar rather than to `.wf-seg-btn` at large,
+       so the drill-down's own three controls keep the geometry they were measured at. */
+    min-height: 28px;
   }
   .wf-lens-rule { display: none; }
-  /* The count owns its row, below both controls. */
-  .wf-lens-count { flex: 1 1 100%; }
+  /* The count owns the third row, below both controls, on a 14px line; the marks and the ? fold into it. */
+  .wf-lens-count { flex: 1 1 auto; line-height: 14px; }
+  .wf-lens-count--verdict { flex-basis: 100%; }
+  /* The ? is a 20px circle with a 24px-tall hit area, held to the 14px line by its margins, so the row does not grow. */
+  .wf-lens .wf-guide-link { width: 20px; height: 20px; margin: -3px 0 -3px 6px; font-size: 10px; }
+  .wf-lens .wf-guide-link::after { inset: -2px -10px; }
   .wf-lens-k { font-size: 9px; }
-  /* The marks reach describes — they belong on the row under the control they mark, not squeezed
-     into a third of it. `flex-basis: auto` on both is enough: each group above already claims a
-     whole row, so whatever follows starts a new one. */
+  /* The override's marks (today only, Pro pill, Back to X): rendered after the count on a phone, so they fold into
+     the count's row rather than taking one. `flex: 0 0 auto` keeps them their natural width. */
   .wf-lens-stick,
   .wf-lens-pro,
   .wf-lens-reset { flex: 0 0 auto; }
@@ -11484,7 +11493,6 @@ div.wf-lane { cursor: default; }
 @media (max-width: 639px) {
   .wf-yp-stop { min-width: 44px; }
 }
-.wf-yp-star { color: var(--color-plex-gold); margin-right: 4px; }
 @media (max-width: 639px) {
   .wf-yp-row { scroll-snap-type: x mandatory; }
 }
@@ -14625,8 +14633,9 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
 }
 
 /* Your places (find-and-favourites-plan.md F4). The toggle sits in the place sheet, area sheet and map callout headers.
-   Constant label "Your place" with aria-pressed; the glyph toggles. On a phone the glyph stands alone: a 30px target in a
-   44px row, drawn only under 640px so desktop and tablet are untouched. */
+   The words carry the state (Bookmark / Bookmarked, Watch this date / Watching), mirrored in data-starred; the ribbon is
+   outline until set. On a phone a place's mark stands alone: a 30px target in a 44px row, drawn only under 640px so
+   desktop and tablet are untouched. */
 .wf-fav-wrap { display: inline-flex; align-items: center; }
 .wf-fav {
   display: inline-flex;
@@ -14644,9 +14653,18 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
 }
 .wf-fav:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
 .wf-fav:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
-.wf-fav[aria-pressed='true'] { color: var(--color-plex-gold); border-color: var(--color-plex-gold); }
-.wf-fav-g { font-size: 13px; line-height: 1; }
-.wf-fav-mark { color: var(--color-plex-gold); margin-right: 3px; font-size: 0.9em; }
+.wf-fav[data-starred='true'] { color: var(--color-plex-text); border-color: var(--wf-yours); }
+.wf-fav-g { display: inline-flex; align-items: center; line-height: 1; }
+/* The bookmark mark (shared/BookmarkMark.jsx): `currentColor` fill or stroke, so forced colours keep both forms. */
+/* `inline-block`: Tailwind's preflight makes every svg a block, which would put the mark on a line of its own. */
+.wf-bookmark { display: inline-block; flex: none; color: var(--wf-yours); vertical-align: -1px; }
+.wf-fav-mark { display: inline-flex; align-items: center; margin-right: 3px; }
+.wf-yp-mark { margin-right: 5px; }
+/* The words are drawn only at 640px and up (a phone's place word is sr-only). The toggle's two words differ in length
+   (Bookmark / Bookmarked, Watch this date / Watching), so the word box holds the longer one and the header does not
+   shift when the toggle is pressed. The font is monospace, so `ch` is exact. */
+.wf-fav-t { display: inline-block; min-width: 10ch; }
+.wf-fav-t-date { min-width: 15ch; }
 .wf-callout-head .wf-fav { padding: 2px 6px; font-size: 10px; }
 .wf-fav-section { margin: 0 0 10px; }
 .wf-fav-section-h {

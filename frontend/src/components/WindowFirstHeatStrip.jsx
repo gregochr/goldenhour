@@ -51,6 +51,7 @@ import { prefersReducedMotion } from '../utils/askCamera.js';
 import { picksNoteText } from '../utils/pickGeography.js';
 import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
 import { SubRegionActionButton } from './subregions/SubRegionActions.jsx';
+import BookmarkMark from './shared/BookmarkMark.jsx';
 
 /**
  * The thumbnail frame's aspect clamps.
@@ -369,7 +370,7 @@ export function bestReachLine(card) {
     return {
       rating: best.rating,
       label: null,
-      // The place's id, read only by the ★ mark for a starred place; never a ranking input.
+      // The place's id, read only by the bookmark mark for a bookmarked place; never a ranking input.
       locationId: best.locationId ?? null,
       value: best.locationName,
       muted: false,
@@ -808,7 +809,7 @@ export default function WindowFirstHeatStrip({
   comingUpEntries = null, renderedEntryIds = null, openableKeys = null, forecastDates = null,
   onLaneEntryIds = undefined, onShowOnMap = undefined, onOpenLaneOnMap = undefined,
 }) {
-  // Your places (F4): the Glance best-spot line marks a place the reader starred itself, and says so. A mark only.
+  // Your places (F4): the Glance best-spot line marks a place the reader bookmarked itself, and says so. A mark only.
   const favourites = useFavourites();
   // A body the server SHAPED by the reader's sub-region picks (S5b-1): `picks` is handed in only then. Never the
   // role. `zeroPicks` is a shaped reader who holds no pick yet, whose every place is outside.
@@ -1664,7 +1665,7 @@ export default function WindowFirstHeatStrip({
         card.away || !facts.best || (shaped && notScored)
           || ((notScored || facts.spread.rated === 0) && poolTotal > 0 && !facts.best.beyond)
           ? []
-          : [bestStarred ? `${facts.best.spoken}, your place` : facts.best.spoken],
+          : [bestStarred ? `${facts.best.spoken}, bookmarked` : facts.best.spoken],
       )
       // The tide chip's clause (tide-plan-card-plan.md §3 C2 task 2) — DOM order: the best-reach
       // row's own tide clause lands just above, and this one sits where the chip itself sits, first
@@ -1975,7 +1976,7 @@ export default function WindowFirstHeatStrip({
                       state={facts.best.tideState}
                     />
                   )}
-                  {bestStarred && !bestStood && <span aria-hidden="true" className="wf-fav-mark" data-testid="wf-heat-best-fav">★</span>}
+                  {bestStarred && !bestStood && <span aria-hidden="true" className="wf-fav-mark" data-testid="wf-heat-best-fav"><BookmarkMark /></span>}
                   {bestStood
                     ? (stoodUnrated ? 'some places stood down' : 'stood down by the weather')
                     : facts.best.value}

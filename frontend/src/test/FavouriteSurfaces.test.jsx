@@ -31,29 +31,40 @@ function Host({ kind = 'place', id = 7, name = 'Steel Rigg' }) {
 beforeEach(() => { mockIsMobile = false; vi.clearAllMocks(); });
 
 describe('FavouriteToggle', () => {
-  it('⚠️ one constant label with aria-pressed, never a swapped name, on a desktop', () => {
+  it('⚠️ the words carry the state: Bookmark, then Bookmarked, with no aria-pressed and the ribbon filling in', () => {
     const { rerender } = render(withFavourites(<Host />));
-    const off = screen.getByRole('button', { name: 'Your place' });
-    expect(off).toHaveAttribute('aria-pressed', 'false');
-    expect(off).toHaveTextContent(/☆\s*Your place/);
+    const off = screen.getByRole('button', { name: 'Bookmark' });
+    expect(off).not.toHaveAttribute('aria-pressed');
+    expect(off).toHaveAttribute('data-starred', 'false');
+    expect(off.querySelector('[data-testid="bookmark-mark"]')).toHaveAttribute('data-form', 'outline');
+    expect(off).not.toHaveTextContent(/[★☆]/);
     rerender(withFavourites(<Host />, { places: [7] }));
-    const on = screen.getByRole('button', { name: 'Your place' });
-    expect(on).toHaveAttribute('aria-pressed', 'true');
-    expect(on).toHaveTextContent(/★\s*Your place/);
+    const on = screen.getByRole('button', { name: 'Bookmarked' });
+    expect(on).not.toHaveAttribute('aria-pressed');
+    expect(on).toHaveAttribute('data-starred', 'true');
+    expect(on.querySelector('[data-testid="bookmark-mark"]')).toHaveAttribute('data-form', 'filled');
+    expect(screen.queryByRole('button', { name: 'Bookmark' })).toBeNull();
+  });
+
+  it('an area reads Bookmark / Bookmarked too', () => {
+    const { rerender } = render(withFavourites(<Host kind="area" id={4} name="Hadrian's Wall" />, { areas: [] }));
+    expect(screen.getByRole('button', { name: 'Bookmark' })).toBeInTheDocument();
+    rerender(withFavourites(<Host kind="area" id={4} name="Hadrian's Wall" />, { areas: [4] }));
+    expect(screen.getByRole('button', { name: 'Bookmarked' })).toBeInTheDocument();
   });
 
   it('presses through the provider with the kind, id and name', () => {
     const value = favouritesValue({ areas: [] });
     render(<FavouritesContext.Provider value={value}><Host kind="area" id={4} name="Hadrian's Wall" /></FavouritesContext.Provider>);
-    fireEvent.click(screen.getByRole('button', { name: 'Your place' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Bookmark' }));
     expect(value.toggle).toHaveBeenCalledWith('area', 4, "Hadrian's Wall");
   });
 
   it('on a phone the glyph stands alone and the name is spoken only', () => {
     mockIsMobile = true;
     render(withFavourites(<Host />));
-    const button = screen.getByRole('button', { name: 'Your place' });
-    expect(within(button).getByText('Your place')).toHaveClass('sr-only');
+    const button = screen.getByRole('button', { name: 'Bookmark' });
+    expect(within(button).getByText('Bookmark')).toHaveClass('sr-only');
     expect(button.querySelector('.wf-fav-t')).toBeNull();
     expect(button.closest('.wf-fav-wrap')).not.toBeNull();
   });
@@ -68,12 +79,13 @@ describe('FavouriteToggle', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('⚠️ a Lite reader gets ☆ with a Pro pill and a worded upsell, never a link; Escape closes only the panel', () => {
+  it('⚠️ a Lite reader gets the outline mark with a Pro pill and a worded upsell, never a link; Escape closes only the panel', () => {
     const onKey = vi.fn();
     document.addEventListener('keydown', onKey);
     render(withFavourites(<Host />, { status: 'locked' }));
     const button = screen.getByTestId('favourite-toggle-locked');
-    expect(button).toHaveTextContent('Your place');
+    expect(button).toHaveTextContent('Bookmark');
+    expect(button.querySelector('[data-testid="bookmark-mark"]')).toHaveAttribute('data-form', 'outline');
     expect(button).toHaveTextContent('Pro');
     expect(button).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(button);
@@ -108,10 +120,10 @@ describe('FavouriteToggle', () => {
 });
 
 describe('FavouriteMark', () => {
-  it('marks only a place the reader starred itself, hidden from assistive tech', () => {
+  it('marks only a place the reader bookmarked itself, hidden from assistive tech', () => {
     const { rerender } = render(withFavourites(<FavouriteMark id={3} />, { places: [3] }));
     expect(screen.getByTestId('favourite-mark')).toHaveAttribute('aria-hidden', 'true');
-    // A place inside a starred area is in the merged ids but is not marked individually.
+    // A place inside a bookmarked area is in the merged ids but is not marked individually.
     rerender(withFavourites(<FavouriteMark id={3} />, { places: [], locationIds: [3], areas: [1] }));
     expect(screen.queryByTestId('favourite-mark')).toBeNull();
     rerender(withFavourites(<FavouriteMark id={3} />, { status: 'locked', places: [3] }));
@@ -126,9 +138,9 @@ describe('the toggle in the area sheet', () => {
     options,
   );
 
-  it('sits in the header, pressed for a starred area, and a Lite reader gets the Pro door under the head', () => {
+  it('sits in the header, pressed for a bookmarked area, and a Lite reader gets the Pro door under the head', () => {
     const { unmount } = render(sheet({ areas: [5] }));
-    expect(within(screen.getByTestId('area-sheet')).getByTestId('area-sheet-favourite')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(screen.getByTestId('area-sheet')).getByTestId('area-sheet-favourite')).toHaveAttribute('data-starred', 'true');
     unmount();
     render(sheet({ status: 'locked' }));
     fireEvent.click(screen.getByTestId('area-sheet-favourite-locked'));
@@ -138,14 +150,14 @@ describe('the toggle in the area sheet', () => {
 
 describe('the mark on a popup spot card', () => {
   const SPOT = { locationId: 3, locationName: 'Bamburgh', regionName: 'North', rating: 4 };
-  it('adds ★ and a spoken "your place" for a starred place only; the rating is untouched', () => {
+  it('adds the bookmark mark and a spoken "bookmarked" for a bookmarked place only; the rating is untouched', () => {
     const { rerender } = render(withFavourites(<WindowSpotCard spot={SPOT} typeLabels={[]} onOpen={vi.fn()} />, { places: [3] }));
     expect(screen.getByTestId('favourite-mark')).toBeInTheDocument();
-    expect(screen.getByTestId('window-spot')).toHaveTextContent('your place');
+    expect(screen.getByTestId('window-spot')).toHaveTextContent('bookmarked');
     expect(screen.getByTestId('window-spot-rating')).toHaveTextContent('4★');
     rerender(withFavourites(<WindowSpotCard spot={SPOT} typeLabels={[]} onOpen={vi.fn()} />, { places: [] }));
     expect(screen.queryByTestId('favourite-mark')).toBeNull();
-    expect(screen.getByTestId('window-spot')).not.toHaveTextContent('your place');
+    expect(screen.getByTestId('window-spot')).not.toHaveTextContent('bookmarked');
   });
 });
 
@@ -157,25 +169,27 @@ describe('Find, resting', () => {
     options,
   );
 
-  it('⚠️ shows a ★ Your places group, areas first, for a Pro reader, with no interactive child inside a row', () => {
+  it('⚠️ shows a Your places group with the bookmark mark, areas first, for a Pro reader, with no interactive child inside a row', () => {
     render(find({ places: [2], areas: [9] }));
-    const group = screen.getByRole('group', { name: '★ Your places' });
+    const group = screen.getByRole('group', { name: 'Your places' });
     const rows = within(group).getAllByTestId('plan-search-row');
     expect(rows.map((r) => r.dataset.kind)).toEqual(['area', 'location']);
     expect(rows[0]).toHaveTextContent("Hadrian's Wall");
-    expect(rows[0]).toHaveTextContent('your place');
+    expect(rows[0]).toHaveTextContent('bookmarked');
+    expect(within(rows[0]).getByTestId('bookmark-mark')).toBeInTheDocument();
+    expect(within(group).getByTestId('plan-search-group')).not.toHaveTextContent('★');
     rows.forEach((row) => expect(row.querySelectorAll('button, a, input, [tabindex]')).toHaveLength(0));
   });
 
-  it('shows no group to a Lite reader, and none when nothing is starred', () => {
+  it('shows no group to a Lite reader, and none when nothing is bookmarked', () => {
     render(find({ status: 'locked', places: [2] }));
-    expect(screen.queryByRole('group', { name: '★ Your places' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Your places' })).toBeNull();
   });
 
-  it('typing replaces it: a starred place that does not match is not offered, one that does goes first', () => {
+  it('typing replaces it: a bookmarked place that does not match is not offered, one that does goes first', () => {
     render(find({ places: [2] }));
     fireEvent.change(screen.getByTestId('plan-search-input'), { target: { value: 'bam' } });
-    expect(screen.queryByRole('group', { name: '★ Your places' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Your places' })).toBeNull();
     expect(screen.getAllByTestId('plan-search-row')).toHaveLength(1);
     fireEvent.change(screen.getByTestId('plan-search-input'), { target: { value: 'ra' } });
     expect(screen.getAllByTestId('plan-search-row')[0]).toHaveTextContent('Craster');
@@ -189,14 +203,15 @@ describe('the Map Regions list', () => {
     options,
   );
 
-  it('lists ★ My places then each starred area above the regions, and hands the entry back on a press', () => {
+  it('lists My places then each bookmarked area above the regions, and hands the entry back on a press', () => {
     const onSelect = vi.fn();
     render(jump({
       places: [1], locationIds: [1, 2], areas: [9],
-      starredAreas: [{ id: 9, name: "Hadrian's Wall", locationIds: [2] }],
+      bookmarkedAreas: [{ id: 9, name: "Hadrian's Wall", locationIds: [2] }],
     }, onSelect, 'places'));
     const rows = screen.getAllByTestId('wf-jump-favourite');
-    expect(rows.map((r) => r.querySelector('.wf-jump-name').textContent)).toEqual(['★ My places', "★ Hadrian's Wall"]);
+    expect(rows.map((r) => r.querySelector('.wf-jump-name').textContent)).toEqual(['My places', "Hadrian's Wall"]);
+    rows.forEach((r) => expect(r.querySelector('.wf-jump-name [data-testid="bookmark-mark"]')).not.toBeNull());
     expect(rows[0]).toHaveAttribute('aria-current', 'true');
     expect(rows[0]).toHaveTextContent('2 places');
     fireEvent.click(rows[1]);
@@ -205,18 +220,18 @@ describe('the Map Regions list', () => {
     expect(all.indexOf('wf-jump-favourite')).toBeLessThan(all.indexOf('wf-jump-row'));
   });
 
-  it('draws nothing for a Pro reader with nothing starred, or when the map offers no handler', () => {
+  it('draws nothing for a Pro reader with nothing bookmarked, or when the map offers no handler', () => {
     render(jump({}));
     expect(screen.queryByTestId('wf-jump-favourites')).toBeNull();
   });
 
-  it('a Lite reader gets ★ My places with the Pro pill and the worded upsell', () => {
+  it('a Lite reader gets My places (outline mark) with the Pro pill and the worded upsell', () => {
     render(jump({ status: 'locked' }));
     fireEvent.click(screen.getByTestId('wf-jump-favourite-locked'));
     expect(screen.getByTestId('wf-jump-favourite-upsell-panel')).toBeInTheDocument();
   });
 
-  it('⚠️ the entries are a labelled section with the ★ hidden from assistive tech, and Escape on the Lite trigger closes only the panel', () => {
+  it('⚠️ the entries are a labelled section with the mark hidden from assistive tech, and Escape on the Lite trigger closes only the panel', () => {
     const { unmount } = render(jump({ places: [1], locationIds: [1] }));
     expect(screen.getByRole('group', { name: 'Your places' })).toBeInTheDocument();
     expect(screen.getAllByTestId('wf-jump-favourite')[0]).toHaveAccessibleName(/^My places/);
@@ -279,7 +294,7 @@ describe('Your places, the row at the top of This week', () => {
   });
 
   it('prints served figures with their window: areas first, a place, the quiet line below 3★, and not rated', async () => {
-    render(list({ places: [1, 2, 4], areas: [9], starredAreas: [AREA] }));
+    render(list({ places: [1, 2, 4], areas: [9], bookmarkedAreas: [AREA] }));
     const rows = await screen.findAllByTestId('your-places-chip');
     expect(rows.map((r) => r.dataset.kind)).toEqual(['area', 'place', 'place', 'place']);
     const text = rows.map((r) => within(r).getByTestId('your-places-detail').textContent);
@@ -291,7 +306,7 @@ describe('Your places, the row at the top of This week', () => {
     expect(text[3]).toBe('not rated yet');
   });
 
-  it('⚠️ honesty: a starred 3★ is never listed above a starred 4★ by rating; the order is the reader\'s own sections', async () => {
+  it('⚠️ honesty: a bookmarked 3★ is never listed above a bookmarked 4★ by rating; the order is the reader\'s own sections', async () => {
     const index = buildScoreIndex([
       { locationId: 1, locationName: 'Bamburgh', date: '2026-10-05', targetType: 'SUNSET', rating: 3 },
       { locationId: 2, locationName: 'Craster', date: '2026-10-05', targetType: 'SUNRISE', rating: 5 },
@@ -311,7 +326,7 @@ describe('Your places, the row at the top of This week', () => {
     const onOpenWindow = vi.fn();
     const onOpenPlace = vi.fn();
     const onOpenArea = vi.fn();
-    render(list({ places: [1], areas: [9], starredAreas: [AREA] }, { onOpenWindow, onOpenPlace, onOpenArea }));
+    render(list({ places: [1], areas: [9], bookmarkedAreas: [AREA] }, { onOpenWindow, onOpenPlace, onOpenArea }));
     await screen.findByText(/best Steel Rigg/);
     const chips = await screen.findAllByTestId('your-places-chip');
     fireEvent.click(chips[0]);
@@ -330,7 +345,7 @@ describe('Your places, the row at the top of This week', () => {
 
   it('an area chip opens the same window the area sheet\'s "Show on map" foot would (areaMapWindow)', async () => {
     const onOpenWindow = vi.fn();
-    render(list({ areas: [9], starredAreas: [AREA] }, { onOpenWindow }));
+    render(list({ areas: [9], bookmarkedAreas: [AREA] }, { onOpenWindow }));
     await screen.findByText(/best Steel Rigg/);
     fireEvent.click(await screen.findByTestId('your-places-chip'));
     const foot = areaMapWindow(WINDOWS, [{
@@ -345,7 +360,7 @@ describe('Your places, the row at the top of This week', () => {
     const onOpenArea = vi.fn();
     // Craster is rated 2 (quiet), the unrated place has no figure, and the area has no outlook window.
     fetchAreaOutlook.mockResolvedValue([{ areaId: 9, windows: [] }]);
-    render(list({ places: [2, 4], areas: [9], starredAreas: [AREA] }, { onOpenWindow, onOpenPlace, onOpenArea }));
+    render(list({ places: [2, 4], areas: [9], bookmarkedAreas: [AREA] }, { onOpenWindow, onOpenPlace, onOpenArea }));
     const chips = await screen.findAllByTestId('your-places-chip');
     fireEvent.click(chips[0]);
     fireEvent.click(chips[1]);
@@ -387,7 +402,7 @@ describe('Your places, the row at the top of This week', () => {
     afterEach(() => { delete globalThis.IntersectionObserver; });
 
     it('fetches nothing until the row first intersects, then fetches once', async () => {
-      render(list({ places: [1], areas: [9], starredAreas: [AREA] }));
+      render(list({ places: [1], areas: [9], bookmarkedAreas: [AREA] }));
       await screen.findAllByTestId('your-places-chip');
       expect(fetchAreaOutlook).not.toHaveBeenCalled();
 
@@ -401,14 +416,14 @@ describe('Your places, the row at the top of This week', () => {
   });
 
   it('⚠️ an area-only reader whose directory has not named the area never sees the empty-state advice', async () => {
-    // Served list: one area starred. Directory unresolved: starredAreas is empty.
-    render(list({ areas: [9], locationIds: [3], starredAreas: [] }));
+    // Served list: one area bookmarked. Directory unresolved: bookmarkedAreas is empty.
+    render(list({ areas: [9], locationIds: [3], bookmarkedAreas: [] }));
     expect(screen.queryByTestId('your-places-empty')).toBeNull();
-    expect(await screen.findByTestId('your-places-areas-pending')).toHaveTextContent('1 starred area is not shown yet.');
+    expect(await screen.findByTestId('your-places-areas-pending')).toHaveTextContent('1 bookmarked area is not shown yet.');
     expect(screen.queryByTestId('your-places-offplan')).toBeNull();
   });
 
-  it('a starred place that is not on the plan says so rather than printing the empty-state advice', async () => {
+  it('a bookmarked place that is not on the plan says so rather than printing the empty-state advice', async () => {
     render(list({ places: [999] }));
     expect(screen.queryByTestId('your-places-empty')).toBeNull();
     expect(await screen.findByTestId('your-places-offplan')).toBeInTheDocument();
@@ -426,9 +441,9 @@ describe('Your places, the row at the top of This week', () => {
     document.removeEventListener('keydown', onKey);
   });
 
-  it('says what to do when nothing is starred, and draws no outlook request without a starred area', async () => {
+  it('says what to do when nothing is bookmarked, and draws no outlook request without a bookmarked area', async () => {
     render(list({}));
-    expect(await screen.findByTestId('your-places-empty')).toHaveTextContent('Tap ☆ on a place, an area or a date, and it lands here.');
+    expect(await screen.findByTestId('your-places-empty')).toHaveTextContent('Bookmark a place or an area, or watch a date, and it lands here.');
     expect(fetchAreaOutlook).not.toHaveBeenCalled();
   });
 
@@ -454,7 +469,7 @@ describe('Your places, the row at the top of This week', () => {
         date: '2026-10-05', targetType: 'SUNRISE', ratedMembers: 0, totalMembers: 2, gatedMembers: 2,
       }],
     }]);
-    render(list({ areas: [9], starredAreas: [AREA] }));
+    render(list({ areas: [9], bookmarkedAreas: [AREA] }));
     expect(await screen.findByText('2 outside your picks')).toBeInTheDocument();
   });
 });

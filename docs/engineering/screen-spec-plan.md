@@ -75,8 +75,9 @@ Paths are under `frontend/src` unless they say otherwise.
 - Ratings keep `★`.
 
 **The lens (D7 and spec §4, phone).**
-- **The readout is the count only, at every width.** `formatLensCount` → `N spot(s)`, or `N of M spots` when the reach hides some.
-  - `within reach` and `across W windows` go.
+- **The readout is the count and its windows, at every width** (owner amendment 2026-11-24, §9 item 13). `formatLensCount` → `N spot(s) · W window(s)`, or `N of M spots within reach · W window(s)` when the rating floor removes some.
+  - `within reach` stays only where reach was measured (`reachMeasured`: a reader with no home postcode gets `N of M spots · W windows`); the lead number is emphasised and each `·` is `aria-hidden`.
+  - The tier, default and rating words go.
   - `formatLensReadout` and its tier/default/rating branches are deleted with their tests, and the doc references to the readout are updated (`MapView.jsx:8398`, `planConflicts.js:44`).
   - The default words survive only as the selected drive button's `title`, if a test shows they are still read anywhere; otherwise they are deleted.
 - **Phone layout to ≈ 90 px:**
@@ -341,6 +342,7 @@ Paths are under `frontend/src` unless they say otherwise.
 10. **The lens chips are 30 px on a phone (from 40) to meet the spec's band.** The plan-conflict verdict may wrap past it.
 11. **The phone keeps the 2 px `MastheadLight` colour rule.** It shows no times.
 12. **D3's button truncates on a phone**, as the spec's prototype does, with the full text in its accessible name.
+13. **The lens count keeps '· W windows' and 'within reach'** (owner, 2026-11-24, amending D7 for honesty).
 
 ## 10. Review findings → where answered
 

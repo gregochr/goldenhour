@@ -4,9 +4,9 @@ const BASE_URL = '/api/user/settings/favourites';
 
 /**
  * @typedef {object} FavouritesBody
- * @property {Array<{locationId: number, createdAt: string}>} places the starred places, oldest first
- * @property {Array<{areaId: number, createdAt: string}>} areas the starred areas, oldest first
- * @property {number[]} locationIds the starred places plus the enabled members of the starred areas, expanded by the
+ * @property {Array<{locationId: number, createdAt: string}>} places the bookmarked places, oldest first
+ * @property {Array<{areaId: number, createdAt: string}>} areas the bookmarked areas, oldest first
+ * @property {number[]} locationIds the bookmarked places plus the enabled members of the bookmarked areas, expanded by the
  *        server (the client never walks area membership)
  * @property {Array<{key: string, createdAt: string}>} dates the watched almanac dates (one-screen-plan.md D16), oldest
  *        watch first; a key is {@code type:startDate}, for example {@code king-tide:2026-12-03}
@@ -28,7 +28,7 @@ export async function fetchFavourites() {
  * answers with the whole merged list. A new star or watch at the cap of 25 is a 409 whose {@code error} sentence is the
  * one to show.
  *
- * @param {'place'|'area'|'date'} kind what is starred
+ * @param {'place'|'area'|'date'} kind what is bookmarked
  * @param {number|string} id the location or area id, or the watched date's key
  * @param {boolean} on true to star or watch, false to undo
  * @returns {Promise<FavouritesBody>}
