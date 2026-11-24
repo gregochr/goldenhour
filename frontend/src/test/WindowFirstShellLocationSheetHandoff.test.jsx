@@ -1,3 +1,4 @@
+import { openMapView, registerMapDoor } from './shellMapDoor.js';
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
@@ -8,7 +9,7 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  * The Map tab callout's four-day-sheet handoff (map-tab-v2-plan.md §3 P9) — `App.jsx`'s
  * `openLocationSheet`, `openFullMapTab`'s shape in reverse. Scoped like `WindowFirstShellTabs.
  * test.jsx`'s own "a tab requested from outside the bar" block — this file is about routing through
- * `selectTab` so the sheet lands as the ONLY dialog layer, the `inPlan` flag that decides whether
+ * `closeShellLayers` so the sheet lands as the ONLY dialog layer, the `inPlan` flag that decides whether
  * the TAB moves with it, and the nonce guard that keeps a handoff already in flight at mount (or
  * repeated verbatim) from replaying.
  *
@@ -96,10 +97,10 @@ function renderWithHandoff(extra = {}) {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
     locations: [], mapPane: MAP, ...extra,
   };
-  const view = render(<WindowFirstShell {...base} />);
+  const view = render(<WindowFirstShell registerOpenMap={registerMapDoor} {...base} />);
   return {
     ...view,
-    setHandoff: (locationSheetHandoff) => view.rerender(<WindowFirstShell {...base} locationSheetHandoff={locationSheetHandoff} />),
+    setHandoff: (locationSheetHandoff) => view.rerender(<WindowFirstShell registerOpenMap={registerMapDoor} {...base} locationSheetHandoff={locationSheetHandoff} />),
   };
 }
 
@@ -108,14 +109,14 @@ afterEach(() => vi.restoreAllMocks());
 describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () => {
   it('switches to Plan and opens that location\'s four-day sheet when `inPlan` is set', async () => {
     const { setHandoff } = renderWithHandoff();
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
     expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
 
     act(() => setHandoff({
       id: 42, name: 'Bamburgh', regionName: 'North East', inPlan: true, nonce: 1,
     }));
 
-    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
     const sheet = await screen.findByTestId('location-sheet');
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Bamburgh');
     expect(sheet).toBeInTheDocument();
@@ -126,7 +127,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // track on my user journey." The map pane must still be MOUNTED and VISIBLE underneath — a tab
     // switch would have hidden it, and `hidden` is what the assertion below actually catches.
     const { setHandoff } = renderWithHandoff();
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
 
     act(() => setHandoff({
       id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1,
@@ -135,8 +136,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Bamburgh');
     expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
-    // The tab in force never moved (the map is a view over it), and the view stays up under the sheet.
-    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
+    // The view stays up under the sheet.
     expect(screen.getByTestId('map-pane')).toBeInTheDocument();
   });
 
@@ -151,7 +151,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // ("back track on my user journey") failing.
     const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
     const { setHandoff } = renderWithHandoff();
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
     const trigger = screen.getByTestId('map-pane-trigger');
     trigger.focus();
     expect(document.activeElement).toBe(trigger);
@@ -177,7 +177,6 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
       }],
     }));
     // Force the new context to actually apply — the shell has to re-render once.
-    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
     fireEvent.click(screen.getByTestId('window-first-search'));
     fireEvent.change(await screen.findByTestId('plan-search-input'), { target: { value: 'Spot 1' } });
     await act(async () => { fireEvent.click(screen.getAllByTestId('plan-search-row')[0]); });
@@ -198,11 +197,11 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
   });
 
-  it('lands as the only layer on the PEEK route TOO — the route that never calls selectTab(\'plan\')', async () => {
-    // ⚠️ The tab-moving twin above cannot cover this. That one clears through `selectTab('plan')`;
-    // the peek clears through `selectTab(effectiveTab)`, and replacing that call with
-    // `if (toPlanTab) selectTab('plan')` leaves the whole file green without this test —
-    // mutation-proven. What it pins is the reason the peek routes through `selectTab` at all:
+  it('lands as the only layer on the PEEK route TOO — the route that never calls closeShellLayers(\'plan\')', async () => {
+    // ⚠️ The tab-moving twin above cannot cover this. That one clears through `closeShellLayers('plan')`;
+    // the peek clears through `closeShellLayers(effectiveTab)`, and replacing that call with
+    // `if (toPlanTab) closeShellLayers('plan')` leaves the whole file green without this test —
+    // mutation-proven. What it pins is the reason the peek routes through `closeShellLayers` at all:
     // there is exactly ONE definition of "take every dialog this shell owns down", and both routes
     // are it.
     const setHandoff = await openSheetThroughFind();
@@ -214,7 +213,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     expect(dialogs).toHaveLength(1);
     expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
     // And the tab did not move on the way — the whole point of this route.
-    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
   });
 
   it('stamps inPlace on the sheet footer\'s map door, from the tab in force', async () => {
@@ -254,7 +253,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
         badges: [],
       }],
     }));
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
     expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
 
     act(() => setHandoff({
@@ -275,13 +274,13 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // that may not even be the one they are looking at.
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
     render(
-      <WindowFirstShell
+      <WindowFirstShell registerOpenMap={registerMapDoor}
         onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
         locations={[]} mapPane={MAP}
         locationSheetHandoff={{ id: 1, name: 'Spot 1', regionName: 'North East', nonce: 4 }}
       />,
     );
-    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
     expect(screen.queryByTestId('location-sheet')).toBeNull();
   });
 
@@ -320,14 +319,14 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // comment on the map-hatch's identical focus problem, applied in reverse).
     const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
     const { setHandoff } = renderWithHandoff();
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
     act(() => setHandoff({
       id: 1, name: 'Spot 1', regionName: 'North East', inPlan: true, nonce: 1,
     }));
 
     const dialog = await screen.findByTestId('location-sheet');
     expect(document.activeElement).not.toBe(document.body);
-    const onTab = document.activeElement === screen.getByRole('tab', { name: /^At a Glance/ });
+    const onTab = document.activeElement === screen.getByTestId('this-week-heading');
     const onDialog = dialog.contains(document.activeElement);
     expect(onTab || onDialog).toBe(true);
     raf.mockRestore();

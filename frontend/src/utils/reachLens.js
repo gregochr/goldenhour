@@ -296,7 +296,7 @@ export function isUnroutableDropped(spot, limitMinutes, measured) {
 
 /**
  * Whether one spot is within a tier: the predicate {@link gateSpotsByReach} filters with, extracted so the
- * At a Glance field's reach split reads the same test as {@code card.pool}.
+ * This week field's reach split reads the same test as {@code card.pool}.
  *
  * @param {object}  spot         a descriptor with {@code driveMinutes} and {@code driveStatus}
  * @param {?number} limitMinutes the tier's threshold, null for "Any" (everything passes)

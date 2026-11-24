@@ -1,3 +1,4 @@
+import { pressMenuRow } from './shellMapDoor.js';
 import React, { useCallback, useRef, useState } from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
@@ -60,7 +61,7 @@ const back = async () => {
 
 const locationSheet = () => screen.queryByRole('dialog', { name: /the next \d+ windows?/ });
 const searchButton = () => screen.getByRole('button', { name: /Find a place, region or day/ });
-const guideDoor = () => screen.getByRole('button', { name: 'Guide for this tab' });
+const guideDoor = () => pressMenuRow('masthead-menu-guide');
 const guideDialog = () => screen.queryByTestId('guide-dialog');
 const search = () => screen.queryByTestId('plan-search-panel');
 const layers = () => __inspectForTests().layers;
@@ -215,7 +216,7 @@ describe('Plan search', () => {
 
   it('is refused while the modal guide is up (the !guideModal guard): no third layer', async () => {
     await openSheet();
-    fireEvent.click(guideDoor());
+    guideDoor();
     expect(screen.getByTestId('guide-dialog')).toBeInTheDocument();
     await settle();
     const before = layers();
@@ -254,7 +255,7 @@ describe('Plan search', () => {
   });
 });
 
-describe('selectTab with a layer open', () => {
+describe('closeShellLayers with a layer open', () => {
   const closeByTab = async () => {
     const view = mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
@@ -262,7 +263,7 @@ describe('selectTab with a layer open', () => {
     await screen.findByRole('dialog', { name: /the next \d+ windows?/ });
     await settle();
     expect(layers()).toBe(1);
-    fireEvent.click(screen.getByRole('tab', { name: 'Coming up' }));
+    fireEvent.click(screen.getByTestId('further-ahead-jump'));
     await settle();
   };
 

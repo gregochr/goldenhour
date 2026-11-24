@@ -1,6 +1,6 @@
 /**
  * The W3 display helpers in {@code utils/warnings.js} (weather-warnings-plan.md W3): which warnings belong to a
- * window card, the At a Glance warning lanes, the Met Office impact matrix and the text built from served values.
+ * window card, the This week warning lanes, the Met Office impact matrix and the text built from served values.
  *
  * <p>What breaks if these fail: a warning lands on a window it does not cover (or misses one it does), a withdrawn
  * warning lingers on a card after the poll dropped it, the lanes stack in the wrong order or overlap, the matrix

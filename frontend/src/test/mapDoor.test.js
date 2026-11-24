@@ -158,7 +158,7 @@ describe('resolveDoor', () => {
         loc('Elsewhere', 'Yorkshire', 3, { types: ['LANDSCAPE'] }),
       ];
       const ov = resolveDoor(
-        { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+        { kind: 'further-ahead', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
         ctx(locations),
       );
       expect(ov.title).toBe('Spring tide run');
@@ -175,7 +175,7 @@ describe('resolveDoor', () => {
         loc('Unmeasured', 'Northumberland', 3, { bortleClass: null }),
       ];
       const ov = resolveDoor(
-        { kind: 'coming-up', darkSky: true, label: 'Perseids', date: DATE },
+        { kind: 'further-ahead', darkSky: true, label: 'Perseids', date: DATE },
         ctx(locations),
       );
       expect(ov.handoff.darkSky).toBe(true);
@@ -188,7 +188,7 @@ describe('resolveDoor', () => {
         loc('Four', 'Northumberland', 3, { bortleClass: 4 }),
         loc('Five', 'Northumberland', 3, { bortleClass: 5 }),
       ];
-      const ov = resolveDoor({ kind: 'coming-up', darkSky: true, date: DATE }, ctx(locations));
+      const ov = resolveDoor({ kind: 'further-ahead', darkSky: true, date: DATE }, ctx(locations));
       expect(ov.focus.names).toEqual(['Four']);
     });
 
@@ -202,7 +202,7 @@ describe('resolveDoor', () => {
         { ...loc('Switched Off', 'Yorkshire', 3, { lat: 50.0, lon: -5.0, types: ['LANDSCAPE'] }), enabled: false },
       ];
       const ov = resolveDoor(
-        { kind: 'coming-up', filterAction: null, darkSky: false, label: 'Winter solstice · Sun 21 Dec', date: DATE },
+        { kind: 'further-ahead', filterAction: null, darkSky: false, label: 'Winter solstice · Sun 21 Dec', date: DATE },
         ctx(locations),
       );
       expect(ov.title).toBe('Winter solstice · Sun 21 Dec');
@@ -220,15 +220,15 @@ describe('resolveDoor', () => {
 
     it('a plan chip with no label falls back to a generic title rather than a type name', () => {
       const ov = resolveDoor(
-        { kind: 'coming-up', filterAction: null, darkSky: false, date: DATE },
+        { kind: 'further-ahead', filterAction: null, darkSky: false, date: DATE },
         ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
       );
-      expect(ov.title).toBe('Coming up');
+      expect(ov.title).toBe('Further ahead');
     });
 
     it('carries the trigger date, unlike the aurora branch — no rating is ever claimed for it', () => {
       const ov = resolveDoor(
-        { kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-11-26' },
+        { kind: 'further-ahead', filterAction: 'SEASCAPE', date: '2026-11-26' },
         ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
       );
       expect(ov.handoff.date).toBe('2026-11-26');
@@ -236,7 +236,7 @@ describe('resolveDoor', () => {
 
     it('falls back to a null-safe title when nothing matches', () => {
       const ov = resolveDoor(
-        { kind: 'coming-up', darkSky: true, date: DATE },
+        { kind: 'further-ahead', darkSky: true, date: DATE },
         ctx([loc('Nowhere Dark', 'Northumberland', 3, { bortleClass: 8 })]),
       );
       expect(ov.title).toBe('Dark-sky spots');
@@ -302,18 +302,18 @@ describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', 
     // object shape. This pins that it still normalises correctly now that it has no sibling shape
     // to be confused with.
     const trigger = normalizeMapTrigger(
-      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      { kind: 'further-ahead', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
       null,
     );
     expect(trigger).toEqual({
-      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: DATE,
+      kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: DATE,
     });
   });
 
   it('a dark-sky coming-up handoff carries an explicit boolean darkSky and a null filterAction', () => {
-    const trigger = normalizeMapTrigger({ kind: 'coming-up', darkSky: true, date: DATE }, null);
+    const trigger = normalizeMapTrigger({ kind: 'further-ahead', darkSky: true, date: DATE }, null);
     expect(trigger).toEqual({
-      kind: 'coming-up', filterAction: null, darkSky: true, label: null, date: DATE,
+      kind: 'further-ahead', filterAction: null, darkSky: true, label: null, date: DATE,
     });
   });
 
@@ -410,7 +410,7 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
 
   it('coming-up by subject: names the exact spots, the points and the subject filter', () => {
     const door = doorFromTrigger(
-      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      { kind: 'further-ahead', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
       ctx([
         loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
         loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
@@ -426,7 +426,7 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
 
   it('coming-up dark sky: carries darkSky and no filterAction', () => {
     const door = doorFromTrigger(
-      { kind: 'coming-up', darkSky: true, filterAction: null, label: null, date: DATE },
+      { kind: 'further-ahead', darkSky: true, filterAction: null, label: null, date: DATE },
       ctx([loc('Dark', 'Northumberland', 3, { bortleClass: 2 }), loc('Bright', 'Tyne', 3, { bortleClass: 7 })]),
     );
     expect(door.darkSky).toBe(true);
@@ -436,7 +436,7 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
 
   it('coming-up with no subject (a plan chip): fits every pin and names no spot set', () => {
     const door = doorFromTrigger(
-      { kind: 'coming-up', filterAction: null, darkSky: false, label: null, date: DATE },
+      { kind: 'further-ahead', filterAction: null, darkSky: false, label: null, date: DATE },
       ctx([loc('A', 'North', 3), loc('B', 'South', 3)]),
     );
     expect(door.focusPoints).toHaveLength(2);

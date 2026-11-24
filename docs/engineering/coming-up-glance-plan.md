@@ -1,5 +1,7 @@
 # Coming up tidy and "At a Glance": build plan
 
+> **Tab parts superseded (one-screen-plan.md O3, 2026-11-24).** There is no "At a Glance" or "Coming up" tab and no tab labels: the sections are **This week** and **Further ahead** on one screen. See `docs/engineering/one-screen-plan.md`.
+
 Owner ask, 2026-10-24. The handoff is in `docs/design/coming-up-glance/`:
 
 - `README.md`, the spec;

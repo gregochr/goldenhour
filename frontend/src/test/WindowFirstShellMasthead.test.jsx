@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import { openMapView, registerMapDoor } from './shellMapDoor.js';
 
 /**
  * The Plan's masthead, and specifically the status pill it inherited from the app header it
@@ -69,7 +70,7 @@ const renderShell = (extraProps = {}, ctxOverrides = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing')
     .mockReturnValue({ ...ctx(), ...ctxOverrides });
   const props = {
-    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
+    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [], registerOpenMap: registerMapDoor,
     ...extraProps,
   };
   return { ...props, ...render(<WindowFirstShell {...props} />) };
@@ -89,8 +90,7 @@ describe('WindowFirstShell — the masthead status pill', () => {
     renderShell();
     expect(screen.queryByTestId('health-indicator')).toBeNull();
     // The rest of the masthead is unaffected — the gap collapses on its own.
-    expect(screen.getByTestId('window-first-settings')).toBeInTheDocument();
-    expect(screen.getByTestId('window-first-signout')).toBeInTheDocument();
+    expect(screen.getByTestId('masthead-menu-button')).toBeInTheDocument();
   });
 
   it('renders the pill in the masthead when one is handed over', () => {
@@ -99,12 +99,11 @@ describe('WindowFirstShell — the masthead status pill', () => {
     expect(masthead).toContainElement(screen.getByTestId('health-indicator'));
   });
 
-  // Reading first, then the two controls. A pill dropped between the cog and Sign out would
-  // split a pair the reader treats as one group.
-  it('places it ahead of the settings cog and Sign out', () => {
+  // Reading first, then the control. The pill sits ahead of the ☰ menu it used to sit beside the cog and Sign out for.
+  it('places it ahead of the ☰ menu button', () => {
     renderShell({ healthPill: PILL });
     const pill = screen.getByTestId('health-indicator');
-    const cog = screen.getByTestId('window-first-settings');
+    const cog = screen.getByTestId('masthead-menu-button');
     expect(pill.compareDocumentPosition(cog) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
@@ -221,13 +220,12 @@ describe('WindowFirstShell — the lit band', () => {
     expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Newcastle');
   });
 
-  it('carries exactly the tick line\'s controls beside the two it already had', () => {
+  it('carries exactly the tick line\'s controls beside the ☰ menu it already had', () => {
     renderShell({ light: LIGHT });
     const masthead = screen.getByTestId('window-first-masthead');
 
     expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
-      .toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
-        'window-first-origin-chip', 'window-first-search']);
+      .toEqual(['masthead-menu-button', 'window-first-origin-chip', 'window-first-search']);
     // No home button at home, and no nudge once the light has resolved.
     expect(screen.queryByTestId('window-first-origin-home')).toBeNull();
     expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
@@ -241,8 +239,7 @@ describe('WindowFirstShell — the lit band', () => {
     const masthead = screen.getByTestId('window-first-masthead');
 
     expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
-      .toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
-        'masthead-set-postcode', 'window-first-search']);
+      .toEqual(['masthead-menu-button', 'masthead-set-postcode', 'window-first-search']);
   });
 
   it('stays out of the greying a DOWN backend applies, like the rest of the band', () => {
@@ -288,7 +285,7 @@ describe('WindowFirstShell — the compact phone masthead', () => {
   const DOT = <span data-testid="health-dot">dot</span>;
   const LINE = <button type="button" data-testid="health-status-line">UP</button>;
   const openMenu = () => fireEvent.click(screen.getByTestId('masthead-menu-button'));
-  const mapTab = () => fireEvent.click(screen.getByTestId('window-first-tab-map'));
+  const mapTab = () => openMapView();
 
   describe('on the phone', () => {
     beforeEach(() => { mockIsMobile = true; });
@@ -300,7 +297,7 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(screen.getByRole('heading', { name: /PhotoCast/ })).toBeInTheDocument();
     });
 
-    it('renders no cog and no Sign out button at rest — they live in the ⋯ menu', () => {
+    it('renders no cog and no Sign out button at rest — they live in the ☰ menu', () => {
       renderShell({ light: LIGHT });
       expect(screen.queryByTestId('window-first-settings')).toBeNull();
       expect(screen.queryByTestId('window-first-signout')).toBeNull();
@@ -402,26 +399,26 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(onOpenSettings).toHaveBeenCalledTimes(1);
     });
 
-    it('⚠️ does not reopen the menu after a rotation to tablet and back', () => {
+    it('keeps one menu through a rotation to a tablet and back: the shell holds its state and the button is drawn at every width', () => {
       const { rerender, ...rest } = renderShell();
       openMenu();
       expect(screen.getByTestId('masthead-menu')).toBeInTheDocument();
 
       mockIsMobile = false;
       rerender(<WindowFirstShell {...rest} />);
-      expect(screen.queryByTestId('masthead-menu-button')).toBeNull();
+      expect(screen.getByTestId('masthead-menu-button')).toHaveAttribute('aria-expanded', 'true');
       mockIsMobile = true;
       rerender(<WindowFirstShell {...rest} />);
 
-      expect(screen.getByTestId('masthead-menu-button')).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.queryByTestId('masthead-menu')).toBeNull();
+      expect(screen.getByTestId('masthead-menu-button')).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getAllByTestId('masthead-menu-button')).toHaveLength(1);
     });
 
-    it('closes the menu when a tab is chosen (selectTab takes it down)', () => {
+    it('closes the menu when the reader jumps to Further ahead (closeShellLayers takes it down)', () => {
       renderShell({}, { });
       openMenu();
       expect(screen.getByTestId('masthead-menu')).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('tab', { name: 'Coming up' }));
+      fireEvent.click(screen.getByTestId('further-ahead-jump'));
       expect(screen.queryByTestId('masthead-menu')).toBeNull();
     });
 
@@ -445,19 +442,21 @@ describe('WindowFirstShell — the compact phone masthead', () => {
   });
 
   describe('off the phone (desktop and tablet provably unchanged)', () => {
-    it('keeps the masthead lockup with its kicker, the cog, Sign out and the tick line with times', () => {
+    it('keeps the masthead lockup with its kicker, the ☰ menu with Settings and Sign out, and the tick line with times', () => {
       renderShell({ light: LIGHT, healthPill: PILL, healthDot: DOT, healthStatusLine: LINE });
       expect(screen.getByTestId('brand-lockup')).toHaveAttribute('data-variant', 'masthead');
       expect(screen.getByText('Field guide to light')).toBeInTheDocument();
+      expect(screen.getByTestId('masthead-menu-button')).toBeInTheDocument();
+      openMenu();
       expect(screen.getByTestId('window-first-settings')).toBeInTheDocument();
       expect(screen.getByTestId('window-first-signout')).toBeInTheDocument();
       expect(screen.getByTestId('masthead-light-times')).toHaveTextContent('06:04');
       expect(screen.getByTestId('health-indicator')).toBeInTheDocument();
     });
 
-    it('renders none of the phone chrome', () => {
+    it('renders none of the phone-only chrome (the ☰ menu is every width\'s, but its status line is the phone\'s)', () => {
       renderShell({ light: LIGHT, healthDot: DOT, healthStatusLine: LINE });
-      expect(screen.queryByTestId('masthead-menu-button')).toBeNull();
+      openMenu();
       expect(screen.queryByTestId('masthead-phone-times')).toBeNull();
       expect(screen.queryByTestId('window-first-mast-row')).toBeNull();
       expect(screen.queryByTestId('health-dot')).toBeNull();

@@ -439,7 +439,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
     fireEvent.click(chipNamed('Show coastal spots for Fri 9 Oct'));
     expect(onShowOnMap).toHaveBeenCalledTimes(1);
     expect(onShowOnMap).toHaveBeenCalledWith({
-      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false,
+      kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: false,
       label: 'Spring tide run · Fri 9 Oct', date: '2026-10-09',
     });
   });
@@ -454,7 +454,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
     expect(screen.getByRole('group', { name: 'Dark-sky spots by day' })).toBeInTheDocument();
     fireEvent.click(chipNamed('Show dark-sky spots for Sat 10 Oct'));
     expect(onShowOnMap).toHaveBeenCalledWith({
-      kind: 'coming-up', filterAction: null, darkSky: true,
+      kind: 'further-ahead', filterAction: null, darkSky: true,
       label: 'Perseid run · Sat 10 Oct', date: '2026-10-10',
     });
   });
@@ -472,7 +472,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
     fireEvent.click(chipNamed('Show all spots for Sat 10 Oct'));
     expect(onShowOnMap).toHaveBeenCalledTimes(1);
     expect(onShowOnMap).toHaveBeenCalledWith({
-      kind: 'coming-up', filterAction: null, darkSky: false,
+      kind: 'further-ahead', filterAction: null, darkSky: false,
       label: 'Winter solstice · Sat 10 Oct', date: '2026-10-10',
     });
     expect(onGoToPlan).not.toHaveBeenCalled();
@@ -523,7 +523,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
       expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
       fireEvent.click(chipNamed('Show dark-sky spots for Wed 21, peak day, Oct'));
       expect(onShowOnMap).toHaveBeenCalledWith({
-        kind: 'coming-up', filterAction: null, darkSky: true,
+        kind: 'further-ahead', filterAction: null, darkSky: true,
         label: 'Orionids · Wed 21 Oct', date: '2026-10-21',
       });
     });
@@ -563,7 +563,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
         fireEvent.click(chipNamed('Show all spots for Wed 21, peak day, Oct'));
         expect(onShowOnMap).toHaveBeenCalledTimes(1);
         expect(onShowOnMap).toHaveBeenCalledWith({
-          kind: 'coming-up', filterAction: null, darkSky: false,
+          kind: 'further-ahead', filterAction: null, darkSky: false,
           label: 'Partial eclipse · Wed 21 Oct', date: '2026-10-21',
         });
         fireEvent.click(screen.getByTestId('coming-up-card'));
@@ -720,7 +720,7 @@ describe('WindowComingUpEntry — the click seam (plan §11.5, D8)', () => {
     });
     fireEvent.click(screen.getByRole('button'));
     expect(onShowOnMap).toHaveBeenCalledWith({
-      kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: '2026-08-16',
+      kind: 'further-ahead', filterAction: 'SEASCAPE', label: 'Spring tide run', date: '2026-08-16',
     });
   });
 
@@ -732,7 +732,7 @@ describe('WindowComingUpEntry — the click seam (plan §11.5, D8)', () => {
     });
     fireEvent.click(screen.getByRole('button'));
     expect(onShowOnMap).toHaveBeenCalledWith({
-      kind: 'coming-up', darkSky: true, label: 'Perseids', date: '2026-08-16',
+      kind: 'further-ahead', darkSky: true, label: 'Perseids', date: '2026-08-16',
     });
   });
 

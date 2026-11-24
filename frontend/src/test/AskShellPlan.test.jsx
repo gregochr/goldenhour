@@ -1,3 +1,4 @@
+import { openMapView } from './shellMapDoor.js';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
@@ -47,8 +48,6 @@ import { getAstroConditions } from '../api/astroApi.js';
 
 const TOMORROW = '2026-10-06';
 
-// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
-const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const modalCount = () => document.querySelectorAll('[aria-modal="true"]').length;
 const dock = () => screen.queryByTestId('ask-dock');
 const askSheet = () => screen.queryByRole('dialog', { name: 'Ask PhotoCast' });
@@ -178,19 +177,19 @@ describe('on the dock (1024px and up)', () => {
     expect(modalCount()).toBe(1);
     expect(dock()).toBeInTheDocument();
     expect(dock()).toHaveAttribute('inert');
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
   });
 
   it('from the MAP tab it moves to Plan, and the dock stays open beside it', async () => {
     await dockWithAnswer({ props: { mapPane: MAP_PANE } });
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
     expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     await planThis(2);
 
     fireEvent.click(screen.getByTestId('ask-plan-open'));
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
     expect(dock()).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Saltburn');
     // Pick 2 is Saltburn TONIGHT: the window comes from the pick, whichever tab it was pressed on.
@@ -204,7 +203,7 @@ describe('on the dock (1024px and up)', () => {
     resetDialogHistory();
     try {
       await dockWithAnswer({ props: { mapPane: MAP_PANE } });
-      fireEvent.click(screen.getByTestId('window-first-tab-map'));
+      openMapView();
       await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 30); }); });
       expect(window.location.hash).toMatch(/^#map/);
       await planThis(2);
@@ -252,23 +251,6 @@ describe('on the dock (1024px and up)', () => {
     await waitFor(() => expect(locationSheet()).toBeNull());
 
     expect(document.activeElement).toBe(screen.getByTestId('ask-plan-open'));
-  });
-
-  it('the way out never yanks a reader who arrowed to another tab (which closes the sheet too)', async () => {
-    await dockWithAnswer({ props: { mapPane: MAP_PANE, operationsPane: <p>operations</p> } });
-    await planThis(1);
-    const open = screen.getByTestId('ask-plan-open');
-    open.focus();
-    fireEvent.click(open);
-    await screen.findByTestId('location-sheet');
-
-    // ArrowRight steps over the Coming up door to Operations. It takes the dialogs down and leaves focus on the tab
-    // the reader arrowed to, not back on the Ask control the sheet was opened from.
-    fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowRight' });
-
-    await waitFor(() => expect(locationSheet()).toBeNull());
-    expect(tab('Operations')).toHaveAttribute('aria-selected', 'true');
-    expect(document.activeElement).toBe(tab('Operations'));
   });
 
   it('the way out never yanks a reader who has gone elsewhere', async () => {
@@ -331,7 +313,7 @@ describe('on the dock (1024px and up)', () => {
     expect(highlighted()).toHaveLength(1);
 
     // The map view over the screen: the cards under it are inert, so the highlight is not live.
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
 
     expect(dock()).toBeInTheDocument();
     expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
@@ -502,7 +484,7 @@ describe.each([
     expect(modalCount()).toBe(1);
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Whitby');
     expect(openRowKey()).toBe(`${TOMORROW}:SUNRISE`);
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
   });
 
   it('refuses over a dialog this shell does not own — and only Ask’s OWN sheet is excused, not any dialog', async () => {
@@ -606,7 +588,7 @@ describe('the tablet sheet over the Map', () => {
     // Ask from the Map tab itself.
     fireEvent.click(within(askSheet()).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(askSheet()).toBeNull());
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
     fireEvent.click(screen.getByTestId('ask-field'));
     await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
     await askOne();
@@ -616,7 +598,7 @@ describe('the tablet sheet over the Map', () => {
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(askSheet()).toBeNull();
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
     expect(modalCount()).toBe(1);
   });
 });

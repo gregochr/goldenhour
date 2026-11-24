@@ -1,5 +1,4 @@
 import PropTypes from 'prop-types';
-import { GLANCE_LABEL } from '../utils/tabLabels.js';
 import {
   compareWarnings, levelClasses, warningLabel,
 } from '../utils/warnings.js';
@@ -25,7 +24,7 @@ function destination(lane) {
   if (lane.mapDoor) {
     return `opens the Map that ${lane.mapDoor.eventType === 'SUNSET' ? 'evening' : 'morning'}`;
   }
-  if (lane.target) return `opens the ${GLANCE_LABEL} window`;
+  if (lane.target) return 'opens that window on the map';
   return null;
 }
 
@@ -62,7 +61,7 @@ function spokenTail(lane, date) {
 }
 
 /**
- * The At a Glance "The days ahead" lanes (days-ahead-lanes-plan.md; design handoff "At a Glance — The days ahead
+ * The This week "The days ahead" lanes (days-ahead-lanes-plan.md; design handoff "This week — The days ahead
  * as lanes") — one compact row per RUN of a topic, placed under its day and spanning the columns it covers. It
  * replaced the stacked per-day pills (glance-topic-strip-plan.md) and keeps their accessible-name construction
  * and tap routes.
@@ -275,7 +274,7 @@ function WarningLane({ lane, phone, date, onTap }) {
           <span data-testid="wf-warning-lane-updated" className="wf-wlane-upd">Updated</span>
         </>
       )}
-      <span className="sr-only">{`, ${span}${tappable ? `, opens the ${GLANCE_LABEL} window` : ''}`}</span>
+      <span className="sr-only">{`, ${span}${tappable ? ', opens that window on the map' : ''}`}</span>
     </>
   );
   return (

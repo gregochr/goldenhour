@@ -1,10 +1,10 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, closeMapView, openTab, openFurtherAhead, visibleChips, CHIP_NAME,
+  test, expect, loginAndWaitForForecast, openMapView, closeMapView, openFurtherAhead, visibleChips, CHIP_NAME,
 } from './fixture.js';
 
 /**
- * Find on every tab (find-and-favourites-plan.md F1), on the seeded fixture: the masthead button and ⌘K / Ctrl K,
- * and what a pick does on each tab. A place picked on the Map flies the map to it and opens its callout without
+ * Find on the screen and the map view (find-and-favourites-plan.md F1), on the seeded fixture: the masthead button and
+ * ⌘K / Ctrl K, and what a pick does on each. A place picked on the Map flies the map to it and opens its callout without
  * moving the reader's window; picked with Further ahead on screen it opens its sheet there, as on the rest of the screen;
  * one Escape closes only Find over a selected callout; a second ⌘K closes it.
  *
@@ -31,9 +31,9 @@ test.describe('Find everywhere', () => {
   test('the Find button and ⌘K open Find on the screen, down at Further ahead, and on the Map, and a second ⌘K closes it', async ({ page }) => {
     for (const id of ['plan', 'further-ahead', 'map']) {
       // The Map is a view: its Find button is the header's, and the masthead's is inert behind it.
-      if (id === 'map') await openMapTab(page);
+      if (id === 'map') await openMapView(page);
       else if (id === 'further-ahead') await openFurtherAhead(page);
-      else await openTab(page, id);
+      // 'plan' is the screen as it opened: nothing to press.
       const findButton = page.getByTestId(id === 'map' ? 'map-screen-find' : 'window-first-search');
       await findButton.click();
       await expect(FIND(page)).toBeVisible();
@@ -51,7 +51,7 @@ test.describe('Find everywhere', () => {
   });
 
   test('⚠️ on the Map a place flies there and opens its callout, keeping the reader\'s window', async ({ page }) => {
-    await openMapTab(page);
+    await openMapView(page);
     const pill = page.getByTestId('wf-win-pill');
     const windowBefore = await pill.textContent();
     const name = await aChipName(page);
@@ -69,7 +69,7 @@ test.describe('Find everywhere', () => {
   });
 
   test('⚠️ one Escape closes only Find over a selected callout', async ({ page }) => {
-    await openMapTab(page);
+    await openMapView(page);
     const name = await aChipName(page);
     await visibleChips(page).first().click();
     const callout = page.getByTestId('map-callout');
@@ -87,7 +87,7 @@ test.describe('Find everywhere', () => {
   });
 
   test('⚠️ with Further ahead on screen a place opens its sheet there, on the same screen', async ({ page }) => {
-    await openMapTab(page);
+    await openMapView(page);
     const name = await aChipName(page);
     await closeMapView(page);
     await openFurtherAhead(page);
@@ -99,14 +99,14 @@ test.describe('Find everywhere', () => {
     await expect(page.getByTestId('plan-search-panel')).toBeInViewport();
     await page.getByRole('option', { name: new RegExp(name) }).first().click();
 
-    await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeHidden();
     await expect(page.getByTestId('location-sheet')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('location-sheet')).toHaveCount(0);
   });
 
   test('Back closes Find on the Map', async ({ page }) => {
-    await openMapTab(page);
+    await openMapView(page);
     await press(page);
     await expect(FIND(page)).toBeVisible();
 

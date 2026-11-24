@@ -16,8 +16,8 @@ describe('guide tables', () => {
       index: 'Guide',
       'getting-started': 'Getting started',
       'reading-the-forecast': 'Reading the forecast',
-      'at-a-glance': 'At a Glance',
-      'coming-up': 'Coming up',
+      'at-a-glance': 'This week',
+      'coming-up': 'Further ahead',
       map: 'Map',
       'weather-warnings': 'Weather warnings',
       'night-sky': 'Aurora and night sky',
@@ -30,7 +30,7 @@ describe('guide tables', () => {
 
   it('maps each tab to its guide page', async () => {
     const mod = await loadGuide();
-    expect(mod.TAB_GUIDE).toEqual({ plan: 'at-a-glance', 'coming-up': 'coming-up', map: 'map' });
+    expect(mod.TAB_GUIDE).toEqual({ plan: 'at-a-glance', map: 'map' });
   });
 
   it('lists every page and section the app opens', async () => {

@@ -502,7 +502,7 @@ export function forecastScoreRows(locations, windows) {
 const NO_POINTS = Object.freeze([]);
 
 /**
- * Splits a point list by the drive tier, for the At a Glance field's draw-only fade.
+ * Splits a point list by the drive tier, for the This week field's draw-only fade.
  *
  * <p>Reads the same predicate {@code card.pool} is gated with ({@link spotPassesReach}) over the same
  * effective drive map, so a place a card's words count as within is painted within. A point with no id or

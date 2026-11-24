@@ -130,15 +130,15 @@ describe('an answer remembers the context it was asked in', () => {
     });
   });
 
-  it('⚠️ a tab switch does not relabel it: the chips keep saying what was SENT', async () => {
+  it('⚠️ a move to the screen does not relabel it: the chips keep saying what was SENT', async () => {
     ask.mockResolvedValue(ownResponse());
     const view = await renderAsk();
     await askTyped('Where is good?', SENT);
     expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · The Lake District');
     expect(screen.getByTestId('ask-chip-window')).toHaveTextContent('Saturday sunrise');
 
-    // The reader moves to Coming up: the surface now says something else...
-    view.rerender(tree({ view: 'coming-up', viewLabel: 'Coming up · all regions' }));
+    // The reader leaves the map for the screen: the surface now says something else...
+    view.rerender(tree({ view: 'plan', viewLabel: 'This week · all regions' }));
 
     // ...but the answer on screen was not asked there.
     expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · The Lake District');

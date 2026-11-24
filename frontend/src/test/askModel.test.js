@@ -303,8 +303,8 @@ describe('the Ready list', () => {
     expect(questionsForView(questions, 'plan').map((q) => q.id)).toEqual(['BEST_NEXT', 'AM_OR_PM', 'RARE_EVENTS']);
     expect(questionsForView(questions, 'map').map((q) => q.id))
       .toEqual(['BEST_NEXT', 'COASTAL_HIGH', 'RARE_EVENTS']);
-    // The Coming up view is retired (one-screen-plan.md D8): no served question names it.
-    expect(questionsForView(questions, 'coming-up')).toEqual([]);
+    // A view no served question names offers nothing (the Coming up view is retired: one-screen-plan.md D8).
+    expect(questionsForView(questions, 'nowhere')).toEqual([]);
   });
 
   it('offers nothing from a malformed list', () => {

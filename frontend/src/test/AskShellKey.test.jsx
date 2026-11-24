@@ -1,3 +1,4 @@
+import { openMapView } from './shellMapDoor.js';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
@@ -57,8 +58,6 @@ async function fieldReady() {
   return found;
 }
 const field = () => screen.getByTestId('ask-field');
-// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
-const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 
 /** Presses `/` on `target` and returns the event, so a test can read `defaultPrevented`. */
 function slash(target = document, init = {}) {
@@ -123,7 +122,7 @@ describe('what / does at 1024px and up', () => {
   it('and on Coming up', async () => {
     renderAskShell({ width: 1280 });
     await fieldReady();
-    fireEvent.click(tab('Coming up'));
+    fireEvent.click(screen.getByTestId('further-ahead-jump'));
     slash();
     expect(await screen.findByTestId('ask-dock')).toBeInTheDocument();
     expect(screen.getByTestId('ask-input')).toHaveFocus();
@@ -132,7 +131,7 @@ describe('what / does at 1024px and up', () => {
   it('and on the Map', async () => {
     renderAskShell({ width: 1280, props: { mapPane: MAP_PANE } });
     await fieldReady();
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
     slash();
     expect(await screen.findByTestId('ask-dock')).toBeInTheDocument();
     expect(screen.getByTestId('ask-input')).toHaveFocus();
@@ -156,8 +155,8 @@ describe('what / does at 1024px and up', () => {
   it('is not tied to the field being the thing in focus: it works with focus on the tab list', async () => {
     renderAskShell({ width: 1280 });
     await fieldReady();
-    tab('At a Glance').focus();
-    slash(tab('At a Glance'));
+    screen.getByTestId('this-week-heading').focus();
+    slash(screen.getByTestId('this-week-heading'));
     expect(await screen.findByTestId('ask-dock')).toBeInTheDocument();
   });
 
@@ -187,14 +186,14 @@ describe('what / does at 1024px and up', () => {
 
 describe('what / does NOT do', () => {
   it('nothing on Operations, which has no Ask', async () => {
-    renderAskShell({ width: 1280, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
+    const { rerenderShell } = renderAskShell({ width: 1280, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await fieldReady();
     // The control: on Plan the same key acts. Then the dock is closed again so the absence is real.
     await expectActs();
     fireEvent.click(screen.getByTestId('ask-dock-close'));
     expect(dock()).toBeNull();
 
-    fireEvent.click(tab('Operations'));
+    rerenderShell({ operationsOpen: true });
     expect(screen.queryByTestId('ask-field')).toBeNull();
     expectRefused(slash());
   });

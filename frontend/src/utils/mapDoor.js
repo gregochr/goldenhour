@@ -115,7 +115,7 @@ export function spotsNamed(spots, names) {
  * data already on the client (locations, forecasts, briefing scores); no new data.
  *
  * @param {Object} trigger  normalised trigger ({@link normalizeMapTrigger}):
- *   { kind: 'region'|'event'|'location'|'coming-up'|'aurora', region?, locationName?, filterAction?,
+ *   { kind: 'region'|'event'|'location'|'further-ahead'|'aurora', region?, locationName?, filterAction?,
  *     darkSky?, label?, date, eventType }
  * @param {Object} ctx  { locations, briefingScores, todayStr, tomorrowStr, outlierKeys? } -
  *   `outlierKeys` ({@link outlierKeysOf}) is absent on a caller with no briefing, which reads as
@@ -168,7 +168,7 @@ export function resolveDoor(trigger, ctx) {
   // `focus: { points }` with NO `names`, the shape the `event` all-regions arm uses below.
   // The `date` IS carried, deliberately - this branch never calls `ratingFor`/`solarTimeFor` for it,
   // so a Coming-up date past Plan's four-day horizon cannot dress "no data" as "stand down".
-  if (trigger.kind === 'coming-up') {
+  if (trigger.kind === 'further-ahead') {
     const unfiltered = !trigger.darkSky && !trigger.filterAction;
     let matches;
     if (trigger.darkSky) {
@@ -181,7 +181,7 @@ export function resolveDoor(trigger, ctx) {
     const points = matches.map((l) => [l.lat, l.lon]);
     const regions = new Set(matches.map((l) => l.regionName).filter(Boolean));
     return {
-      title: trigger.label || (trigger.darkSky ? 'Dark-sky spots' : trigger.filterAction) || 'Coming up',
+      title: trigger.label || (trigger.darkSky ? 'Dark-sky spots' : trigger.filterAction) || 'Further ahead',
       subLine: regions.size > 0 ? `${regions.size} ${regions.size === 1 ? 'region' : 'regions'}` : null,
       focus: points.length > 0
         ? { points, ...(unfiltered ? {} : { names: matches.map((l) => l.name) }) }
@@ -304,7 +304,7 @@ export function resolveDoor(trigger, ctx) {
  * <h2>Order is the whole point</h2>
  *
  * <p>Every `else if` here is checked against the shape of `dateOrHandoff`, and it used to matter
- * that the `kind:'coming-up'` check (D8's map channel) ran BEFORE the generic `filterAction`-bearing
+ * that the `kind:'further-ahead'` check (D8's map channel) ran BEFORE the generic `filterAction`-bearing
  * check that used to become `kind:'topic'` — both objects carried a `filterAction`, and getting the
  * order wrong would have silently turned a coastal/dark-sky action into a `kind:'topic'` trigger
  * instead. P6 (`docs/engineering/coming-up-plan.md` D7) deleted `kind:'topic'` and its only caller,
@@ -327,13 +327,13 @@ export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = nul
   if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'astro') {
     return { kind: 'astro', date: dateOrHandoff.date };
   }
-  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'coming-up') {
+  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'further-ahead') {
     // The Coming up chronology's own map channel (D8) — named explicitly. It used to be checked
     // ahead of a generic `filterAction` branch that became `kind:'topic'`, since both shapes carried
     // a `filterAction`; P6 deleted that branch and its only caller (`HotTopicStrip`), so `coming-up`
     // is now the sole producer of a bare `filterAction` handoff.
     return {
-      kind: 'coming-up',
+      kind: 'further-ahead',
       filterAction: dateOrHandoff.filterAction ?? null,
       darkSky: !!dateOrHandoff.darkSky,
       label: dateOrHandoff.label ?? null,

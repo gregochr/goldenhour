@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import {
-  test, expect, loginAndWaitForForecast, openTab, openFurtherAhead, openMapTab, clickMiddleChip,
+  test, expect, loginAndWaitForForecast, openMenu, openOperations, openFurtherAhead, openMapView, clickMiddleChip,
 } from '../smoke/fixture.js';
 
 /**
@@ -109,8 +109,7 @@ test.describe('Accessibility scan (advisory)', () => {
       await loginAndWaitForForecast(page);
     });
 
-    test('Plan (At a Glance)', async ({ page }, testInfo) => {
-      await openTab(page, 'plan');
+    test('This week', async ({ page }, testInfo) => {
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
       await scan(page, testInfo, 'plan');
     });
@@ -128,21 +127,29 @@ test.describe('Accessibility scan (advisory)', () => {
     // tab. The scan covers the whole page, so it also proves the inert screen, the header's window control and the
     // region's own label raise nothing.
     test('Map view', async ({ page }, testInfo) => {
-      await openMapTab(page);
+      await openMapView(page);
       await expect(page.getByRole('region', { name: /./ }).and(page.getByTestId('map-screen'))).toBeVisible();
       await scan(page, testInfo, 'map');
     });
 
     test('Map view with Find open over it', async ({ page }, testInfo) => {
-      await openMapTab(page);
+      await openMapView(page);
       await page.getByTestId('map-screen-find').click();
       await expect(page.getByTestId('plan-search-panel')).toBeVisible();
       await scan(page, testInfo, 'map-find');
     });
 
+    // The ☰ menu is the one masthead control at every width, so its open state is scanned on its own.
+    test('Menu open', async ({ page }, testInfo) => {
+      await openMenu(page);
+      await expect(page.getByTestId('masthead-menu-operations')).toBeVisible();
+      await scan(page, testInfo, 'menu');
+    });
+
+    // Reached through the ☰ menu, as a reader reaches it (one-screen-plan.md D9); the scan is of the view itself.
     test('Operations', async ({ page }, testInfo) => {
-      await openTab(page, 'operations');
-      await expect(page.getByTestId('window-first-panel-operations')).toBeVisible();
+      await openOperations(page);
+      await expect(page.getByTestId('operations-title')).toBeFocused();
       // The opening section (Runs) loads over the network: scan it once its day summary and timeline are in (the
       // "Updated HH:MM" line appears only after the load), never mid-load.
       await expect(page.getByTestId('runs-view')).toBeVisible();
@@ -154,7 +161,6 @@ test.describe('Accessibility scan (advisory)', () => {
     // Find with an Areas group typed in, and the area sheet it opens (find-and-favourites-plan.md F2). The seeded
     // fixture holds three sub-regions, so "northumb" lists one under the Areas heading.
     test('Find, with areas', async ({ page }, testInfo) => {
-      await openTab(page, 'plan');
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
       await page.getByTestId('window-first-search').click();
       await page.getByTestId('plan-search-input').fill('northumb');
@@ -163,7 +169,6 @@ test.describe('Accessibility scan (advisory)', () => {
     });
 
     test('area sheet', async ({ page }, testInfo) => {
-      await openTab(page, 'plan');
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
       await page.getByTestId('window-first-search').click();
       await page.getByTestId('plan-search-input').fill('northumb');
@@ -175,7 +180,6 @@ test.describe('Accessibility scan (advisory)', () => {
     });
 
     test('location sheet (from Find)', async ({ page }, testInfo) => {
-      await openTab(page, 'plan');
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
       await page.getByTestId('window-first-search').click();
       await page.getByTestId('plan-search-input').fill('Bamburgh');
@@ -191,7 +195,6 @@ test.describe('Accessibility scan (advisory)', () => {
     // toast scan WRITES one favourite and takes it straight back with Undo, so the seeded reader's list ends as it began
     // (the one exception to this suite's read-only rule, and the only way to show the toast).
     test('location sheet with the Your places toggle, and its undo toast', async ({ page }, testInfo) => {
-      await openTab(page, 'plan');
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
       await page.getByTestId('window-first-search').click();
       await page.getByTestId('plan-search-input').fill('Bamburgh');
@@ -210,7 +213,7 @@ test.describe('Accessibility scan (advisory)', () => {
     });
 
     test('Map view callout (the peek sheet on a phone)', async ({ page }, testInfo) => {
-      await openMapTab(page);
+      await openMapView(page);
       await clickMiddleChip(page);
       await expect(page.getByTestId('map-callout')).toBeVisible();
       await expect(page.getByTestId('map-callout-reason')).toBeVisible();

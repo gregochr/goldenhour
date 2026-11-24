@@ -40,8 +40,8 @@ export const GUIDE_PAGES = Object.freeze({
   index: 'Guide',
   'getting-started': 'Getting started',
   'reading-the-forecast': 'Reading the forecast',
-  'at-a-glance': 'At a Glance',
-  'coming-up': 'Coming up',
+  'at-a-glance': 'This week',
+  'coming-up': 'Further ahead',
   map: 'Map',
   'weather-warnings': 'Weather warnings',
   'night-sky': 'Aurora and night sky',
@@ -54,7 +54,6 @@ export const GUIDE_PAGES = Object.freeze({
 /** The tab id (as `WindowFirstShell` names it) to the guide page that explains it. No Operations entry. */
 export const TAB_GUIDE = Object.freeze({
   plan: 'at-a-glance',
-  'coming-up': 'coming-up',
   map: 'map',
 });
 

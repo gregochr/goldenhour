@@ -294,7 +294,7 @@ export function warningsForCard(served, card) {
 }
 
 /**
- * The At a Glance warning lanes: one lane per run of consecutive live matrix columns in which a warning applies to a
+ * The This week warning lanes: one lane per run of consecutive live matrix columns in which a warning applies to a
  * window, most severe warning first (the style guide's order, so a Red takes the top row before span is considered).
  * Presentation only: which warning applies to which card is {@code warningsOfCard}'s answer.
  *

@@ -196,9 +196,9 @@ describe('WindowGlanceLanes — the accessible name is built from content', () =
     expect(lane('DUST')).toHaveAccessibleName('Dust, Monday');
   });
 
-  it('names the At a Glance window for a lane that opens one', () => {
+  it('names the This week window for a lane that opens one', () => {
     renderLanes([dust], { builderArgs: { openableKeys: new Set([`${MON}:SUNSET`]) } });
-    expect(lane('DUST')).toHaveAccessibleName('Dust, Monday, opens the At a Glance window');
+    expect(lane('DUST')).toHaveAccessibleName('Dust, Monday, opens that window on the map');
   });
 
   it('names the Map door for a weather lane, morning or evening', () => {

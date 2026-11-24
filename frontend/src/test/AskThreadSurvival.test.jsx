@@ -1,3 +1,4 @@
+import { openMapView } from './shellMapDoor.js';
 /**
  * The Ask conversation SURVIVES every route between two questions except an explicit "New conversation"
  * (`docs/engineering/ask-thread-plan.md` §3 T4, "As built"; the 2026-10-11 production report that a second
@@ -144,7 +145,7 @@ describe('between two questions on the phone Plan sheet', () => {
 
   it('(c) Plan → Map → Plan (the shell closes the sheet on every tab change)', async () => {
     await phoneWithFirstAnswer();
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
     expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     expect(sheet()).toBeNull();
     fireEvent.click(screen.getByTestId('map-screen-close'));

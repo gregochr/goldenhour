@@ -1,4 +1,4 @@
-import { test, expect, forceScreenLanding } from './fixture.js';
+import { test, expect, openMenu } from './fixture.js';
 
 /**
  * Runs in the `logout` project, AFTER the whole `smoke` project, on one worker (see
@@ -7,8 +7,6 @@ import { test, expect, forceScreenLanding } from './fixture.js';
  */
 test.describe('Login and logout', () => {
   test('the form renders, accepts input, and the admin signs in and out cleanly', async ({ page }) => {
-    // Every spec starts on the screen: an untouched desktop would otherwise land on the map view, which is a race.
-    await forceScreenLanding(page);
     await page.goto('/');
     await expect(page.getByTestId('login-username')).toBeVisible();
     await expect(page.getByTestId('login-password')).toBeVisible();
@@ -25,6 +23,8 @@ test.describe('Login and logout', () => {
     await expect(page.getByTestId('window-first-shell')).toBeVisible();
     await expect(page.getByTestId('login-username')).toHaveCount(0);
 
+    // Sign out is a row of the ☰ menu at every width.
+    await openMenu(page);
     await page.getByTestId('window-first-signout').click();
     await expect(page.getByTestId('login-username')).toBeVisible();
     await expect(page.getByTestId('window-first-shell')).toHaveCount(0);

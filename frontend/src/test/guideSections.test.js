@@ -48,7 +48,7 @@ describe('GUIDE_SECTIONS', () => {
 
 describe('TAB_GUIDE', () => {
   it('maps the three guided tabs to existing pages and has no Operations entry', () => {
-    expect(TAB_GUIDE).toEqual({ plan: 'at-a-glance', 'coming-up': 'coming-up', map: 'map' });
+    expect(TAB_GUIDE).toEqual({ plan: 'at-a-glance', map: 'map' });
     Object.values(TAB_GUIDE).forEach((page) => expect(Object.keys(GUIDE_PAGES)).toContain(page));
     expect(TAB_GUIDE.operations).toBeUndefined();
   });

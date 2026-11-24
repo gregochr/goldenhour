@@ -1,5 +1,7 @@
 # Coming up: a locked row where the high water at the light would be (Lite)
 
+> **Tab parts superseded (one-screen-plan.md O2 and O3, 2026-11-24).** Coming up is **Further ahead**, a section of the one screen, not a tab. See `docs/engineering/one-screen-plan.md`.
+
 Status: **plan, owner approved the Q1–Q4 defaults on 2026-10-31; owner-requested 2026-10-31; revised after two adversarial reviews (markup/a11y/layout,
 and gating/regressions) the same day.** One PR, client only. Supersedes the *draw* of
 `tide-light-pro-plan.md` F2 (the server side, B2, is unchanged).
