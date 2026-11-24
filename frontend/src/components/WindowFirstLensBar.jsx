@@ -307,7 +307,10 @@ export default function WindowFirstLensBar({
         // does not stop a keyboard.
         disabled={locked}
         onSelect={selectTier}
-        className={`wf-lens-controls${locked ? ' wf-lens-locked' : ''}`}
+        // The lock dims the segment only: opacity composites its whole subtree, so on the group it would also dim the
+        // caption ("Drive from home"), which is text a Lite reader must still be able to read.
+        segClassName={locked ? 'wf-lens-locked' : ''}
+        className="wf-lens-controls"
       />
 
       {overridden && (

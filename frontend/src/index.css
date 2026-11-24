@@ -3580,9 +3580,9 @@ div.wf-hc:where([data-control]).also:hover {
 /* CLAUDE.md's LITE treatment, verbatim: `opacity: 0.45` and `pointer-events: none`. The buttons
    carry a real `disabled` as well, because pointer-events does not stop a keyboard.
 
-   Scoped to `.wf-lens-controls` and NOT to the whole `.wf-lens-group`: opacity composites the entire
-   subtree, and with the "Pro" pill inside it the upsell rendered at 3.68:1 against AA's 4.5:1
-   (measured on the running app). WCAG 1.4.3 exempts an inactive component, which is what licenses
+   Applied to the `.wf-seg` (the tier buttons) ONLY, never to `.wf-lens-controls` or the whole
+   `.wf-lens-group`: opacity composites the entire subtree, so on the group it dimmed the "Drive from home"
+   caption to a serious color-contrast failure, and earlier the "Pro" pill beside it (3.68:1 against AA's 4.5:1). WCAG 1.4.3 exempts an inactive component, which is what licenses
    the greyed tiers at 3.12:1 — it does not license the call to action that replaces them. */
 .wf-lens-locked {
   opacity: 0.45;
