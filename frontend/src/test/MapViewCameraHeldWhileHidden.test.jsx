@@ -49,12 +49,20 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 const cameraLog = [];
 /** The recorded args of each fit, aligned to the 'fitBounds' entries of `cameraLog`. */
 const fitArgs = [];
+/** The box Leaflet's container reports; `{clientWidth: 0, clientHeight: 0}` is a pane mounted behind `hidden`. */
+let containerBox = { clientHeight: 500 };
+/** The `resize` listeners the controllers registered with `map.once`, fired by `fireResize`. */
+const resizeListeners = [];
+const fireResize = () => resizeListeners.splice(0).forEach((fn) => fn());
 const mockMap = {
   eachLayer: () => {},
-  getContainer: () => ({ clientHeight: 500 }),
+  getContainer: () => containerBox,
   getZoom: () => 9,
-  once: () => {},
-  off: () => {},
+  once: (event, fn) => { if (event === 'resize') resizeListeners.push(fn); },
+  off: (event, fn) => {
+    const at = resizeListeners.indexOf(fn);
+    if (event === 'resize' && at >= 0) resizeListeners.splice(at, 1);
+  },
   addControl: () => {},
   invalidateSize: () => { cameraLog.push('invalidateSize'); },
   flyTo: () => { cameraLog.push('flyTo'); },
@@ -175,6 +183,8 @@ beforeEach(() => {
   localStorage.clear();
   cameraLog.length = 0;
   fitArgs.length = 0;
+  containerBox = { clientHeight: 500 };
+  resizeListeners.length = 0;
   cornerEl = document.createElement('div');
   cornerEl.className = 'leaflet-bottom leaflet-right';
   document.body.appendChild(cornerEl);
@@ -259,5 +269,37 @@ describe('MapView door camera - held while the Map pane is hidden', () => {
     await update(rerender, { planHandoff: door, panelShown: false });
     await update(rerender, { planHandoff: door, panelShown: true });
     expect(fits()).toBe(1);
+  });
+
+  it('a pane mounted behind `hidden` is panelShown (true) but 0x0: a focusPoints fit holds, then fits once on resize', async () => {
+    containerBox = { clientWidth: 0, clientHeight: 0 };
+    const door = { ...DOOR_BASE, focusPoints: PINS, nonce: 1 };
+    await renderTab({ planHandoff: door, panelShown: true });
+    expect(fits()).toBe(0);
+    expect(resizeListeners.length).toBeGreaterThan(0);
+
+    containerBox = { clientWidth: 1200, clientHeight: 600 };
+    cameraLog.length = 0;
+    await act(async () => { fireResize(); });
+    expect(fits()).toBe(1);
+    expect(fitArgs[0][0].points).toEqual(PINS);
+    expect(fitArgs[0][1]).toEqual({ padding: [60, 60], maxZoom: 12, animate: true });
+    expect(cameraLog.indexOf('invalidateSize')).toBeLessThan(cameraLog.indexOf('fitBounds'));
+
+    await act(async () => { fireResize(); });
+    expect(fits()).toBe(1);
+  });
+
+  it('a pane mounted behind `hidden` but panelShown: a locationName fly holds, then flies once on resize', async () => {
+    containerBox = { clientWidth: 0, clientHeight: 0 };
+    const door = { ...DOOR_BASE, locationName: 'Near', nonce: 1 };
+    await renderTab({ planHandoff: door, panelShown: true });
+    expect(flies()).toBe(0);
+
+    containerBox = { clientWidth: 1200, clientHeight: 600 };
+    await act(async () => { fireResize(); });
+    expect(flies()).toBe(1);
+    await act(async () => { fireResize(); });
+    expect(flies()).toBe(1);
   });
 });
