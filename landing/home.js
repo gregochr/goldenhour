@@ -27,7 +27,7 @@
       var el = document.getElementById(a.getAttribute('href').slice(1));
       if (el) targets.push({ link: a, el: el });
     });
-    var watch = all('#field, #platforms, #story, .close').concat(targets.map(function (t) { return t.el; }));
+    var watch = all('#plan, #field, #platforms, #story, .close').concat(targets.map(function (t) { return t.el; }));
     var HEADER = 112;
 
     function update() {
@@ -198,8 +198,16 @@
     return clone.textContent.replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
   }
 
+  function planSteps(cleanups) {
+    var s = document.querySelector('#plan .feats');
+    if (!s) return;
+    carousel(s, 'Plan a shoot', function (i, n, card) {
+      return 'Step ' + (i + 1) + ' of ' + n + ': ' + cardTitle(card);
+    }, cleanups, { fitHeight: false });
+  }
+
   function features(cleanups) {
-    var s = document.querySelector('.feats');
+    var s = document.querySelector('#features .feats');
     if (!s) return;
     carousel(s, 'Features', function (i, n, card) {
       return 'Feature ' + (i + 1) + ' of ' + n + ': ' + cardTitle(card);
@@ -290,6 +298,7 @@
     undo = cleanups;
     document.documentElement.classList.add('js-phone');
     sectionBar(cleanups);
+    planSteps(cleanups);
     features(cleanups);
     pricing(cleanups);
     faq(cleanups);

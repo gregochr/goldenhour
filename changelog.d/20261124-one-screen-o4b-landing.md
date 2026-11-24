@@ -1,6 +1,6 @@
 ### Changed — the landing page pitches planning a shoot
 
-`photocast.online` now pitches PhotoCast as one screen for planning a shoot, in the order the screen reads:
+`photocast.online` now pitches PhotoCast as one screen and a map for planning a shoot, in four steps:
 when (Further ahead, dates known in advance, up to 90 days), which morning (This week), where (the map for a
 sunrise or sunset) and go (the place sheet, with a leave-by time for Pro readers who have a home postcode). The
 home page gains a "Plan a shoot" section with new screenshots of This week and Further ahead, the pricing lists
