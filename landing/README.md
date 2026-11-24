@@ -11,7 +11,7 @@ photocast.css           the shared skin for all five pages
 home.css                rules for index.html only (kept apart: they style bare elements like section)
 viewer.js               the screenshot viewer (index.html only; plain JS, no dependencies)
 home.js                 phone-only enhancements for index.html (plain JS, no dependencies)
-favicon.svg  favicon.png  apple-touch-icon.png   screenshot*.png
+favicon.svg  favicon.png  apple-touch-icon.png   shot-*.webp  field-*.webp (the page screenshots)
 Dockerfile              docker-compose.yml   nginx.conf
 ```
 
