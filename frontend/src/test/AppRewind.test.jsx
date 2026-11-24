@@ -136,7 +136,7 @@ function renderApp(role) {
 }
 
 async function openMapTab() {
-  const tab = await screen.findByRole('tab', { name: 'Map' });
+  const tab = await screen.findByTestId('window-first-tab-map');
   await act(async () => { fireEvent.click(tab); });
   return screen.findByTestId('map-pane-stub');
 }
@@ -167,13 +167,13 @@ describe('App — the admin rewind', () => {
 
   it('live, there is no pill', async () => {
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await screen.findByTestId('window-first-tab-map');
     expect(screen.queryByTestId('rewind-pill')).toBeNull();
   });
 
   it('rewound, an admin sees the pill naming the moment, and Back to live clears the rewind and remounts the app', async () => {
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await screen.findByTestId('window-first-tab-map');
     const forecastFetchesBefore = fetchForecasts.mock.calls.length;
 
     act(() => setRewind(REWIND_TO, { date: TOMORROW, eventType: 'SUNRISE' }));
@@ -242,7 +242,7 @@ describe('App — the admin rewind', () => {
   it('a non-admin never sees the pill, whatever the store holds', async () => {
     act(() => setRewind(REWIND_TO));
     renderApp('PRO_USER');
-    await screen.findByRole('tab', { name: 'Map' });
+    await screen.findByTestId('window-first-tab-map');
     expect(screen.queryByTestId('rewind-pill')).toBeNull();
   });
 });

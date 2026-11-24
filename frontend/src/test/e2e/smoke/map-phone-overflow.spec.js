@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { test, expect, loginAndWaitForForecast, openMapTab, openTab } from './fixture.js';
+import { test, expect, loginAndWaitForForecast, openMapTab } from './fixture.js';
 
 /**
  * Phone-width overflow check for the Glance-to-Map Map surfaces. At 360, 375 and 390 wide, with mobile and touch
@@ -7,7 +7,7 @@ import { test, expect, loginAndWaitForForecast, openMapTab, openTab } from './fi
  * every state a reader reaches on the Map must keep every shown element inside the viewport and add no inner
  * horizontal scroller or clipped overflow.
  *
- * <p>The document's own scrollWidth is NOT the criterion: the Map tab root is `h-[100dvh] ... overflow-hidden`,
+ * <p>The document's own scrollWidth is NOT the criterion: the map view is a fixed `100dvh` box with `overflow: hidden`,
  * Leaflet's container clips, and the sheets are position:fixed portals whose overflow-y:auto makes overflow-x auto,
  * so each hides overflow from a document-level check. The helper measures boxes, scrollers and clipped content instead.
  *
@@ -27,7 +27,8 @@ const SHOT_DIR = process.env.M1_SHOTS || '';
 function measureInPage(W) {
   const name = (el) => `${el.getAttribute('data-testid') || el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? `.${el.className.trim().split(/\s+/)[0]}` : ''}`;
   const root = document.getElementById('root');
-  const inScope = (el) => el.closest('.wf-map-tab') || !root.contains(el);
+  // The map view is `[data-map-screen]` (its header holds the window control); the sheets are portalled out of #root.
+  const inScope = (el) => el.closest('[data-map-screen]') || !root.contains(el);
   // Leaflet's map, tile, overlay, marker and shadow panes extend past the viewport by design; the label chips are
   // culled by the label layer itself. The control container stays in.
   const skip = (el) => el.closest('.leaflet-pane, [data-testid="map-labels"]');
@@ -72,7 +73,7 @@ for (const W of REPORT_WIDTHS) {
       await loginAndWaitForForecast(page);
       expect(await page.evaluate(() => window.innerWidth), 'emulated width').toBe(W);
       expect(await page.evaluate(() => window.visualViewport.scale), 'page scale').toBe(1);
-      // Phones open on the Plan tab: click the Map tab first.
+      // Phones open on the screen: open the map view through its door first.
       await openMapTab(page);
       await check('map-default');
 
@@ -105,10 +106,12 @@ for (const W of REPORT_WIDTHS) {
       await expect(page.getByTestId('wf-filters-panel')).toHaveCount(0);
 
       // The windows, the List door and the callout need a selected Plan card (never the first: it may be passing).
-      await openTab(page, 'plan');
+      // The view closes first (the screen is inert under it), and a card opens it again on its own window.
+      await page.getByTestId('map-screen-close').click();
+      await expect(page.getByTestId('map-screen')).toBeHidden();
       await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
       await page.locator('[data-testid="wf-heat-card"][data-control="true"]').nth(2).click();
-      await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('map-screen')).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
       await check('map-from-card');
 

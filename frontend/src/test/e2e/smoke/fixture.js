@@ -272,12 +272,25 @@ export async function openTab(page, id) {
 }
 
 /**
- * Signs in, waits for the shell, and waits for the Map tab (it is offered only once the forecast has arrived).
+ * Signs in, waits for the shell, and waits for the Map door (it is offered only once the forecast has arrived).
+ *
+ * <p>A tablet or desktop would also open the map VIEW on its own once the forecast lands (the Map landing, kept until
+ * the tab model goes: one-screen-plan.md §7 Q1), which is a race with whatever the spec does first. So by default the
+ * device answers "phone" to the one media query that decides the landing (`utils/initialTab.js`'s
+ * `PHONE_OPENING_QUERY`, the only query naming `max-height: 499px`): every spec starts on the screen, deterministically.
+ * A spec about the landing itself passes {@code {settleLanding: false}}.
  *
  * @param {import('@playwright/test').Page} page
  * @param {'admin'|'lite'|'pro'} [role] which seeded account
+ * @param {{settleLanding?: boolean}} [options]
  */
-export async function loginAndWaitForForecast(page, role = 'admin') {
+export async function loginAndWaitForForecast(page, role = 'admin', { settleLanding = true } = {}) {
+  if (settleLanding) {
+    await page.addInitScript(() => {
+      const real = window.matchMedia.bind(window);
+      window.matchMedia = (query) => (String(query).includes('max-height: 499px') ? real('(min-width: 0px)') : real(query));
+    });
+  }
   await loginAs(page, role);
   await expect(page.getByTestId('window-first-shell')).toBeVisible();
   await expect(page.getByTestId('window-first-tab-map')).toBeVisible();
@@ -331,16 +344,28 @@ export function visibleChips(page) {
 }
 
 /**
- * Opens the Map tab and waits until its label layer has measured and placed its chips (`data-placed`), the
- * fonts have loaded and at least one chip is visible, so no spec reads a position mid-placement.
+ * Opens the map VIEW through its door beside the tabs and waits until its label layer has measured and placed its
+ * chips (`data-placed`), the fonts have loaded and at least one chip is visible, so no spec reads a position
+ * mid-placement. (The Map is no longer a tab: one-screen-plan.md D1.)
  *
  * @param {import('@playwright/test').Page} page
  */
 export async function openMapTab(page) {
-  await openTab(page, 'map');
+  await page.getByTestId('window-first-tab-map').click();
+  await expect(page.getByTestId('map-screen')).toBeVisible();
   await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
   await page.evaluate(() => document.fonts.ready);
   await expect.poll(() => visibleChips(page).count()).toBeGreaterThan(0);
+}
+
+/**
+ * Closes the map view with its close button and waits for it to be gone.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function closeMapView(page) {
+  await page.getByTestId('map-screen-close').click();
+  await expect(page.getByTestId('map-screen')).toBeHidden();
 }
 
 /**

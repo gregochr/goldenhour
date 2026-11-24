@@ -329,7 +329,7 @@ describe('askWindow follows a chosen pick\'s window — on its own channel', () 
     expect(onSelectDate).toHaveBeenCalledWith(TODAY, { isNight: false });
   });
 
-  it('⚠️ touches no lens, no scope, no floor and no breadcrumb — and a live Plan-door handoff survives it', async () => {
+  it('⚠️ touches no lens, no scope and no floor — and a live Plan-door handoff survives it', async () => {
     const door = {
       ...DOOR, minRating: 4, limitMinutes: 150, region: 'Lake District', nonce: 7,
     };
@@ -337,7 +337,6 @@ describe('askWindow follows a chosen pick\'s window — on its own channel', () 
     expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
     expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('Lake District');
 
     await rerenderTab({
       planHandoff: door,
@@ -352,8 +351,6 @@ describe('askWindow follows a chosen pick\'s window — on its own channel', () 
     expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
     expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
-    expect(screen.getByTestId('wf-map-breadcrumb')).toBeInTheDocument();
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('Lake District');
   });
 
   it('leaves the reader\'s own rating floor alone when the pick\'s window is another KIND of event', async () => {

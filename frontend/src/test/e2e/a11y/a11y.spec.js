@@ -92,9 +92,20 @@ test.describe('Accessibility scan (advisory)', () => {
       await scan(page, testInfo, 'coming-up');
     });
 
-    test('Map', async ({ page }, testInfo) => {
+    // The Map is a view over the screen (one-screen-plan.md O1): a labelled region with the screen behind it inert, not a
+    // tab. The scan covers the whole page, so it also proves the inert screen, the header's window control and the
+    // region's own label raise nothing.
+    test('Map view', async ({ page }, testInfo) => {
       await openMapTab(page);
+      await expect(page.getByRole('region', { name: /./ }).and(page.getByTestId('map-screen'))).toBeVisible();
       await scan(page, testInfo, 'map');
+    });
+
+    test('Map view with Find open over it', async ({ page }, testInfo) => {
+      await openMapTab(page);
+      await page.getByTestId('map-screen-find').click();
+      await expect(page.getByTestId('plan-search-panel')).toBeVisible();
+      await scan(page, testInfo, 'map-find');
     });
 
     test('Operations', async ({ page }, testInfo) => {
@@ -166,7 +177,7 @@ test.describe('Accessibility scan (advisory)', () => {
       await expect(toggle).toHaveAttribute('aria-pressed', 'false');
     });
 
-    test('Map callout (the peek sheet on a phone)', async ({ page }, testInfo) => {
+    test('Map view callout (the peek sheet on a phone)', async ({ page }, testInfo) => {
       await openMapTab(page);
       await clickMiddleChip(page);
       await expect(page.getByTestId('map-callout')).toBeVisible();

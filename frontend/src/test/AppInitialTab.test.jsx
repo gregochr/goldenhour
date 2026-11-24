@@ -11,7 +11,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 
 vi.mock('../api/forecastApi.js', () => ({
@@ -74,6 +74,7 @@ import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
 import { resolveInitialTab } from '../utils/initialTab.js';
+import { __resetMapRouteForTests } from '../utils/mapRoute.js';
 
 const LOCATION_META = [{
   id: 7, name: 'Bamburgh', lat: 55.608, lon: -1.719, enabled: true,
@@ -93,6 +94,8 @@ const renderApp = () => {
 
 beforeEach(() => {
   localStorage.clear();
+  __resetMapRouteForTests();
+  window.history.replaceState(null, '', '/');
   fetchForecasts.mockReset().mockResolvedValue(FORECASTS);
   fetchLocations.mockReset().mockResolvedValue(LOCATION_META);
   getDailyBriefing.mockReset().mockResolvedValue(null);
@@ -113,6 +116,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  __resetMapRouteForTests();
+  window.history.replaceState(null, '', '/');
   delete window.requestIdleCallback;
   delete window.cancelIdleCallback;
 });
@@ -125,13 +130,38 @@ describe('App — wires utils/initialTab.js into the shell', () => {
     // OWN fallback puts the very first render on Plan regardless of the preference — this is not
     // an assertion of App's own default. What this file proves is the join: once the pane
     // arrives, the preference `App` resolved actually reaches the shell and moves it.
-    const mapTab = await screen.findByRole('tab', { name: 'Map' });
-    expect(mapTab).toHaveAttribute('aria-selected', 'true');
+    // The Map is a view now: the preference becomes the load-time route, and the shell opens the view over the screen
+    // the moment the pane exists. The door beside the tabs is still a plain button, not a selected tab.
+    const mapDoor = await screen.findByTestId('window-first-tab-map');
+    expect(mapDoor).not.toHaveAttribute('aria-selected');
+    await waitFor(() => expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden'));
     // `findBy*`, not `getBy*`: `App.jsx` imports `WindowFirstMapPane` via `lazy()`, so even a
     // mocked module resolves through one more microtask than the tab button itself does.
     expect(await screen.findByTestId('map-pane-stub')).toBeInTheDocument();
 
     // Read once, at mount — not re-read on every render (plan §3.3's one-shot rule).
     expect(resolveInitialTab).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads a #map address once, leaves the bare path in the bar, and opens the view whatever the device prefers', async () => {
+    resolveInitialTab.mockReturnValue('plan');
+    window.history.replaceState(null, '', '/#map/2099-01-01/sunset');
+
+    renderApp();
+
+    await waitFor(() => expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden'));
+    expect(window.location.hash).toBe('');
+    resolveInitialTab.mockReturnValue('map');
+  });
+
+  it('opens no view on a phone with no address: the screen is the landing', async () => {
+    resolveInitialTab.mockReturnValue('plan');
+
+    renderApp();
+
+    await screen.findByTestId('window-first-tab-map');
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+    expect(screen.queryByTestId('map-screen')).toBeNull();
+    resolveInitialTab.mockReturnValue('map');
   });
 });

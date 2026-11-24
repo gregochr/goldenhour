@@ -182,8 +182,8 @@ describe('on the dock (1024px and up)', () => {
 
   it('from the MAP tab it moves to Plan, and the dock stays open beside it', async () => {
     await dockWithAnswer({ props: { mapPane: MAP_PANE } });
-    fireEvent.click(tab('Map'));
-    expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     await planThis(2);
 
     fireEvent.click(screen.getByTestId('ask-plan-open'));
@@ -580,7 +580,7 @@ describe('the tablet sheet over the Map', () => {
     // Ask from the Map tab itself.
     fireEvent.click(within(askSheet()).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(askSheet()).toBeNull());
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     fireEvent.click(screen.getByTestId('ask-field'));
     await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
     await askOne();

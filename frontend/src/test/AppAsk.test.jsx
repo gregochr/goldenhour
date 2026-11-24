@@ -192,7 +192,7 @@ describe('App — where Ask PhotoCast is mounted', () => {
   it('rewound, the settings read NEVER fires and no Ask surface exists, on the phone', async () => {
     act(() => setRewind(REWIND_TO));
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await screen.findByTestId('window-first-tab-map');
     await act(async () => {});
     expect(getAskSettings).not.toHaveBeenCalled();
     expect(getReady).not.toHaveBeenCalled();
@@ -203,7 +203,7 @@ describe('App — where Ask PhotoCast is mounted', () => {
     installViewport(800);
     act(() => setRewind(REWIND_TO));
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await screen.findByTestId('window-first-tab-map');
     await act(async () => {});
     expect(getAskSettings).not.toHaveBeenCalled();
     expect(screen.queryByTestId('ask-field')).toBeNull();
@@ -213,7 +213,7 @@ describe('App — where Ask PhotoCast is mounted', () => {
     installViewport(1280);
     act(() => setRewind(REWIND_TO));
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await screen.findByTestId('window-first-tab-map');
     await act(async () => {});
     expect(getAskSettings).not.toHaveBeenCalled();
     expect(screen.queryByTestId('ask-field')).toBeNull();

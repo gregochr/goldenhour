@@ -108,8 +108,8 @@ afterEach(() => vi.restoreAllMocks());
 describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () => {
   it('switches to Plan and opens that location\'s four-day sheet when `inPlan` is set', async () => {
     const { setHandoff } = renderWithHandoff();
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
 
     act(() => setHandoff({
       id: 42, name: 'Bamburgh', regionName: 'North East', inPlan: true, nonce: 1,
@@ -126,7 +126,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // track on my user journey." The map pane must still be MOUNTED and VISIBLE underneath — a tab
     // switch would have hidden it, and `hidden` is what the assertion below actually catches.
     const { setHandoff } = renderWithHandoff();
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
 
     act(() => setHandoff({
       id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1,
@@ -134,9 +134,9 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Bamburgh');
-    expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'false');
-    expect(screen.getByTestId('window-first-panel-map')).not.toHaveAttribute('hidden');
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
+    // The tab in force never moved (the map is a view over it), and the view stays up under the sheet.
+    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('map-pane')).toBeInTheDocument();
   });
 
@@ -151,7 +151,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // ("back track on my user journey") failing.
     const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
     const { setHandoff } = renderWithHandoff();
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     const trigger = screen.getByTestId('map-pane-trigger');
     trigger.focus();
     expect(document.activeElement).toBe(trigger);
@@ -254,8 +254,8 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
         badges: [],
       }],
     }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
 
     act(() => setHandoff({
       id: 42, name: 'Bamburgh', regionName: 'North East', date: TODAY, targetType: 'SUNSET', nonce: 1,
@@ -320,7 +320,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     // comment on the map-hatch's identical focus problem, applied in reverse).
     const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
     const { setHandoff } = renderWithHandoff();
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     act(() => setHandoff({
       id: 1, name: 'Spot 1', regionName: 'North East', inPlan: true, nonce: 1,
     }));

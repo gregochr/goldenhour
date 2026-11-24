@@ -634,14 +634,18 @@ describe('WindowFirstShell — Find across tabs', () => {
     expect(screen.getByTestId('window-first-origin-statement')).toHaveTextContent('Home · Newcastle');
   });
 
-  it('⚠️ offers Find on the Map, with the "drive times from here" caption kept on the origin button', async () => {
-    // The caption is true on the map, where every drive time and leave-by on screen is measured from
-    // this place. Coming up shows no drive time at all, so there it would be a claim about nothing.
+  it('⚠️ offers Find in the map view, with the "drive times from here" caption kept on its origin chip', async () => {
+    // The caption is true on the map, where every drive time and leave-by on screen is measured from this place.
+    // Coming up shows no drive time at all, so there it would be a claim about nothing. The masthead behind the view
+    // is inert and no longer carries the caption: the view's own header does.
     renderShell({}, { mapPane: <p data-testid="map-pane">map pane</p> });
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(mastheadControls()).toEqual(FIND_CONTROLS);
-    expect(screen.getByTestId('masthead-origin-caption')).toHaveTextContent('drive times from here');
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    expect(screen.getByTestId('map-screen-find')).toBeInTheDocument();
+    expect(screen.getByTestId('map-screen-origin')).toHaveTextContent('Home · Newcastle');
+    expect(screen.getByTestId('map-screen-origin')).toHaveTextContent('drive times from here');
+    expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
 
+    fireEvent.click(screen.getByTestId('map-screen-close'));
     await openComingUp();
     expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Newcastle');
     expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
@@ -883,26 +887,33 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       return { ...view, setRequest: (tabRequest) => view.rerender(<WindowFirstShell {...base} tabRequest={tabRequest} />) };
     };
 
-    it('selects the requested tab and mounts its pane', () => {
-      // The overlay's "open the full map" hatch, driven by `tabRequest`'s nonce (`openFullMapTab`
-      // in `App`) — so without this the button was a control that could not act, and `App`
-      // withheld it rather than name a destination it could not reach.
-      const { setRequest } = renderWithRequest();
+    it('selects the requested tab and mounts its pane', async () => {
+      // Driven by `tabRequest`'s nonce (the aurora banner's Operations door in `App`). The Map is no longer a tab to
+      // request: it is the map view, opened by `openMap`, and a request naming it is ignored (below).
+      const { setRequest } = renderWithRequest({ operationsPane: <p data-testid="ops-pane">operations pane</p> });
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
+      act(() => setRequest({ id: 'operations', nonce: 1 }));
+      expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('ops-pane')).toBeInTheDocument();
+      await act(async () => { await Promise.resolve(); });
+    });
+
+    it('ignores a request naming the Map, which is a view and not a tab', () => {
+      const { setRequest } = renderWithRequest();
       act(() => setRequest({ id: 'map', nonce: 1 }));
-      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
-      expect(screen.getByTestId('map-pane')).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('map-screen')).toBeNull();
     });
 
     it('lands again when the same tab is asked for twice, because the nonce moved', () => {
       // The reason it is nonce'd rather than keyed on the id. Open the map, go back to Plan by
       // hand, press the hatch again: an id-keyed request would see no change and do nothing.
       const { setRequest } = renderWithRequest();
-      act(() => setRequest({ id: 'map', nonce: 1 }));
+      act(() => setRequest({ id: 'coming-up', nonce: 1 }));
       fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
-      act(() => setRequest({ id: 'map', nonce: 2 }));
-      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+      act(() => setRequest({ id: 'coming-up', nonce: 2 }));
+      expect(screen.getByRole('tab', { name: 'Coming up' })).toHaveAttribute('aria-selected', 'true');
     });
 
     describe('Operations, and the control a return carries (overlay convergence C4)', () => {
@@ -932,10 +943,10 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
       });
 
-      it('arriving on the Map tab by a request puts focus on its tab button, not <body>', async () => {
+      it('arriving on a tab by a request puts focus on its tab button, not <body>', async () => {
         const { setRequest } = renderWithRequest();
-        act(() => setRequest({ id: 'map', nonce: 1 }));
-        await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveFocus());
+        act(() => setRequest({ id: 'coming-up', nonce: 1 }));
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'Coming up' })).toHaveFocus());
       });
 
       it('a return carrying a control that is still mounted focuses THAT control (a Coming up card)', async () => {
@@ -952,8 +963,8 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         const { setRequest } = renderWithRequest({ forecastDates: ['2026-08-12'], onOpenMapTab: vi.fn() });
         await openComingUp();
         const opener = screen.getByRole('button', { name: /Spring tide run/ });
-        act(() => setRequest({ id: 'map', nonce: 1 }));
-        await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveFocus());
+        act(() => setRequest({ id: 'plan', nonce: 1 }));
+        await waitFor(() => expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveFocus());
 
         act(() => setRequest({ id: 'coming-up', nonce: 2, opener }));
 
@@ -966,7 +977,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         const gone = document.createElement('button');
         document.body.appendChild(gone);
         gone.remove();
-        act(() => setRequest({ id: 'map', nonce: 1 }));
+        act(() => setRequest({ id: 'coming-up', nonce: 1 }));
         act(() => setRequest({ id: 'plan', nonce: 2, opener: gone }));
 
         expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
@@ -978,7 +989,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         const hidden = document.createElement('button');
         hidden.disabled = true;
         document.body.appendChild(hidden);
-        act(() => setRequest({ id: 'map', nonce: 1 }));
+        act(() => setRequest({ id: 'coming-up', nonce: 1 }));
         act(() => setRequest({ id: 'plan', nonce: 2, opener: hidden }));
 
         await waitFor(() => expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveFocus());
@@ -987,25 +998,24 @@ describe('WindowFirstShell — when the feed is fetched', () => {
     });
 
     it('ignores a request for a pane it was handed nothing for — and does not jump later', () => {
-      // ⚠️ The assertion that bites is the SECOND one. Without the guard, `selectTab('map')` still
-      // sets `activeTab`; `effectiveTab` masks it while no Map tab exists, so a test that only
-      // checked "Plan is selected" passes against the broken code. The damage is deferred: the
-      // moment the forecast lands and `App` starts handing over a `mapPane`, the fallback stops
-      // applying and the reader is silently moved to a tab they never chose.
+      // ⚠️ The assertion that bites is the SECOND one. Without the guard, `selectTab('operations')` still sets
+      // `activeTab`; `effectiveTab` masks it while no Operations tab exists, so a test that only checked "Plan is
+      // selected" passes against the broken code. The damage is deferred: the moment `App` starts handing over an
+      // `operationsPane`, the fallback stops applying and the reader is silently moved to a tab they never chose.
       vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
       const base = {
         onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
-        locations: [], mapPane: null,
+        locations: [], mapPane: MAP,
       };
       const view = render(<WindowFirstShell {...base} />);
-      act(() => view.rerender(<WindowFirstShell {...base} tabRequest={{ id: 'map', nonce: 1 }} />));
-      expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+      act(() => view.rerender(<WindowFirstShell {...base} tabRequest={{ id: 'operations', nonce: 1 }} />));
+      expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
 
-      // The forecast arrives; the pane appears. Plan must still be the selected tab.
-      const MAP2 = <p data-testid="map-pane">map pane</p>;
-      act(() => view.rerender(<WindowFirstShell {...base} mapPane={MAP2} tabRequest={{ id: 'map', nonce: 1 }} />));
-      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
+      // The pane appears. Plan must still be the selected tab.
+      const OPS2 = <p data-testid="ops-pane">operations pane</p>;
+      act(() => view.rerender(<WindowFirstShell {...base} operationsPane={OPS2} tabRequest={{ id: 'operations', nonce: 1 }} />));
+      expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'false');
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
     });
 
@@ -1019,71 +1029,6 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       expect(screen.queryByTestId('map-pane')).toBeNull();
     });
 
-    describe('a Map tab withdrawn while it is the tab in force (overlay convergence C3)', () => {
-      // The aurora-only tab stands on a live alert; when the alert clears `App` hands over a null pane.
-      const mapWithControl = <button type="button" data-testid="map-control">map control</button>;
-      const base = {
-        onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
-      };
-
-      const openMapWithFocus = () => {
-        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
-        act(() => view.rerender(
-          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
-        ));
-        act(() => screen.getByTestId('map-control').focus());
-        expect(document.activeElement).toBe(screen.getByTestId('map-control'));
-        return view;
-      };
-
-      it('selects Plan explicitly and moves focus to the Plan tab button, which then drives the bar', () => {
-        const view = openMapWithFocus();
-        act(() => view.rerender(
-          <WindowFirstShell {...base} mapPane={null} tabRequest={{ id: 'map', nonce: 1 }} />,
-        ));
-        expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
-        expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-        // Focus did not drop to <body>: it is on the bar's roving entry point.
-        expect(document.activeElement).toBe(tab('At a Glance'));
-        // And the key goes to the element focus is on (the bar still answers a keyboard).
-        act(() => { fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' }); });
-        expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
-      });
-
-      it('does not snap the reader back when the next alert offers the Map tab again', () => {
-        const view = openMapWithFocus();
-        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
-        expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-        act(() => view.rerender(<WindowFirstShell {...base} mapPane={mapWithControl} />));
-        expect(tab('Map')).toHaveAttribute('aria-selected', 'false');
-        expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-      });
-
-      it('leaves focus alone when it was not lost (a reader elsewhere keeps their place)', () => {
-        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-        const outside = document.createElement('button');
-        document.body.appendChild(outside);
-        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
-        act(() => view.rerender(
-          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
-        ));
-        act(() => outside.focus());
-        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
-        expect(document.activeElement).toBe(outside);
-        outside.remove();
-      });
-
-      it('does nothing for a Plan reader when a Map pane that was never in force goes away', () => {
-        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
-        const before = document.activeElement;
-        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
-        expect(document.activeElement).toBe(before);
-        expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-      });
-    });
-
     it('does not replay a request that was already in flight when it mounted', () => {
       // `App` holds `tabRequest` and never clears it, and it outlives this component. With the
       // handled-nonce seeded to null, remounting this shell would replay the last request and
@@ -1092,11 +1037,11 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
       const props = {
         onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
-        locations: [], mapPane: MAP, tabRequest: { id: 'map', nonce: 4 },
+        locations: [], mapPane: MAP, tabRequest: { id: 'coming-up', nonce: 4 },
       };
       render(<WindowFirstShell {...props} />);
       expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
-      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
+      expect(screen.getByRole('tab', { name: 'Coming up' })).toHaveAttribute('aria-selected', 'false');
     });
 
     it('moves focus to the tab it selected, because the asker just closed itself', () => {
@@ -1106,8 +1051,8 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       // keyboard reader dropped at the top of the page having just asked to go somewhere specific.
       const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
       const { setRequest } = renderWithRequest();
-      act(() => setRequest({ id: 'map', nonce: 1 }));
-      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Map' }));
+      act(() => setRequest({ id: 'coming-up', nonce: 1 }));
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Coming up' }));
       raf.mockRestore();
     });
 
@@ -1121,7 +1066,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
   });
 });
 
-describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7)', () => {
+describe('WindowFirstShell — what the shell tells App about the tab and the map view', () => {
   const MAP = <p data-testid="map-pane">map pane</p>;
 
   function renderWithMap(extra = {}) {
@@ -1141,106 +1086,23 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
     expect(onTabChange).toHaveBeenCalledWith('plan');
   });
 
-  it('fires onTabChange again on every tab switch — App\'s only way to learn the active tab', () => {
+  it('fires onTabChange on every tab switch, and with map while the view is open', () => {
     const { onTabChange } = renderWithMap();
     onTabChange.mockClear();
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(onTabChange).toHaveBeenCalledWith('map');
+    fireEvent.click(screen.getByRole('tab', { name: 'Coming up' }));
+    expect(onTabChange).toHaveBeenLastCalledWith('coming-up');
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    expect(onTabChange).toHaveBeenLastCalledWith('map');
+    fireEvent.click(screen.getByTestId('map-screen-close'));
+    expect(onTabChange).toHaveBeenLastCalledWith('coming-up');
   });
 
-  it('the Map panel carries `wf-body--map` (the full-frame sizing class) only while selected — never Plan, never the Map panel before it is selected', () => {
+  it('the page keeps one layout: no flex-column recast and no wf-body--map panel, opened or not', () => {
     renderWithMap();
-    // Plan is still the initial tab: its own panel carries plain `wf-body`.
-    expect(screen.getByTestId('window-first-pane').className).not.toContain('wf-body--map');
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    const mapPanel = screen.getByTestId('window-first-panel-map');
-    expect(mapPanel.className).toContain('wf-body--map');
-    expect(mapPanel).not.toHaveAttribute('hidden');
-
-    // Back to Plan: the Map panel keeps its slot (never unmounted) but loses the sizing class —
-    // it is `hidden` now, and there is no computed height left to carry regardless (the flex
-    // recast, below, replaced the calc chain this comment used to describe).
-    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
-    expect(screen.getByTestId('window-first-panel-map').className).not.toContain('wf-body--map');
-  });
-
-  it('the panel-region wrapper keeps the SAME 1080px width constraint on the Map tab as on every other tab (O-17 — reverses the width release, height untouched)', () => {
-    // Bundle rev 2 (owner decision 2026-09-03): full-bleed read as broken because the tab strip
-    // stopped at the content column while the panel carried on to the window edge. The fix pins
-    // the panel region to the SAME `WRAP_MAX_WIDTH` on every tab, so there is nothing left to
-    // release or restore on a tab switch.
-    renderWithMap();
-    const planPane = screen.getByTestId('window-first-pane');
-    // The wrapper immediately enclosing the Plan/Coming-up/slotted-pane region — one level above
-    // `window-first-pane`, distinct from the masthead+tab-bar wrapper checked in
-    // `WindowFirstShell.test.jsx`'s 1080px test (which never changes tab to tab).
-    const panelWrap = planPane.parentElement;
-    expect(panelWrap.style.maxWidth).toBe('1080px');
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(panelWrap.style.maxWidth).toBe('1080px');
-
-    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
-    expect(panelWrap.style.maxWidth).toBe('1080px');
-  });
-
-  it('the masthead\'s wrap and the Map panel region\'s wrap resolve to the SAME maxWidth value, while the Map tab is actually selected (O-17)', () => {
-    // Two DISTINCT wrappers — `mastheadWrap` never changes tab to tab; the panel-region wrapper
-    // (reached here through the Map panel specifically, since that is the tab whose value this
-    // pins) is the one O-17 stopped releasing. The design's structural complaint was exactly these
-    // two disagreeing about width, so this checks their VALUES agree once Map is selected — it
-    // does not, and cannot, prove they read off one shared JS constant rather than two literals
-    // that happen to match; that is a source-level fact, not something a rendered `style` can
-    // distinguish. (`window-first-pane`'s own parent is NOT queried here — it is the identical DOM
-    // node as the Map panel's parent, so comparing both would just restate this same comparison
-    // twice under two names, not add a second one.)
-    renderWithMap();
-    const mastheadWrap = screen.getByTestId('window-first-masthead').parentElement;
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    const mapPanelWrap = screen.getByTestId('window-first-panel-map').parentElement;
-
-    expect(mapPanelWrap.style.maxWidth).toBe(mastheadWrap.style.maxWidth);
-  });
-
-  // Re-pinned onto the flex chain (adversarial review): the `calc(100dvh - …)` height this suite
-  // used to pin leaked twice — most recently 16px of page scroll surviving with every banner
-  // suppressed, an inter-element margin a `ResizeObserver` on element boxes cannot see. Replaced
-  // with a flex column `App.jsx` recasts the whole page into on the Map tab; these two tests pin
-  // the shell's OWN half of that chain — the `.wf-shell` root and the panel-region wrapper both
-  // becoming `flex:1; min-height:0` flex-column participants — as class/structure assertions,
-  // since no height is computed here for `getComputedStyle` to resolve in jsdom's layout-free DOM.
-  it('the shell root becomes a flex:1/min-height:0 flex column on the Map tab, and plain block flow on every other tab', () => {
-    renderWithMap();
-    const shell = screen.getByTestId('window-first-shell');
-    expect(shell.className).not.toContain('flex-1');
-    expect(shell.className).not.toContain('flex-col');
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(shell.className).toContain('flex-1');
-    expect(shell.className).toContain('min-h-0');
-    expect(shell.className).toContain('flex');
-    expect(shell.className).toContain('flex-col');
-
-    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
-    expect(shell.className).not.toContain('flex-1');
-    expect(shell.className).not.toContain('flex-col');
-  });
-
-  it('the panel-region wrapper becomes the flex column\'s growing item on the Map tab, and a plain block on every other tab', () => {
-    renderWithMap();
-    const planPane = screen.getByTestId('window-first-pane');
-    const panelWrap = planPane.parentElement;
-    expect(panelWrap.className).not.toContain('flex-1');
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(panelWrap.className).toContain('flex-1');
-    expect(panelWrap.className).toContain('min-h-0');
-    expect(panelWrap.className).toContain('flex-col');
-
-    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
-    expect(panelWrap.className).not.toContain('flex-1');
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    expect(screen.getByTestId('window-first-shell').className).not.toMatch(/flex-1|min-h-0|flex-col/);
+    expect(document.querySelector('.wf-body--map')).toBeNull();
+    expect(screen.queryByTestId('window-first-panel-map')).toBeNull();
   });
 });
 
@@ -1319,7 +1181,7 @@ describe('WindowFirstShell — the REAL Coming up card and day chip reach onOpen
   };
   const DATES = ['2026-08-08', '2026-08-12'];
 
-  it('the card sends the coming-up trigger with its subject filter, the Plan lens and from: coming-up', async () => {
+  it('the card sends the coming-up trigger with its subject filter and the Plan lens', async () => {
     getAlmanac.mockResolvedValue({ ...FEED, entries: [CARD_ENTRY] });
     const { onOpenMapTab } = renderShell({}, { forecastDates: DATES });
     await openComingUp();
@@ -1328,7 +1190,7 @@ describe('WindowFirstShell — the REAL Coming up card and day chip reach onOpen
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
-      date: '2026-08-12', inPlace: false, from: 'coming-up', minRating: null, limitMinutes: 45,
+      date: '2026-08-12', inPlace: false, minRating: null, limitMinutes: 45,
       outlierKeys: expect.any(Set),
     });
   });
@@ -1342,7 +1204,7 @@ describe('WindowFirstShell — the REAL Coming up card and day chip reach onOpen
 
     expect(onOpenMapTab).toHaveBeenCalledTimes(1);
     expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'coming-up', darkSky: true, filterAction: null, date: '2026-08-12', from: 'coming-up',
+      kind: 'coming-up', darkSky: true, filterAction: null, date: '2026-08-12',
       inPlace: false,
     }));
     expect(onOpenMapTab.mock.calls[0][0].label).toMatch(/^Perseids · /);

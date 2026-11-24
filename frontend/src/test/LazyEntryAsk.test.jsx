@@ -61,7 +61,6 @@ vi.mock('../api/askApi.js', async (importOriginal) => ({
 }));
 import { getAskSettings, getReady } from '../api/askApi.js';
 
-const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const appContainer = () => screen.getByTestId('window-first-shell').closest('body > *');
 
 beforeEach(() => {
@@ -127,12 +126,12 @@ describe('the sheet (phone)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull());
     const unmountsBefore = g.unmounts;
 
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     expect(screen.queryByTestId('ask-bar')).toBeNull();
     await waitFor(() => expect(g.unmounts).toBe(unmountsBefore + 1));
 
-    // Back on Plan the bar returns, and the sheet is mounted afresh only when it is next opened.
-    fireEvent.click(tab('At a Glance'));
+    // Back on Plan (the view closed) the bar returns, and the sheet is mounted afresh only when it is next opened.
+    fireEvent.click(screen.getByTestId('map-screen-close'));
     const mountsBefore = g.mounts;
     await screen.findByTestId('ask-bar');
     expect(g.mounts).toBe(mountsBefore);

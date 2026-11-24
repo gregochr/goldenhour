@@ -116,7 +116,8 @@ describe('the masthead door on desktop and tablet', () => {
   ])('on %s it opens that tab\'s page in the docked column', async (name, guidePage) => {
     mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
-    fireEvent.click(tab(name));
+    // The Map is a view now: its door opens it, and the masthead's `?` (inert behind the view, in a browser) names its page.
+    fireEvent.click(name === 'Map' ? screen.getByTestId('window-first-tab-map') : tab(name));
     expect(door()).toHaveAccessibleName('Guide for this tab');
     fireEvent.click(door());
     expect(frameSrc()).toBe(page(guidePage));
@@ -177,7 +178,7 @@ describe('the masthead door on desktop and tablet', () => {
     expect(frameSrc()).toBe(page('at-a-glance'));
     fireEvent.click(tab('Coming up'));
     await waitFor(() => expect(frameSrc()).toBe(page('coming-up')));
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     await waitFor(() => expect(frameSrc()).toBe(page('map')));
   });
 
@@ -204,9 +205,10 @@ describe('review round 1', () => {
     await waitFor(() => expect(frameSrc()).toBe(page('coming-up')));
     expect(tab('Coming up')).toHaveFocus();
     expect(screen.getByTestId('guide-close')).not.toHaveFocus();
-    fireEvent.keyDown(tab('Coming up'), { key: 'ArrowRight' });
+    // The Map is a view now: opening it moves the docked guide to the map page, and focus is the view's title.
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     await waitFor(() => expect(frameSrc()).toBe(page('map')));
-    expect(tab('Map')).toHaveFocus();
+    expect(screen.getByTestId('map-screen-title')).toHaveFocus();
   });
 
   it('a click that left focus on <body> (Safari) still returns focus to the masthead ? on close', async () => {
@@ -246,11 +248,12 @@ describe('the phone', () => {
   it('the Guide row follows the tab, and is absent on Operations', async () => {
     mount({ width: 390, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await screen.findByTestId('ask-bar');
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     fireEvent.click(screen.getByTestId('masthead-menu-button'));
     fireEvent.click(screen.getByTestId('masthead-menu-guide'));
     expect(frameSrc()).toBe(page('map'));
     fireEvent.click(screen.getByTestId('bottom-sheet-close'));
+    fireEvent.click(screen.getByTestId('map-screen-close'));
     fireEvent.click(tab('Operations'));
     fireEvent.click(screen.getByTestId('masthead-menu-button'));
     expect(screen.queryByTestId('masthead-menu-guide')).toBeNull();

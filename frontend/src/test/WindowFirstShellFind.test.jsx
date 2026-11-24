@@ -300,10 +300,12 @@ describe('⌘K / Ctrl K — the guard matrix', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(find()).toBeNull());
 
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     await expectActs();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(find()).toBeNull());
+    // The view is the base layer under Find: close it before moving to Operations (its screen is inert while it is up).
+    fireEvent.click(screen.getByTestId('map-screen-close'));
 
     fireEvent.click(tab('Operations'));
     expectRefused(chord());
@@ -401,14 +403,17 @@ describe('what a pick does on Coming up (decision D6: the Plan tab, then the she
     expect(document.activeElement).toBe(tab('At a Glance'));
   });
 
-  it('a window opens the Map on it, recording Coming up as where Back returns to (G2a)', async () => {
+  it('a window opens the map view on it (the view\'s own Back layer is the way back)', async () => {
     const onOpenMapTab = vi.fn();
     await toComingUp(findCtx(), { mapPane: MAP_PANE, onOpenMapTab });
 
     fireEvent.click(screen.getAllByRole('option', { name: /Tonight/ })[0]);
 
     expect(onOpenMapTab).toHaveBeenCalledTimes(1);
-    expect(onOpenMapTab.mock.calls[0][0]).toMatchObject({ from: 'coming-up', inPlace: false });
+    expect(onOpenMapTab.mock.calls[0][0]).toMatchObject({ kind: 'event', inPlace: false });
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
+    // Coming up stays the tab in force under the view.
+    expect(selectedTab()).toHaveTextContent('Coming up');
   });
 
   it('a region plans from it and leaves the reader on Coming up', async () => {
@@ -428,7 +433,7 @@ describe('what a pick does on the Map', () => {
     const onOpenMapTab = vi.fn();
     mount({ ctx, props: { mapPane: MAP_PANE, onFindOnMap, onOpenMapTab, ...props } });
     await ready();
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     fireEvent.click(findButton());
     await screen.findByTestId('plan-search-panel');
     return { ctx, onFindOnMap, onOpenMapTab };
@@ -442,7 +447,7 @@ describe('what a pick does on the Map', () => {
 
     expect(onFindOnMap).toHaveBeenCalledWith({ kind: 'location', id: WHITBY, name: 'Whitby' });
     expect(sheet()).toBeNull();
-    expect(selectedTab()).toHaveTextContent('Map');
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     expect(ctx.setOrigin).not.toHaveBeenCalled();
     expect(find()).toBeNull();
   });
@@ -478,7 +483,7 @@ describe('what a pick does on the Map', () => {
     expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'event', date: TODAY, eventType: 'SUNSET', inPlace: true,
     }));
-    expect(selectedTab()).toHaveTextContent('Map');
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
   });
 
   it('⚠️ offers no window the map\'s control cannot reach (a date outside forecastDates)', async () => {
@@ -498,7 +503,7 @@ describe('Back and focus', () => {
   it('Back closes Find on every tab it is offered on', async () => {
     mount({ props: { mapPane: MAP_PANE } });
     await ready();
-    for (const name of ['At a Glance', 'Coming up', 'Map']) {
+    for (const name of ['At a Glance', 'Coming up']) {
       fireEvent.click(tab(name));
       await act(async () => { await Promise.resolve(); });
       fireEvent.click(findButton());
@@ -511,6 +516,20 @@ describe('Back and focus', () => {
       await waitFor(() => expect(find()).toBeNull());
       expect(__inspectForTests().layers).toBe(0);
     }
+    // In the map view Find is layer 2 over the view's own base layer: Back closes Find, then the view.
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    await settle();
+    fireEvent.click(screen.getByTestId('map-screen-find'));
+    await screen.findByTestId('plan-search-panel');
+    await settle();
+    expect(__inspectForTests().layers).toBe(2);
+    await back();
+    await waitFor(() => expect(find()).toBeNull());
+    expect(__inspectForTests().layers).toBe(1);
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
+    await back();
+    expect(__inspectForTests().layers).toBe(0);
+    expect(screen.getByTestId('map-screen')).toHaveAttribute('hidden');
   });
 
   it('⚠️ a ⌘K open has no focused trigger, so closing returns focus to the Find button, not <body>', async () => {
@@ -801,7 +820,7 @@ describe('areas in Find (F2)', () => {
       const onFindOnMap = vi.fn();
       mount({ ctx: areaCtx(), props: { mapPane: MAP_PANE, onFindOnMap } });
       await ready();
-      fireEvent.click(tab('Map'));
+      fireEvent.click(screen.getByTestId('window-first-tab-map'));
       await findArea('hadrian');
       expect(screen.getAllByRole('option')[0]).toHaveTextContent('Show');
 
@@ -811,7 +830,7 @@ describe('areas in Find (F2)', () => {
         kind: 'area', id: 1, name: "Hadrian's Wall", ids: [WHITBY, SALTBURN],
       });
       expect(areaSheet()).toBeNull();
-      expect(selectedTab()).toHaveTextContent('Map');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     });
   });
 });

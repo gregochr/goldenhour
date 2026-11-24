@@ -328,7 +328,7 @@ const openRowKey = () => screen.getAllByTestId('location-sheet-row')
 async function planOnTheMap(onOpenSettings = vi.fn()) {
   render(<Host onOpenSettings={onOpenSettings} />);
   await waitFor(() => expect(ask$?.availability).toBe('on'));
-  fireEvent.click(tab('Map'));
+  fireEvent.click(screen.getByTestId('window-first-tab-map'));
   await screen.findByTestId('wf-map-peek');
   await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-btn-ask')); });
   ask.mockResolvedValue(ownResponse({
@@ -359,7 +359,7 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Whitby');
     expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('window-first-panel-map')).toHaveAttribute('hidden');
+    expect(screen.getByTestId('map-screen')).toHaveAttribute('hidden');
     expect(openRowKey()).toBe(`${TOMORROW}:SUNRISE`);
     expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(1);
     // The conversation survives the move — the plan view is still the plan view.
@@ -375,7 +375,7 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
 
     fireEvent.click(screen.getByTestId('location-sheet-close'));
     await waitFor(() => expect(screen.queryByTestId('location-sheet')).toBeNull());
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     await paneBox(390, 500);
 
     expect(mode()).toBe('minimised');
@@ -402,7 +402,7 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
   it('a plain Map-callout "Open in Plan" (no Ask answer) returns focus to the Plan tab on close', async () => {
     render(<Host onOpenSettings={vi.fn()} />);
     await waitFor(() => expect(ask$?.availability).toBe('on'));
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     await screen.findByTestId('wf-map-peek');
     act(() => openHandoff({
       id: SALTBURN, name: 'Saltburn', regionName: null, inPlan: true,

@@ -322,7 +322,7 @@ async function openPlanSheet() {
 
 /** Selects the Map tab — the pane mounts on first selection — and waits for the stub pane. */
 async function openMapTab() {
-  const tab = await screen.findByRole('tab', { name: 'Map' });
+  const tab = await screen.findByTestId('window-first-tab-map');
   await act(async () => { fireEvent.click(tab); });
   await screen.findByTestId('map-pane-stub');
   return tab;
@@ -542,13 +542,13 @@ describe('App — every route into settings takes down the dialog it would open 
       // opened it from. Settings is not a destination either, so taking the sheet down must not
       // take the map with it — the cog, reached from the same sheet, moves no tab.
       renderApp();
-      const mapTab = await openMapTab();
+      await openMapTab();
       await openPeek();
 
       await press(screen.getByRole('button', { name: HOME_CONTROL }));
       await settingsSettled();
 
-      expect(mapTab).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
       expect(screen.getByTestId('map-pane-stub')).toBeVisible();
     });
 
@@ -574,7 +574,7 @@ describe('App — every route into settings takes down the dialog it would open 
       // `selectTab` naming the tab in force — the peek's own rule (O-18) is that nothing here moves
       // the reader off the map.
       renderApp();
-      const mapTab = await openMapTab();
+      await openMapTab();
       await openPeek();
 
       await press(screen.getByRole('button', { name: 'Settings' }));
@@ -582,20 +582,20 @@ describe('App — every route into settings takes down the dialog it would open 
 
       expect(modals()).toHaveLength(1);
       expect(screen.queryByTestId('location-sheet')).toBeNull();
-      expect(mapTab).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     });
 
     it('the postcode nudge on the Map tab opens settings where the reader is, moving no tab', async () => {
       // The nudge renders on every tab while no home is saved. Its close names the tab in force, so
       // pressing it from the map must not carry the reader back to the Plan.
       renderApp();
-      const mapTab = await openMapTab();
+      await openMapTab();
 
       await press(screen.getByRole('button', { name: NUDGE }));
       await settingsSettled();
 
       expect(modals()).toHaveLength(1);
-      expect(mapTab).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     });
 
     it('⚠️ over the four-day sheet a SECOND time: the close re-arms when settings closes', async () => {
@@ -646,21 +646,21 @@ describe('App — every route into settings takes down the dialog it would open 
 
       await press(await screen.findByTestId('aurora-banner'));
 
-      await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true'));
+      await waitFor(() => expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden'));
       expect(screen.queryByTestId('location-sheet')).toBeNull();
       expect(modals()).toHaveLength(0);
       await waitFor(() => expect(handoff()).toMatchObject({
-        source: 'plan', eventType: 'AURORA', night: { kind: 'aurora', date: TOMORROW }, from: 'plan',
+        source: 'plan', eventType: 'AURORA', night: { kind: 'aurora', date: TOMORROW },
       }));
     });
 
-    it('focus lands on the Map tab button on arrival (not <body>)', async () => {
+    it('focus lands on the map view\'s title on arrival (not <body>)', async () => {
       renderApp();
       await screen.findByTestId('wf-heat-strip');
 
       await press(await screen.findByTestId('aurora-banner'));
 
-      await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveFocus());
+      await waitFor(() => expect(screen.getByTestId('map-screen-title')).toHaveFocus());
     });
 
     it('⚠️ pressed ON the Map tab with the Map-hosted four-day sheet open: the sheet closes FIRST, then the window changes in place', async () => {
@@ -675,7 +675,7 @@ describe('App — every route into settings takes down the dialog it would open 
       expect(modals()).toHaveLength(0);
       expect(handoff()).toMatchObject({ source: 'map', night: { kind: 'aurora', date: TOMORROW } });
       // Nothing else moved: still the Map tab, no lens carried.
-      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
       expect(handoff()).not.toHaveProperty('minRating');
     });
   });

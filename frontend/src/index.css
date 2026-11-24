@@ -1222,88 +1222,14 @@
    announcement problem it exists to avoid; `display: contents` has a history of dropping ARIA
    roles in some engines), so the fix is a margin cancelling the gap, not a display change. */
 .wf-pane-status:empty { margin-top: -10px; }
-/* ── The Map tab's full frame (map-tab-v2-plan.md §3 P7; width reversed by O-17) ────────────────
-   The selected Map panel's own `wf-body` — released to zero padding (the map bleeds to the edge
-   of ITS OWN panel) and sized by FLEXBOX rather than by any height computed here.
-
-   ⚠️ "The frame's edge" no longer means the browser window. P7 originally cited the design's
-   full-bleed layout diagram for this padding rule, but bundle rev 2 reverses that diagram (O-17,
-   owner decision 2026-09-03): the Map tab's panel region is now width-capped to the same
-   `WRAP_MAX_WIDTH` (1080px) column the masthead uses (`WindowFirstShell.jsx`'s panel-region
-   wrapper), rather than stretching to the viewport. Zero padding here is a SEPARATE, surviving
-   question — the map still fills 100% of whatever box it is given, it is just given a narrower
-   box now — so this rule needed no change, only this citation did. `App.jsx`'s root recasts the
-   whole page as a flex column on this tab
-   (`isMapTabActive`): the banner block, the masthead+tab-bar wrap and this panel are three flex
-   items stacked in a column whose own height is `100dvh`, and this class's only job is to be the
-   one that GROWS (`flex: 1; min-height: 0`) while the other two take their natural content height.
-   `<main>` and `.wf-shell`'s own panel-region wrapper carry the identical `flex: 1; min-height: 0;
-   display: flex; flex-direction: column` down to here, so the real, laid-out height reaches this
-   class rather than a guess about it.
-
-   ⚠️ THIS REPLACED A MEASURED HEIGHT CHAIN, and the reason is worth keeping: a
-   `calc(100dvh - var(--wf-mast-h) - var(--wf-tabbar-h))` version of this class shipped first,
-   each term published by its own `ResizeObserver` (`useLensReserve`, `useTabBarHeight`). It leaked
-   TWICE. First: the app-wide footer alone overflowed the page by 99px at 1280×800 with zero
-   banners showing — fixed by adding a THIRD term, `--wf-banner-h`, for the banner block. Second,
-   found immediately after by a live re-measurement: 16px of scroll still survived with every
-   banner suppressed, because the panel's actual top sat 16px below the sum of the three measured
-   terms — an inter-element MARGIN/gap between the tab bar and the panel that a `ResizeObserver` on
-   element BOXES structurally cannot see (RO measures boxes, not the space between them). Two
-   leaks from the same class of gap is not "nearly done", it is the wrong mechanism: any arithmetic
-   reconstruction of a layout the browser already knows how to compute has to enumerate every
-   contributor by hand, and a margin is exactly the kind of contributor that has no element to
-   attach a `ResizeObserver` to. Flexbox does not have this failure mode — margins between flex
-   items do not collapse but DO count in the column's own layout, so the browser absorbs them (and
-   every rule, gap and banner) with no term to add and nothing left to leak.
-
-   `overflow: hidden` is still load-bearing, now for the SAME reason a flex child needs it in
-   general: the design's own words are "fills the frame... and does not scroll" (README
-   "Screens/views") — everything on the map is an OVERLAY, never a reason to grow the panel taller
-   than the height flexbox handed it. `min-height: 0` is the usual flex-child fix so the panel can
-   actually SHRINK to that height rather than a nested flex child's intrinsic content height
-   winning instead.
-
-   ⚠️ `.wf-body.wf-body--map`, not `.wf-body--map` alone — adversarial review, real finding, and
-   unrelated to the height mechanism above (this one is about WIDTH-adjacent padding, not height).
-   Both classes are plain class selectors (specificity 0,1,0), and the phone media query's OWN
-   `.wf-body { padding: 12px … }` override (below) sits at the same specificity and LATER in
-   source order — so on a phone the padded rule won regardless of which class order the compound
-   className string used, and the "full-bleed" map carried a padded band on every real device this
-   was tried on. The compound selector's 0,2,0 beats both unconditionally, independent of source
-   order — robust against either rule being reordered later. */
-.wf-body.wf-body--map {
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  /* ⚠️ ONE RULE, NOT A LIST OF SELECTORS (increment §6). Every panel inside the map frame defaults
-     to the passing ink; recession is opt-in from here, by a rule naming its own colour.
-
-     The bundle writes this as `#mapwrap { --ink-3: <--ink-2's value> }`; this arm's equivalent
-     token is `--color-plex-text-muted`, so the override is on that. MEASURED on this arm's own
-     grounds rather than assumed: bone at 0.42 composites to **3.53:1** on the window menu's plate,
-     **3.56:1** on the callout's — both under AA's 4.5:1 for the 9.5–11px type the map's panels are
-     set in — where 0.66 lands at **7.24:1** and **7.15:1**. Two live map-chrome uses were failing
-     at the 0.42 value: the window dropdown's `—` unscored marker and the callout strip cell's, both
-     of which are meaningful words ("nothing is scored here"), not decoration.
-
-     ⚠️ Scoped to `.wf-body--map` — the Map TAB's own wrapper — and NOT to `MapView`: the override is
-     the tab's, and another host of the component (the Plan-tab overlay, retired in overlay
-     convergence C5, was one) would not want it.
-
-     The increment names two exceptions to the same rule in the bundle (`.rg2`, `.ringlb` — bare
-     text over tiles with text-shadows, which must not compete with the field). This arm has no
-     counterpart today: its own over-tile labels (`.wf-maplab-*`) already set explicit colours and
-     never reach for the muted token, so no exception is carved. If one is ever needed, it belongs
-     in that rule's own declaration, not as a second selector list here. */
-  --color-plex-text-muted: var(--color-panel-ink);
-}
+/* ── The map's full frame ────────────────────────────────────────────────────────────────────────
+   The Map tab's `.wf-body.wf-body--map` panel (P7, O-17) is gone with the tab: the map is the VIEW `.wf-map-screen`
+   (below, `docs/engineering/one-screen-plan.md` D1, D11), which sizes it by flexbox and carries the passing-ink override
+   the panel used to (`--color-plex-text-muted: var(--color-panel-ink)`, the 0.42 bone measuring 3.5:1 on the panels'
+   plates). The phone sheets below are portalled outside it, so they take the same override themselves. */
 /* ⚠️ AND the phone, which the first cut missed — a review lens caught it. On <=639px the two
    panels §6 names by name, Filters and Regions, become `BottomSheet`s, and `BottomSheet` renders
-   through `createPortal(…, document.body)`. A portalled node is outside `.wf-body--map` in the DOM,
+   through `createPortal(…, document.body)`. A portalled node is outside the map view in the DOM,
    so it inherits nothing from the rule above: `.wf-filters-key` (five render sites),
    `.wf-filters-admin-tag`, `.wf-jump-empty`, `.wf-jump-drive` and `.wf-jump-unscored` all kept the
    failing 0.42 on the one screen where the type is smallest. "One rule, not a list of selectors"
@@ -4944,117 +4870,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: #EBD9A8;
 }
 
-/* ── The door landing strip (doors D2, plan-to-map-doors-plan.md §3 D2 task 3, §4 #3) ────────────
-   Mounted by `MapView` ABOVE the map frame, in normal document FLOW — not `position: absolute`
-   like every other chip in this file, and deliberately so: nothing here is drawn OVER the field, so
-   the increment's "anything drawn over a field must be seeded as an obstacle" rule is honoured by
-   never needing the mechanism at all (plan §1 #12). The flex-column ancestor chain
-   (`WindowFirstMapPane`'s own wrapper, `.wf-map-tab` below) already gives the map frame
-   `flex: 1; min-height: 0`, so a normal-flow sibling row above it shrinks the frame by exactly this
-   row's own height with no further accounting. `min-height: 34px` matches BOTH the design bundle's
-   own `#crumb` figure (`Map Tab v2.html:248`) and plan §4 #3's independent "~34px shorter"
-   estimate — the same number arrived at twice. */
-.wf-map-breadcrumb {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  min-height: 34px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--color-plex-border);
-  background: rgba(0, 0, 0, 0.16);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-map-breadcrumb-back {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--color-plex-gold);
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-}
-.wf-map-breadcrumb-back:hover {
-  text-decoration: underline;
-}
-.wf-map-breadcrumb-back:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-/* SECONDARY, not muted — this file has made this exact correction repeatedly (the masthead's own
-   `.wf-tick-caption`, the map counts footer). Measured the same way those corrections were:
-   `--color-plex-text-muted` (rgba(242,231,211,.42)) composited over this bar's own
-   `rgba(0,0,0,.16)` over `--color-plex-bg` lands under 4.5:1 for 10.5px text; secondary
-   (rgba(242,231,211,.66)) clears it with room. */
-.wf-map-breadcrumb-sep {
-  color: var(--color-plex-text-secondary);
-}
-.wf-map-breadcrumb-window b {
-  color: var(--color-plex-text);
-  font-weight: 600;
-}
-/* The door's own headline (overlay convergence C1): "Aurora tonight", "Tomorrow sunrise · 06:12".
-   Primary text, like the window clause's day word - it is the thing the reader came for. */
-.wf-map-breadcrumb-title {
-  color: var(--color-plex-text);
-  font-weight: 600;
-}
-/* The prototype's `.cf{margin-left:auto}` — pushed to the row's far end on desktop; the phone
-   media query below cancels that and wraps it onto its own line instead. */
-.wf-map-breadcrumb-carrying {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-map-breadcrumb-clear {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-tide);
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-}
-.wf-map-breadcrumb-clear:hover {
-  color: #8FC4CC;
-}
-.wf-map-breadcrumb-clear:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-/* The strip itself takes focus when `clear` removes itself while holding it (`MapBreadcrumb`'s
-   class comment), so it draws a ring of its own, in `--color-plex-gold`, the bone its two buttons'
-   rings use.
-   INSET, at minus its own width: the strip spans `.wf-body.wf-body--map` edge to edge, and that
-   panel clips overflow, so an outline drawn outside the strip would be cut away down both sides.
-   A real outline, not the `box-shadow` ring the tick line draws: forced-colours mode removes every
-   box-shadow and repaints an outline in a system colour, so this one needs no transparent twin.
-   Measured in Chromium and Firefox, both modes: the ring draws whole on all four sides. In forced
-   colours the bottom edge gains one pixel rather than two, because the strip's 1px bottom border is
-   repainted too and sits under the ring's outer pixel. Unlike ⌂ (whose `-3px` answers a border on
-   all four sides), the other three edges gain the whole ring, so the offset stays at the width. */
-.wf-map-breadcrumb:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: -2px;
-}
-@media (max-width: 639px) {
-  .wf-map-breadcrumb {
-    font-size: 10px;
-  }
-  .wf-map-breadcrumb-carrying {
-    margin-left: 0;
-    width: 100%;
-  }
-}
-
 /* ── Phone chrome re-arrangement (map-tab-v2-plan.md §3 P12, README "Responsive" table) ─────────
    Everything in this block is scoped to `.wf-map-tab` — the TAB's own root wrapper
    (`MapView.jsx`), so none of it can reach a host that does not carry that class.
@@ -5093,7 +4908,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     left: 8px;
     right: 8px;
   }
-  .wf-map-tab .wf-win-control {
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-control {
     width: 100%;
   }
   /* ⚠️ The desktop bound must be RELEASED here, not merely overridden by `left`/`right`.
@@ -5108,15 +4923,15 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      this block already sets `left: 8px; right: 8px` on it, and L2's first cut added a second one
      re-setting `right: 8px` eight lines later, which was dead CSS whose own comment described the
      rule above it as a different block. */
-  .wf-map-tab .wf-win-verdict-region { display: none; }
-  .wf-map-tab .wf-win-verdict-count { display: none; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-region { display: none; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-count { display: none; }
   /* The drive-tier scope words (reach-scoped-card-plan R3) take the hidden region line's slot: the region and its
      separator go, the scope stays (printed short, spoken long; the long form is in the accessible name). */
-  .wf-map-tab .wf-win-verdict-scope-sep { display: none; }
-  .wf-map-tab .wf-win-pick { padding: 3px 5px; }
-  .wf-map-tab .wf-win-pick-glyph { font-size: 11px; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-scope-sep { display: none; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-pick { padding: 3px 5px; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-pick-glyph { font-size: 11px; }
   /* The group fills the bar here; the 504px cap is a desktop/tablet concern. */
-  .wf-map-tab .wf-win-control { max-width: none; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-control { max-width: none; }
 
   .wf-map-tab .wf-map-chrome-tr {
     top: auto;
@@ -6363,7 +6178,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    812px = 60 (this box's left inset) + 248 (the cluster's reserved band) + 504 (the group's cap):
    the frame width below which the group stops getting its full allotment. Above it the words fit. */
 @media (max-width: 811px) {
-  .wf-map-tab .wf-win-pick-words {
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-pick-words {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -6389,8 +6204,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      45/45 (it was 60/83 and 61/66 at 320 and 360 before). At exactly 320px the day label is still
      7px short — the residual the 389px block below records, unchanged and now no worse than a rated
      word's. */
-  .wf-map-tab .wf-win-verdict-word .wf-vw-short { display: inline; }
-  .wf-map-tab .wf-win-verdict-word .wf-vw-full {
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-word .wf-vw-short { display: inline; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-word .wf-vw-full {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -6404,12 +6219,12 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   /* The drive-tier scope's two spellings (reach-scoped-card-plan R3), swapped at the same breakpoint and for the same
      reason as the verdict word: the cell is squeezed here. These are scoped-state rules only (an unscoped verdict has no
      scope element), so unscoped output is unchanged. */
-  .wf-map-tab .wf-win-verdict-scope .wf-scope-full { display: none; }
-  .wf-map-tab .wf-win-verdict-scope .wf-scope-short { display: inline; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-scope .wf-scope-full { display: none; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-scope .wf-scope-short { display: inline; }
   /* A scoped cell never shrinks below its own content, so the short scope is never clipped by the pill squeezing the
      cell under its word (measured at 320px: a Poor cell was 22px for a 26px word and cut "≤45m"). Its content is the
      word or the short scope, whichever is wider, so the cell grows by a few px at most and the day label absorbs it. */
-  .wf-map-tab .wf-win-verdict--scoped { min-width: max-content; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict--scoped { min-width: max-content; }
 }
 
 /* ⚠️ Below 390px the medallion goes entirely — glyph included — because the day label starts to
@@ -6420,13 +6235,13 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    clipped out of view by the ≤811px rule above and remain in the accessible name there; at these
    widths the chip leaves the layout altogether, which is the honest trade for keeping the day. */
 @media (max-width: 389px) {
-  .wf-map-tab .wf-win-pill .wf-win-pick { display: none; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-pill .wf-win-pick { display: none; }
   /* With the medallion gone the verdict cell has no neighbour to be separated from, so its rule and
      most of its padding are spend for nothing — and at 320px (the WCAG 1.4.10 reflow width) those
      ~10px are exactly what decides whether the day label clips. ⚠️ Measured: the pre-L2 control did
      NOT clip at 320, so without this the verdict cell would have been a regression at that width
      rather than a pre-existing limit. */
-  .wf-map-tab .wf-win-verdict {
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict {
     padding-left: 0;
     border-left: none;
   }
@@ -6434,7 +6249,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      shortfall lands on the day label. Four inter-item gaps at 6px and 10px of side padding are the
      only fat left once the medallion has gone; 4px and 8px recover 12px and the label fits with the
      margin to spare. Nothing is dropped to buy this. */
-  .wf-map-tab .wf-win-pill {
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-pill {
     gap: 4px;
     padding-left: 8px;
     padding-right: 8px;
@@ -6442,7 +6257,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   /* `.1em` of tracking on an 8-character uppercase word is ~8px of pure air. Half of it is the last
      of the shortfall, and tighter tracking at a smaller size is the ordinary typographic direction
      rather than a concession. */
-  .wf-map-tab .wf-win-verdict-word { letter-spacing: 0.04em; }
+  :is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-word { letter-spacing: 0.04em; }
   /* ⚠️ **Residual, measured and accepted.** At exactly 320px — the WCAG 1.4.10 reflow width, and a
      640px window at 200% zoom — a row carrying a verdict is still 5px short, so a weekday day label
      renders "Wednesda…". The pre-L2 control did NOT clip there, so this IS a regression of this
@@ -14809,3 +14624,180 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
   .wf-fav-wrap { min-height: 44px; }
   .wf-fav { min-width: 30px; min-height: 30px; justify-content: center; padding: 0 6px; }
 }
+
+
+/* ═══ THE MAP VIEW (`docs/engineering/one-screen-plan.md` D1, D10, D11, D12) ═══════════════════════════════════════════
+   A labelled REGION over an inert screen, rendered inside the shell root (`components/MapScreen.jsx`). Four rules:
+
+   · z-index 48: above the Ask bar (40), the masthead band (45) and the tab row's upsell (44); below `Modal`'s z-50 and
+     the phone sheets (9999 / 10000), which must still cover it.
+   · NO TRANSFORM on the view or on any ancestor, and no `scale`/`translate` animation: `getBoundingClientRect`
+     includes a transform while the pane's ResizeObserver does not fire on one, so the map would be sized against a
+     box it is not in. The enter animation is OPACITY only. Closed is the `hidden` attribute (display: none), never
+     visibility, opacity or an off-screen position: that is what the hidden-pane guards read.
+   · `right` is the Ask dock column's edge (`--wf-map-right`, set from the measured dock), so the dock stays beside the
+     view and interactive; the pane's ResizeObserver absorbs the width.
+   · The muted ink is the map's passing ink, as `.wf-body.wf-body--map` carried it before the tab went (the failing
+     0.42 bone on the panels' plates measured 3.5:1; the override reads 7:1). */
+.wf-map-screen {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: var(--wf-map-right, 0px);
+  z-index: 48;
+  display: flex;
+  --color-plex-text-muted: var(--color-panel-ink);
+  animation: wf-map-screen-in .14s ease-out;
+}
+.wf-map-screen[hidden] { display: none; }
+@keyframes wf-map-screen-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-map-screen { animation: none; }
+}
+.wf-map-screen-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, .62);
+}
+.wf-map-screen-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  margin: 18px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 10px;
+  background: var(--color-plex-bg);
+  overflow: hidden;
+}
+.wf-map-screen-head {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-plex-border);
+  background: var(--color-plex-panel);
+}
+.wf-map-screen-titleblock { display: flex; flex-direction: column; flex: 1 1 140px; min-width: 0; }
+.wf-map-screen-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--color-plex-text);
+  overflow-wrap: anywhere;
+}
+.wf-map-screen-title:focus { outline: none; }
+.wf-map-screen-facts {
+  margin: 2px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-map-screen-facts:empty { display: none; }
+.wf-map-screen-window { flex: 0 1 504px; min-width: 0; }
+.wf-map-screen-window:empty { display: none; }
+.wf-map-screen-tools {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.wf-map-screen-tools .wf-askf { margin: 0; align-self: center; width: 200px; }
+.wf-map-screen-tools .wf-askf[data-width="340"] { width: 240px; }
+.wf-map-screen-tools .wf-askf-kbd { display: none; }
+.wf-map-screen-btn,
+.wf-map-screen-close {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--color-plex-border);
+  background: var(--color-plex-surface);
+  color: var(--color-plex-text-secondary);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.wf-map-screen-btn:hover,
+.wf-map-screen-close:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
+.wf-map-screen-btn:focus-visible,
+.wf-map-screen-close:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-map-screen-origin { max-width: 200px; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.wf-map-screen-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.wf-screen-note {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+  background: var(--color-plex-surface);
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-screen-note-x {
+  min-width: 24px;
+  min-height: 24px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-screen-note-x:hover { color: var(--color-plex-text); }
+.wf-screen-note-x:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+@media (max-width: 639px) {
+  /* The phone: the whole dynamic viewport, no scrim, no inset, the safe areas as padding. */
+  .wf-map-screen { bottom: auto; height: 100dvh; right: 0; }
+  .wf-map-screen-scrim { display: none; }
+  .wf-map-screen-box {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+  }
+  /* The window control keeps the 8px inset it had as the map's own top chrome (its pill is measured against it). */
+  .wf-map-screen-head { padding: 6px 8px; }
+  .wf-map-screen-window { flex: 1 1 100%; order: 3; }
+  .wf-map-screen-tools .wf-askf { width: 34px; padding: 0; justify-content: center; }
+}
+
+/* The lens note above the map frame: what a door narrowed the field to, and the one control that lifts it. */
+.wf-map-lens-note {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+  background: var(--color-plex-surface);
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-map-lens-note-clear {
+  min-height: 24px;
+  padding: 0 8px;
+  color: var(--color-plex-text);
+  text-decoration: underline;
+}
+.wf-map-lens-note-clear:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }

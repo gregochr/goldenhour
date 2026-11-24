@@ -57,7 +57,8 @@ import FiltersPopover from './map/FiltersPopover.jsx';
 import MapCallout from './map/MapCallout.jsx';
 import MapLegendPanel from './map/MapLegendPanel.jsx';
 import RegionsJump from './map/RegionsJump.jsx';
-import MapBreadcrumb from './map/MapBreadcrumb.jsx';
+import { useMapScreen } from '../context/MapScreenContext.jsx';
+import { markEscapeAnswered } from '../utils/mapEscape.js';
 import MapPeekSheet, { OtherWindowValue, MapPeekWindowsSection } from './map/MapPeekSheet.jsx';
 import MapPeekTideSection from './map/MapPeekTideSection.jsx';
 import { otherWindow, tideSummary, tideVisible } from '../utils/mapPeek.js';
@@ -1288,7 +1289,7 @@ CentreOnHomeControl.propTypes = {
  *       draws as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, reachLens = null, reachMeasured = null, reachScope = null, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS, findPick = null, findOpen = false, windowCardsByKey = null, onOpenList = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, reachLens = null, reachMeasured = null, reachScope = null, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS, findPick = null, findOpen = false, windowCardsByKey = null, onOpenList = null }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -4084,6 +4085,47 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     setYieldSeenRowId(activeMapEventId);
     if (tideYieldRowId !== activeMapEventId) setTideYieldRowId(null);
   }
+
+  /**
+   * What the map VIEW around this pane needs from it (`components/MapScreen.jsx`, one-screen-plan.md D4, D12): the
+   * served fields of the window on screen for its header, the route (window + selected place) for the layer's
+   * `#map/...` url, and the way to close this pane's innermost layer on Escape. All null-safe: outside the view
+   * (every test that renders `MapView` alone) there is no context and none of this runs.
+   *
+   * <p>The header's figures come from the Plan's own card for the window (`windowCardsByKey`, the same card the Best
+   * bet pill reads); a night, a past window or a filler has none, so the header names the window and states nothing
+   * about it.
+   */
+  const mapScreen = useMapScreen();
+  const headerCard = activeMapEvent?.kind === EVENT_KIND.SOLAR && !activeMapEvent.past && activeMapEvent.served !== false
+    ? (windowCardsByKey?.get(windowKey(activeMapEvent.date, activeMapEvent.eventType)) ?? null)
+    : null;
+  const headerTitle = activeMapEvent?.label ?? null;
+  const headerVerdict = headerCard?.verdictLabel ?? null;
+  const headerBest = headerCard?.bestRating ?? null;
+  const headerConfidence = headerCard?.confidence ?? null;
+  const publishHeader = mapScreen?.publishHeader;
+  useEffect(() => {
+    publishHeader?.({
+      title: headerTitle, verdictLabel: headerVerdict, bestRating: headerBest, confidence: headerConfidence,
+    });
+  }, [publishHeader, headerTitle, headerVerdict, headerBest, headerConfidence]);
+  const routeDate = activeMapEvent?.date ?? null;
+  const routeEventType = activeMapEvent?.eventType ?? null;
+  const routeLocationId = selectedLocationName == null
+    ? null
+    : (locations.find((l) => l.name === selectedLocationName)?.id ?? null);
+  const publishRoute = mapScreen?.publishRoute;
+  useEffect(() => {
+    publishRoute?.({ date: routeDate, eventType: routeEventType, locationId: routeLocationId });
+  }, [publishRoute, routeDate, routeEventType, routeLocationId]);
+  // The Escape ladder is defined below (it reads values derived after the early return); the view reaches it
+  // through this ref, assigned there on every render.
+  const escapeCloseRef = useRef(() => false);
+  const publishEscape = mapScreen?.publishEscape;
+  useEffect(() => {
+    publishEscape?.(() => escapeCloseRef.current());
+  }, [publishEscape]);
 
   /**
    * A map with NO solar row opens on the live aurora night (overlay convergence C3, plan §3 C3).
@@ -6946,6 +6988,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   function handleMapPaneKeyDown(mapPaneEvent) {
     if (mapPaneEvent.key !== 'Escape') return;
     if (foreignModalOver(mapPaneRef.current)) return;
+    // Told to the map view around the pane, so the same press does not also close the view (one press, one layer).
+    if (closeInnerLayer()) markEscapeAnswered(mapPaneEvent.nativeEvent);
+  }
+
+  /**
+   * The Escape ladder's rungs, innermost first: closes ONE layer and answers whether it closed anything. Shared by the
+   * pane's own key handler and by the map view, which calls it for an Escape pressed on its header (where this pane's
+   * handler never hears the key); a press that finds nothing here closes the view itself.
+   *
+   * @returns {boolean} true when a layer was closed
+   */
+  function closeInnerLayer() {
     // ⚠️ **Below the foreign-modal stand-down, and an adversarial review is why.** The first cut of
     // this phase put the panel branch ABOVE it, which made the stand-down unreachable whenever any
     // panel was open — and L3 is what makes "panel open behind a foreign modal" an ordinary state,
@@ -6987,25 +7041,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // the map), which is the state this handler exists to cover.
       setPanelReturnTo(panelRegionRow.name);
       setPanelRegion(null);
-      return;
+      return true;
     }
     if (warningShown) {
       closeWarning();
-      return;
+      return true;
     }
     if (bestBetShown) {
       closeBestBet();
-      return;
+      return true;
     }
     if (openMapMenu != null) {
       // The tide upsell is closed by this rung too: focus returns to its opener when it would be stranded.
       if (openMapMenu === 'tideUpsell') returnTideUpsellFocus();
       setOpenMapMenu(null);
-      return;
+      return true;
     }
     if (selectedLocationName != null) {
       setSelectedLocationName(null);
-      return;
+      return true;
     }
     // A selected hot topic is the LAST layer to go, after the callout: one press, one level.
     // Reaching this layer is the reader's own dismissal: a door still waiting for its data is spent by it.
@@ -7013,8 +7067,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (selectedTopic != null) {
       setSelectedTopic(null);
       setTopicAnnounce('Topic selection cleared.');
+      return true;
     }
+    return false;
   }
+  escapeCloseRef.current = closeInnerLayer;
 
   return (
     // The pane root is a programmatic-only focus target (`tabIndex -1`) that hears Escape from
@@ -7051,30 +7108,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     >
       {/* All-overcast message now shown inside AuroraBanner */}
 
-      {/* The door landing strip (D2, plan-to-map-doors-plan.md §3 D2 task 3) — ABOVE the map
-          frame, outside the Leaflet container entirely (§4 #3). */}
-      {/* ⚠️ Door-sourced only. The strip's own accessible name is "Where you came from" and its back
-          control reads `← Plan`; a map-sourced handoff came from THIS tab, so both would be false —
-          and its lens clauses describe a carry that never happened. */}
-      {planDoor && (
-        <MapBreadcrumb
-          carried={planDoor}
-          activeRow={activeMapEvent}
-          origin={origin}
-          minStars={minStars}
-          driveTimeFilter={effectiveDriveTimeFilter}
-          regionInForce={jumpFitOverride?.regionName ?? null}
-          onBack={() => onReturnToPlan?.(planDoor.from ?? 'plan')}
-          onClearRating={() => {
-            setMinStars(DEFAULT_MIN_STARS);
-            clearMapFilter('mapFilterMinStars');
-          }}
-          onClearReach={() => setDriveTimeFilter(0)}
-          onClearScope={resetToMyArea}
-          onClearOrigin={() => onClearOrigin?.()}
-          lensClauses={doorLensClauses}
-          onClearLens={clearDoorLens}
-        />
+      {/* The lens note (one-screen-plan.md D12, which retired the door's landing strip with its `← Plan` return): a
+          named-spot set or a subject filter a door applied narrows the field, and a silent narrowing is the thing
+          §4 #3 of the doors plan forbids, so it is stated here, live (recomputed from the state in force), with the
+          one control that lifts exactly what the door applied. Above the map frame and outside the Leaflet container,
+          so nothing is drawn over a field. Door-sourced only. */}
+      {planDoor && doorLensClauses.length > 0 && (
+        <div data-testid="map-lens-note" className="wf-map-lens-note font-mono">
+          <span>{doorLensClauses.join(' · ').replace(/^./, (first) => first.toUpperCase())}</span>
+          <button
+            type="button"
+            data-testid="map-lens-note-clear"
+            className="wf-map-lens-note-clear"
+            onClick={clearDoorLens}
+          >
+            Clear
+          </button>
+        </div>
       )}
 
       {/* Map.
@@ -7497,7 +7547,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         )}
 
         <div ref={chromeTlRef} className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
-          {windowControl}
+          {/* Inside the map view the ONE window control is portalled up into the view's header (one-screen-plan.md
+              D12); React events still bubble through the portal to this pane, and `foreignModalOverPaneOf` finds the
+              pane from the header through the view's root. Standing alone it draws here, as it always did. */}
+          {mapScreen?.windowSlot ? createPortal(windowControl, mapScreen.windowSlot) : windowControl}
           {/* "Best bet · why" (glance-to-map-plan.md G1): a row of its own, outside the control's flex row. The window
               card's served pick, nothing when it has none. Only the pill lives in the group; its reason is the panel below. */}
           <MapBestBetWhy pick={selectedCard?.pick ?? null} open={bestBetShown} onToggle={toggleBestBet} />
@@ -8513,9 +8566,8 @@ MapView.propTypes = {
    *
    * <ul>
    *   <li>`{source: 'plan', eventType, date, region, minRating, limitMinutes, locationName, nonce}`
-   *       — a DOOR from the Plan tab. Applies the lens, the scope and the camera, and mounts
-   *       `MapBreadcrumb` above the map frame; see that component's own doc for the derived-truth
-   *       carrying clause.</li>
+   *       — a DOOR onto the map view. Applies the lens, the scope and the camera; a named-spot or subject lens it
+   *       applies is stated by the lens note above the map frame, which also lifts it.</li>
    *   <li>`{source: 'map', eventType, date, locationName, nonce}` — the four-day sheet's own footer
    *       pressed while that sheet is already OVER the map. Moves the window and the selection and
    *       nothing else: no lens, no scope, no camera reframe, no landing strip. ⚠️ It shares this
@@ -8550,17 +8602,6 @@ MapView.propTypes = {
     caption: PropTypes.string,
     nonce: PropTypes.number,
   }),
-  /**
-   * The breadcrumb's `clear` — resets the shared origin to home (`WindowFirstMapPane`'s
-   * `() => setOrigin(null)` from `WindowFirstBriefingContext`). Resets the whole app's origin, not
-   * just this tab's — there is one origin (plan §4 #4).
-   */
-  onClearOrigin: PropTypes.func,
-  /**
-   * The breadcrumb's `← Plan` (D2) — `App.jsx`'s `returnToPlan`, a `tabRequest` for `'plan'`. Lands
-   * on the plan itself with no dialog reopened and no window key carried (plan §6 Q2, decided).
-   */
-  onReturnToPlan: PropTypes.func,
   /**
    * A place or region picked in Find on this tab (find-and-favourites-plan.md F1), applied once per `nonce`
    * while the pane is on screen — see the effect beside the `askWindow` one. Its own channel, not `planHandoff`.

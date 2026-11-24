@@ -41,17 +41,16 @@ import { takeInviteToken } from './utils/inviteLinkToken.js';
 import ChunkErrorBoundary from './components/shared/ChunkErrorBoundary.jsx';
 import { loadSettingsModal, warmSettingsModal } from './utils/settingsModalChunk.js';
 import SettingsFallback from './components/SettingsFallback.jsx';
-import { bootDialogHistory } from './utils/dialogHistory.js';
+import { bootDialogHistory, whenSettled } from './utils/dialogHistory.js';
+import { takeMapRoute, consumeMapRoute } from './utils/mapRoute.js';
+import { loadMapChunk, preloadMapChunk } from './utils/mapChunk.js';
 
 // Code-split the heavy subtrees so they stay out of the initial bundle: the Leaflet map stack and
-// the admin-only Manage view. They load on demand behind the
-// Suspense boundaries. The map is now the OPENING tab on tablet/desktop
-// (default-tab-by-device-plan.md — `utils/initialTab.js`), not merely a drill-down, but it stays
-// lazy regardless: a phone (where Plan opens) never needs this chunk at first paint at all, and on
-// tablet/desktop the fallback below covers the fetch — see `WindowFirstShell.jsx`'s own note on the
-// Map pane not existing until `hasForecastData` for why that fetch cannot simply be moved
-// earlier.
-const WindowFirstMapPane = lazy(() => import('./components/WindowFirstMapPane.jsx'));
+// the admin-only Manage view. They load on demand behind the Suspense boundaries. The map chunk is
+// PRELOADED on idle after first paint (`preloadMapChunk` below) for a reader with forecast data, so the
+// first open of the map view is instant; the pane itself mounts on that first open
+// (`docs/engineering/one-screen-plan.md` D10).
+const WindowFirstMapPane = lazy(loadMapChunk);
 const ManageView = lazy(() => import('./components/ManageView.jsx'));
 
 // Sign-in and the other auth pages, as ONE route chunk (`components/auth/AuthPages.jsx` re-exports all
@@ -325,6 +324,18 @@ function AppInner() {
    */
   const [initialTab] = useState(() => resolveInitialTab());
   /**
+   * The map view to open at load (one-screen-plan.md D4, owner Q1): the page's own `#map/...` address, read here once
+   * (after `takeLinkToken` / `takeInviteToken` had their turn in `main.jsx`) and rewritten to the bare path, or else the
+   * device's Map landing (`initialTab`, kept until the tab model goes), which is only a preference. Spent by the shell
+   * once it has acted on it, so a rewind remount does not replay it. Read through the module's memo, so React's
+   * StrictMode double-invoked initialiser sees the same answer.
+   */
+  const [loadMapRoute] = useState(() => {
+    const route = takeMapRoute();
+    if (route) return route;
+    return initialTab === 'map' ? { preferred: true } : null;
+  });
+  /**
    * The Plan shell's own active tab (map-tab-v2-plan.md §3 P7's first full-frame owner). `App`
    * cannot otherwise learn this — `WindowFirstShell`'s `effectiveTab` is shell-internal — and it
    * needs to know in order to recast the page as a flex column on the Map tab (see the root
@@ -348,6 +359,7 @@ function AppInner() {
    * itself rather than being told the answer.
    */
   const [activePlanTab, setActivePlanTab] = useState('plan');
+  /** Whether the map view is open (the shell reports `'map'` while it is). */
   const isMapTabActive = activePlanTab === 'map';
   const {
     locations, loading: forecastsLoading, error: forecastsError, refresh,
@@ -603,6 +615,10 @@ function AppInner() {
   // simulation (`utils/auroraTab.js` states why). With forecast data the tab was offered anyway, so
   // this changes nothing for any reader who had one (the pane, and a date that falls through to today, both test `hasForecastData` first).
   const auroraTabOn = auroraTabOffered(auroraStatus, role);
+  // The map chunk, fetched once the browser is idle after first paint, for a reader with something to map
+  // (one-screen-plan.md D10). The pane itself mounts on the first open of the view; this makes that open instant.
+  const mapOffered = hasForecastData || auroraTabOn;
+  useEffect(() => (streamsReady && mapOffered ? preloadMapChunk() : undefined), [streamsReady, mapOffered]);
 
   // ⚠️ Never a PAST date on ANY branch — `resolveMapDate` owns the whole precedence and records
   // what the old shape cost, the same way `normalizeMapTrigger` owns the handoff branch selection
@@ -635,6 +651,12 @@ function AppInner() {
   const registerCloseDialogs = useCallback((closer) => { closeShellDialogs.current = closer; }, []);
   /** The same closer as a function, for the guide's two-deep rule (it takes the shell's dialogs down). */
   const closeAllShellDialogs = useCallback(() => closeShellDialogs.current?.(), []);
+  /**
+   * The shell's map-view openers, registered here (`registerOpenMap`) because the aurora banner sits OUTSIDE the
+   * shell: {@code open(request)} is the shell's `openMap`, {@code close(options)} closes the view.
+   */
+  const mapViewDoors = useRef(null);
+  const registerOpenMap = useCallback((doors) => { mapViewDoors.current = doors; }, []);
 
   /**
    * Aurora banner "View on map" (overlay convergence C4, `docs/engineering/overlay-convergence-plan.md`
@@ -645,16 +667,15 @@ function AppInner() {
    *
    * <p>The banner hands over the Plan's live lens (it reads it from the briefing context it already
    * sits in), so the door imports the reader's rating floor and reach tier exactly as a Plan card's
-   * does and does not silently reset them, and `from` names the tab the press came from so the
-   * breadcrumb's return goes back there (an extension of section 5 D2, not a reversal).
+   * does and does not silently reset them.
    *
-   * <p>⚠️ <b>On the Map tab itself the press changes the window and leaves the lens alone</b>:
-   * `inPlace` takes {@link openMapTabFromPlan}'s `source: 'map'` branch (no lens, floor, reach,
-   * scope or breadcrumb write, no tab request), which carries the night so `MapView` selects the
-   * aurora row and leaves any standing door lens and its breadcrumb alone. (A map-sourced door that
-   * names a place also selects it and flies to it; an aurora door names none.) The shell's own dialogs (a Map-hosted four-day
-   * sheet) are closed first, through the closer the shell registered. Pressed on any other tab it
-   * moves to the Map tab. Only offered when the Map tab is.
+   * <p>⚠️ <b>With the map view already open the press changes the window and leaves the lens alone</b>:
+   * `inPlace` takes {@link openMapTabFromPlan}'s `source: 'map'` branch (no lens, floor, reach or scope write), which
+   * carries the night so `MapView` selects the aurora row and leaves any standing door lens alone. (A map-sourced door
+   * that names a place also selects it and flies to it; an aurora door names none.) The shell's own dialogs (a
+   * Map-hosted four-day sheet) are closed first, through the closer the shell registered. Pressed with the view closed
+   * it hands the map its handoff and asks the shell to show the view (`registerOpenMap`; one-screen-plan.md D2). Only
+   * offered when the map is.
    *
    * @param {{minRating: ?number, limitMinutes: ?number}} [lens] the Plan's live lens, from the banner
    */
@@ -668,19 +689,18 @@ function AppInner() {
       closeShellDialogs.current?.();
       openMapTabFromPlan({ ...trigger, inPlace: true });
     } else {
-      openMapTabFromPlan({ ...trigger, from: activePlanTab });
+      openMapTabFromPlan(trigger);
+      mapViewDoors.current?.open({});
     }
   };
 
   /**
    * A tab the window-first shell should select, asked for from out here. Nonce'd for the same
-   * reason map handoffs are: the reader can press a door (or the breadcrumb's return) twice running,
+   * reason map handoffs are: the reader can press a door twice running,
    * and the second press has to land even though the destination has not changed.
    */
   const [tabRequest, setTabRequest] = useState(null);
   const tabRequestNonce = useRef(0);
-  /** The control a door was pressed on, for the breadcrumb's return focus. */
-  const doorOpener = useRef(null);
 
   /**
    * The handoff the MAP TAB should act on.
@@ -825,11 +845,8 @@ function AppInner() {
       });
       return;
     }
-    tabRequestNonce.current += 1;
-    // The control the reader pressed, kept for the breadcrumb's return (focus goes back to it when it
-    // is still mounted - a Coming up card - else to the tab's own button).
-    const pressed = document.activeElement;
-    doorOpener.current = pressed && pressed !== document.body ? pressed : null;
+    // The shell shows the view (`openMap`): this only hands the map its landing, and the view's own opener (the
+    // shell's `openMap`, which called this) raises it in the same batch.
     setMapTabHandoff({
       source: 'plan',
       eventType: door.targetType,
@@ -849,30 +866,8 @@ function AppInner() {
       ...(door.topicType ? { topicType: door.topicType } : {}),
       ...(door.title ? { title: door.title } : {}),
       ...(door.caption ? { caption: door.caption } : {}),
-      // The tab the door was pressed on (a Plan, Coming up or Operations press), so the breadcrumb's
-      // return names and goes back to it. ABSENT means Plan, as every door was before.
-      ...(door.from && door.from !== 'map' ? { from: door.from } : {}),
       nonce: handoffNonce.current++,
     });
-    setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
-  };
-
-  /**
-   * The breadcrumb's return (doors D2, extended in overlay convergence C4): lands on the tab the door
-   * was pressed on - Plan by default, Coming up or Operations when it came from there - with no
-   * dialog reopened and no window key carried (plan §6 Q2, decided). The shell's existing
-   * `tabRequest` effect selects the tab and moves focus; the request also carries the pressed
-   * control, which the shell focuses if it is still mounted and otherwise falls back to the tab's
-   * own button.
-   *
-   * @param {string} [from] the tab to return to; anything but a tab a door can come from is Plan
-   */
-  const returnToPlan = (from = 'plan') => {
-    const id = from === 'coming-up' || from === 'operations' ? from : 'plan';
-    tabRequestNonce.current += 1;
-    const opener = doorOpener.current;
-    doorOpener.current = null;
-    setTabRequest({ id, nonce: tabRequestNonce.current, ...(opener ? { opener } : {}) });
   };
 
   /**
@@ -885,7 +880,14 @@ function AppInner() {
    * Operations pane is opened for the first time this session or is already mounted on another
    * sub-tab. Only a `manage/<known tab>` hash moves it; any other fragment is ignored.
    */
-  const openOperations = () => {
+  const openOperations = async () => {
+    // With the map view open it goes first, and the hash waits for the dialog-history engine to settle: a hash set
+    // while the view's entry is still being unwound would be taken for the engine's own (one-screen-plan.md D4, D9).
+    if (isMapTabActive) {
+      mapViewDoors.current?.close({ restoreFocus: false });
+      await new Promise((resolve) => { setTimeout(resolve, 0); });
+      await whenSettled();
+    }
     window.location.hash = 'manage/runs/start';
     tabRequestNonce.current += 1;
     setTabRequest({ id: 'operations', nonce: tabRequestNonce.current });
@@ -905,23 +907,15 @@ function AppInner() {
     setSettingsReturnFocus(null);
   };
   return (
-    // Recast as a flex column on the Map tab (map-tab-v2-plan.md §3 P7's full-frame owner,
-    // rebuilt after the `calc(100dvh - …)` chain above proved to be chasing terms rather than
-    // fixing the actual shape of the problem — see that comment for the measurement that killed
-    // it). `h-[100dvh]` + `overflow-hidden` on THIS root is the outermost backstop: whatever the
-    // flex children below do, nothing can push the page taller than one screen. Every other tab
-    // keeps `min-h-screen` and today's ordinary document flow — the conditional is scoped to
-    // exactly the tab that needs it, nothing else.
-    // `app-safe` carries the viewport's safe-area insets as padding, so everything in normal flow
-    // below is inset without knowing about them (index.css's "Safe areas" block lists the four
-    // elements that DO have to know, because they touch a viewport edge themselves). On the Map tab
-    // it also does the right thing to `h-[100dvh]`: Tailwind's preflight makes every box
-    // `border-box`, so the padding comes OUT of the screen height and the `flex-1` map pane
-    // shrinks to fit, rather than the page growing past one screen.
+    // `app-safe` carries the viewport's safe-area insets as padding, so everything in normal flow below is inset
+    // without knowing about them (index.css's "Safe areas" block lists the elements that DO have to know, because they
+    // touch a viewport edge themselves). One layout on every screen: the map is a fixed VIEW over the shell
+    // (`MapScreen`, one-screen-plan.md D11), so the page no longer recasts itself as a viewport-height flex column
+    // while the map is showing.
     // Your places: a boolean, never the role, so a Lite reader's provider never calls the endpoint.
     <FavouritesProvider pro={role === 'PRO_USER' || role === 'ADMIN'}>
     <GuideProvider closeShellDialogs={closeAllShellDialogs} activeTab={activePlanTab}>
-    <div className={`app-safe ${isMapTabActive ? 'h-[100dvh] flex flex-col overflow-hidden bg-plex-bg' : 'min-h-screen bg-plex-bg'}`}>
+    <div className="app-safe min-h-screen bg-plex-bg">
       {/* The boundary and the provider wrap BOTH the banner block and <main>, in that order
           (aurora-banner-plan.md §4 D1). The aurora banner frames its field to the reader's
           planning area and breaks a tie by the HOME drive, and both live only in the briefing
@@ -951,11 +945,7 @@ function AppInner() {
           locations={visibleLocations}
         >
           <ServedDatesReporter onChange={setServedDates} />
-      {/* A natural-height, non-shrinking flex item on the Map tab — `flex-shrink-0` so a tight
-          column never squeezes a banner instead of the map panel, which is the one element with
-          `flex-1` and so the one meant to absorb the difference. Inert on every other tab (the
-          root above is not `display:flex` there, so these flex-only classes do nothing). */}
-      <div className={isMapTabActive ? 'flex-shrink-0' : undefined}>
+      <div>
         <SessionExpiryBanner />
         {isAdmin && rewind && <RewindPill rewind={rewind} />}
         <div className="max-w-4xl mx-auto px-4 mt-4">
@@ -985,45 +975,7 @@ function AppInner() {
         )}
       </div>
 
-      {/* On the Map tab: top padding only (`pt-6`, below) and `flex-1 min-h-0` so this element — the one link
-          in the chain between the flex root and `WindowFirstShell`'s own `.wf-shell`
-          (`PlanErrorBoundary` returns `children` directly when healthy, and
-          `WindowFirstBriefingProvider` is a bare context provider, so neither interposes a DOM
-          node between the root and this element) — actually receives the space flexbox is
-          distributing rather than sizing to its content. `flex flex-col` so ITS single child (`.wf-shell`) can do the same one level
-          down. Every other tab keeps the usual `px-4 py-6` inset and ordinary block flow.
-
-          TOP padding matches every other tab's `py-6` (`pt-6`, unconditional — not `sm:pt-6`: the
-          phone residue below is about HORIZONTAL full-bleed only, and vertically the phone
-          masthead must not move either), so the masthead, band and tab row sit at the same height
-          on every tab and a tab switch does not make them jump by 24px. That padding costs the
-          map nothing it can lose to page scroll: Tailwind preflight makes every box `border-box`,
-          `<main>` is `flex-1 min-h-0` inside the root's `overflow-hidden` flex column, and its
-          child `.wf-shell` is itself `flex-1 min-h-0`, so the padding comes out of `<main>`'s OWN
-          flex-distributed height and the map pane simply shrinks by 24px — the same mechanism
-          `app-safe`'s padding on the root already relies on (see the root's comment above).
-          BOTTOM padding stays zero: the footer is suppressed on the Map tab, and the map frame
-          bleeds to the bottom edge of the screen, where a 24px dead band would be a regression.
-          HORIZONTAL padding is `sm:px-4` — present at `sm` (640px) and up,
-          absent below it — and that split is load-bearing, not cosmetic:
-
-          · At `sm` and up, `WindowFirstShell`'s own panel-region wrapper already caps the visible
-            width to `WRAP_MAX_WIDTH` (1080px, centred) since O-17, so `<main>`'s own inset is
-            free to match every other tab's `px-4` with no visual cost — and matching it is what
-            makes tab switches NOT reflow the masthead/tab-strip's horizontal position between
-            640px and (1080px + 2×16px) — the width the column would otherwise seem to jump by.
-            Adversarial review caught this: dropping `<main>`'s horizontal padding entirely, as an
-            earlier cut of O-17 did, left the masthead 32px narrower on the Map tab than on every
-            other tab in that range, silently contradicting O-17's whole point.
-          · BELOW `sm` the map stays genuinely full-bleed by design — P12's phone chrome (the
-            top/bottom bars' edge-hugging insets, `index.css` ~:2916-2933) was measured and tuned
-            against a full-width frame, and `WindowFirstShell`'s own width cap does not bind at
-            phone widths anyway (390px is nowhere near 1080px). So a real, narrower residue
-            survives ONLY below `sm`: the masthead reflows by `<main>`'s own `px-4` (16px each
-            side, 32px total) on a Plan⇄Map switch on a phone. That is P12's existing, deliberate
-            full-bleed phone treatment continuing to apply — not a gap this change introduces —
-            and is called out here rather than left for a reader to rediscover. */}
-      <main className={isMapTabActive ? 'sm:px-4 pt-6 flex-1 min-h-0 flex flex-col' : 'px-4 py-6'}>
+      <main className="px-4 py-6">
         {/* isDown is passed DOWN rather than applied here: the shell's masthead carries the cog
             and Sign out, and greying the whole subtree would strand a user with no route out of a
             broken app. */}
@@ -1039,8 +991,10 @@ function AppInner() {
             <AskWhenLive rewound={Boolean(rewind)}>
             <WindowFirstShell
               mapColourScale={mapColourScale}
-              initialTab={initialTab}
               onTabChange={setActivePlanTab}
+              registerOpenMap={registerOpenMap}
+              loadMapRoute={loadMapRoute}
+              onLoadMapRouteHandled={consumeMapRoute}
               onOpenSettings={() => setShowSettings(true)}
               settingsOpen={settingsOpen}
               onSignOut={logout}
@@ -1126,8 +1080,6 @@ function AppInner() {
                     saveTideMode={saveTideMode}
                     onOpenSettings={() => setSettingsFocus('postcode')}
                     onOpenLocationSheet={openLocationSheet}
-                    // The breadcrumb's `← Plan` (D2) — a `tabRequest` for `'plan'`, no window key.
-                    onReturnToPlan={returnToPlan}
                   />
                 </Suspense>
               ) : null}
@@ -1146,14 +1098,7 @@ function AppInner() {
         </WindowFirstBriefingProvider>
       </PlanErrorBoundary>
 
-      {/* Suppressed on the Map tab (adversarial review, real finding #2, measured live: the
-          footer alone overflowed the full-frame page by 99px at 1280×800, clipping the map's
-          bottom edge — with ZERO banners showing, before this class of gap was even in scope).
-          `100dvh`'s own accounting has no room for a footer under a screen whose whole point is
-          "fills the frame... and does not scroll" (README) — dead space under a map nobody can
-          reach without breaking that promise. Every other tab keeps it. */}
-      {!isMapTabActive && (
-        <footer className="border-t border-plex-border px-4 py-4 mt-8">
+      <footer className="border-t border-plex-border px-4 py-4 mt-8">
           <div className="max-w-4xl mx-auto text-center text-xs text-plex-text-muted">
             <div className="flex justify-center gap-4">
               <a
@@ -1177,7 +1122,6 @@ function AppInner() {
             </div>
           </div>
         </footer>
-      )}
 
       {settingsOpen && (
         <ChunkErrorBoundary

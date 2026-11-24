@@ -132,7 +132,7 @@ describe('what / does at 1024px and up', () => {
   it('and on the Map', async () => {
     renderAskShell({ width: 1280, props: { mapPane: MAP_PANE } });
     await fieldReady();
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     slash();
     expect(await screen.findByTestId('ask-dock')).toBeInTheDocument();
     expect(screen.getByTestId('ask-input')).toHaveFocus();

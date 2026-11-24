@@ -6,7 +6,7 @@
  * No door UI ships in this phase (D3/D4 add the real buttons), so — the same problem
  * `WindowFirstShellLocationSheetHandoff.test.jsx` solves for `openLocationSheet`'s reverse-direction
  * cousin — the shell is stubbed to a probe exposing exactly the two props under test
- * (`onOpenMapTab`, `tabRequest`) plus a button standing in for "a door was pressed", and
+ * (`onOpenMapTab`) plus a button standing in for "a door was pressed", and
  * `WindowFirstMapPane` is stubbed too so the payload App actually builds (`mapTabHandoff`, forwarded
  * as `handoff`) can be read straight off it rather than mounting the real Leaflet-backed pane.
  */
@@ -189,19 +189,18 @@ describe('App — openMapTabFromPlan (doors D2)', () => {
     expect(typeof handoff.nonce).toBe('number');
   });
 
-  it('requests the Map tab with its OWN nonce, distinct from the handoff\'s — proven by a genuine '
-      + 'inequality, not just "both are numbers" (a regression collapsing tabRequestNonce and '
-      + 'handoffNonce onto one shared ref would still pass a same-type check)', async () => {
+  it('raises no tab request: the shell shows the map view itself (openMap), App only hands the map its landing', async () => {
     renderApp();
     await screen.findByTestId('stub-map-pane');
+    const before = ShellStub.lastProps.tabRequest;
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('trigger-door'));
     });
 
-    expect(ShellStub.lastProps.tabRequest.id).toBe('map');
-    expect(typeof ShellStub.lastProps.tabRequest.nonce).toBe('number');
-    expect(ShellStub.lastProps.tabRequest.nonce).not.toBe(MapPaneStub.lastProps.handoff.nonce);
+    expect(ShellStub.lastProps.tabRequest).toBe(before);
+    expect(MapPaneStub.lastProps.handoff.source).toBe('plan');
+    expect(typeof MapPaneStub.lastProps.handoff.nonce).toBe('number');
   });
 
   it('an inPlace door carries NO source, NO lens and NO tabRequest — the reader is already there', async () => {
@@ -357,7 +356,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       minRating: 3, limitMinutes: 45, title: 'Northumberland',
     });
     expect(handoff).not.toHaveProperty('night');
-    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'map' });
   });
 
   it('a region trigger whose top spot is a marked neighbour outlier lands on the region with NO spot', async () => {
@@ -437,9 +435,9 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
     expect(MapPaneStub.lastProps.selectedDate).not.toBe(YESTERDAY);
   });
 
-  it('a trigger still asks for the Map tab, with its own nonce', async () => {
+  it('a trigger raises no tab request either', async () => {
     await press({ kind: 'aurora', date: TOMORROW });
-    expect(ShellStub.lastProps.tabRequest.id).toBe('map');
+    expect(ShellStub.lastProps.tabRequest).toBeNull();
   });
 });
 
@@ -460,7 +458,7 @@ describe('App — a door never gives the Plan tab a date (plan 4 #7)', () => {
   };
 
   for (const [name, arg] of Object.entries(KINDS)) {
-    it(`${name}: the shell is given no selected date before or after, and ← Plan asks for the tab alone`, async () => {
+    it(`${name}: the shell is given no selected date before or after, and the pane is handed no return`, async () => {
       renderApp();
       await screen.findByTestId('stub-map-pane');
       const planKeys = () => Object.keys(ShellStub.lastProps).filter((k) => /date/i.test(k));
@@ -473,37 +471,10 @@ describe('App — a door never gives the Plan tab a date (plan 4 #7)', () => {
       // ...and the Plan side learned of no date.
       expect(planKeys()).toEqual(before);
 
-      await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
-      expect(Object.keys(ShellStub.lastProps.tabRequest).sort()).toEqual(['id', 'nonce']);
-      expect(ShellStub.lastProps.tabRequest.id).toBe('plan');
+      // The landing strip's `← Plan` return is gone with the tab: the pane is handed no way back.
+      expect(MapPaneStub.lastProps).not.toHaveProperty('onReturnToPlan');
     });
   }
-});
-
-describe('App — returnToPlan (the breadcrumb\'s ← Plan, doors D2)', () => {
-  it('requests the plan tab, with no window key carried (plan §6 Q2, decided)', async () => {
-    renderApp();
-    await screen.findByTestId('stub-map-pane');
-
-    await act(async () => {
-      MapPaneStub.lastProps.onReturnToPlan();
-    });
-
-    expect(ShellStub.lastProps.tabRequest.id).toBe('plan');
-    expect(typeof ShellStub.lastProps.tabRequest.nonce).toBe('number');
-  });
-
-  it('is a nonce that moves on every call, so a repeat press still lands', async () => {
-    renderApp();
-    await screen.findByTestId('stub-map-pane');
-
-    await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
-    const first = ShellStub.lastProps.tabRequest.nonce;
-    await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
-    const second = ShellStub.lastProps.tabRequest.nonce;
-
-    expect(second).not.toBe(first);
-  });
 });
 
 describe('App — the forecast dates handed to the shell (plan §11.24)', () => {

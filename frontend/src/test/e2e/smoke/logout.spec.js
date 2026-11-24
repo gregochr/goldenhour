@@ -23,6 +23,12 @@ test.describe('Login and logout', () => {
     await expect(page.getByTestId('window-first-shell')).toBeVisible();
     await expect(page.getByTestId('login-username')).toHaveCount(0);
 
+    // An untouched desktop lands on the map view (the kept Map landing), which makes the screen behind it inert.
+    const view = page.getByTestId('map-screen');
+    if (await view.isVisible()) {
+      await page.getByTestId('map-screen-close').click();
+      await expect(view).toBeHidden();
+    }
     await page.getByTestId('window-first-signout').click();
     await expect(page.getByTestId('login-username')).toBeVisible();
     await expect(page.getByTestId('window-first-shell')).toHaveCount(0);

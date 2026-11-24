@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, openTab, visibleChips, CHIP_NAME,
+  test, expect, loginAndWaitForForecast, openMapTab, closeMapView, openTab, visibleChips, CHIP_NAME,
 } from './fixture.js';
 
 /**
@@ -30,8 +30,11 @@ test.describe('Find everywhere', () => {
 
   test('the Find button and ⌘K open Find on Plan, Coming up and Map, and a second ⌘K closes it', async ({ page }) => {
     for (const id of ['plan', 'coming-up', 'map']) {
-      await openTab(page, id);
-      await page.getByTestId('window-first-search').click();
+      // The Map is a view: its Find button is the header's, and the masthead's is inert behind it.
+      if (id === 'map') await openMapTab(page);
+      else await openTab(page, id);
+      const findButton = page.getByTestId(id === 'map' ? 'map-screen-find' : 'window-first-search');
+      await findButton.click();
       await expect(FIND(page)).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(FIND(page)).toHaveCount(0);
@@ -41,7 +44,8 @@ test.describe('Find everywhere', () => {
       await press(page);
       await expect(FIND(page)).toHaveCount(0);
       // Closing from the key, with no trigger focused, puts focus back on the Find button.
-      await expect(page.getByTestId('window-first-search')).toBeFocused();
+      await expect(findButton).toBeFocused();
+      if (id === 'map') await closeMapView(page);
     }
   });
 
@@ -59,7 +63,7 @@ test.describe('Find everywhere', () => {
     const callout = page.getByTestId('map-callout');
     await expect(callout).toBeVisible();
     await expect(callout).toContainText(name);
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
     await expect(pill).toHaveText(windowBefore);
   });
 
@@ -84,6 +88,7 @@ test.describe('Find everywhere', () => {
   test('⚠️ on Coming up a place takes the reader to the Plan tab and opens its sheet there', async ({ page }) => {
     await openMapTab(page);
     const name = await aChipName(page);
+    await closeMapView(page);
     await openTab(page, 'coming-up');
 
     await press(page);

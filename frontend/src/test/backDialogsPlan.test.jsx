@@ -64,7 +64,6 @@ const guideDoor = () => screen.getByRole('button', { name: 'Guide for this tab' 
 const guideDialog = () => screen.queryByTestId('guide-dialog');
 const search = () => screen.queryByTestId('plan-search-panel');
 const layers = () => __inspectForTests().layers;
-const tab = (name) => screen.getByRole('tab', { name });
 
 /** Mounts the shell the way App does, with a guide provider so the guide dialog can sit over a sheet. */
 function Rig({ shellProps }) {
@@ -263,7 +262,7 @@ describe('selectTab with a layer open', () => {
     await screen.findByRole('dialog', { name: /the next \d+ windows?/ });
     await settle();
     expect(layers()).toBe(1);
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Coming up' }));
     await settle();
   };
 

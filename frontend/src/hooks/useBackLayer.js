@@ -25,28 +25,33 @@ import { registerBackLayer } from '../utils/dialogHistory.js';
  *     No `beforeunload`. On a browser with no `navigator.userActivation` at all the gesture registers the layer, but
  *     the engine's own push also needs `isActive === true`, so the layer has NO history entry: no guard, and Back
  *     behaves as it did before this feature. That is safe.
+ * @param {string} [options.url] - The layer's address (a hash such as `#map/2026-11-24/sunrise`), written by the
+ *     engine, never by the caller (`utils/dialogHistory.js`, "The layer URL"). Kept in a ref and pushed into the live
+ *     registration like `mode`, so a changing address never unregisters the layer or pushes an entry.
  * @param {{current: (Element|null)}} [options.ref] - With `activationGated`, the element the gesture listener
  *     attaches to (the prompt's own node); `document` when omitted or not yet mounted.
  */
 export default function useBackLayer({
-  open, onBack, mode = 'close', activationGated = false, ref = undefined,
+  open, onBack, mode = 'close', activationGated = false, ref = undefined, url = undefined,
 }) {
   const onBackRef = useRef(onBack);
   const modeRef = useRef(mode);
+  const urlRef = useRef(url);
   const layerRef = useRef(null);
 
   // No deps: runs every commit, before the registration effect below on a first mount.
   useEffect(() => {
     onBackRef.current = onBack;
     modeRef.current = mode;
-    layerRef.current?.update({ mode });
+    urlRef.current = url;
+    layerRef.current?.update({ mode, url });
   });
 
   useEffect(() => {
     if (!open) return undefined;
     let layer = null;
     const register = () => {
-      layer = registerBackLayer({ onBack: () => onBackRef.current?.(), mode: modeRef.current });
+      layer = registerBackLayer({ onBack: () => onBackRef.current?.(), mode: modeRef.current, url: urlRef.current });
       layerRef.current = layer;
     };
     let detach = () => {};

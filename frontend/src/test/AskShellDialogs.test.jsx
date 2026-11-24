@@ -182,7 +182,7 @@ const mountOnMap = () => {
   const report = vi.fn();
   renderAskShell({
     width: 800,
-    props: { mapPane: <MapProbe report={report} />, initialTab: 'map' },
+    props: { mapPane: <MapProbe report={report} />, loadMapRoute: { preferred: true } },
   });
   return report;
 };

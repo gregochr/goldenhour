@@ -32,7 +32,7 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     // Never the first card: it may be the window that is about to pass.
     await page.getByTestId('wf-heat-card').nth(2).click();
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
@@ -111,7 +111,7 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
     await expect(focusedButton).toHaveAttribute('aria-labelledby', stops[0]);
 
     await page.keyboard.press('Enter');
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
@@ -167,7 +167,7 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
     expect(atTop, 'the legend\'s top edge lands on the legend').toBe('wf-heat-legend');
 
     await page.mouse.click(probe.x, probe.y);
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
   });
 });
 
@@ -220,7 +220,7 @@ test.describe('Heat card hit test on a coarse pointer (Pixel 7)', () => {
     // A real touch at the verdict-time text's centre: the point sits on the card's spans, which let it through.
     const time = await page.getByTestId('wf-heat-card').nth(2).getByTestId('wf-heat-time').boundingBox();
     await page.touchscreen.tap(time.x + time.width / 2, time.y + time.height / 2);
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
     expect(await page.evaluate(() => window.__clicks), 'a tap is one click, so one open').toBe(1);
   });
 });
