@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import {
-  test, expect, loginAndWaitForForecast, openTab, openMapTab, clickMiddleChip,
+  test, expect, loginAndWaitForForecast, openTab, openFurtherAhead, openMapTab, clickMiddleChip,
 } from '../smoke/fixture.js';
 
 /**
@@ -86,10 +86,13 @@ test.describe('Accessibility scan (advisory)', () => {
       await scan(page, testInfo, 'plan');
     });
 
-    test('Coming up', async ({ page }, testInfo) => {
-      await openTab(page, 'coming-up');
+    // Further ahead is the bottom section of the screen (one-screen-plan.md O2), reached by the jump. The scan covers the
+    // whole page, so it also covers the two sticky section headings, the jump and the chips' pressed states.
+    test('Further ahead', async ({ page }, testInfo) => {
+      await openFurtherAhead(page);
+      await expect(page.getByRole('region', { name: /Further ahead/ })).toBeVisible();
       await expect(page.getByTestId('coming-up-list').first()).toBeVisible();
-      await scan(page, testInfo, 'coming-up');
+      await scan(page, testInfo, 'further-ahead');
     });
 
     // The Map is a view over the screen (one-screen-plan.md O1): a labelled region with the screen behind it inert, not a

@@ -1,18 +1,18 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act, cleanup, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { getAlmanac } from '../api/almanacApi.js';
 
 /**
- * The shell's route from At a Glance's topic pills into Coming up (glance-topic-strip-plan.md R1, R4): the
- * {@code comingUpFocus} request {@code openComingUp} stores, survives {@code selectTab}, and
- * {@code WindowFirstComingUp} answers — scrolling to the entry, resetting a filter that hides it, or falling back
- * to the top of the tab with focus on the Coming up tab.
+ * The shell's join between the days-ahead lanes and Further ahead (one-screen-plan.md O2, D5). A lane that carries an
+ * almanac entry's jump draws that entry on the screen, so Further ahead leaves it out and the lane's tap goes to its
+ * window; an entry no lane carries stays listed; a lane with nowhere to go is text. And the "Further ahead ↓" jump
+ * stores the {@code comingUpFocus} request {@code openFurtherAhead} makes, which {@code FurtherAhead} answers.
  *
  * <p>Scoped like {@code WindowFirstShellPlanWindowDoor.test.jsx}: what only the SHELL can be wrong about is that
- * the request outlives the tab change, reaches the pane, and is cleared exactly once.
+ * the strip's reported lanes reach the section, and that the request reaches it and is cleared exactly once.
  */
 
 vi.mock('../api/almanacApi.js', () => ({
@@ -168,21 +168,23 @@ const FEED = {
 
 let originalGetContext;
 
-async function renderShell() {
+async function renderShell(ctxOverrides = {}) {
   originalGetContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = () => ({});
-  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(ctxOverrides));
+  const onOpenMapTab = vi.fn();
   await act(async () => {
     render(
       <WindowFirstShell
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}
-        onOpenMapTab={vi.fn()}
+        onOpenMapTab={onOpenMapTab}
         locations={[]}
       />,
     );
   });
+  return { onOpenMapTab };
 }
 
 beforeEach(() => {
@@ -205,66 +207,141 @@ const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /
 const pillFor = async (type) => (await screen.findAllByTestId('wf-glance-lane'))
   .find((b) => b.getAttribute('data-topic') === type);
 
-describe('WindowFirstShell — a days-ahead lane opens Coming up', () => {
-  it('a pill with an almanac entry opens Coming up at that entry, ringed and focused', async () => {
+/** The entries Further ahead lists, by id. */
+const listedIds = () => Array.from(document.querySelectorAll('[data-testid="further-ahead"] [data-entry-id]'))
+  .map((node) => node.getAttribute('data-entry-id'));
+
+describe('WindowFirstShell — Further ahead lists what This week does not draw as a lane (D5)', () => {
+  it('lists every entry until the strip has drawn its lanes, then leaves out the one a lane carries', async () => {
     await renderShell();
-    // Wait for the feed: until it is ready, no pill names a jump.
     await waitFor(() => expect(getAlmanac).toHaveBeenCalled());
-    await waitFor(async () => expect(await pillFor('SPRING_TIDE')).toHaveAccessibleName(/shown in Coming up$/));
-
-    await act(async () => { fireEvent.click(await pillFor('SPRING_TIDE')); });
-
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
-    const card = document.querySelector(`[data-entry-id="${TIDE_ENTRY.id}"]`);
-    expect(card).toHaveClass('wf-cu-ent-highlight');
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
-    // Found: no fallback scroll to the top.
-    expect(window.scrollTo).not.toHaveBeenCalled();
-  });
-
-  it('⚠️ resets a Coming up filter that hides the entry, so the jump never lands on nothing', async () => {
-    await renderShell();
-    await waitFor(async () => expect(await pillFor('SPRING_TIDE')).toHaveAccessibleName(/shown in Coming up$/));
-
-    // Filter Coming up to Night sky (hides the coastal spring tide), then go back to At a Glance.
-    await act(async () => { fireEvent.click(tab('Coming up')); });
-    const nightSky = screen.getAllByTestId('coming-up-chip').find((c) => within(c).queryByText('Night sky'));
-    await act(async () => { fireEvent.click(nightSky); });
+    // The tide has a lane (it carries its entry's jump); the meteor shower has none, so it stays listed.
+    await waitFor(() => expect(listedIds()).toEqual(['meteor:2026-08-12:2026-08-12']));
     expect(document.querySelector(`[data-entry-id="${TIDE_ENTRY.id}"]`)).toBeNull();
-    await act(async () => { fireEvent.click(tab('At a Glance')); });
+  });
+
+  it('keeps an entry listed when no lane carries it, in date order', async () => {
+    getAlmanac.mockResolvedValue({ ...FEED, entries: [entry({ id: 'meteor:2026-09-01', startDate: '2026-09-01', endDate: '2026-09-01' }), TIDE_ENTRY] });
+    await renderShell();
+    await waitFor(() => expect(listedIds()).toEqual(['meteor:2026-09-01']));
+  });
+
+  it('counts the chips over what is listed', async () => {
+    await renderShell();
+    await waitFor(() => expect(listedIds()).toHaveLength(1));
+    const all = screen.getAllByTestId('coming-up-chip').find((c) => c.getAttribute('data-chip') === 'all');
+    const coastal = screen.getAllByTestId('coming-up-chip').find((c) => c.getAttribute('data-chip') === 'coastal');
+    expect(all.querySelector('.wf-cu-chip-count').textContent).toBe('1');
+    expect(coastal.querySelector('.wf-cu-chip-count').textContent).toBe('0');
+  });
+});
+
+describe('WindowFirstShell — one badge, counted from what Further ahead lists', () => {
+  it('shows the same number on the jump and the heading, leaving out a new entry a lane already draws', async () => {
+    const fresh = { bits: 8.2, interim: false, enteredWindow: '2026-08-08' };
+    getAlmanac.mockResolvedValue({
+      ...FEED,
+      bands: { list: 5, announce: 7.5, interrupt: 10 },
+      entries: [entry(fresh), { ...TIDE_ENTRY, ...fresh }],
+    });
+    vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx({ comingUpLastSeenDate: '2026-08-01' }));
+    await act(async () => {
+      render(<WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()} onOpenMapTab={vi.fn()} locations={[]} />);
+    });
+    // The tide has a lane (graduated), so only the meteor shower is listed and only it is counted.
+    await waitFor(() => expect(listedIds()).toEqual(['meteor:2026-08-12:2026-08-12']));
+    expect(screen.getByTestId('further-ahead-jump-badge')).toHaveTextContent('1');
+    expect(screen.getByTestId('further-ahead-heading-badge')).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Further ahead, 1 new date' })).toBeInTheDocument();
+  });
+});
+
+describe('WindowFirstShell — an entry never vanishes from both places', () => {
+  it('lists every entry when the strip draws nothing (no spots), because no lane carries any', async () => {
+    await renderShell({ heatSpots: [] });
+    await waitFor(() => expect(getAlmanac).toHaveBeenCalled());
+    await waitFor(() => expect(listedIds()).toContain(TIDE_ENTRY.id));
+    expect(listedIds()).toContain('meteor:2026-08-12:2026-08-12');
+  });
+});
+
+describe('WindowFirstShell — a days-ahead lane goes to its window, never to Coming up', () => {
+  it('a lane with an almanac entry opens its window on the map, with the topic emphasised', async () => {
+    const { onOpenMapTab } = await renderShell();
+    await waitFor(async () => expect(await pillFor('SPRING_TIDE')).toHaveAccessibleName(/opens the At a Glance window$/));
 
     await act(async () => { fireEvent.click(await pillFor('SPRING_TIDE')); });
 
-    const all = screen.getAllByTestId('coming-up-chip').find((c) => within(c).queryByText('All'));
-    expect(all).toHaveAttribute('aria-pressed', 'true');
-    expect(document.querySelector(`[data-entry-id="${TIDE_ENTRY.id}"]`)).toHaveClass('wf-cu-ent-highlight');
+    expect(onOpenMapTab).toHaveBeenCalledTimes(1);
+    // Nothing scrolled to an entry, nothing moved to a tab.
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('a pill with no almanac counterpart opens the tab, scrolls to the top and focuses the Coming up tab', async () => {
+  it('names no Coming up destination on any lane', async () => {
     await renderShell();
-    await act(async () => { fireEvent.click(await pillFor('DUST')); });
-    await act(async () => { await Promise.resolve(); });
+    await waitFor(() => expect(getAlmanac).toHaveBeenCalled());
+    await waitFor(async () => expect(await pillFor('SPRING_TIDE')).toBeTruthy());
+    for (const lane of await screen.findAllByTestId('wf-glance-lane')) {
+      expect(lane.textContent).not.toMatch(/Coming up/);
+    }
+  });
 
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0 });
-    expect(tab('Coming up')).toHaveFocus();
+  it('a lane with no route (dust, no window to anchor to) is text, not a button that opens nothing', async () => {
+    await renderShell();
+    const dust = await pillFor('DUST');
+    expect(dust.tagName).toBe('DIV');
+    await act(async () => { fireEvent.click(dust); });
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
+});
 
-  it('names no jump until the feed is ready: while it loads, a tide pill falls through to its window', async () => {
-    getAlmanac.mockReturnValue(new Promise(() => {}));
+describe('WindowFirstShell — a Further ahead card\'s "plan" action goes up to This week', () => {
+  it('scrolls This week\'s heading into view and focuses it, staying on the Plan pane', async () => {
+    getAlmanac.mockResolvedValue({
+      ...FEED,
+      entries: [entry({
+        id: 'meteor:2026-12-01', startDate: '2026-12-01', endDate: '2027-02-28',
+        action: { label: 'See the plan for 1 Dec →', kind: 'plan', date: '2026-12-01' },
+      })],
+    });
     await renderShell();
-    const pill = await pillFor('SPRING_TIDE');
-    expect(pill).not.toHaveAccessibleName(/shown in Coming up/);
-    expect(pill).toHaveAccessibleName(/opens the At a Glance window$/);
+    await waitFor(() => expect(screen.getByTestId('coming-up-card')).toBeInTheDocument());
+
+    await act(async () => { fireEvent.click(screen.getByTestId('coming-up-card')); });
+
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('this-week-heading')).toHaveFocus();
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('WindowFirstShell — the "Further ahead ↓" jump', () => {
+  it('scrolls Further ahead\'s heading to the top and focuses it, once the request is answered', async () => {
+    await renderShell();
+    await waitFor(() => expect(getAlmanac).toHaveBeenCalled());
+
+    await act(async () => { fireEvent.click(screen.getByTestId('further-ahead-jump')); });
+    await act(async () => { await Promise.resolve(); });
+
+    // The request names no entry, so the section answers "not found" and the shell falls back to its heading.
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('further-ahead-heading')).toHaveFocus();
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('a second press is a new request, answered again', async () => {
     await renderShell();
-    await waitFor(async () => expect(await pillFor('SPRING_TIDE')).toHaveAccessibleName(/shown in Coming up$/));
-    await act(async () => { fireEvent.click(await pillFor('SPRING_TIDE')); });
-    await act(async () => { fireEvent.click(tab('At a Glance')); });
-    await act(async () => { fireEvent.click(await pillFor('SPRING_TIDE')); });
+    await act(async () => { fireEvent.click(screen.getByTestId('further-ahead-jump')); });
+    await act(async () => { fireEvent.click(screen.getByTestId('further-ahead-jump')); });
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens the section at the heading even while the feed has not loaded', async () => {
+    getAlmanac.mockReturnValue(new Promise(() => {}));
+    await renderShell();
+    await act(async () => { fireEvent.click(screen.getByTestId('further-ahead-jump')); });
+    expect(screen.getByTestId('further-ahead-heading')).toHaveFocus();
   });
 });

@@ -189,7 +189,8 @@ const GLYPH = { location: '◇', region: '◎', window: '◷', area: '▦' };
  * @param {object}  spot       a heat spot
  * @param {Array}   windows    the strip's descriptors, in render order
  * @param {?object} scoreIndex from {@code buildScoreIndex} — id-first, name-fallback
- * @returns {?{rating: number, label: string}} the figure and its caption, or null
+ * @returns {?{rating: number, label: string, date: string, targetType: string}} the figure, its caption and the
+ *          window it belongs to (Your places opens the map on it), or null
  */
 export function topWindowFor(spot, windows, scoreIndex) {
   if (!scoreIndex || spot?.skySubject === false) return null;
@@ -203,7 +204,12 @@ export function topWindowFor(spot, windows, scoreIndex) {
     const rating = hit?.rating ?? null;
     if (rating == null) continue;
     if (!best || rating > best.rating) {
-      best = { rating, label: card.label || `${card.dow} ${card.sunrise ? 'sunrise' : 'sunset'}` };
+      best = {
+        rating,
+        label: card.label || `${card.dow} ${card.sunrise ? 'sunrise' : 'sunset'}`,
+        date: card.date,
+        targetType: card.targetType,
+      };
     }
   }
   return best;

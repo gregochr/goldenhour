@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
+import FurtherAhead from '../components/FurtherAhead.jsx';
 import { COMING_UP_OPEN_KEY } from '../utils/comingUpOpen.js';
 
 /**
@@ -37,9 +37,9 @@ const FAR = wireEntry({ id: 'far', title: 'Far entry', startDate: '2027-02-10', 
 const COUNTS = { fixed: 4, forecast: 0, byFamily: { 'night-sky': 4 } };
 
 const renderPane = (props = {}) => render(
-  <WindowFirstComingUp
+  <FurtherAhead
     id="window-first-panel-coming-up"
-    labelledBy="window-first-tab-coming-up"
+    headingId="further-ahead-h"
     status="ready"
     events={{ entries: [NEAR, SOON, LATER, FAR], counts: COUNTS }}
     todayStr={TODAY}
@@ -53,7 +53,7 @@ const renderPane = (props = {}) => render(
 const entryEl = (id) => document.querySelector(`[data-entry-id="${id}"]`);
 const toggleOf = (id) => entryEl(id).querySelector('[data-testid="coming-up-toggle"]');
 
-beforeEach(() => { sessionStorage.clear(); });
+beforeEach(() => { sessionStorage.clear(); localStorage.clear(); });
 afterEach(() => { sessionStorage.clear(); });
 
 describe('Coming up — the default open state', () => {

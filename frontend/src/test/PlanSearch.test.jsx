@@ -488,5 +488,27 @@ describe('PlanSearch', () => {
         tick.remove();
       }
     });
+
+    it.each([
+      ['scrolled out of view above the viewport', { top: -1400, bottom: -1370 }, '8px'],
+      ['only just off the top', { top: -40, bottom: 4 }, '8px'],
+      ['still on screen', { top: 96, bottom: 126 }, '96px'],
+    ])('with the tick line %s the panel sits at %s', (_name, box, top) => {
+      const tick = document.createElement('div');
+      tick.className = 'wf-tick';
+      tick.getBoundingClientRect = () => ({ ...box, left: 40, width: 1000, height: 30 });
+      document.body.appendChild(tick);
+      try {
+        setup();
+        const panel = screen.getByTestId('plan-search-panel');
+        expect(panel.className).toContain('wf-search-anchored');
+        expect(panel.style.top).toBe(top);
+        // Sideways it still follows the tick line, and the height cap follows the placed top.
+        expect(panel.style.left).toBe('40px');
+        expect(panel.style.maxHeight).toBe(`calc(100dvh - ${Number.parseInt(top, 10) + 16}px - var(--safe-b))`);
+      } finally {
+        tick.remove();
+      }
+    });
   });
 });

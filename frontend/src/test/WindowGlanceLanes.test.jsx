@@ -114,6 +114,51 @@ describe('WindowGlanceLanes — the grid (desktop and tablet)', () => {
   });
 });
 
+describe('WindowGlanceLanes — a lane with no route is text, not a control that opens nothing (D5)', () => {
+  const entry = { id: 'spring-tide:run', type: 'spring-tide', startDate: SUN, endDate: MON, coincidence: [], dayRanges: [] };
+  const RUN2 = [run(SUN, 1, 2), run(MON, 2, 2)];
+
+  it('draws every lane as a button when the strip does not say otherwise', () => {
+    renderLanes(RUN2);
+    expect(lane('SPRING_TIDE').tagName).toBe('BUTTON');
+  });
+
+  it('draws a lane the strip says has no route as plain text: no button, no click target, same class and text', () => {
+    const onTap = vi.fn();
+    render(
+      <WindowGlanceLanes
+        lanes={lanesFor(RUN2, { builderArgs: { entries: [entry], renderedEntryIds: new Set([entry.id]) } })}
+        onTap={onTap}
+        canTap={() => false}
+      />,
+    );
+    const el = lane('SPRING_TIDE');
+    expect(el.tagName).toBe('DIV');
+    expect(el).toHaveClass('wf-lane');
+    expect(el).not.toHaveAttribute('type');
+    expect(screen.queryByRole('button')).toBeNull();
+    fireEvent.click(el);
+    expect(onTap).not.toHaveBeenCalled();
+    // The lane carries the entry's jump, but nothing is said about a destination that is not there. A plain
+    // element has no name of its own; its text is what browse mode reads.
+    expect(el.textContent).toBe('Spring tide day 1, on Sunday, Sunday to Monday');
+  });
+
+  it('asks canTap per lane, and still taps the ones it admits', () => {
+    const onTap = vi.fn();
+    render(
+      <WindowGlanceLanes
+        lanes={lanesFor([run(SUN, 1, 2), run(MON, 2, 2), dust])}
+        onTap={onTap}
+        canTap={(l) => l.type === 'DUST'}
+      />,
+    );
+    expect(lane('SPRING_TIDE').tagName).toBe('DIV');
+    fireEvent.click(lane('DUST'));
+    expect(onTap).toHaveBeenCalledWith(expect.objectContaining({ type: 'DUST' }));
+  });
+});
+
 describe('WindowGlanceLanes — the accessible name is built from content', () => {
   it('reads one multi-day lane with a peak, an earlier start and a jump as exactly this name', () => {
     const entry = { id: 'spring-tide:run', type: 'spring-tide', startDate: TODAY, endDate: TUE, coincidence: [], dayRanges: [] };
@@ -122,14 +167,14 @@ describe('WindowGlanceLanes — the accessible name is built from content', () =
       { away: [TODAY], builderArgs: { entries: [entry], renderedEntryIds: new Set([entry.id]) } },
     );
     expect(lane('SPRING_TIDE')).toHaveAccessibleName(
-      'Spring tide 4.6 m, peak Monday, on Monday, Sunday to Tuesday, began earlier, shown in Coming up',
+      'Spring tide 4.6 m, peak Monday, on Monday, Sunday to Tuesday, began earlier',
     );
   });
 
   it('says where a lane that runs on past the last day goes on', () => {
     renderLanes([run(MON, 2, 4), run(TUE, 3, 4), run(WED, 4, 4)]);
     expect(lane('SPRING_TIDE')).toHaveAccessibleName(
-      'Spring tide day 2, on Monday, Monday to Tuesday, continues after Tuesday, opens Coming up',
+      'Spring tide day 2, on Monday, Monday to Tuesday, continues after Tuesday',
     );
   });
 
@@ -140,7 +185,7 @@ describe('WindowGlanceLanes — the accessible name is built from content', () =
     });
     renderLanes([ext(MON, 1), ext(TUE, 2)]);
     expect(lane('SPRING_TIDE')).toHaveAccessibleName(
-      'Spring tide day 1, on Monday, Monday to Tuesday, continues after Tuesday, opens Coming up',
+      'Spring tide day 1, on Monday, Monday to Tuesday, continues after Tuesday',
     );
     expect(lane('SPRING_TIDE')).toHaveAttribute('data-ends-after', 'true');
     expect(lane('SPRING_TIDE')).not.toHaveAttribute('data-starts-before');
@@ -148,7 +193,7 @@ describe('WindowGlanceLanes — the accessible name is built from content', () =
 
   it('reads a single-day lane without a day for its detail', () => {
     renderLanes([dust, { ...dust, type: 'MIST', glance: { value: 'dawn · 8/10', weather: true } }]);
-    expect(lane('DUST')).toHaveAccessibleName('Dust, Monday, opens Coming up');
+    expect(lane('DUST')).toHaveAccessibleName('Dust, Monday');
   });
 
   it('names the At a Glance window for a lane that opens one', () => {
@@ -238,15 +283,15 @@ describe('WindowGlanceLanes — the phone\'s per-day cells', () => {
   it('speaks each copy relative to its own day', () => {
     cell(SUN);
     expect(lane('SPRING_TIDE')).toHaveAccessibleName(
-      'Spring tide 4.6 m, peak Monday, on Monday, Sunday, began earlier, continues to Tuesday, opens Coming up',
+      'Spring tide 4.6 m, peak Monday, on Monday, Sunday, began earlier, continues to Tuesday',
     );
     cell(MON);
     expect(lane('SPRING_TIDE')).toHaveAccessibleName(
-      'Spring tide 4.6 m, peak Monday, on Monday, Monday, continues from Sunday, continues to Tuesday, opens Coming up',
+      'Spring tide 4.6 m, peak Monday, on Monday, Monday, continues from Sunday, continues to Tuesday',
     );
     cell(TUE);
     expect(lane('SPRING_TIDE')).toHaveAccessibleName(
-      'Spring tide 4.6 m, peak Monday, on Monday, Tuesday, continues from Sunday, continues after Tuesday, opens Coming up',
+      'Spring tide 4.6 m, peak Monday, on Monday, Tuesday, continues from Sunday, continues after Tuesday',
     );
   });
 

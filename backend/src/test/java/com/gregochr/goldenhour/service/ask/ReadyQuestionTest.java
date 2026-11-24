@@ -362,8 +362,11 @@ class ReadyQuestionTest {
         assertThat(ReadyQuestion.COASTAL_HIGH.tabs()).containsExactly("map");
         assertThat(ReadyQuestion.AM_OR_PM.tabs()).containsExactly("plan");
         assertThat(ReadyQuestion.NIGHT_SKY.tabs()).containsExactly("plan", "map");
-        assertThat(ReadyQuestion.RARE_EVENTS.tabs()).containsExactly("coming-up", "map");
-        assertThat(ReadyQuestion.SNOW_TOPS.tabs()).containsExactly("coming-up");
+        assertThat(ReadyQuestion.RARE_EVENTS.tabs()).containsExactly("plan", "map");
+        assertThat(ReadyQuestion.SNOW_TOPS.tabs()).containsExactly("plan");
+        // The Coming up tab folded into the plan view (one-screen-plan.md D8): no question names it any more.
+        assertThat(List.of(ReadyQuestion.values()).stream().flatMap(q -> q.tabs().stream()))
+                .doesNotContain("coming-up");
         assertThat(List.of(ReadyQuestion.values()).stream().filter(ReadyQuestion::anchored))
                 .containsExactly(ReadyQuestion.BEST_WEEKEND, ReadyQuestion.BEST_SOON, ReadyQuestion.BEST_NEXT);
         assertThat(List.of(ReadyQuestion.values()).stream().filter(q -> !q.picks()))

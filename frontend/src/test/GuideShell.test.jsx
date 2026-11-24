@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  cleanup, fireEvent, render, screen, waitFor,
+  act, cleanup, fireEvent, render, screen, waitFor,
 } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import { AskProvider } from '../context/AskContext.jsx';
@@ -111,7 +111,6 @@ afterEach(() => {
 describe('the masthead door on desktop and tablet', () => {
   it.each([
     ['At a Glance', 'at-a-glance'],
-    ['Coming up', 'coming-up'],
     ['Map', 'map'],
   ])('on %s it opens that tab\'s page in the docked column', async (name, guidePage) => {
     mount({ props: { mapPane: MAP_PANE } });
@@ -171,13 +170,15 @@ describe('the masthead door on desktop and tablet', () => {
     expect(screen.getByTestId('window-first-shell')).not.toHaveClass('wf-shell--docked');
   });
 
-  it('follows the reader across tabs when it is showing the old tab\'s page', async () => {
+  it('follows the reader onto the map view when it is showing the screen\'s page', async () => {
     mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
     fireEvent.click(door());
     expect(frameSrc()).toBe(page('at-a-glance'));
+    // Coming up is a door onto Further ahead, the bottom of the same screen (O2): the page does not move.
     fireEvent.click(tab('Coming up'));
-    await waitFor(() => expect(frameSrc()).toBe(page('coming-up')));
+    await act(async () => { await Promise.resolve(); });
+    expect(frameSrc()).toBe(page('at-a-glance'));
     fireEvent.click(screen.getByTestId('window-first-tab-map'));
     await waitFor(() => expect(frameSrc()).toBe(page('map')));
   });
@@ -202,8 +203,10 @@ describe('review round 1', () => {
     const plan = tab('At a Glance');
     plan.focus();
     fireEvent.keyDown(plan, { key: 'ArrowRight' });
-    await waitFor(() => expect(frameSrc()).toBe(page('coming-up')));
-    expect(tab('Coming up')).toHaveFocus();
+    // Arrows skip the Coming up door: the guide stays on the screen's page and focus stays on the tab.
+    await act(async () => { await Promise.resolve(); });
+    expect(plan).toHaveFocus();
+    expect(frameSrc()).toBe(page('at-a-glance'));
     expect(screen.getByTestId('guide-close')).not.toHaveFocus();
     // The Map is a view now: opening it moves the docked guide to the map page, and focus is the view's title.
     fireEvent.click(screen.getByTestId('window-first-tab-map'));

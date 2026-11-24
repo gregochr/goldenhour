@@ -2,7 +2,6 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
-import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
 
 /**
  * P14 — the responsive pass.
@@ -35,8 +34,6 @@ import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
  * a browser and recorded in §5i of the redesign plan. Neither half covers the other, and neither
  * should be read as if it did.
  */
-
-const TODAY = '2026-08-09';
 
 function renderShell(props = {}) {
   const handlers = { onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
@@ -92,29 +89,12 @@ describe('P14 responsive hooks — shell chrome', () => {
   // §5h handed P14 a literal `14px 18px 20px` duplicated across two files with a comment asking the
   // next reader to keep them in step. One class replaces the comment; this is the test that makes
   // the coupling real, and it fails if either pane drops it.
-  it('gives both panes the same inset class, so the frame cannot move on a tab change', () => {
+  it('draws Further ahead inside the Plan pane, so one inset frames both sections and the frame cannot move', () => {
     renderShell();
-    expect(screen.getByTestId('window-first-pane')).toHaveClass('wf-body');
-    expect(screen.getByTestId('window-first-coming-up')).toHaveClass('wf-body');
-  });
-
-  it('keeps the inset class on the Coming up pane when it is the hidden one', () => {
-    render(
-      <WindowFirstComingUp
-        id="p"
-        labelledBy="t"
-        hidden
-        status="ready"
-        events={[]}
-        todayStr={TODAY}
-        onRetry={vi.fn()}
-        onGoToPlan={vi.fn()}
-        onShowOnMap={vi.fn()}
-      />,
-    );
-    const pane = screen.getByTestId('window-first-coming-up', { hidden: true });
+    const pane = screen.getByTestId('window-first-pane');
     expect(pane).toHaveClass('wf-body');
-    expect(pane).toHaveClass('hidden');
+    expect(pane).toContainElement(screen.getByTestId('further-ahead'));
+    expect(pane).toContainElement(screen.getByTestId('this-week'));
   });
 
   // The mock hides ⚙ and Sign out on phone (`.wrap.mob .ghost{display:none}`). This arm declines

@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
-import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
+import FurtherAhead from '../components/FurtherAhead.jsx';
 import WindowComingUpEntry from '../components/WindowComingUpEntry.jsx';
 import { mockOpenGuide } from './guideContextMock.js';
 
@@ -37,9 +37,9 @@ const tide = (id, start, over = {}) => ({
 const COUNTS = { fixed: 3, forecast: 0, byFamily: { coastal: 3 } };
 
 const renderPane = (entries) => render(
-  <WindowFirstComingUp
+  <FurtherAhead
     id="p"
-    labelledBy="t"
+    headingId="t"
     status="ready"
     events={{ entries, counts: COUNTS }}
     todayStr={TODAY}
@@ -78,7 +78,7 @@ const renderEntry = (over) => render(
   <WindowComingUpEntry entry={view(over)} onGoToPlan={vi.fn()} onShowOnMap={vi.fn()} />,
 );
 
-beforeEach(() => { mockTideLocked = true; mockOpenGuide.mockClear(); });
+beforeEach(() => { mockTideLocked = true; mockOpenGuide.mockClear(); localStorage.clear(); });
 
 describe('Coming up — the Lite locked tide-light row', () => {
   it('draws the row inside the facts block, after the last fact, with the exact words', () => {

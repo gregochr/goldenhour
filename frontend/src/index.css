@@ -1783,7 +1783,7 @@
   background: #241f33;
   border-color: #4a3f6e;
 }
-.wf-lane:hover::before,
+.wf-lane:where(button):hover::before,
 .wf-lane:focus-visible::before {
   border-color: var(--color-plex-text-muted);
 }
@@ -1851,7 +1851,7 @@
   .wf-lane[data-ends-after='true']::before { border-right-color: CanvasText; }
   .wf-lane-sw { border: 1px solid CanvasText; }
   .wf-lane:focus-visible { outline: 2px solid Highlight; }
-  .wf-lane:hover { outline: 1px solid Highlight; }
+  .wf-lane:where(button):hover { outline: 1px solid Highlight; }
 }
 /* Phone only: each day's lanes are a full-width cell of the flowing grid directly under its day's header, one lane per
    row (no spanning). Desktop and tablet are untouched. */
@@ -11449,12 +11449,116 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-plex-text-secondary);
 }
 
-/* The panel takes a focus ring because it is `tabIndex={0}` — its content is all text, so it is
-   where focus goes after the tab is chosen, and an unstyled ring there would be the one focus
-   target in the arm that does not match the rest. */
-.wf-cu-panel:focus-visible {
+/* ── The screen's two sections: This week and Further ahead (`docs/engineering/one-screen-plan.md` O2, D5, D6, D11) ──
+   Each is a `<section aria-labelledby>` under a sticky bar holding its `<h2>`. The bar sticks at the LENS BAR's bottom
+   edge (`--wf-bar-h`, the bar alone, which `useLensReserve` measures), so the two headings, one in each section's own
+   containing block, take the same line in turn and the second replaces the first as the first section scrolls away.
+   Everything the matrix pins or reserves against ALSO starts below the This week bar: `--wf-lens-h` and
+   `--wf-lens-reserve` include its measured height, so the existing `calc()`s need no term.
+
+   z-index 17: above the day tiles (15) and the rails (14) it sits over, below the lens bar (20). A solid ground, not
+   the tiles' fade: the cards it covers are real content scrolling under a line of type. */
+.wf-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* A jump scrolls the SECTION to the top (`focusSectionHeading`); its sticky bar then rests under the lens bar. */
+  scroll-margin-top: calc(var(--safe-t) + var(--wf-bar-h, 54px));
+}
+.wf-sec-bar {
+  position: sticky;
+  top: calc(var(--safe-t) + var(--wf-bar-h, 54px) - 1px);
+  z-index: 17;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0 6px;
+  background: var(--color-plex-bg);
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-sec-h {
+  /* Block, not flex: the heading's words and its " · " separator are inline text, and a flex container would
+     blockify each run and trim the separator's spaces ("Further ahead· dates known in advance"). */
+  display: block;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--color-plex-text);
+  /* A heading reached by a jump lands under the lens bar, never behind it. */
+  scroll-margin-top: calc(var(--safe-t) + var(--wf-bar-h, 54px) + 2px);
+}
+.wf-sec-h:focus-visible {
   outline: 2px solid var(--color-plex-gold);
-  outline-offset: -2px;
+  outline-offset: 2px;
+}
+.wf-sec-h-sub {
+  font-weight: 500;
+  color: var(--color-plex-text-secondary);
+}
+/* The "Further ahead ↓" jump at the right of This week's bar: a quiet text button that carries the NEW badge. */
+.wf-sec-jump {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 7px;
+  background: var(--color-plex-panel);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-sec-jump:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
+.wf-sec-jump:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+.wf-sec-jump .wf-tab-badge { margin-left: 6px; }
+.wf-sec-h .wf-tab-badge { margin-left: 8px; vertical-align: 1px; }
+/* Every focusable thing in Further ahead and in Your places reserves against the sticky stack, as the cards do. Written
+   as a sum in a different order from the card rules, which a stylesheet test finds by their exact text. */
+.wf-further-ahead :is(button, a, [tabindex]):not(.wf-sec-h),
+.wf-yp :is(button, a, [tabindex]) {
+  scroll-margin-top: calc(var(--safe-t) + var(--wf-lens-reserve, 98px) + 2px);
+}
+/* A lane with no route is text, not a control. */
+div.wf-lane { cursor: default; }
+@media (max-width: 639px) {
+  .wf-sec-bar { padding: 5px 0 4px; }
+  .wf-sec-h { font-size: 12.5px; }
+  .wf-sec-jump { min-height: 32px; }
+}
+
+/* Your places (D15): ONE row of compact chips at the top of This week, scrolling sideways, snapping on a phone. */
+.wf-sec > .wf-yp { margin: 0; }
+.wf-yp-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 1px 6px;
+  scrollbar-width: thin;
+}
+.wf-yp-item { flex: none; scroll-snap-align: start; }
+.wf-yp-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 44px;
+  max-width: 260px;
+  padding: 6px 11px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: var(--color-plex-panel);
+  font-size: 13px;
+  color: var(--color-plex-text);
+  cursor: pointer;
+}
+.wf-yp-chip:hover { border-color: var(--color-plex-border-light); }
+.wf-yp-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-yp-detail { font-size: 11.5px; color: var(--color-plex-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 639px) {
+  .wf-yp-row { scroll-snap-type: x mandatory; }
 }
 
 /* ── Beyond-line link and search (heat-field plan §4.8, P7; the origin chip moved into the
@@ -14608,8 +14712,6 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
 .wf-fav-mark { color: var(--color-plex-gold); margin-right: 3px; font-size: 0.9em; }
 .wf-callout-head .wf-fav { padding: 2px 6px; font-size: 10px; }
 .wf-fav-section { margin: 0 0 10px; }
-/* The Coming up watchlist sits inside the pane's card, so it takes the card's own inset. */
-.wf-cu > .wf-fav-section { padding: 10px 14px 2px; margin: 0; }
 .wf-fav-section-h {
   margin: 0 0 4px;
   font-family: var(--font-mono);

@@ -129,12 +129,12 @@ describe('the days-ahead lanes stylesheet', () => {
   });
 
   it('keeps the hover and focus border on the muted ink and the focus ring gold, on the button itself', () => {
-    expect(ruleBody('.wf-lane:hover::before,\n.wf-lane:focus-visible::before'))
+    expect(ruleBody('.wf-lane:where(button):hover::before,\n.wf-lane:focus-visible::before'))
       .toContain('border-color: var(--color-plex-text-muted);');
     const ring = ruleBody('.wf-lane:focus-visible');
     expect(ring).toContain('outline: 2px solid var(--color-plex-gold);');
     // The hover rule comes BEFORE the edge rules, so it cannot repaint the ends-after lane's transparent right edge.
-    expect(css.indexOf('.wf-lane:hover::before,'))
+    expect(css.indexOf('.wf-lane:where(button):hover::before,'))
       .toBeLessThan(css.indexOf(".wf-lane[data-ends-after='true']::before {"));
   });
 
@@ -247,5 +247,10 @@ describe('the best-location name', () => {
   it('keeps `.none` and `.beyond` on their own rules', () => {
     expect(ruleBody('.wf-hc-best.none')).toContain('color: var(--color-plex-text-secondary);');
     expect(ruleBody('.wf-hc-best.beyond')).toContain('font-size: 10px;');
+  });
+
+  it('highlights only the tappable lane on hover: a plain-text lane (a div) takes no hover border or outline', () => {
+    expect(css).not.toMatch(/\.wf-lane:hover/);
+    expect(css).toContain('.wf-lane:where(button):hover { outline: 1px solid Highlight; }');
   });
 });

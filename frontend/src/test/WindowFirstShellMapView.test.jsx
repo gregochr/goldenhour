@@ -176,7 +176,8 @@ describe('the Map door beside the tabs', () => {
     const tabs = screen.getAllByRole('tab');
     tabs[0].focus();
     fireEvent.keyDown(tabs[0], { key: 'End' });
-    expect(document.activeElement).toBe(tabs[tabs.length - 1]);
+    // Coming up is a door, so the arrows skip it: with no other tab End lands on Plan, never on the map door.
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^At a Glance/ }));
     expect(document.activeElement).not.toBe(door());
   });
 });

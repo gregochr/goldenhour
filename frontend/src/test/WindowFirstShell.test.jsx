@@ -332,9 +332,10 @@ describe('WindowFirstShell — the strip it hosts', () => {
 
     const heat = await screen.findByTestId('wf-heat-strip');
     const status = screen.getByTestId('window-first-pane-status');
-    const pane = screen.getByTestId('window-first-pane');
+    // The first section's own children: Further ahead is a second section after it (one-screen-plan.md O2).
+    const pane = screen.getByTestId('this-week');
     const children = [...pane.children];
-    // Both must be the pane's OWN children for the adjacency to mean anything — an index of
+    // Both must be the section's OWN children for the adjacency to mean anything — an index of
     // -1 would make the assertion vacuously satisfiable from either end.
     expect(children).toContain(heat);
     expect(children).toContain(status);

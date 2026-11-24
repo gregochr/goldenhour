@@ -364,17 +364,14 @@ describe('opening, closing and the conversation', () => {
     await askOne('Best at dawn?');
     expect(ask).toHaveBeenLastCalledWith({ question: 'Best at dawn?', regionIds: [], view: 'plan' });
 
+    // Coming up is a door onto Further ahead, part of the screen: the view is still the plan's (D8).
     fireEvent.click(tab('Coming up'));
-    expect(screen.getByTestId('ask-dock-context')).toHaveTextContent('· on Coming up');
-    // ⚠️ F3: the answer on screen was ASKED on Plan, and a tab switch must not relabel it — the chip
-    // says what was sent. The dock's header follows the tab; the chips follow the question.
+    expect(screen.getByTestId('ask-dock-context')).toHaveTextContent('· on At a Glance');
     expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('At a Glance · all regions');
-    // With nothing on screen the chips say what the NEXT question will carry: this tab's.
     fireEvent.click(screen.getByTestId('ask-clear'));
-    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Coming up · all regions');
+    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('At a Glance · all regions');
     await askOne('Any rare events?');
-    expect(ask).toHaveBeenLastCalledWith({ question: 'Any rare events?', regionIds: [], view: 'coming-up' });
-    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Coming up · all regions');
+    expect(ask).toHaveBeenLastCalledWith({ question: 'Any rare events?', regionIds: [], view: 'plan' });
 
     // The Map pane here is a stub that publishes nothing, so the dock says — and sends — "all
     // regions", no window (the real pane's channel is `AskMapContext.test.jsx`'s).

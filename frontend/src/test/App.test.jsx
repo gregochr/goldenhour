@@ -210,6 +210,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   delete window.requestIdleCallback;
   delete window.cancelIdleCallback;
 });
@@ -852,9 +853,17 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
     expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-10');
   });
 
-  it('hands the Coming up tab\'s own write back to the record', async () => {
-    // The bootstrap write on a first visit: `null` is "never seen", and the write's echo is the
-    // date the provider must carry from then on.
+  it('hands the Further ahead bootstrap write back to the record', async () => {
+    // The bootstrap write on a first visit (the first time Further ahead's heading reaches the viewport): `null` is
+    // "never seen", and the write's echo is the date the provider must carry from then on.
+    const observers = [];
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback) { this.callback = callback; this.nodes = []; observers.push(this); }
+
+      observe(node) { this.nodes.push(node); }
+
+      disconnect() { this.nodes = []; }
+    });
     getSettings.mockResolvedValue({ ...SETTINGS_MORPETH, comingUpLastSeenDate: null });
     // Not today's date: the shell falls back to today when the echo carries none, so a date that
     // could be today could not tell the echo from the fallback.
@@ -862,7 +871,11 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
     const { providerSpy } = renderApp();
     await waitFor(() => expect(providerProps(providerSpy).comingUpLastSeenDate).toBeNull());
 
-    await act(async () => { fireEvent.click(await screen.findByRole('tab', { name: 'Coming up' })); });
+    const heading = await screen.findByTestId('further-ahead-heading');
+    await act(async () => {
+      observers.filter((observer) => observer.nodes.includes(heading))
+        .forEach((observer) => observer.callback([{ isIntersecting: true }]));
+    });
 
     await waitFor(() => expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-02'));
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);

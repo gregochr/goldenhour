@@ -791,7 +791,9 @@ function areaLabel(regionName, tiny) {
  * @param {?object}  [props.origin]   the away origin, or null for home — framing and scope
  * @param {Function} [props.onSearchRegion] opens search pre-filled with a region name
  * @param {Array}    [props.comingUpEntries] the served almanac entries, for a topic pill's jump
- * @param {Function} [props.onOpenComingUp] `(entryId|null)` — opens Coming up (the pill's jump and the door)
+ * @param {Function} [props.onLaneEntryIds] `(Set<string>)` — the almanac entries the lanes drawn here carry the jump
+ *                                    of; Further ahead leaves them out so nothing shows twice
+ *                                    (one-screen-plan.md D5). Called when the set changes
  * @param {boolean}  [props.picksLocked] true for a reader without best bets (LITE): the key row carries one
  *                                    Pro upsell door. The picks themselves are already absent from {@code cards}
  *                                    (the context nulls them), so nothing here hides a chip.
@@ -804,7 +806,7 @@ export default function WindowFirstHeatStrip({
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
   picksLocked = false, groundSets = null, picks = null,
   comingUpEntries = null, renderedEntryIds = null, openableKeys = null, forecastDates = null,
-  onOpenComingUp = undefined, onShowOnMap = undefined, onOpenLaneOnMap = undefined,
+  onLaneEntryIds = undefined, onShowOnMap = undefined, onOpenLaneOnMap = undefined,
 }) {
   // Your places (F4): the Glance best-spot line marks a place the reader starred itself, and says so. A mark only.
   const favourites = useFavourites();
@@ -908,18 +910,40 @@ export default function WindowFirstHeatStrip({
     };
   };
   /**
-   * What a lane's press does, first match wins — the old "Next four days" block's four routes (a topic with no
-   * almanac counterpart, such as aurora or any weather topic, has no Coming up row to open, so the handoff's
-   * "click opens Coming up" holds only where Coming up lists it): the Coming up entry; the Map door; this
-   * strip's own window popup with the topic emphasised; else Coming up itself.
+   * The almanac entries the lanes carry the jump of (one-screen-plan.md D5). Further ahead drops exactly these, so a
+   * date shows once: here as a lane, or there as an entry. Reported only when the SET changes (a sorted key), so a
+   * re-render that draws the same lanes is not a state write upstream.
    */
+  // Only lanes that are DRAWN carry an entry: the strip withdraws entirely with no cards or no spots (the early
+  // return below), and then nothing shows the entry, so Further ahead must keep listing it. Same guard, same place.
+  const lanesDrawn = cards.length > 0 && spots.length > 0;
+  const laneEntryKey = useMemo(
+    () => (lanesDrawn
+      ? [...new Set(glanceLanes.filter((lane) => lane.jump).map((lane) => lane.jump.entryId))].sort((a, b) => a.localeCompare(b)).join('\n')
+      : ''),
+    [glanceLanes, lanesDrawn],
+  );
+  useEffect(() => {
+    onLaneEntryIds?.(new Set(laneEntryKey === '' ? [] : laneEntryKey.split('\n')));
+    // A strip that goes (a viewport flip, the Plan pane unmounting) leaves no lanes behind.
+    return () => onLaneEntryIds?.(new Set());
+  }, [laneEntryKey, onLaneEntryIds]);
+  /**
+   * Where a lane's press goes: the Map door, else this strip's own window, else nowhere. Nothing opens Coming up any
+   * more (the tab folded into Further ahead, and a lane's entry is, by the graduation rule, not listed there), so a
+   * lane with neither route is plain text and its spoken name says no destination (D5: "openMap on its window, or
+   * nothing when it has none").
+   */
+  const laneRoute = (lane) => {
+    if (lane.mapDoor) return 'map';
+    return lane.target && onOpenLaneOnMap ? 'window' : null;
+  };
   const tapTopic = (lane) => {
-    if (lane.jump) onOpenComingUp?.(lane.jump.entryId);
-    else if (lane.mapDoor) onShowOnMap({
-      kind: 'event', date: lane.mapDoor.date, eventType: lane.mapDoor.eventType, topicType: lane.type,
-    });
-    else if (lane.target && onOpenLaneOnMap) onOpenLaneOnMap(lane.target, lane.type);
-    else onOpenComingUp?.(null);
+    if (laneRoute(lane) === 'map') {
+      onShowOnMap({
+        kind: 'event', date: lane.mapDoor.date, eventType: lane.mapDoor.eventType, topicType: lane.type,
+      });
+    } else onOpenLaneOnMap(lane.target, lane.type);
   };
   // The tide run across the WHOLE strip — which cards are live, and which of them is the one to
   // take (tide-plan-card-plan.md §3 C1 task 3). Computed once here, over the served, non-away
@@ -2233,6 +2257,7 @@ export default function WindowFirstHeatStrip({
                   lanes={glanceLanes}
                   date={day.date}
                   onTap={tapTopic}
+                  canTap={laneRoute}
                   warningLanes={warningLanes}
                   onWarningTap={tapWarning}
                   warningFooter={warningFooterFor(day.date)}
@@ -2262,6 +2287,7 @@ export default function WindowFirstHeatStrip({
           <WindowGlanceLanes
             lanes={glanceLanes}
             onTap={tapTopic}
+            canTap={laneRoute}
             warningLanes={warningLanes}
             onWarningTap={tapWarning}
             warningFooter={warningFooterFor(null)}
@@ -2492,8 +2518,8 @@ WindowFirstHeatStrip.propTypes = {
   openableKeys: PropTypes.instanceOf(Set),
   /** The dates the reader holds a colour forecast for; null is "not known", an array (even empty) is known. */
   forecastDates: PropTypes.arrayOf(PropTypes.string),
-  /** `(entryId|null)` — opens Coming up, at that entry when one is named. Also the topic door's route. */
-  onOpenComingUp: PropTypes.func,
+  /** `(Set<string>)` — the entries the drawn lanes carry the jump of; see the prop's doc above. */
+  onLaneEntryIds: PropTypes.func,
   /** `({kind:'event', date, eventType, topicType})` — the Map door of a weather pill. Absent: no Map door. */
   onShowOnMap: PropTypes.func,
   /** `(windowKey, topicType)` — opens the Map on that window, with the topic selected when one is named. */

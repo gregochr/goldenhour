@@ -7,7 +7,8 @@ import { getAlmanac } from '../api/almanacApi.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 
 /**
- * The Coming-up tab badge, `lastSeenAt` bootstrap and `Mark seen` (plan D3/D4/D12, P5).
+ * The NEW badge on the "Further ahead ↓" jump and on Further ahead's heading, the `lastSeenAt` bootstrap
+ * and `Mark seen` (coming-up plan D3/D4/D12, P5; one-screen-plan.md D6). It was the Coming up tab's badge.
  *
  * <p>Scoped the way {@code WindowFirstShellTabs.test.jsx} scopes itself — a shell-level JOIN
  * between the eagerly-fetched feed and the per-user `comingUpLastSeenDate` the context supplies —
@@ -144,14 +145,30 @@ const renderShell = (overrides = {}) => {
   return { ...view, withContext };
 };
 
-const tab = (name) => screen.getByRole('tab', { name: new RegExp(`^${name}`) });
+/** The observers Further ahead's heading installed, so a test can bring the heading into view. */
+let observers;
 
-const openComingUp = async () => {
-  fireEvent.click(screen.getByRole('tab', { name: /^Coming up/ }));
+/** Scrolls Further ahead's heading into view, which is when the one-off bootstrap fires (D6). */
+const reachFurtherAhead = async () => {
+  const heading = screen.getByTestId('further-ahead-heading');
+  act(() => {
+    observers.filter((observer) => observer.nodes.includes(heading))
+      .forEach((observer) => observer.callback([{ isIntersecting: true }]));
+  });
   await act(async () => { await Promise.resolve(); });
 };
 
+const settle = () => act(async () => { await Promise.resolve(); });
+
 beforeEach(() => {
+  observers = [];
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(callback) { this.callback = callback; this.nodes = []; observers.push(this); }
+
+    observe(node) { this.nodes.push(node); }
+
+    disconnect() { this.nodes = []; }
+  });
   getAlmanac.mockReset();
   markComingUpSeen.mockReset();
   markComingUpSeen.mockResolvedValue({ comingUpLastSeenDate: TODAY });
@@ -165,110 +182,165 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-describe('WindowFirstShell — the tab badge', () => {
+describe('WindowFirstShell — the NEW badge on the jump and the heading', () => {
   it('shows nothing when the reader has already seen every arrival', async () => {
     getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
     renderShell({ comingUpLastSeenDate: '2026-08-08' });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    expect(screen.queryByTestId('coming-up-tab-badge')).toBeNull();
+    expect(screen.queryByTestId('further-ahead-jump-badge')).toBeNull();
+    expect(screen.queryByTestId('further-ahead-heading-badge')).toBeNull();
   });
 
-  it('shows a count when a new arrival clears the announce band', async () => {
+  it('shows one count, on both the jump and the heading, when a new arrival clears the announce band', async () => {
     getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    const badge = screen.getByTestId('coming-up-tab-badge');
-    expect(badge).toHaveTextContent('1');
-    expect(badge.className).not.toContain('wf-tab-badge-rare');
+    for (const id of ['further-ahead-jump-badge', 'further-ahead-heading-badge']) {
+      const badge = screen.getByTestId(id);
+      expect(badge).toHaveTextContent('1');
+      expect(badge.className).not.toContain('wf-tab-badge-rare');
+    }
   });
 
   it('shows a solid diamond, no number, when an arrival clears the interrupt band', async () => {
     getAlmanac.mockResolvedValue(FEED([INTERRUPT_ENTRY]));
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    const badge = screen.getByTestId('coming-up-tab-badge');
-    expect(badge).toHaveTextContent('◆');
-    expect(badge.className).toContain('wf-tab-badge-rare');
+    for (const id of ['further-ahead-jump-badge', 'further-ahead-heading-badge']) {
+      const badge = screen.getByTestId(id);
+      expect(badge).toHaveTextContent('◆');
+      expect(badge.className).toContain('wf-tab-badge-rare');
+    }
   });
 
   it('never badges a FORECAST-kind entry, however high its bits', async () => {
     getAlmanac.mockResolvedValue(FEED([{ ...ANNOUNCE_ENTRY, kind: 'FORECAST', bits: 11.6 }]));
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    expect(screen.queryByTestId('coming-up-tab-badge')).toBeNull();
+    expect(screen.queryByTestId('further-ahead-jump-badge')).toBeNull();
   });
 
   it('never badges an interim (unconfirmed) entry, however high its bits', async () => {
     getAlmanac.mockResolvedValue(FEED([{ ...ANNOUNCE_ENTRY, interim: true, bits: 11.6 }]));
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    expect(screen.queryByTestId('coming-up-tab-badge')).toBeNull();
+    expect(screen.queryByTestId('further-ahead-jump-badge')).toBeNull();
   });
 
-  it('is visible from the Plan tab, without the reader ever opening Coming up (D13\'s whole point)', async () => {
+  it('is visible from the top of the screen, without the reader ever scrolling to Further ahead', async () => {
     getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
     expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('coming-up-tab-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('this-week-bar')).toContainElement(screen.getByTestId('further-ahead-jump-badge'));
   });
 
-  it('carries the count in the tab button\'s aria-label, not just the badge span', async () => {
+  it('carries the count in the jump\'s aria-label, not just the badge span', async () => {
     getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    expect(screen.getByRole('tab', { name: 'Coming up, 1 new event' })).toBeInTheDocument();
-    // The badge span itself is aria-hidden — the aria-label above is the only place a screen
-    // reader hears about it, so the accessible name must not ALSO run the badge text into the
-    // label by accident (which would read "Coming up, 1 new event1").
-    expect(screen.getByTestId('coming-up-tab-badge')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('button', { name: 'Further ahead, 1 new date' })).toBe(screen.getByTestId('further-ahead-jump'));
+    // The badge span is aria-hidden: the label is the only place a screen reader hears about it, so the name must
+    // not ALSO run the badge text into the label by accident.
+    expect(screen.getByTestId('further-ahead-jump-badge')).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('falls back to the plain tab name with no aria-label override when there is no badge', async () => {
+  it('says "dates" for more than one, and a rare date for an interrupt arrival', async () => {
+    getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY, { ...ANNOUNCE_ENTRY, id: 'second', bits: 8.0 }]));
+    const first = renderShell({ comingUpLastSeenDate: '2026-08-01' });
+    await settle();
+    expect(screen.getByRole('button', { name: 'Further ahead, 2 new dates' })).toBeInTheDocument();
+    first.unmount();
+
+    getAlmanac.mockResolvedValue(FEED([INTERRUPT_ENTRY]));
+    renderShell({ comingUpLastSeenDate: '2026-08-01' });
+    await settle();
+    expect(screen.getByRole('button', { name: 'Further ahead, one rare date added' })).toBeInTheDocument();
+  });
+
+  it('leaves the heading\'s own accessible name clean, whatever the badge says', async () => {
+    getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
+    renderShell({ comingUpLastSeenDate: '2026-08-01' });
+    await settle();
+
+    expect(screen.getByTestId('further-ahead-heading')).toHaveAccessibleName('Further ahead · dates known in advance');
+    expect(screen.getByTestId('further-ahead-heading-badge')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('this-week-heading')).toHaveAccessibleName('This week · forecast');
+  });
+
+  it('falls back to the plain jump name with no aria-label override when there is no badge', async () => {
     getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
     renderShell({ comingUpLastSeenDate: '2026-08-08' });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    expect(screen.getByRole('tab', { name: 'Coming up' })).toBeInTheDocument();
+    const jump = screen.getByRole('button', { name: 'Further ahead' });
+    expect(jump).toBe(screen.getByTestId('further-ahead-jump'));
+    expect(jump).not.toHaveAttribute('aria-label');
+  });
+
+  it('presses through to Further ahead: scrolled into view, heading focused, nothing marked seen', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
+    renderShell({ comingUpLastSeenDate: '2026-08-01' });
+    await settle();
+
+    fireEvent.click(screen.getByTestId('further-ahead-jump'));
+    await settle();
+
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(screen.getByTestId('further-ahead-heading')).toHaveFocus();
+    // Reaching the section is not "seen": only Mark seen clears the badge (owner, 2026-11-23).
+    expect(markComingUpSeen).not.toHaveBeenCalled();
+    expect(screen.getByTestId('further-ahead-jump-badge')).toBeInTheDocument();
+    delete Element.prototype.scrollIntoView;
+  });
+
+  it('has no badge on the Coming up tab any more', async () => {
+    getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
+    renderShell({ comingUpLastSeenDate: '2026-08-01' });
+    await settle();
+
+    expect(screen.queryByTestId('coming-up-tab-badge')).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Coming up' })).not.toHaveAttribute('aria-label');
   });
 });
 
-describe('WindowFirstShell — the Coming-up bootstrap write (plan D3)', () => {
-  it('fires once on the first open with a null last-seen date, quietly', async () => {
+describe('WindowFirstShell — the Further ahead bootstrap write (plan D3, D6)', () => {
+  it('fires once, the first time the heading reaches the viewport with a null last-seen date, quietly', async () => {
     getAlmanac.mockResolvedValue(FEED([]));
     const { withContext } = renderShell({ comingUpLastSeenDate: null });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
     expect(markComingUpSeen).not.toHaveBeenCalled();
 
-    await openComingUp();
+    await reachFurtherAhead();
 
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);
     // The write settles asynchronously; the setter is called with whatever the response echoes
     // back, simulating what the real context would then re-render with.
     withContext({ comingUpLastSeenDate: TODAY });
-    expect(screen.queryByTestId('coming-up-tab-badge')).toBeNull();
+    expect(screen.queryByTestId('further-ahead-jump-badge')).toBeNull();
   });
 
-  it('does not fire again on a later open of the same tab', async () => {
+  it('does not fire again when the heading is reached a second time', async () => {
     getAlmanac.mockResolvedValue(FEED([]));
     renderShell({ comingUpLastSeenDate: null });
-    await act(async () => { await Promise.resolve(); });
-    await openComingUp();
+    await settle();
+    await reachFurtherAhead();
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(tab('At a Glance'));
-    await openComingUp();
+    await reachFurtherAhead();
 
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);
   });
@@ -276,8 +348,8 @@ describe('WindowFirstShell — the Coming-up bootstrap write (plan D3)', () => {
   it('never fires while the last-seen date is merely unresolved (undefined, not null)', async () => {
     getAlmanac.mockResolvedValue(FEED([]));
     renderShell({ comingUpLastSeenDate: undefined });
-    await act(async () => { await Promise.resolve(); });
-    await openComingUp();
+    await settle();
+    await reachFurtherAhead();
 
     // undefined means "settings request not answered yet or failed" (the same three-state shape
     // homePlace already uses) — treating it as "never seen" would double-fire the bootstrap once
@@ -288,31 +360,48 @@ describe('WindowFirstShell — the Coming-up bootstrap write (plan D3)', () => {
   it('does not fire at all for an account that has already seen the feed', async () => {
     getAlmanac.mockResolvedValue(FEED([]));
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
-    await openComingUp();
+    await settle();
+    await reachFurtherAhead();
 
     expect(markComingUpSeen).not.toHaveBeenCalled();
   });
 
-  it('retries on the NEXT visit after a failed write, but does not loop on this one', async () => {
+  it('does not clear an account that HAS a last-seen date by scrolling past: only Mark seen does', async () => {
+    getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
+    renderShell({ comingUpLastSeenDate: '2026-08-01' });
+    await settle();
+    await reachFurtherAhead();
+
+    expect(markComingUpSeen).not.toHaveBeenCalled();
+    expect(screen.getByTestId('further-ahead-jump-badge')).toBeInTheDocument();
+  });
+
+  it('retries the NEXT time the heading is reached after a failed write, but does not loop on this one', async () => {
     getAlmanac.mockResolvedValue(FEED([]));
     markComingUpSeen.mockRejectedValueOnce(new Error('502'));
     renderShell({ comingUpLastSeenDate: null });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    await openComingUp();
+    await reachFurtherAhead();
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);
 
-    // Still sitting on the SAME open tab — no dependency the effect reads has changed, so a reset
-    // guard must not by itself refire the write.
-    await act(async () => { await Promise.resolve(); });
+    // Nothing intersected again, so nothing retried: the reset guard must not by itself refire the write.
+    await settle();
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);
 
     markComingUpSeen.mockResolvedValue({ comingUpLastSeenDate: TODAY });
-    fireEvent.click(tab('At a Glance'));
-    await openComingUp();
+    await reachFurtherAhead();
 
     expect(markComingUpSeen).toHaveBeenCalledTimes(2);
+  });
+
+  it('writes nothing in a browser that cannot observe, because the bootstrap is a write', async () => {
+    vi.stubGlobal('IntersectionObserver', undefined);
+    getAlmanac.mockResolvedValue(FEED([]));
+    renderShell({ comingUpLastSeenDate: null });
+    await settle();
+
+    expect(markComingUpSeen).not.toHaveBeenCalled();
   });
 });
 
@@ -320,8 +409,7 @@ describe('WindowFirstShell — Mark seen', () => {
   it('optimistically publishes today\'s date and fires the write', async () => {
     getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
     const { withContext } = renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
-    await openComingUp();
+    await settle();
 
     fireEvent.click(screen.getByTestId('coming-up-since-mark-seen'));
 
@@ -331,22 +419,23 @@ describe('WindowFirstShell — Mark seen', () => {
 
     // Simulate the re-render the real context would cause once that setter's state lands.
     withContext({ comingUpLastSeenDate: TODAY });
-    expect(screen.queryByTestId('coming-up-tab-badge')).toBeNull();
+    expect(screen.queryByTestId('further-ahead-jump-badge')).toBeNull();
     expect(screen.queryByTestId('coming-up-since')).toBeNull();
   });
 
-  it('clears the badge and the since-line together, not the badge alone', async () => {
+  it('clears both badges and the since-line together, not the badge alone', async () => {
     getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
     const { withContext } = renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
-    await openComingUp();
+    await settle();
 
-    expect(screen.getByTestId('coming-up-tab-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('further-ahead-jump-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('further-ahead-heading-badge')).toBeInTheDocument();
     expect(screen.getByTestId('coming-up-since')).toBeInTheDocument();
 
     withContext({ comingUpLastSeenDate: TODAY });
 
-    expect(screen.queryByTestId('coming-up-tab-badge')).toBeNull();
+    expect(screen.queryByTestId('further-ahead-jump-badge')).toBeNull();
+    expect(screen.queryByTestId('further-ahead-heading-badge')).toBeNull();
     expect(screen.queryByTestId('coming-up-since')).toBeNull();
   });
 
@@ -354,16 +443,15 @@ describe('WindowFirstShell — Mark seen', () => {
     getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
     markComingUpSeen.mockRejectedValue(new Error('502'));
     const { withContext } = renderShell({ comingUpLastSeenDate: '2026-08-01' });
-    await act(async () => { await Promise.resolve(); });
-    await openComingUp();
+    await settle();
 
     fireEvent.click(screen.getByTestId('coming-up-since-mark-seen'));
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
     const setter = briefingContext.useWindowFirstBriefing().setComingUpLastSeenAt;
     expect(setter).toHaveBeenCalledWith(TODAY);
     // The design's own safe-failure bias: a dropped write must not flash the badge back on.
     withContext({ comingUpLastSeenDate: TODAY });
-    expect(screen.queryByTestId('coming-up-tab-badge')).toBeNull();
+    expect(screen.queryByTestId('further-ahead-jump-badge')).toBeNull();
   });
 });

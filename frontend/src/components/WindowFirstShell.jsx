@@ -9,7 +9,11 @@ import MastheadTickLine from './MastheadTickLine.jsx';
 import MastheadMenu from './MastheadMenu.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
-import WindowFirstComingUp from './WindowFirstComingUp.jsx';
+import FurtherAhead from './FurtherAhead.jsx';
+import {
+  FURTHER_AHEAD_HEADING_ID, FURTHER_AHEAD_ID, THIS_WEEK_HEADING, THIS_WEEK_HEADING_ID, THIS_WEEK_ID,
+  THIS_WEEK_SUBHEADING, focusSectionHeading,
+} from '../utils/screenSections.js';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
 import { MapListContext } from '../context/MapListContext.jsx';
 import { heatSpotKey } from '../utils/heatSpots.js';
@@ -46,12 +50,12 @@ import { areaMapWindow } from '../utils/areaFind.js';
 import { normalizeMapTrigger, outlierKeysOf } from '../utils/mapDoor.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
 import { isFindKey, isTypingTarget } from '../utils/findKey.js';
-import { deriveBadge } from '../utils/comingUpArrivals.js';
+import useListedFeed from '../hooks/useListedFeed.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
 import useAreaFind from '../hooks/useAreaFind.js';
 import { useFavourites } from '../context/FavouritesContext.jsx';
-import ComingUpWatchlist from './ComingUpWatchlist.jsx';
+import YourPlacesRow from './YourPlacesRow.jsx';
 import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
@@ -232,6 +236,9 @@ const TABS = [
   { id: 'operations', label: 'Operations', glyph: null, slot: 'operationsPane', gated: true },
 ];
 
+/** No lane carries an almanac entry: the starting value of the graduated set, shared so it costs no allocation. */
+const NO_ENTRY_IDS = new Set();
+
 /**
  * What the view chip says, and what the question is sent with, by tab. Map reads "all regions" here
  * because the shell cannot see the Map's own scope segment or window (they are `MapView` state): the
@@ -240,16 +247,14 @@ const TABS = [
  */
 const ASK_VIEW = {
   plan: { view: 'plan', label: `${GLANCE_LABEL} · all regions` },
-  'coming-up': { view: 'coming-up', label: 'Coming up · all regions' },
   map: { view: 'map', label: 'Map · all regions' },
 };
-// (One-screen-plan.md D8: the view is 'map' while the map VIEW is open, otherwise the screen's own. The Coming up tab
-// still exists until O3 and keeps its own view, so its Ready chips and requests are unchanged.)
+// (One-screen-plan.md D8: the view is 'map' while the map VIEW is open, otherwise the screen's own. Further ahead is
+// part of the screen now, so it asks as 'plan' and the Ready questions that were Coming up's are offered there.)
 
 /** What the dock's header says it is beside, by tab (the mock's "· on Plan" / "· on Map"; Plan is now At a Glance). */
 const ASK_DOCK_CONTEXT = {
   plan: `on ${GLANCE_LABEL}`,
-  'coming-up': 'on Coming up',
   map: 'on Map',
 };
 
@@ -687,9 +692,13 @@ export default function WindowFirstShell({
   const polledWarnings = useWarnings();
   const warningSetKey = useMemo(() => warningsKey(polledWarnings), [polledWarnings]);
   const comingUp = useComingUpFeed(true, todayStr, warningSetKey);
-  // A pending "open Coming up at this entry" request from At a Glance's topic pills (see `openComingUp`).
+  // A pending "open Further ahead at this entry" request (see `openFurtherAhead`).
   const [comingUpFocus, setComingUpFocus] = useState(null);
   const comingUpSeq = useRef(0);
+  // The almanac entries This week already draws as lanes, reported by the heat strip (one-screen-plan.md D5). Further
+  // ahead lists everything else. The strip reports only when the SET changes (it keys on the sorted ids), so a
+  // re-render that draws the same lanes writes nothing; the setter is stable, so it never re-fires the strip's effect.
+  const [graduatedIds, setGraduatedIds] = useState(NO_ENTRY_IDS);
   // The ids Coming up lists under its All filter — every served entry, which is what the pills' jump may target
   // (glance-topic-strip-plan.md R1/R4). Empty unless the feed is READY: a stale `events` while a retry loads, or
   // after a failure, names rows that are not on screen.
@@ -705,10 +714,18 @@ export default function WindowFirstShell({
    * showing: the badge answers "is anything new anywhere in the feed", a question the active filter
    * must not narrow.
    */
-  const comingUpBadge = useMemo(
-    () => deriveBadge(comingUp.events?.entries, comingUp.events?.bands, comingUpLastSeenDate),
-    [comingUp.events, comingUpLastSeenDate],
-  );
+  const { badge: comingUpBadge } = useListedFeed(comingUp.events, graduatedIds, comingUpLastSeenDate);
+  /**
+   * The "Further ahead ↓" jump's accessible name (D6). With a badge it carries the badge's meaning, which the
+   * `aria-hidden` badge span cannot; without one the name computes from the button's own text. The two band names
+   * ({@code interrupt}, {@code announce}) are the surprise model's, not the reader's, so a screen-reader user hears
+   * only the difference they encode: one exceptional arrival versus several ordinary ones.
+   */
+  const furtherAheadJumpLabel = comingUpBadge
+    ? `Further ahead, ${comingUpBadge.band === 'interrupt'
+      ? 'one rare date added'
+      : `${comingUpBadge.count} new date${comingUpBadge.count === 1 ? '' : 's'}`}`
+    : undefined;
   /**
    * Marks the feed seen — both `Mark seen`'s own press and the quiet bootstrap write below share
    * this one function, because the service does not distinguish the two callers (plan D3).
@@ -742,29 +759,27 @@ export default function WindowFirstShell({
    * when something IS new — so without this, an account that has never opened the tab can never
    * reach the one control that would set the timestamp, and stays null permanently.
    *
-   * <p>Fires once, on the FIRST open of the Coming up tab while `comingUpLastSeenDate` is exactly
-   * {@code null} (not `undefined`, which means "not answered yet" — see the context's own class
-   * doc — and must not be mistaken for "never seen"). That first visit shows no badge and no NEW
-   * flags, matching D3's chosen quiet bias: the write happens silently, not as a visible "welcome"
-   * moment.
+   * <p>Fires once, the FIRST time Further ahead's heading reaches the viewport while `comingUpLastSeenDate` is
+   * exactly {@code null} (not `undefined`, which means "not answered yet" — see the context's own class
+   * doc — and must not be mistaken for "never seen"). It was "the first open of the Coming up tab"; the heading
+   * intersecting is the same moment on a screen with no tab (one-screen-plan.md D6). That first visit shows no badge
+   * and no NEW flags, matching D3's chosen quiet bias: the write happens silently, not as a visible "welcome"
+   * moment. ⚠️ Scrolling PAST the section does not clear the badge (owner, 2026-11-23); only "Mark seen" does.
    *
    * <p>The guard ref is reset on failure, not left permanently spent — a dropped request must retry
-   * on the NEXT visit rather than never again, but must not retry instantly either. Resetting the
-   * ref alone cannot cause a tight loop: this effect only re-runs when one of its dependencies
-   * actually changes value, and none of them change while the reader sits on an open tab — only
-   * leaving and returning (which moves `effectiveTab` away and back) gives the reset ref another
-   * chance, which is exactly "next visit, never loops".
+   * the NEXT time the heading reaches the viewport rather than never again, but must not retry
+   * instantly either: {@code FurtherAhead} calls this on each intersection, never on a timer, so a
+   * reader sitting still gives it no second chance and a scroll away and back gives it exactly one.
    */
   const bootstrapFiredRef = useRef(false);
-  useEffect(() => {
-    if (effectiveTab !== 'coming-up') return;
+  const handleFurtherAheadSeen = useCallback(() => {
     if (comingUpLastSeenDate !== null) return;
     if (bootstrapFiredRef.current) return;
     bootstrapFiredRef.current = true;
     markComingUpSeen()
       .then((settings) => setComingUpLastSeenAt(settings?.comingUpLastSeenDate ?? todayStr))
       .catch(() => { bootstrapFiredRef.current = false; });
-  }, [effectiveTab, comingUpLastSeenDate, todayStr, setComingUpLastSeenAt]);
+  }, [comingUpLastSeenDate, todayStr, setComingUpLastSeenAt]);
   /**
    * Takes every dialog this shell owns down: the Map's spot list, the four-day sheet, the area sheet, search, Ask's
    * sheet and upsell, and the phone's ⋯ menu. The shell's ONE list of what a dialog is
@@ -810,7 +825,16 @@ export default function WindowFirstShell({
    * Selects a tab, and takes any dialog down with it ({@link closeShellLayers}). Naming the tab already in force is
    * the no-move form; it survives until the tab model goes (one-screen-plan.md O3).
    */
-  const selectTab = (id) => {
+  const selectTab = (requested) => {
+    // The Coming up tab is a door now (one-screen-plan.md O2): its content is Further ahead, the bottom section of the
+    // Plan pane, so choosing it selects the Plan pane and asks for that section. Nothing else links to it, and the
+    // tab itself goes in O3.
+    let id = requested;
+    if (requested === 'coming-up') {
+      comingUpSeq.current += 1;
+      setComingUpFocus({ entryId: null, seq: comingUpSeq.current });
+      id = 'plan';
+    }
     setActiveTab(id);
     // Choosing a tab is a choice: a late-arriving Map landing preference no longer applies.
     setOpeningSettled(true);
@@ -821,50 +845,44 @@ export default function WindowFirstShell({
     closeShellLayers();
   };
   /**
-   * The Coming up tab's handoff row, going the other way (plan P1/D14).
-   *
-   * <p>{@code selectTab} hides the panel the pressed row lives in immediately, so without an
-   * imperative focus move afterwards, focus would fall to {@code <body>} — the same fall-to-body
-   * failure {@code WindowFirstComingUp}'s own retry-focus effect already argues against.
-   * {@code onGoToPlan} accepts a date already, though nothing reads it yet (§11.9): the handoff
-   * row has no single date to carry, but P3b's per-entry "plan" action will, and Plan cannot yet
-   * focus one, so the signature is settled now rather than grown again in that phase.
+   * A Further ahead entry's "plan" action: back up to This week. It is the same screen now, so there is no tab to
+   * select; scrolling to and focusing This week's heading is what keeps focus from falling to {@code <body>} when the
+   * pressed card is no longer where the reader was (the failure {@code FurtherAhead}'s own retry-focus effect argues
+   * against). {@code onGoToPlan} accepts a date, which nothing reads yet (§11.9).
    */
   const goToPlan = (date) => {
     void date;
     selectTab('plan');
-    tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
+    focusSectionHeading(THIS_WEEK_HEADING_ID);
   };
   /**
-   * At a Glance's topic pills (and their door) opening Coming up (glance-topic-strip-plan.md R4) — the way back
-   * from {@link goToPlan}.
+   * Opens Further ahead (one-screen-plan.md O2), at one entry when one is named: the "Further ahead ↓" jump, the
+   * Coming up tab's own door, and any producer that names an entry. A lane no longer calls it (a lane's entry is
+   * not listed there, D5).
    *
-   * <p>Stores a request {@code {entryId, seq}} and selects the tab. The request lives in this shell's state and
-   * not behind {@code selectTab}, which clears dialogs and not this, so it survives the tab change that makes
-   * the pane visible; {@code WindowFirstComingUp} answers it (resetting its filter if the entry is hidden,
-   * scrolling to the card) and reports back through {@link handleComingUpFocusHandled}. {@code seq} makes a
-   * second press on the same entry a new request.
+   * <p>Stores a request {@code {entryId, seq}} and selects the Plan pane. The request lives in this shell's state and
+   * not behind {@code selectTab}, which clears dialogs and not this, so it survives the commit that shows the pane;
+   * {@code FurtherAhead} answers it (resetting its filter if the entry is hidden, scrolling to the card) and reports
+   * back through {@link handleComingUpFocusHandled}. {@code seq} makes a second press on the same entry a new request.
    *
-   * @param {?string} entryId the almanac entry to open at, or null for the tab as it ordinarily arrives
+   * @param {?string} entryId the almanac entry to open at, or null for the section's heading
    */
-  const openComingUp = (entryId) => {
+  const openFurtherAhead = (entryId) => {
     comingUpSeq.current += 1;
     setComingUpFocus({ entryId: entryId ?? null, seq: comingUpSeq.current });
-    selectTab('coming-up');
+    selectTab('plan');
   };
   /**
-   * The Coming up pane has answered the request. Found: the pane already scrolled to and focused the card.
-   * Not found (a null entry, or one that is not in the feed): the pressed pill's panel is hidden now, so the
-   * same fall-to-body failure {@link goToPlan} guards against applies — the window goes to the top and focus
-   * goes to the Coming up TAB.
+   * Further ahead has answered the request. Found: the section already scrolled to and focused the card. Not found
+   * (no entry named, or one that is not listed, or a feed that has not loaded): focus goes to the section's heading,
+   * scrolled into view, so it never falls to {@code <body>}.
    *
    * @param {boolean} found whether an entry was scrolled to
    */
   const handleComingUpFocusHandled = (found) => {
     setComingUpFocus(null);
     if (found) return;
-    window.scrollTo?.({ top: 0 });
-    tabRefs.current[tabs.findIndex((t) => t.id === 'coming-up')]?.focus();
+    focusSectionHeading(FURTHER_AHEAD_HEADING_ID);
   };
   /**
    * Left/Right/Home/End across the bar, wrapping at both ends.
@@ -877,11 +895,15 @@ export default function WindowFirstShell({
     // handling it: Alt+Left and Cmd+Left are the browser's Back, and Ctrl/Cmd+Home is "top of
     // document". The bar's own bindings are the UNMODIFIED keys only.
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const last = tabs.length - 1;
+    // The Coming up button is a door onto Further ahead (O2), not a tab the arrows select: they skip it, so focus never
+    // leaves the bar for the section and Operations stays one press away. It stays clickable.
+    const stops = tabs.map((t, i) => i).filter((i) => tabs[i].id !== 'coming-up');
+    const first = stops[0];
+    const last = stops[stops.length - 1];
     let next = null;
-    if (event.key === 'ArrowRight') next = index === last ? 0 : index + 1;
-    else if (event.key === 'ArrowLeft') next = index === 0 ? last : index - 1;
-    else if (event.key === 'Home') next = 0;
+    if (event.key === 'ArrowRight') next = stops.find((i) => i > index) ?? first;
+    else if (event.key === 'ArrowLeft') next = [...stops].reverse().find((i) => i < index) ?? last;
+    else if (event.key === 'Home') next = first;
     else if (event.key === 'End') next = last;
     if (next === null) return;
     // Home and End scroll the page by default, and Left/Right scroll a horizontally overflowing
@@ -1223,8 +1245,10 @@ export default function WindowFirstShell({
     // Responding to a request that arrives from OUTSIDE this component is the effect's whole
     // purpose — the selected tab is not derivable from props — and the nonce guard means this runs
     // once per ask rather than on every render, so there is no cascade to trigger.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     selectTab(requestedId);
+    // Coming up is a door onto Further ahead: `selectTab` has asked for that section's heading, which takes focus
+    // itself, so the tab-button focus below must not overwrite it a frame later.
+    if (requestedId === 'coming-up') return;
     // Focus follows the request, and only a request. A CLICK leaves focus on the tab the pointer or
     // the keyboard already put it on, so the bar needs nothing; an external ask arrives with focus
     // wherever the CALLER left it — and the caller here is a dialog that closes on the same press.
@@ -1505,7 +1529,7 @@ export default function WindowFirstShell({
   const askLocked = ask.availability === 'locked';
   const askEntry = (() => {
     if (ask.availability !== 'on' && ask.availability !== 'down' && !askLocked) return null;
-    const onSkyTab = effectiveTab === 'plan' || effectiveTab === 'coming-up';
+    const onSkyTab = effectiveTab === 'plan';
     // The phone's map view has its own entry in the peek; the bar belongs to the screen under it.
     if (askSurface === 'phone') return onSkyTab && !mapOpen ? 'bar' : null;
     if (askSurface === 'tablet') return onSkyTab || mapOpen ? 'field' : null;
@@ -2041,10 +2065,11 @@ export default function WindowFirstShell({
    * it and an adversarial review caught the consequence: a renamed location timed correctly and
    * rated as unscored, under a heat field that still painted its star.
    */
-  // Your places (F4): whether the Coming up watchlist is on screen (a Pro reader's list has landed, or a Lite reader's
-  // teaser, which needs no scores).
+  // Your places (F4): whether the row at the top of This week holds anything to rate (a Pro reader's list has landed
+  // and is not empty; a Lite reader's teaser needs no scores).
   const favouritesState = useFavourites();
-  const watchlistShown = effectiveTab === 'coming-up' && favouritesState.status === 'ready';
+  const watchlistShown = effectiveTab === 'plan' && favouritesState.status === 'ready'
+    && (favouritesState.placeIds.size > 0 || favouritesState.areaIds.size > 0);
   const detailScoreIndex = useMemo(
     // ⚠️ TWO readers since M3, and the gate widened with them: search's location rows print the
     // place's own best window from the same id-first index, so the box and the sheet it opens can
@@ -2205,7 +2230,7 @@ export default function WindowFirstShell({
    * refusal (the focus is in Find's own field by then). {@code preventDefault} only when the key acts, so
    * a refused ⌘K still reaches the browser. The listener is mounted at every width and for every role.
    */
-  const findOffered = mapOpen || effectiveTab === 'plan' || effectiveTab === 'coming-up';
+  const findOffered = mapOpen || effectiveTab === 'plan';
   // The Find button the reader came through: the view's own while it is open (the masthead's is inert behind it).
   const findNode = () => shellRef.current?.querySelector(
     mapOpen ? '[data-testid="map-screen-find"]' : '[data-testid="window-first-search"]',
@@ -2254,8 +2279,6 @@ export default function WindowFirstShell({
     // Closed-over `findNode` reads the ref only; the open flag is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchSeed]);
-  /** Where a Coming up pick that needs the Plan tab lands: the tab's own button, as `goToPlan` does. */
-  const focusPlanTab = () => tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
   /** The windows Find offers on the Map: only those the map's own window control can reach. */
   const mapFindWindows = useMemo(
     () => (Array.isArray(forecastDates)
@@ -2264,8 +2287,8 @@ export default function WindowFirstShell({
     [heatStripCards, forecastDates],
   );
   /**
-   * A place picked in Find, by tab. Plan: the next-days sheet, as ever. Coming up: the Plan tab, then that sheet
-   * in the same batch (D6). Map: fly there and open its callout, through the Map pane's own channel.
+   * A place picked in Find, by context. The screen: the next-days sheet, as ever. The map view: fly there and open
+   * its callout, through the Map pane's own channel.
    */
   const pickFindLocation = (spot) => {
     if (mapOpen) {
@@ -2273,24 +2296,17 @@ export default function WindowFirstShell({
       return;
     }
     sheetFromFindRef.current = true;
-    if (effectiveTab === 'coming-up') {
-      warmStackedChunks();
-      selectTab('plan');
-      openSheetLayer({ spot });
-      focusPlanTab();
-      return;
-    }
     openSheetLayer({ spot });
   };
   /**
    * A window picked in Find (G2a): the Map with that window selected, from any tab. On the Map it is selected in place;
-   * from Plan or Coming up it goes through the Map door and records the arrival, so Back returns to the tab it left.
+   * from the screen it goes through the Map door and records the arrival, so Back returns to the tab it left.
    */
   const pickFindWindow = (key) => {
     openWindowOnMap(key);
   };
   /**
-   * A region picked in Find. Plan and Coming up plan from it (the origin moves, as ever); the Map only pans and
+   * A region picked in Find. The screen plans from it (the origin moves, as ever); the Map only pans and
    * frames it, and never calls {@code setOrigin}, because an origin move reaches the rings and every drive time.
    */
   const pickFindRegion = (region) => {
@@ -2302,7 +2318,7 @@ export default function WindowFirstShell({
     setOrigin?.(region);
   };
   /**
-   * An area picked in Find. Plan: its sheet. Coming up: the Plan tab, then the sheet in the same batch (D6). Map: fly
+   * An area picked in Find. The screen: its sheet. The map view: fly
    * to it and apply the named-spot lens, through the Map pane's own channel; the pick carries member ids, and the map
    * resolves them to names against its own roster.
    */
@@ -2312,15 +2328,23 @@ export default function WindowFirstShell({
       return;
     }
     areaFromFindRef.current = true;
-    if (effectiveTab === 'coming-up') {
-      warmStackedChunks();
-      selectTab('plan');
-      setAreaSheet(area);
-      focusPlanTab();
-      return;
-    }
     openSheetLayer(null);
     setAreaSheet(area);
+  };
+  /**
+   * A Your places chip with a window to open (D15): the map view on that window, focused on the place, or on the
+   * area's spots as the named-spot lens (the same lens the area sheet's foot uses).
+   *
+   * @param {{window: {date: string, eventType: string}, focus: object, from: ?Element}} request
+   */
+  const openYourPlace = ({ window: win, focus, from }) => {
+    if (focus.kind === 'area') {
+      const members = new Set(focus.area.locationIds);
+      const names = heatSpots.filter((spot) => members.has(spot.id)).map((spot) => spot.name);
+      openMap({ window: win, focus: { kind: 'names', focusNames: names }, from });
+      return;
+    }
+    openMap({ window: win, focus, from });
   };
   /** The area sheet's foot: the Map on the area's best window, with the area's spots as the named-spot lens. */
   const showAreaOnMap = (area) => {
@@ -2795,23 +2819,6 @@ export default function WindowFirstShell({
       >
         {tabs.map((tab, index) => {
           const selected = tab.id === effectiveTab;
-          // Only the Coming up tab ever carries a badge (design §6: "forecast topics do not badge
-          // on arrival" — no other tab has an equivalent signal at all).
-          const badge = tab.id === 'coming-up' ? comingUpBadge : null;
-          // Explicit only while a badge is showing — otherwise the accessible name computes from
-          // content exactly as it always has, and there is nothing here to override. With a badge,
-          // the badge SPAN below is `aria-hidden` and this is the only place its meaning reaches a
-          // screen reader (design §6's two shapes, put into words: "1 new announced event" / "new
-          // interrupt event" — the interrupt shape carries no number to read back, matching the
-          // visual).
-          // The two band names — `interrupt` and `announce` — are the surprise model's, not the
-          // reader's. A screen-reader user hears only this string, so it carries the difference the
-          // bands encode (one exceptional arrival versus several ordinary ones) without naming them.
-          const badgeAriaLabel = badge
-            ? `${tab.label}, ${badge.band === 'interrupt'
-              ? 'one rare event added'
-              : `${badge.count} new event${badge.count === 1 ? '' : 's'}`}`
-            : undefined;
           return (
             <button
               key={tab.id}
@@ -2820,7 +2827,6 @@ export default function WindowFirstShell({
               id={tabDomId(tab.id)}
               aria-selected={selected}
               aria-controls={panelDomId(tab.id)}
-              aria-label={badgeAriaLabel}
               // Roving: the bar is ONE tab stop, and the arrow keys move within it. Without this a
               // keyboard user tabs through every tab to reach the pane.
               tabIndex={selected ? 0 : -1}
@@ -2846,15 +2852,6 @@ export default function WindowFirstShell({
                 </span>
               )}
               {tab.shortLabel ? <GlanceLabel /> : tab.label}
-              {badge && (
-                <span
-                  aria-hidden="true"
-                  data-testid="coming-up-tab-badge"
-                  className={badge.band === 'interrupt' ? 'wf-tab-badge wf-tab-badge-rare' : 'wf-tab-badge'}
-                >
-                  {badge.band === 'interrupt' ? '◆' : badge.count}
-                </span>
-              )}
             </button>
           );
         })}
@@ -2961,52 +2958,17 @@ export default function WindowFirstShell({
         />
       )}
 
-      {/* Mounted whichever tab is selected, and hidden when it is not — the same lifetime the Plan
-          pane has, and for a reason beyond symmetry. Both tabs carry `aria-controls` pointing at
-          their panel's id, and an `aria-controls` whose target is not in the document resolves to
-          nothing: while this was mounted conditionally, the pairing the tab pattern requires was
-          only ever half present, and the half that was missing was always the tab a reader had not
-          reached yet. It costs a heading and a footer in the DOM; it does NOT cost a request, since
-          the fetch is gated on the tab rather than on the mount. */}
-      <WindowFirstComingUp
+      {/* The Coming up tab's panel, kept only so the tab's `aria-controls` names something that exists. The tab is a door
+          now (`selectTab('coming-up')` selects the Plan pane and asks for Further ahead, the bottom section of it), so
+          this is never the selected panel and is always hidden; it goes with the tab in O3
+          (docs/engineering/one-screen-plan.md). */}
+      <div
         id={panelDomId('coming-up')}
-        labelledBy={tabDomId('coming-up')}
-        hidden={effectiveTab !== 'coming-up'}
-        status={comingUp.status}
-        events={comingUp.events}
-        todayStr={todayStr}
-        onRetry={comingUp.retry}
-        onGoToPlan={goToPlan}
-        onShowOnMap={showOnMap ?? NO_MAP_DOOR}
-        focusRequest={comingUpFocus}
-        onFocusHandled={handleComingUpFocusHandled}
-        comingUpLastSeenDate={comingUpLastSeenDate}
-        forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
-        onMarkSeen={markSeen}
-        locations={locations}
-        watchlist={(
-          <ComingUpWatchlist
-            active={effectiveTab === 'coming-up'}
-            spots={heatSpots}
-            windows={heatStripCards}
-            scoreIndex={detailScoreIndex}
-            reachById={effectiveReachById}
-            allowedLocationIds={allowedLocationIds}
-            // Coming up has no sheet of its own (D6): a pick goes to the Plan tab and opens there, as Find's does.
-            onOpenPlace={(spot) => {
-              warmStackedChunks();
-              selectTab('plan');
-              openSheetLayer({ spot });
-              focusPlanTab();
-            }}
-            onOpenArea={(area) => {
-              warmStackedChunks();
-              selectTab('plan');
-              setAreaSheet(area);
-              focusPlanTab();
-            }}
-          />
-        )}
+        role="tabpanel"
+        aria-labelledby={tabDomId('coming-up')}
+        hidden
+        className="hidden"
+        data-testid="window-first-coming-up-door"
       />
 
       {/* Hidden rather than unmounted: unmounting the pane on every tab change would discard the
@@ -3035,6 +2997,67 @@ export default function WindowFirstShell({
         data-testid="window-first-pane"
         className={`wf-body ${effectiveTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
       >
+      {/* THIS WEEK (one-screen-plan.md O2): the forecast, under a sticky heading that carries the "Further ahead ↓" jump
+          and its NEW badge. Its own `<section>` so the heading sticks for exactly as long as the section is on screen and
+          is then replaced by Further ahead's, which is a sibling section below. The jump's accessible name carries the
+          badge's meaning (the badge span is `aria-hidden`), so the heading's own name stays "This week · forecast". */}
+      <section
+        id={THIS_WEEK_ID}
+        aria-labelledby={THIS_WEEK_HEADING_ID}
+        className="wf-sec wf-this-week"
+        data-testid="this-week"
+      >
+        <div className="wf-sec-bar wf-sec-bar-week" data-testid="this-week-bar">
+          <h2
+            id={THIS_WEEK_HEADING_ID}
+            tabIndex={-1}
+            className="wf-sec-h"
+            data-testid="this-week-heading"
+          >
+            <span>{THIS_WEEK_HEADING}</span>
+            {' '}
+            <span className="wf-sec-h-sub">{`· ${THIS_WEEK_SUBHEADING}`}</span>
+          </h2>
+          <button
+            type="button"
+            className="wf-sec-jump"
+            data-testid="further-ahead-jump"
+            aria-label={furtherAheadJumpLabel}
+            onClick={() => openFurtherAhead(null)}
+          >
+            Further ahead
+            <span aria-hidden="true">{' ↓'}</span>
+            {comingUpBadge && (
+              <span
+                aria-hidden="true"
+                data-testid="further-ahead-jump-badge"
+                className={comingUpBadge.band === 'interrupt' ? 'wf-tab-badge wf-tab-badge-rare' : 'wf-tab-badge'}
+              >
+                {comingUpBadge.band === 'interrupt' ? '◆' : comingUpBadge.count}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Your places (F4, D15): the reader's own starred places and areas as one row of chips at the top of the
+            forecast, or a Lite reader's one-line Pro teaser. Renders nothing for anyone else. */}
+        <YourPlacesRow
+          spots={heatSpots}
+          windows={heatStripCards}
+          scoreIndex={detailScoreIndex}
+          reachById={effectiveReachById}
+          allowedLocationIds={allowedLocationIds}
+          onOpenWindow={openYourPlace}
+          onOpenPlace={(spot) => {
+            warmStackedChunks();
+            openSheetLayer({ spot });
+          }}
+          onOpenArea={(area) => {
+            warmStackedChunks();
+            setAreaSheet(area);
+          }}
+        />
+
         {/* The hazard notice, page-level for the reason the memo records: the card list that used
             to guarantee it is on screen whenever a topic is has been deleted. */}
         {safety && (
@@ -3072,7 +3095,7 @@ export default function WindowFirstShell({
             renderedEntryIds={comingUpEntryIds}
             openableKeys={planWindowKeys}
             forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
-            onOpenComingUp={openComingUp}
+            onLaneEntryIds={setGraduatedIds}
             onShowOnMap={showOnMap ?? NO_MAP_DOOR}
             onOpenLaneOnMap={openWindowOnMap}
             highlightKeys={askHighlight}
@@ -3124,6 +3147,29 @@ export default function WindowFirstShell({
             </p>
           )}
         </div>
+      </section>
+
+      {/* FURTHER AHEAD (D5): Coming up's almanac, as the bottom section of the screen. It lists what This week does not
+          already draw as a lane (`graduatedIds`, reported by the heat strip), and the one-off NEW-badge bootstrap fires
+          when its heading first reaches the viewport (D6). */}
+      <FurtherAhead
+        id={FURTHER_AHEAD_ID}
+        headingId={FURTHER_AHEAD_HEADING_ID}
+        graduatedIds={graduatedIds}
+        onHeadingSeen={handleFurtherAheadSeen}
+        status={comingUp.status}
+        events={comingUp.events}
+        todayStr={todayStr}
+        onRetry={comingUp.retry}
+        onGoToPlan={goToPlan}
+        onShowOnMap={showOnMap ?? NO_MAP_DOOR}
+        focusRequest={comingUpFocus}
+        onFocusHandled={handleComingUpFocusHandled}
+        comingUpLastSeenDate={comingUpLastSeenDate}
+        forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
+        onMarkSeen={markSeen}
+        locations={locations}
+      />
       </div>
 
       {/* The slotted panes. Each renders its panel ELEMENT unconditionally — `aria-controls` must

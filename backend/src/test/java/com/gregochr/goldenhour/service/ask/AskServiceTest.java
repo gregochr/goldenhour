@@ -451,10 +451,33 @@ class AskServiceTest {
 
     @ParameterizedTest
     @CsvSource({"map", "plan", "coming-up"})
-    @DisplayName("the three views are accepted")
+    @DisplayName("map, plan and the retired coming-up view (kept for one release) are accepted")
     void viewsAccepted(String view) {
         assertThat(submit(new AskRequest("Best spot tonight?", null, null, view)).kind())
                 .isEqualTo("own");
+    }
+
+    @Test
+    @DisplayName("an old client's coming-up view is read as plan before the engine and the log see it")
+    void comingUpViewIsReadAsPlan() {
+        submit(new AskRequest("Best spot tonight?", null, null, "coming-up"));
+
+        ArgumentCaptor<AskQuestion> question = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskUserContext> context = ArgumentCaptor.forClass(AskUserContext.class);
+        ArgumentCaptor<AskRunOptions> options = ArgumentCaptor.forClass(AskRunOptions.class);
+        verify(engine).run(question.capture(), eq(snapshot), context.capture(), options.capture());
+        assertThat(question.getValue().view()).isEqualTo("plan");
+        ArgumentCaptor<AskLog.Entry> entry = ArgumentCaptor.forClass(AskLog.Entry.class);
+        verify(askLog).record(entry.capture());
+        assertThat(entry.getValue().view()).isEqualTo("plan");
+    }
+
+    @Test
+    @DisplayName("canonicalView leaves map and plan alone")
+    void canonicalViewKeepsOtherViews() {
+        assertThat(AskRequest.canonicalView("map")).isEqualTo("map");
+        assertThat(AskRequest.canonicalView("plan")).isEqualTo("plan");
+        assertThat(AskRequest.canonicalView("coming-up")).isEqualTo("plan");
     }
 
     @Test

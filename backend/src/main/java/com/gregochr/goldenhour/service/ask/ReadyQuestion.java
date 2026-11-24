@@ -141,7 +141,7 @@ public enum ReadyQuestion {
      * Rare events coming up. Offered only while the snapshot holds a live event in scope
      * ({@link AskSnapshot#hasLiveEvent}); the answer is stored only when it finds something.
      */
-    RARE_EVENTS(false, false, Events.ANY, "coming-up", "map") {
+    RARE_EVENTS(false, false, Events.ANY, "plan", "map") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             return snapshot.hasLiveEvent(type -> ReadyRelevance.admitsEvent(this, type), scope)
@@ -154,7 +154,7 @@ public enum ReadyQuestion {
      * Snow on the tops. Offered only while a live snow hot topic is in scope
      * ({@link AskSnapshot#hasLiveEvent}); the answer is stored only when it finds something.
      */
-    SNOW_TOPS(false, false, Events.SNOW, "coming-up") {
+    SNOW_TOPS(false, false, Events.SNOW, "plan") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             return snapshot.hasLiveEvent(type -> ReadyRelevance.admitsEvent(this, type), scope)
@@ -275,7 +275,7 @@ public enum ReadyQuestion {
     /**
      * The tabs this question is offered on.
      *
-     * @return {@code plan}, {@code map} and/or {@code coming-up}
+     * @return {@code plan} and/or {@code map}; the Coming up tab folded into the plan view, so no question names it
      */
     public List<String> tabs() {
         return tabs;

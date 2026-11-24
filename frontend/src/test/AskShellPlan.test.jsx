@@ -255,19 +255,20 @@ describe('on the dock (1024px and up)', () => {
   });
 
   it('the way out never yanks a reader who arrowed to another tab (which closes the sheet too)', async () => {
-    await dockWithAnswer({ props: { mapPane: MAP_PANE } });
+    await dockWithAnswer({ props: { mapPane: MAP_PANE, operationsPane: <p>operations</p> } });
     await planThis(1);
     const open = screen.getByTestId('ask-plan-open');
     open.focus();
     fireEvent.click(open);
     await screen.findByTestId('location-sheet');
 
-    // ArrowRight from the Plan tab selects the next tab, focuses it and takes the dialogs down.
+    // ArrowRight steps over the Coming up door to Operations. It takes the dialogs down and leaves focus on the tab
+    // the reader arrowed to, not back on the Ask control the sheet was opened from.
     fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowRight' });
 
     await waitFor(() => expect(locationSheet()).toBeNull());
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
-    expect(document.activeElement).toBe(tab('Coming up'));
+    expect(tab('Operations')).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(tab('Operations'));
   });
 
   it('the way out never yanks a reader who has gone elsewhere', async () => {
@@ -324,18 +325,19 @@ describe('on the dock (1024px and up)', () => {
     expect(props.onOpenSettings.mock.calls[0][0]()).toBe(screen.getByTestId('ask-field'));
   });
 
-  it('keeps the plan across a tab switch, and a Plan card highlight is only live while the Plan tab is', async () => {
+  it('keeps the plan across the map view opening, and a Plan card highlight is only live while the screen is', async () => {
     await dockWithAnswer({ props: { mapPane: MAP_PANE } });
     await planThis(2);
     expect(highlighted()).toHaveLength(1);
 
-    fireEvent.click(tab('Coming up'));
+    // The map view over the screen: the cards under it are inert, so the highlight is not live.
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
 
     expect(dock()).toBeInTheDocument();
     expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
     expect(highlighted()).toHaveLength(0);
 
-    fireEvent.click(tab('At a Glance'));
+    fireEvent.click(screen.getByTestId('map-screen-close'));
     expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
     expect(highlighted()).toHaveLength(1);
   });
