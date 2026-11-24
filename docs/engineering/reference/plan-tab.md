@@ -185,7 +185,7 @@ turns a swap into a pop and a push):
 | location sheet `location-sheet` | `sheetSpot != null` | `openSheetLayer(null)` |
 | area sheet `area-sheet` | `areaSheet != null` | `setAreaSheet(null)` |
 | Plan search `plan-search` | `searchSeed != null` | `setSearchSeed(null)` |
-| the Map arrival (G2a, below) | `mapArrival` confirmed and the Map in force | `selectTab(from)` |
+| the map view (one-screen-plan.md O1; replaced the G2a arrival layer) | the view open | `closeMap()` (focus to the card that opened it) |
 
 - **Always registered while open, never mirrored from `escapeEnabled` / `stacked`**: the store's order picks the top layer, so
   an area sheet then a place sheet gives depth 2 and the first Back closes the place sheet only.
@@ -206,7 +206,7 @@ Tests: `backDialogsPlan.test.jsx` (the shell, over the fake history) and `smoke/
 
 A Glance card, a lane's tap-through (`tapTopic`'s window route and `tapWarning`) and Find's window pick no longer open the window popup: they select that window on the Map tab. The card, the lanes and the shell's `onOpenLaneOnMap` / `onOpenWindow` props all call `WindowFirstShell.openWindowOnMap(key, topicType?)`, which raises the existing `showOnMap({kind: 'event', date, eventType, topicType?})` door (so the live rating floor and reach tier ride it, and `openMapTabFromPlan` writes `minRating`, which persists to `mapFilterMinStars`: "the same lens" is partly true, the drive tier and floor carry over and the floor is written). Find (`pickFindWindow`) does the same from Plan and Coming up, and selects in place on the Map. A past or travel-day card stays a non-button `div`. `openMapDoor` no longer closes the popup (`openWindow(null)` is gone); the aurora banner's `closeShellDialogs` stays. Coming up entries name a date only (`action: {kind: 'plan', date}`), never a window, so there is no Coming up window door to repoint. The window popup and pick dialog were deleted in G2b; G2c removed what they left behind.
 
-**Back returns to the tab the reader left for card, lane and Find arrivals.** (All three go through the shell's `openWindowOnMap`.) The door sets `mapArrival = {from, pending: true}`; `selectTab('map')` (run by the tab request the same press raises) confirms it, and any other `selectTab` (a manual tab press, the breadcrumb's return) clears it. While confirmed and the Map is in force, one shell `useBackLayer({open, mode: 'close'})` returns to `from` (`selectTab(from)` and focus on that tab's button). It counts toward the layer cap, so `MAX_LAYER_DEPTH` is 3. Tests: `WindowFirstShellMapArrival.test.jsx`, `smoke/back.spec.js` ("a Glance card").
+**Superseded by the map view (one-screen-plan.md O1, 2026-11-24).** `mapArrival` and its Back layer are deleted. A card, lane or Find window pick opens the map view through the shell's `openMap`; the view is itself the base Back layer (it carries the `#map/...` url), Back, Escape and ✕ close it and return focus to the card, and the Plan tab is never left, so there is no tab to return to. `MAX_LAYER_DEPTH` is 3 = the view plus two. See `map-tab.md`, "The map view". Tests: `WindowFirstShellMapView.test.jsx`, `smoke/map-view.spec.js`, `smoke/back.spec.js`.
 
 ## The Plan window door and topic emphasis (hot-topics-by-day C1, 2026-10-23) — deleted
 

@@ -47,7 +47,10 @@ const BANDS = [
 const renderLite = (width, options = {}) => renderAskShell({ width, ctx: LITE, ...options });
 const popover = () => screen.queryByTestId('wf-ask-upsell');
 const heading = () => screen.getByTestId('wf-ask-upsell-heading');
-const tabNamed = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
+// The Map is a door beside the tabs now, not a tab: its button opens the map view.
+const tabNamed = (name) => (name === 'Map'
+  ? screen.getByTestId('window-first-tab-map')
+  : screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name }));
 const press = (node) => act(async () => { fireEvent.click(node); });
 
 /** Mounts, waits for the trigger and opens the upsell by a click. */

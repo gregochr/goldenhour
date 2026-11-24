@@ -95,7 +95,7 @@ async function openSheet(overrides) {
     <SubRegionStatusProvider enabled={false} onOpen={openSettings}>{shell}</SubRegionStatusProvider>
   );
   const view = render(wrap(<WindowFirstShell {...base} />));
-  fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+  fireEvent.click(screen.getByTestId('window-first-tab-map'));
   await act(async () => {
     view.rerender(wrap(<WindowFirstShell {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />));
   });
@@ -163,7 +163,7 @@ describe('WindowFirstShell — the Four-days sheet for a place outside the reade
       locations: [], mapPane: <p data-testid="map-pane">map pane</p>,
     };
     const view = render(<WindowFirstShell {...base} />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     await act(async () => {
       view.rerender(<WindowFirstShell {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
     });

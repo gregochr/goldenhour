@@ -100,9 +100,8 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * with nothing behind it, because plan-matrix §3 rule 14 bans a control with no visible effect.
  *
  * <p>The Map's old rule, "on a map, panning IS the search" (map-tab-v2-plan.md §3 P11), is retired:
- * a place picked in Find flies the map to it. {@code isMapTab} keeps the one thing that is still the
- * Map's own, the "drive times from here" caption, which now rides the interactive origin button. On
- * the phone Map at Home ({@code hideAtHome}) the row draws the Find button alone.
+ * a place picked in Find flies the map to it. (The map is a view over the screen now, with its own header,
+ * so this row carries no Map state: the "drive times from here" caption lives in that header.)
  *
  * <h2>The nudge is the origin button's empty state, and it is a different control</h2>
  *
@@ -203,15 +202,8 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * nudge is replaced under the dialog, the dialog's recorded opener is detached by the time it
  * closes, and it needs somewhere else to put the reader. See `App`'s settings mount.
  *
- * <h2>The phone Map's compact row</h2>
- *
- * <p>{@code hideAtHome} (compact-chrome plan §2, R2) makes the row draw NOTHING at Home on the phone
- * Map — the HOME marker and reach rings say where the plan is from — and a single 36px line when
- * away or unset, ⌂ first. The row still mounts, so its focus hand-off above keeps working: with the
- * origin slot empty it falls back to {@code fallbackFocus} (the shell's ⋯ button), and the nudge's
- * resolver does the same, so neither the ⌂ route (Away to Home) nor a saved postcode (Unset to Home)
- * can leave a reader on {@code <body>}. {@code showTimes} is off on the phone, where the times live
- * in the masthead's own line. The unset state is red on EVERY width ({@code data-unset}).
+ * <p>{@code showTimes} is off on the phone, where the times live in the masthead's own line. The unset state is
+ * red on EVERY width ({@code data-unset}). 
  *
  * @param {object}    props
  * @param {object|null|undefined} [props.light] the day's light — see the three states above
@@ -226,7 +218,7 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  */
 export default function MastheadTickLine({
   light, origin, homePlace, onOpenSearch, onGoHome, onSetPostcode, searchOpen = false,
-  isMapTab = false, hideAtHome = false, fallbackFocus = null, showTimes = true,
+  showTimes = true,
 }) {
   // Whichever of the three elements the origin slot holds now. See the class comment's last
   // section: the handoff below and the nudge's resolver both read it.
@@ -256,11 +248,9 @@ export default function MastheadTickLine({
     departed.current = null;
     const focused = document.activeElement;
     const nowhere = !focused || focused === document.body || focused === document.documentElement;
-    // The slot can be empty here on the phone Map, where Home draws no row at all (`hideAtHome`):
-    // the shell's ⋯ button is then the nearest control, and `<body>` is never the answer.
-    if (nowhere) (originSlot.current ?? fallbackFocus?.current)?.focus();
+    if (nowhere) originSlot.current?.focus();
   });
-  const originSlotNow = () => originSlot.current ?? fallbackFocus?.current ?? null;
+  const originSlotNow = () => originSlot.current;
 
   const away = Boolean(origin);
   // See the class comment: either positive answer, never an absent one, and never while away —
@@ -271,7 +261,7 @@ export default function MastheadTickLine({
   // reasons it may not, and either is enough: no handler was handed over (every tab but Plan — see
   // the class comment), or this is the Map tab, where panning IS the search whatever a caller passes.
   // ⚠️ Find is offered wherever the shell hands a handler over (Plan, Coming up and Map; not Operations), and
-  // the Map is no longer an exception: `isMapTab` keeps only its caption (find-and-favourites-plan.md F1).
+  // the Map is no longer an exception (find-and-favourites-plan.md F1).
   const searchable = typeof onOpenSearch === 'function';
   // The statement, drawn INSTEAD of the interactive origin button wherever there is no search to
   // open — never instead of the empty-state nudge, which stays exactly as it is on every tab
@@ -281,14 +271,6 @@ export default function MastheadTickLine({
   const originLabel = away
     ? `${origin.name} · from ${origin.baseName}`
     : (homePlace ? `Home · ${homePlace}` : 'Home');
-
-  // The phone Map's Home draws no origin (compact-chrome plan R2): the HOME marker and reach rings show
-  // the origin. Decided HERE, off `noHome` and `away`, so the shell never re-derives either; every
-  // hook above has already run, and the focus hand-off falls back to `fallbackFocus`. With Find on
-  // the Map the row is no longer empty at Home: it draws the Find button alone, and only without a
-  // handler is there still nothing to draw.
-  const findOnly = hideAtHome && !away && !noHome;
-  if (findOnly && !searchable) return null;
 
   // ⌂ sits LEFT of the group on the compact row (spec §2) and right of it everywhere else; the DOM
   // order follows the visual order so Tab does.
@@ -315,7 +297,6 @@ export default function MastheadTickLine({
     <div
       data-testid="window-first-tickline"
       className="wf-tick"
-      data-compact={hideAtHome ? 'true' : undefined}
     >
       {/* ⚠️ The bordered group and the ⌂ beside it are ONE flex item, which is a wrap fix rather
           than a wrapper for its own sake. `.wf-tick` wraps (it must — an away label names two
@@ -324,7 +305,6 @@ export default function MastheadTickLine({
           detached from the origin it undoes. `PlanOriginChip` held the same pair inside one
           `inline-flex` for the same reason; the port flattened it and the guarantee went with it. */}
       <span className="wf-tick-origin-set">
-        {hideAtHome && homeButton}
         <span
           className="wf-tick-group"
           data-away={away ? 'true' : 'false'}
@@ -333,7 +313,7 @@ export default function MastheadTickLine({
           data-unset={noHome ? 'true' : undefined}
           data-statement={statement ? 'true' : 'false'}
         >
-          {findOnly ? null : noHome ? (
+          {noHome ? (
             <button
               type="button"
               ref={trackOriginSlot}
@@ -373,14 +353,6 @@ export default function MastheadTickLine({
             >
               <Pin away={away} />
               <span className="wf-tick-place">{originLabel}</span>
-              {/* The Map tab's alone: every drive time and leave-by on the map is measured from this
-                  place. Coming up and Operations show no drive time, so there it would be a claim
-                  about nothing. */}
-              {isMapTab && (
-                <span data-testid="masthead-origin-caption" className="wf-tick-caption">
-                  drive times from here
-                </span>
-              )}
             </span>
           ) : (
             <button
@@ -402,21 +374,13 @@ export default function MastheadTickLine({
                 ? `Planning from ${origin.name}, from ${origin.baseName}. Search to change it.`
                 : (homePlace
                   ? `Planning from home · ${homePlace}. Search to change it.`
-                  : 'Planning from home. Search to change it.')}${isMapTab ? ' Drive times are measured from here.' : ''}`}
+                  : 'Planning from home. Search to change it.')}`}
             >
               <Pin away={away} />
               {/* `.wf-tick-place` carries the truncation, not the button: `text-overflow` applies to
                   block containers and the button is a flex container — the span blockifies as a flex
                   item, which is what makes the idiom work here and not one level up. */}
               <span aria-hidden="true" className="wf-tick-place">{originLabel}</span>
-              {/* The Map's caption, which the statement used to carry alone: with Find on the Map the origin
-                  is the interactive button, and every drive time on the map is still measured from it. Its
-                  words are spoken in the button's name above. */}
-              {isMapTab && (
-                <span aria-hidden="true" data-testid="masthead-origin-caption" className="wf-tick-caption">
-                  drive times from here
-                </span>
-              )}
             </button>
           )}
           {/* Full-height hairline between the two controls, exactly as the bundle draws it. Purely
@@ -425,7 +389,7 @@ export default function MastheadTickLine({
               handler), and when Find stands alone on the phone Map at Home. */}
           {searchable && (
             <>
-              {!findOnly && <span aria-hidden="true" className="wf-tick-sep" />}
+              <span aria-hidden="true" className="wf-tick-sep" />
               <button
                 type="button"
                 onClick={onOpenSearch}
@@ -458,7 +422,7 @@ export default function MastheadTickLine({
           )}
         </span>
 
-        {!hideAtHome && homeButton}
+        {homeButton}
       </span>
 
       {light && showTimes && (
@@ -520,25 +484,6 @@ MastheadTickLine.propTypes = {
    * `useDialogFocus`), so it would fail as a silent no-op.
    */
   searchOpen: PropTypes.bool,
-  /**
-   * Whether the Map tab is the active tab (map-tab-v2-plan.md §3 P11) — a per-tab STATE of this
-   * component, not a fork: it adds the "drive times from here" caption, which every drive time on
-   * the map is measured against. Since find-and-favourites-plan.md F1 it no longer withholds Find
-   * (a place picked in Find flies the map to it). A missing `onOpenSearch` still draws the
-   * statement, with the caption on the Map. The empty-state nudge (`noHome`) is unaffected on every
-   * tab — see `statement`'s derivation.
-   */
-  isMapTab: PropTypes.bool,
-  /**
-   * The phone Map's compact row (compact-chrome plan §2, R2): draws nothing at Home — this row's
-   * own `noHome`/`away` rules decide, never the caller — and a single 36px line when away or unset.
-   */
-  hideAtHome: PropTypes.bool,
-  /**
-   * Where focus goes when the origin slot is empty (the row is hidden at Home): a ref to the
-   * shell's ⋯ button. Also what the nudge's resolver answers with once the home is saved.
-   */
-  fallbackFocus: PropTypes.shape({ current: PropTypes.any }),
   /**
    * Whether the clock times are drawn here. The phone moves them into the masthead's one line, so
    * the shell turns them off; every other width keeps them.

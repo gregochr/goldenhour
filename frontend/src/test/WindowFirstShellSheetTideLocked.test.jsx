@@ -88,7 +88,7 @@ async function openSheet(overrides) {
     locations: [], mapPane: <p data-testid="map-pane">map pane</p>,
   };
   const view = render(<WindowFirstShell {...base} />);
-  fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+  fireEvent.click(screen.getByTestId('window-first-tab-map'));
   await act(async () => {
     view.rerender(<WindowFirstShell {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
   });

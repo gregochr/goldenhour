@@ -163,15 +163,15 @@ Highlight.propTypes = {
  * @param {?object}  [props.origin]    the origin descriptor, for that clause's wording
  * @param {boolean}  [props.stacked]   the guide's dialog is over this one (G2): inert, no
  *        {@code aria-modal}, and Escape withheld, as {@code Modal}'s stacked protocol requires
- * @param {string}   [props.tab]       the tab Find is open on ({@code 'plan'}, {@code 'coming-up'} or
- *        {@code 'map'}); only the Map words its rows differently — see {@code buildSearchGroups}
+ * @param {'screen'|'map'} [props.context] where Find is open (one-screen-plan.md D13): on the screen, or in the map
+ *        view; only the map words its rows differently — see {@code buildSearchGroups}
  */
 export default function PlanSearch({
   windows, regions, locations, originId = null, initialQuery = '',
   onClose, onPickWindow, onPickRegion, onPickLocation, onPickArea,
   areas = null, areaOutlook = null,
   reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, stacked = false,
-  tab = 'plan',
+  context = 'screen',
 }) {
   // Seeded once. The caller keys this component on the seed, so a new seed mounts a fresh box
   // rather than overwriting what the reader has since typed into an open one.
@@ -188,11 +188,11 @@ export default function PlanSearch({
 
   const groups = useMemo(
     () => buildSearchGroups(query, {
-      windows, regions, locations, originId, reachById, scoreIndex, scopeRegionNames, origin, tab,
+      windows, regions, locations, originId, reachById, scoreIndex, scopeRegionNames, origin, context,
       areas, areaOutlook, favourites,
     }),
     [query, windows, regions, locations, originId, reachById, scoreIndex,
-      scopeRegionNames, origin, tab, areas, areaOutlook, favourites],
+      scopeRegionNames, origin, context, areas, areaOutlook, favourites],
   );
   const rows = useMemo(() => flattenRows(groups), [groups]);
 
@@ -433,7 +433,7 @@ PlanSearch.propTypes = {
   originId: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   initialQuery: PropTypes.string,
   stacked: PropTypes.bool,
-  tab: PropTypes.oneOf(['plan', 'coming-up', 'map']),
+  context: PropTypes.oneOf(['screen', 'map']),
   onClose: PropTypes.func.isRequired,
   onPickWindow: PropTypes.func,
   onPickRegion: PropTypes.func,

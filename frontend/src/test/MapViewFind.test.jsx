@@ -506,24 +506,24 @@ describe('an area picked in Find (F2)', () => {
       source: 'plan', eventType: 'SUNSET', date: TODAY, region: null, minRating: null, limitMinutes: null,
       locationName: null, focusNames: ['Near'], title: 'Coast door', nonce: 1,
     };
-    const breadcrumb = () => screen.queryByTestId('wf-map-breadcrumb')?.textContent ?? '';
+    const breadcrumb = () => screen.queryByTestId('map-lens-note')?.textContent ?? '';
 
-    it('⚠️ the area replaces the door\'s named set, the breadcrumb never describes it, and clear leaves no door state', async () => {
+    it('⚠️ the area replaces the door\'s named set, the lens note never describes it, and clear leaves no door state', async () => {
       await renderTab({ planHandoff: door });
       expect(lastLabelNames()).toEqual(['Near']);
-      expect(breadcrumb()).toContain('showing 1 spot');
+      expect(breadcrumb()).toContain('Showing 1 spot');
 
       await rerenderTab({ planHandoff: door, findPick: areaPick() });
 
       expect(lastLabelNames()).toEqual(['Far']);
       expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
-      expect(breadcrumb()).not.toContain('showing');
+      expect(breadcrumb()).not.toContain('Showing');
 
       await act(async () => { fireEvent.click(screen.getByTestId('map-find-area-clear')); });
 
       // Neither the area's set nor the door's own set is left standing.
       expect(lastLabelNames()).toEqual(expect.arrayContaining(['Near', 'Far']));
-      expect(breadcrumb()).not.toContain('showing');
+      expect(breadcrumb()).not.toContain('Showing');
     });
   });
 

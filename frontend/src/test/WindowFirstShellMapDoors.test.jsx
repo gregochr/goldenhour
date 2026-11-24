@@ -119,7 +119,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
       kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
-      date: '2026-08-10', inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
+      date: '2026-08-10', inPlace: false, minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 

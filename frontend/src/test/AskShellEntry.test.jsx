@@ -107,8 +107,11 @@ describe('the phone bar (below 640px)', () => {
   it('is not drawn on the Map or on Operations', async () => {
     renderAskShell({ width: 390, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await barReady();
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     expect(screen.queryByTestId('ask-bar')).toBeNull();
+    // The phone's map view has its own entry in the peek; the bar belongs to the screen under it and returns with it.
+    fireEvent.click(screen.getByTestId('map-screen-close'));
+    expect(await screen.findByTestId('ask-bar')).toBeInTheDocument();
     fireEvent.click(tab('Operations'));
     expect(screen.queryByTestId('ask-bar')).toBeNull();
     fireEvent.click(tab('At a Glance'));
@@ -125,7 +128,7 @@ describe('the phone bar (below 640px)', () => {
     renderAskShell({ width: 390, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await barReady();
     expect(shellRoot()).toHaveClass('wf-ask-bar-on');
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     expect(shellRoot()).not.toHaveClass('wf-ask-bar-on');
     fireEvent.click(tab('Operations'));
     expect(shellRoot()).not.toHaveClass('wf-ask-bar-on');
@@ -159,7 +162,7 @@ describe('the tablet field (640 to 1023px)', () => {
       width: 800, ctx: { upcomingEvents: [{ date: '2026-10-22' }] }, props: { mapPane: MAP_PANE },
     });
     expect(await fieldReady()).toHaveAccessibleName('Ask PhotoCast…');
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     expect(field()).toHaveAccessibleName('Ask PhotoCast…');
     unmount();
     renderAskShell({ width: 800, ctx: { upcomingEvents: [{ date: '2026-10-24' }] } });
@@ -176,7 +179,7 @@ describe('the tablet field (640 to 1023px)', () => {
   it.each(['At a Glance', 'Coming up', 'Map'])('is drawn on %s', async (name) => {
     renderAskShell({ width: 800, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await fieldReady();
-    fireEvent.click(tab(name));
+    fireEvent.click(name === 'Map' ? screen.getByTestId('window-first-tab-map') : tab(name));
     expect(field()).toBeEnabled();
   });
 
@@ -195,7 +198,10 @@ describe('the tablet field (640 to 1023px)', () => {
     expect(field().parentElement).toBe(tablist.parentElement);
     // The roving-tab-index widget holds exactly its tabs and nothing of Ask's.
     expect(within(tablist).getAllByRole('tab').map((t) => t.textContent))
-      .toEqual(['◉ At a GlanceGlance', 'Coming up', '◍ Map']);
+      .toEqual(['◉ At a GlanceGlance', 'Coming up']);
+    // The Map is a door beside the list (outside it), and the field comes after it.
+    expect(tablist.parentElement).toContainElement(screen.getByTestId('window-first-tab-map'));
+    expect(tablist).not.toContainElement(screen.getByTestId('window-first-tab-map'));
     expect(within(tablist).queryByRole('button', { name: /ask/i })).toBeNull();
   });
 
@@ -249,7 +255,7 @@ describe('the tablet field (640 to 1023px)', () => {
   it('opens the sheet from the Map tab, labelled with what is sent', async () => {
     renderAskShell({ width: 800, props: { mapPane: MAP_PANE } });
     await fieldReady();
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
     fireEvent.click(field());
     expect(await screen.findByRole('dialog', { name: 'Ask PhotoCast' })).toBeInTheDocument();
     expect(screen.getByTestId('ask-context')).toHaveTextContent('Map · all regions');
@@ -597,7 +603,7 @@ describe('the sheet', () => {
     it('does not reopen when the tablet narrows to a phone on the Map (where there is no entry) and widens', async () => {
       const { viewport } = renderAskShell({ width: 800, props: { mapPane: MAP_PANE } });
       await fieldReady();
-      fireEvent.click(tab('Map'));
+      fireEvent.click(screen.getByTestId('window-first-tab-map'));
       fireEvent.click(field());
       await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
 
@@ -645,9 +651,9 @@ describe('the sheet', () => {
     it('a tab asked for from outside the bar (the shell\'s tabRequest)', async () => {
       const { rerenderShell } = renderAskShell({ width: 390, props: { mapPane: MAP_PANE } });
       await openSheet();
-      rerenderShell({ tabRequest: { id: 'map', nonce: 1 } });
+      rerenderShell({ tabRequest: { id: 'coming-up', nonce: 1 } });
       expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
-      expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
     });
 
     it('settings opening (the settings edge calls selectTab, naming the tab in force)', async () => {
@@ -708,22 +714,21 @@ describe('"Show on map ›"', () => {
     await openAnswer();
     fireEvent.click(screen.getByTestId('ask-show-on-map-1'));
     expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
-    expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('window-first-panel-map')).not.toHaveAttribute('hidden');
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     expect(modalCount()).toBe(0);
   });
 
-  it('puts focus on the Map tab, not on <body>, because the bar that opened the sheet is gone', async () => {
+  it('puts focus on the view\'s title, not on <body>, because the bar that opened the sheet is gone', async () => {
     await openAnswer();
     fireEvent.click(screen.getByTestId('ask-show-on-map-1'));
     expect(screen.queryByTestId('ask-bar')).toBeNull();
-    await waitFor(() => expect(tab('Map')).toHaveFocus());
+    await waitFor(() => expect(screen.getByTestId('map-screen-title')).toHaveFocus());
   });
 
   it('keeps the answer: back on Plan the sheet reopens on it', async () => {
     await openAnswer();
     fireEvent.click(screen.getByTestId('ask-show-on-map-1'));
-    fireEvent.click(tab('At a Glance'));
+    fireEvent.click(screen.getByTestId('map-screen-close'));
 
     await openSheet();
     expect(screen.getByTestId('ask-picks')).toBeInTheDocument();
@@ -734,7 +739,7 @@ describe('"Show on map ›"', () => {
     await openAnswer();
     expect(screen.getByTestId('ask-pick-select-2')).not.toHaveAttribute('aria-current');
     fireEvent.click(screen.getByTestId('ask-show-on-map-2'));
-    fireEvent.click(tab('At a Glance'));
+    fireEvent.click(screen.getByTestId('map-screen-close'));
 
     await openSheet();
     expect(screen.getByTestId('ask-pick-select-2')).toHaveAttribute('aria-current', 'true');
@@ -751,7 +756,9 @@ describe('"Show on map ›"', () => {
     // for exactly this). So the button is offered there and its whole job is to close the sheet.
     renderAskShell({ width: 800, props: { mapPane: MAP_PANE } });
     await fieldReady();
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    // A press focuses a button in the browsers this matters in; `fireEvent` does not, so the opener is named.
+    field().focus();
     fireEvent.click(field());
     await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
     fireEvent.click(await screen.findByTestId('ask-ready-COASTAL_HIGH'));
@@ -760,7 +767,7 @@ describe('"Show on map ›"', () => {
     fireEvent.click(screen.getByTestId('ask-show-on-map-1'));
 
     expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
-    expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     // Focus is not left on <body>: the sheet's own restore hands it back to the field that opened it.
     expect(document.activeElement).toBe(field());
     // The chosen pick is still chosen when the sheet is reopened.
@@ -776,7 +783,7 @@ describe('"Show on map ›"', () => {
     fireEvent.click(await screen.findByTestId('ask-ready-BEST_NEXT'));
     await screen.findByTestId('ask-picks');
     fireEvent.click(screen.getByTestId('ask-show-on-map-1'));
-    expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
 
     fireEvent.click(field());
     await screen.findByRole('dialog', { name: 'Ask PhotoCast' });

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 // `resolveDoor` is the pure resolution the retired overlay's builder became (overlay convergence C5):
 // the door's headline and field resolution are read off its output.
 import {
-  normalizeMapTrigger, resolveDoor, doorHeadline, doorFromTrigger, outlierKeysOf,
+  normalizeMapTrigger, resolveDoor, doorFromTrigger, outlierKeysOf,
 } from '../utils/mapDoor.js';
 
 const DATE = '2026-07-04';
@@ -348,41 +348,6 @@ describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', 
   });
 });
 
-describe('doorHeadline (the breadcrumb\'s title · caption, overlay convergence C1)', () => {
-  it('names the aurora door "Aurora tonight" with no caption', () => {
-    expect(doorHeadline({ kind: 'aurora', date: DATE }, ctx([]))).toEqual({
-      title: 'Aurora tonight', caption: null,
-    });
-  });
-
-  it('names a region door by region, with the day, event and clock as its caption', () => {
-    const locations = [loc('Top', 'Tyne and Wear', 4)];
-    const headline = doorHeadline(
-      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
-      ctx(locations),
-    );
-    expect(headline.title).toBe('Tyne and Wear');
-    expect(headline.caption).toBe('Today sunset · 21:49');
-  });
-
-  it('names a coming-up door by its label, with the region count as its caption', () => {
-    const locations = [
-      loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
-      loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
-    ];
-    expect(doorHeadline(
-      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
-      ctx(locations),
-    )).toEqual({ title: 'Spring tide run', caption: '2 regions' });
-  });
-
-  it('never borrows the overlay\'s "tap a pin" prompt as a caption', () => {
-    const locations = [loc('A', 'North', 3, { lat: 55 }), loc('B', 'South', 3, { lat: 51 })];
-    const headline = doorHeadline({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
-    expect(headline.caption).not.toMatch(/tap a pin/i);
-  });
-});
-
 describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)', () => {
   it('event: carries topicType into the door when the trigger has one, and not otherwise', () => {
     const withTopic = doorFromTrigger(
@@ -393,15 +358,13 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     expect(plain).not.toHaveProperty('topicType');
   });
 
-  it('aurora: names the night, the AURORA event and its headline; no lens fields at all', () => {
+  it('aurora: names the night and the AURORA event; no lens fields at all', () => {
     const door = doorFromTrigger({ kind: 'aurora', date: DATE }, ctx([]));
     expect(door).toEqual({
       date: DATE,
       targetType: 'AURORA',
       region: null,
       locationName: null,
-      title: 'Aurora tonight',
-      caption: null,
       night: { kind: 'aurora', date: DATE },
     });
     expect(door).not.toHaveProperty('focusNames');
@@ -415,7 +378,7 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     );
     expect(door).toMatchObject({ date: DATE, targetType: 'SUNSET', locationName: 'Top', region: null });
     expect(Object.keys(door).sort()).toEqual(
-      ['caption', 'date', 'locationName', 'region', 'targetType', 'title'],
+      ['date', 'locationName', 'region', 'targetType'],
     );
   });
 
@@ -434,13 +397,6 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
       ctx([loc('Top', 'Tyne and Wear', 4)]),
     );
     expect(door.region).toBeNull();
-  });
-
-  it('carries the tab the door was pressed on (`from`) and nothing when it names none', () => {
-    const c = ctx([loc('Top', 'Tyne and Wear', 4)]);
-    const base = { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' };
-    expect(doorFromTrigger({ ...base, from: 'coming-up' }, c).from).toBe('coming-up');
-    expect(doorFromTrigger(base, c)).not.toHaveProperty('from');
   });
 
   it('several regions: fits the pins (focusPoints) and restricts nothing (no focusNames)', () => {
@@ -465,7 +421,6 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     expect(door.focusPoints).toHaveLength(2);
     expect(door.filterAction).toBe('SEASCAPE');
     expect(door).not.toHaveProperty('darkSky');
-    expect(door.title).toBe('Spring tide run');
     expect(door.targetType).toBeNull();
   });
 
@@ -695,5 +650,25 @@ describe('outlierKeysOf', () => {
 
   it('is empty for a missing briefing', () => {
     expect(outlierKeysOf(null).size).toBe(0);
+  });
+});
+
+describe('the astro night door (a `#map/<date>/night` address reopens the night)', () => {
+  it('normalises a named astro handoff and keeps its date', () => {
+    expect(normalizeMapTrigger({ kind: 'astro', date: DATE })).toEqual({ kind: 'astro', date: DATE });
+  });
+
+  it('resolves to the ASTRO event with no fit-bounds and no solar claim', () => {
+    const resolved = resolveDoor({ kind: 'astro', date: DATE }, ctx([]));
+    expect(resolved.handoff).toEqual({ eventType: 'ASTRO', date: DATE });
+    expect(resolved.focus).toBeNull();
+    expect(resolved.title).toBeNull();
+  });
+
+  it('becomes a door that names its night, as the aurora door does', () => {
+    const door = doorFromTrigger({ kind: 'astro', date: DATE }, ctx([]));
+    expect(door).toEqual({
+      date: DATE, targetType: 'ASTRO', region: null, locationName: null, night: { kind: 'astro', date: DATE },
+    });
   });
 });

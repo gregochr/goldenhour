@@ -147,7 +147,7 @@ async function openMapTab() {
   localStorage.setItem('goldenhour_role', 'ADMIN');
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
   render(<App />);
-  const tab = await screen.findByRole('tab', { name: 'Map' });
+  const tab = await screen.findByTestId('window-first-tab-map');
   await act(async () => { fireEvent.click(tab); });
   return screen.findByTestId('map-pane-stub');
 }

@@ -101,7 +101,7 @@ function spokenTail(lane, date) {
  * Firefox's own layout and computed styles, and by Chromium's NATIVE accessibility tree — which
  * agreed with Playwright on every one of the 4,167. (The 2026-09-11 figures were Playwright's
  * algorithm alone, and that pass could not isolate a separator followed directly by text; the
- * rebuilt one can, and it confirmed the rule's prediction for `MapBreadcrumb`'s window label.) Not
+ * rebuilt one can, and it confirmed the rule's prediction for the retired map breadcrumb's window label.) Not
  * measured: separators only in states the capture never saw — it snapshots each test's end and
  * every `fireEvent`, not every render. Native readings exist for Chromium alone. Those runs
  * removed separators and read names, so they bear on the first two items below — except the

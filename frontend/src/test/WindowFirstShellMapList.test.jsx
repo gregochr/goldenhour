@@ -136,7 +136,7 @@ const renderShell = (request, extraProps = {}) => {
       onOpenMapTab={vi.fn()}
       locations={LOCATIONS}
       mapPane={<MapProbe request={request} report={report} />}
-      initialTab="map"
+      loadMapRoute={{ preferred: true }}
       {...extraProps}
     />,
   );

@@ -1,5 +1,5 @@
 /**
- * `watchDeparture` — the ref-cleanup record that `MastheadTickLine` and `MapBreadcrumb` spend.
+ * `watchDeparture` — the ref-cleanup record that `MastheadTickLine` spends (and the retired `MapBreadcrumb` once did).
  *
  * <p>Tested directly as well as through its owners. It has no single natural consumer, and until
  * this file its re-attach guard was pinned only by the tick line's StrictMode tests, so an owner that

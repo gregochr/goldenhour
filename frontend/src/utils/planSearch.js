@@ -396,21 +396,21 @@ function windowTerms(card) {
  *        places (null for Lite and for no provider). It adds the resting {@code ★ Your places} group, marks starred
  *        rows, and breaks ties inside a tier of rows that already matched: it never lets a row match, and it never
  *        touches the windows
- * @param {string} [sources.tab]       the tab Find is open on: {@code 'plan'} (the default) and
- *        {@code 'coming-up'} word a region as "plan from here"; {@code 'map'} words a region, a place and a
- *        window as something the map will show — a region pick on the Map frames it and never moves the
+ * @param {string} [sources.context]   where Find is open (one-screen-plan.md D13): {@code 'screen'} (the default,
+ *        the page the reader plans from) words a region as "plan from here"; {@code 'map'} words a region, a place and
+ *        a window as something the map will show — a region pick in the map view frames it and never moves the
  *        origin, so the origin-based refusals (no base town, already the origin) do not apply there
  * @returns {Array<{id: string, title: string, rows: Array}>} groups, empty ones omitted
  */
 export function buildSearchGroups(query, {
   windows = [], regions = [], locations = [], originId = null,
-  reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, tab = 'plan',
+  reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, context = 'screen',
   areas = null, areaOutlook = null, favourites = null,
 } = {}) {
   const q = fold(query);
   const starredArea = favourites ? (area) => favourites.areaIds.has(area.id) : null;
   const starredPlace = favourites ? (spot) => spot?.id != null && favourites.placeIds.has(spot.id) : null;
-  const onMap = tab === 'map';
+  const onMap = context === 'map';
   const groups = [];
   /**
    * Whether any drive time exists at all — see the window rows' `figure` caption for why.

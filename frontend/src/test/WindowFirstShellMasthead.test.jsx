@@ -288,7 +288,7 @@ describe('WindowFirstShell — the compact phone masthead', () => {
   const DOT = <span data-testid="health-dot">dot</span>;
   const LINE = <button type="button" data-testid="health-status-line">UP</button>;
   const openMenu = () => fireEvent.click(screen.getByTestId('masthead-menu-button'));
-  const mapTab = () => fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+  const mapTab = () => fireEvent.click(screen.getByTestId('window-first-tab-map'));
 
   describe('on the phone', () => {
     beforeEach(() => { mockIsMobile = true; });
@@ -425,27 +425,15 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(screen.queryByTestId('masthead-menu')).toBeNull();
     });
 
-    it('R2 — hides the ORIGIN at Home on the Map tab (Find stays, alone), and still draws it on the other tabs', () => {
+    it('the masthead is the same with the map view open: the view\'s own header carries Find and the origin (D12)', () => {
       renderShell({ light: LIGHT, mapPane: MAP }, { });
-      // Plan tab (the default): the row is Find's way in, so it stays — without the times.
-      expect(screen.getByTestId('window-first-tickline')).toBeInTheDocument();
+      expect(screen.getByTestId('window-first-tickline')).not.toHaveAttribute('data-compact');
+      mapTab();
+      // Inert behind the view, but not rewritten for it: the tick line keeps its Plan form.
+      expect(screen.getByTestId('window-first-tickline')).not.toHaveAttribute('data-compact');
       expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
-      expect(screen.queryByTestId('masthead-light-times')).toBeNull();
-      mapTab();
-      // F1: the Map has Find too, so the row is not empty at Home any more — the HOME marker and the rings
-      // still say where the plan is from, so the row draws the Find button and nothing else.
-      expect(screen.getByTestId('window-first-tickline')).toHaveAttribute('data-compact', 'true');
-      expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
-      expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-      expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
-    });
-
-    it('draws the compact row on the Map tab when away, with ⌂ first', () => {
-      renderShell({ light: LIGHT, mapPane: MAP }, { origin: LAKES });
-      mapTab();
-      expect(screen.getByTestId('window-first-tickline')).toHaveAttribute('data-compact', 'true');
-      expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('The Lake District');
-      expect(screen.getByTestId('window-first-origin-home')).toBeInTheDocument();
+      expect(screen.getByTestId('map-screen-find')).toBeInTheDocument();
+      expect(screen.getByTestId('map-screen-origin')).toHaveTextContent('Home · Newcastle');
     });
 
     it('draws the red nudge row on the Map tab with no postcode', () => {
@@ -453,28 +441,6 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       mapTab();
       expect(screen.getByTestId('masthead-set-postcode').closest('.wf-tick-group'))
         .toHaveAttribute('data-unset', 'true');
-    });
-
-    it('⚠️ ⌂ on the phone Map (Away to Home) leaves focus on ⋯, not <body>', () => {
-      // The route through the real shell: `setOrigin` is the briefing context's, so this stands in
-      // for it by letting the mocked context answer a null origin after the press.
-      const setOrigin = vi.fn();
-      const { rerender, ...rest } = renderShell(
-        { light: LIGHT, mapPane: MAP }, { origin: LAKES, setOrigin },
-      );
-      mapTab();
-      const home = screen.getByTestId('window-first-origin-home');
-      home.focus();
-      fireEvent.click(home);
-      expect(setOrigin).toHaveBeenCalledWith(null);
-      vi.spyOn(briefingContext, 'useWindowFirstBriefing')
-        .mockReturnValue({ ...ctx(), origin: null, setOrigin });
-      rerender(<WindowFirstShell {...rest} />);
-
-      // The row stays (Find alone), with no origin to take focus, so ⋯ is the nearest control.
-      expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-      expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
-      expect(document.activeElement).toBe(screen.getByTestId('masthead-menu-button'));
     });
   });
 
@@ -503,15 +469,6 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       const rule = screen.getByTestId('masthead-light-rule');
       expect(rule).toHaveClass('h-1');
       expect(rule).toHaveClass('sm:mt-[14px]');
-    });
-
-    it('keeps the tick line at Home on the Map tab with its caption, now as the origin button beside Find, with no compact hook', () => {
-      renderShell({ light: LIGHT, mapPane: MAP });
-      mapTab();
-      expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Newcastle');
-      expect(screen.getByTestId('masthead-origin-caption')).toHaveTextContent('drive times from here');
-      expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
-      expect(screen.getByTestId('window-first-tickline')).not.toHaveAttribute('data-compact');
     });
 
     it('is red when unset here too', () => {

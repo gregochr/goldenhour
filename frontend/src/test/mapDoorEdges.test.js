@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 // Edge behaviour of the Plan->Map door's pure resolution: clock and day labels, malformed input, the
 // exact shape of every headline and handoff, and the best-spot / neighbour-outlier arithmetic.
 import {
-  normalizeMapTrigger, resolveDoor, doorHeadline, doorFromTrigger, outlierKeysOf, spotsNamed,
+  normalizeMapTrigger, resolveDoor, doorFromTrigger, outlierKeysOf, spotsNamed,
 } from '../utils/mapDoor.js';
 
 const DATE = '2026-07-04'; // a Saturday
@@ -627,17 +627,10 @@ describe('doorFromTrigger edges', () => {
     expect(aurora.night).toEqual({ kind: 'aurora', date: DATE });
     expect(aurora.targetType).toBe('AURORA');
     const lens = doorFromTrigger(
-      { ...event(), minRating: 0, limitMinutes: 90, inPlace: false, from: 'plan' }, ctx([loc('A', 'R', 4)]),
+      { ...event(), minRating: 0, limitMinutes: 90, inPlace: false }, ctx([loc('A', 'R', 4)]),
     );
-    expect(lens).toMatchObject({ minRating: 0, limitMinutes: 90, inPlace: false, from: 'plan' });
+    expect(lens).toMatchObject({ minRating: 0, limitMinutes: 90, inPlace: false });
     const plain = doorFromTrigger(event(), ctx([loc('A', 'R', 4)]));
-    ['minRating', 'limitMinutes', 'inPlace', 'from', 'night'].forEach((k) => expect(k in plain).toBe(false));
-  });
-
-  it('reads the headline from the resolution', () => {
-    expect(doorHeadline(location('S'), ctx([loc('S', 'A', 4)]))).toEqual({
-      title: 'S', caption: 'Sat sunset · 21:49',
-    });
-    expect(doorHeadline({ kind: 'aurora', date: DATE }, ctx([]))).toEqual({ title: 'Aurora tonight', caption: null });
+    ['minRating', 'limitMinutes', 'inPlace', 'night'].forEach((k) => expect(k in plain).toBe(false));
   });
 });

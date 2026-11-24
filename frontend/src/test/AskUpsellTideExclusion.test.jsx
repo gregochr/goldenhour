@@ -219,7 +219,7 @@ afterEach(() => {
 describe.each([[800, 'the tablet'], [1280, 'the desktop']])('on %i px (%s), a LITE reader\'s Map tab', (width) => {
   async function openMapTab() {
     renderAskShell({ width, ctx: LITE, props: { mapPane } });
-    await act(async () => { fireEvent.click(await screen.findByRole('tab', { name: 'Map' })); });
+    await act(async () => { fireEvent.click(await screen.findByTestId('window-first-tab-map')); });
     await screen.findByTestId('wf-tide-strip-locked');
   }
 

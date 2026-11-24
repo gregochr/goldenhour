@@ -167,7 +167,7 @@ function renderApp() {
 }
 
 async function openMapTab() {
-  const tab = await screen.findByRole('tab', { name: 'Map' });
+  const tab = await screen.findByTestId('window-first-tab-map');
   await act(async () => { fireEvent.click(tab); });
   return screen.findByTestId('map-pane-stub');
 }

@@ -144,6 +144,10 @@ export function resolveDoor(trigger, ctx) {
   // would return that evening's sunset rating and sunset clock time dressed as aurora facts. There
   // is no star rating for an aurora and no solar time for one, so: no time, and no count of the
   // roster (§6 - a count of our own locations is not a fact about tonight).
+  if (trigger.kind === 'astro') {
+    // A night's own address (`#map/<date>/night`) reopens the astro night: a night row, no solar facts, no fit-bounds.
+    return { title: null, subLine: null, focus: null, handoff: { eventType: 'ASTRO', date } };
+  }
   if (trigger.kind === 'aurora') {
     return {
       title: 'Aurora tonight',
@@ -320,6 +324,9 @@ export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = nul
   if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'aurora') {
     return { kind: 'aurora', date: dateOrHandoff.date };
   }
+  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'astro') {
+    return { kind: 'astro', date: dateOrHandoff.date };
+  }
   if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'coming-up') {
     // The Coming up chronology's own map channel (D8) — named explicitly. It used to be checked
     // ahead of a generic `filterAction` branch that became `kind:'topic'`, since both shapes carried
@@ -365,22 +372,6 @@ export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = nul
 }
 
 /**
- * The breadcrumb's headline for a trigger - a title and sub-line, which the
- * Map tab's `MapBreadcrumb` prints as `title · caption` ("Aurora tonight", "Tomorrow sunrise ·
- * 06:12"). Derived through {@link resolveDoor} so the two surfaces can never name a door
- * differently. (The retired overlay's "tap a pin" prompt is deliberately not carried: it was
- * an instruction to a modal's reader, and the breadcrumb names its lens by clauses instead.)
- *
- * @param {object} trigger a normalised trigger ({@link normalizeMapTrigger})
- * @param {object} ctx     `resolveDoor`'s context ({locations, briefingScores, todayStr, tomorrowStr})
- * @returns {{title: ?string, caption: ?string}}
- */
-export function doorHeadline(trigger, ctx) {
-  const resolved = resolveDoor(trigger, ctx);
-  return { title: resolved.title || null, caption: resolved.subLine || null };
-}
-
-/**
  * A normalised trigger as the structured door `App.openMapTabFromPlan` sends. The location,
  * region, event and filter resolution is `resolveDoor`'s own (the top-rated spot of a single
  * region, the exact spot set of a coming-up card), read off its `handoff`/`focus` rather than
@@ -396,7 +387,6 @@ export function doorHeadline(trigger, ctx) {
 export function doorFromTrigger(trigger, ctx) {
   const resolved = resolveDoor(trigger, ctx);
   const h = resolved.handoff || {};
-  const { title, caption } = doorHeadline(trigger, ctx);
   const door = {
     date: trigger.date,
     targetType: h.eventType ?? null,
@@ -405,11 +395,12 @@ export function doorFromTrigger(trigger, ctx) {
     // the spot, so an away region is not stranded outside scope behind one callout (C4).
     region: h.region ?? (trigger.kind === 'region' ? trigger.region ?? null : null),
     locationName: h.locationName ?? null,
-    title,
-    caption,
   };
   if (trigger.kind === 'aurora') {
     door.night = { kind: 'aurora', date: trigger.date };
+  }
+  if (trigger.kind === 'astro') {
+    door.night = { kind: 'astro', date: trigger.date };
   }
   if (h.filterAction) door.filterAction = h.filterAction;
   // The Coming up weather chip's topic, for the Map to select on arrival (`kind:'event'` only).
@@ -421,8 +412,7 @@ export function doorFromTrigger(trigger, ctx) {
   // `openMapDoor` spreads the Plan's rating floor and reach tier, and `inPlace`, onto whatever it is
   // handed, a trigger included): this function resolves the door's own fields and adds nothing of
   // its own to the lens. Copied when the trigger carries the key at all, otherwise ABSENT.
-  // `from` (C4): the tab the door was pressed on, for the breadcrumb's return.
-  ['minRating', 'limitMinutes', 'inPlace', 'from'].forEach((key) => {
+  ['minRating', 'limitMinutes', 'inPlace'].forEach((key) => {
     if (trigger[key] !== undefined) door[key] = trigger[key];
   });
   return door;

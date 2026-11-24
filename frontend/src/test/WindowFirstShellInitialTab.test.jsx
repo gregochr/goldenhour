@@ -169,18 +169,19 @@ describe('WindowFirstShell — no initialTab prop', () => {
   });
 });
 
-describe('WindowFirstShell — initialTab="plan"', () => {
+describe('WindowFirstShell — no Map landing (the phone)', () => {
   it('opens on Plan even with a map pane already present at mount', () => {
-    renderShell({ initialTab: 'plan', mapPane: MAP_PANE });
+    renderShell({ mapPane: MAP_PANE });
     expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByTestId('map-pane')).toBeNull();
+    expect(screen.queryByTestId('map-screen')).toBeNull();
   });
 });
 
-describe('WindowFirstShell — initialTab="map"', () => {
+describe('WindowFirstShell — the Map landing preference (loadMapRoute.preferred)', () => {
   it('opens on Map, with the Map pane actually mounted, when the pane is present at mount', () => {
-    renderShell({ initialTab: 'map', mapPane: MAP_PANE });
-    expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+    renderShell({ loadMapRoute: { preferred: true }, mapPane: MAP_PANE });
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     // Content from the pane, not just the tab state — a mount check that only reads
     // `aria-selected` would pass against a blank panel (the exact `openedTabs` gap this feature
     // could reintroduce).
@@ -191,18 +192,18 @@ describe('WindowFirstShell — initialTab="map"', () => {
     // The one genuinely tricky part of this change (plan §2): `App.jsx` withholds `mapPane` until
     // `GET /api/forecast` has returned rows, so the shell renders before the Map pane exists even
     // when the device prefers it.
-    const { rerenderWith } = renderShell({ initialTab: 'map' });
+    const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
     expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
 
-    expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     expect(screen.getByTestId('map-pane')).toBeInTheDocument();
   });
 
   it('calls onTabChange with plan then map on the late-arrival path', () => {
     const onTabChange = vi.fn();
-    const { rerenderWith } = renderShell({ initialTab: 'map', onTabChange });
+    const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true }, onTabChange });
     expect(onTabChange).toHaveBeenLastCalledWith('plan');
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
@@ -211,7 +212,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
   });
 
   it('stays on Plan when the reader pressed a Glance card before the map pane arrived', async () => {
-    const { rerenderWith } = renderShell({ initialTab: 'map' });
+    const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
     await screen.findByTestId('wf-heat-strip');
     // `fireEvent.click` alone dispatches only a `click`, never the `pointerdown` a real press
     // fires first — and it is the `pointerdown` the commit rule listens for (the shell root's
@@ -232,7 +233,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
     // the preference, and the lens bar calls `reachLens.selectTier`/`ratingLens.selectFloor`
     // directly, never `selectTab`. This must fail if the commit is keyed on dialog state rather
     // than on the interaction itself.
-    const { rerenderWith } = renderShell({ initialTab: 'map' });
+    const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
     const option = screen.getAllByTestId('window-first-lens-tiers-option')[0];
     fireEvent.pointerDown(option);
     fireEvent.click(option);
@@ -244,7 +245,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
   });
 
   it('stays on Plan after a bare keydown on the pane, with no tab focused', () => {
-    const { rerenderWith } = renderShell({ initialTab: 'map' });
+    const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
     fireEvent.keyDown(screen.getByTestId('window-first-pane'), { key: 'a' });
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
@@ -253,7 +254,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
   });
 
   it('stays on Plan after a wheel event on the pane', () => {
-    const { rerenderWith } = renderShell({ initialTab: 'map' });
+    const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
     fireEvent.wheel(screen.getByTestId('window-first-pane'));
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
@@ -262,7 +263,7 @@ describe('WindowFirstShell — initialTab="map"', () => {
   });
 
   it('stays on Coming up when the reader chose it before the map pane arrived', () => {
-    const { rerenderWith } = renderShell({ initialTab: 'map' });
+    const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
     fireEvent.click(tab('Coming up'));
     expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
 
@@ -272,36 +273,27 @@ describe('WindowFirstShell — initialTab="map"', () => {
     expect(screen.queryByTestId('map-pane')).toBeNull();
   });
 
-  it('does not move focus when the preference resolves to Map on its own', async () => {
-    // Only an explicit `tabRequest` moves focus (`:745`'s own note) — the preference-driven switch
-    // must leave `document.activeElement` exactly where it was.
-    const { rerenderWith } = renderShell({ initialTab: 'map' });
-    const plan = tab('At a Glance');
-    plan.focus();
-    expect(document.activeElement).toBe(plan);
-
+  it('puts focus on the view\'s title when the preference opens it, so a keyboard reader is not stranded', async () => {
+    // The screen goes inert under the view, so focus left on it would drop to <body>. The same initial focus as any
+    // open (one-screen-plan.md D11); the preference only applies while the reader has done nothing, so there is no
+    // working position to preserve.
+    const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
     act(() => rerenderWith({ mapPane: MAP_PANE }));
-    // Force TWO animation frames, not a microtask — this file's own deferred-frame focus moves
-    // (`tabRequest`'s effect, the location-sheet handoff) both move focus inside a
-    // `requestAnimationFrame`, because the element they focus may be rendering for the first time
-    // on that very commit (frontend-test-standards.md, "Waiting for a deferred effect"). A bare
-    // `await Promise.resolve()` never reaches that callback at all, so a focus move added to the
-    // preference-driven switch later would pass this assertion undetected.
     await act(async () => {
       await new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(resolve));
       });
     });
 
-    expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
-    expect(document.activeElement).toBe(plan);
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
+    expect(document.activeElement).toBe(screen.getByTestId('map-screen-title'));
   });
 
   describe('the grace timer', () => {
     beforeEach(() => { vi.useFakeTimers(); });
 
     it('commits Plan once PREFERRED_TAB_GRACE_MS has passed with no interaction, so a later map pane does not move it', () => {
-      const { rerenderWith } = renderShell({ initialTab: 'map' });
+      const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
       act(() => { vi.advanceTimersByTime(1500); });
 
       act(() => rerenderWith({ mapPane: MAP_PANE }));
@@ -309,17 +301,17 @@ describe('WindowFirstShell — initialTab="map"', () => {
       expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     });
 
-    it('resolves to Map when the pane arrives just under the grace boundary, before the timer has fired at all', () => {
+    it('opens the view when the pane arrives just under the grace boundary, before the timer has fired at all', () => {
       // Distinct from the test below: here the timer NEVER fires while `activeTab` is still null —
       // the pane arrives first, at 1499ms, one tick before the 1500ms deadline, and nothing further
       // advances the clock. This is the "ordinary" resolve path; it says nothing about what happens
       // if the timer fires AFTER the preference has already resolved, which is the next test.
-      const { rerenderWith } = renderShell({ initialTab: 'map' });
+      const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
       act(() => { vi.advanceTimersByTime(1499); });
 
       act(() => rerenderWith({ mapPane: MAP_PANE }));
 
-      expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     });
 
     it('⚠️ stays on Map once resolved, even once the grace timer goes on to fire — the stale-closure regression', () => {
@@ -331,33 +323,32 @@ describe('WindowFirstShell — initialTab="map"', () => {
       // test fails against that implementation: the pane arrives at 500ms (well under the grace
       // boundary, so the earlier "just under" test alone cannot catch this), the clock then crosses
       // the 1500ms mark where the stale timer WOULD fire, and the tab must still read Map.
-      const { rerenderWith } = renderShell({ initialTab: 'map' });
+      const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
       act(() => { vi.advanceTimersByTime(500); });
       act(() => rerenderWith({ mapPane: MAP_PANE }));
-      expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
 
       // Cross the 1500ms-from-mount mark — the moment the stale-closure bug fired.
       act(() => { vi.advanceTimersByTime(1000); });
-      expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
 
       // And a later, unrelated re-render (a prop change, same as a poll or a lens read landing)
       // does not reopen the question either — the preference is settled, not merely lucky timing.
       act(() => rerenderWith({ locations: [] }));
-      expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     });
   });
 
-  it('keeps the Map pane mounted after leaving and returning, the sticky rule', () => {
-    // The preference resolves to Map via `openedTabs`' render-time addition, never through
-    // `selectTab` — so without the sticky rule holding for THAT route too, a reader who presses
-    // Plan and then Map again would find a remounted, blank Map pane.
-    renderShell({ initialTab: 'map', mapPane: MAP_PANE });
+  it('keeps the Map pane mounted behind the hidden attribute after the view closes, and reopens it', () => {
+    renderShell({ loadMapRoute: { preferred: true }, mapPane: MAP_PANE });
     expect(screen.getByTestId('map-pane')).toBeInTheDocument();
 
-    fireEvent.click(tab('At a Glance'));
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByTestId('map-screen-close'));
+    expect(screen.getByTestId('map-screen')).toHaveAttribute('hidden');
+    expect(screen.getByTestId('map-pane')).toBeInTheDocument();
 
-    fireEvent.click(tab('Map'));
+    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     expect(screen.getByTestId('map-pane')).toBeInTheDocument();
   });
 });
