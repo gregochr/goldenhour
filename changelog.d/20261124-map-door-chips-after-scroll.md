@@ -1,3 +1,0 @@
-### Fixed — Reopening the map view after closing it before it finished loading no longer lands zoomed in on an empty field
-
-If the map view was closed before the map's lazy chunk had landed, the map was built behind the hidden view and the door's camera (fit to a window's places, or fly to a place) ran against a 0x0 box, clamping to zoom 12 and leaving the reopened view on an empty stretch of country with no chips. Both door cameras now hold while the map has no size and run once it does. This was the cause of the red `E2E — Playwright smoke` on `no inline <style> element appears on any main tab`.
