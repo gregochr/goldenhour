@@ -201,8 +201,7 @@ describe('WindowFirstLensBar — the LITE treatment', () => {
     // wrapper's pointer-events, because pointer-events does not stop a keyboard.
     render(<Lens locked />);
 
-    expect(screen.getByTestId('window-first-lens-controls').className)
-      .toContain('wf-lens-locked');
+    expect(screen.getByTestId('window-first-lens-tiers').className).toContain('wf-lens-locked');
     for (const button of tiers()) expect(button).toBeDisabled();
   });
 
@@ -210,8 +209,17 @@ describe('WindowFirstLensBar — the LITE treatment', () => {
     // The negative half. Without it the assertion above passes on a bar that greys every role,
     // which is a strictly worse product than one that greys none.
     render(<Lens />);
-    expect(screen.getByTestId('window-first-lens-controls').className)
-      .not.toContain('wf-lens-locked');
+    expect(screen.getByTestId('window-first-lens-tiers').className).not.toContain('wf-lens-locked');
+  });
+
+  it('⚠️ dims the tier buttons only: the caption is never inside the locked element (it failed color-contrast)', () => {
+    render(<Lens locked />);
+
+    const caption = document.getElementById('window-first-lens-tiers-label');
+    expect(caption).not.toBeNull();
+    expect(caption.closest('.wf-lens-locked')).toBeNull();
+    expect(screen.getByTestId('window-first-lens-controls').className).not.toContain('wf-lens-locked');
+    expect(screen.getByTestId('window-first-lens-upsell').closest('.wf-lens-locked')).toBeNull();
   });
 
   it('offers the upsell rather than a control that silently does nothing', () => {
