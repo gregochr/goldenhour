@@ -113,6 +113,9 @@ describe('the phone bar (below 640px)', () => {
     expect(await screen.findByTestId('ask-bar')).toBeInTheDocument();
     rerenderShell({ operationsOpen: true });
     expect(screen.queryByTestId('ask-bar')).toBeNull();
+    // ...and it is back when the reader leaves Operations.
+    rerenderShell({ operationsOpen: false });
+    expect(await screen.findByTestId('ask-bar')).toBeInTheDocument();
   });
 
   it('draws no tablet field', async () => {
@@ -194,7 +197,8 @@ describe('the tablet field (640 to 1023px)', () => {
     expect(screen.queryByRole('tablist')).toBeNull();
     const masthead = screen.getByTestId('window-first-masthead');
     expect(masthead).toContainElement(field());
-    expect(field().parentElement).toBe(screen.getByTestId('masthead-menu-button').closest('.wf-mast-menu').parentElement);
+    expect(field().closest('.wf-mast-askwrap').parentElement)
+      .toBe(screen.getByTestId('masthead-menu-button').closest('.wf-mast-menu').parentElement);
     expect(field().compareDocumentPosition(screen.getByTestId('masthead-menu-button')) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
   });

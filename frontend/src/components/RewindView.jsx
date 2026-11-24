@@ -91,7 +91,7 @@ export default function RewindView() {
   return (
     <div className="flex flex-col gap-5" data-testid="rewind-view">
       <p className="text-sm text-plex-text-secondary">
-        Rewind the app to just before a solar event that has passed. This week and the Map tab then render
+        Rewind the app to just before a solar event that has passed. This week and the map then render
         the forecast as it stood at that moment — that window live, its verdict, stars and best bet in
         place — so you can screenshot the forecast that sent you out after you have got back.
       </p>

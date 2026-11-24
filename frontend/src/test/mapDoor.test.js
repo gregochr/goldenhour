@@ -223,7 +223,7 @@ describe('resolveDoor', () => {
         { kind: 'further-ahead', filterAction: null, darkSky: false, date: DATE },
         ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
       );
-      expect(ov.title).toBe('Coming up');
+      expect(ov.title).toBe('Further ahead');
     });
 
     it('carries the trigger date, unlike the aurora branch — no rating is ever claimed for it', () => {

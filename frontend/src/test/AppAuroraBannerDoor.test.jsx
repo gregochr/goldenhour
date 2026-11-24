@@ -398,6 +398,7 @@ describe('App — a simulated alert\'s banner opens Operations (C4, S3)', () => 
     expect(ShellStub.lastProps.operationsOpen ?? false).toBe(false);
   });
 
+
   it('with the map view open it closes the view first and sets the hash only once the history has settled (D4, D9)', async () => {
     getAuroraStatus.mockResolvedValue(alert({ simulated: true }));
     renderApp('ADMIN');

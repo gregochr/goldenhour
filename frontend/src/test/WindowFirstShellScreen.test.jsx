@@ -4,6 +4,7 @@ import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { getAlmanac } from '../api/almanacApi.js';
+import { __inspectForTests } from '../utils/dialogHistory.js';
 
 /**
  * The one screen the shell became when the tabs went (`docs/engineering/one-screen-plan.md` O3): no tab list, This week
@@ -214,10 +215,13 @@ describe('WindowFirstShell — Operations, the admin\'s full-screen view (one-sc
   it('the row takes every dialog down and then asks App to open Operations', async () => {
     const { onOpenOperations } = renderOps();
     await settle();
+    fireEvent.click(screen.getByRole('button', { name: /Find a place, region or day/ }));
+    expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
     openMenu();
     fireEvent.click(screen.getByTestId('masthead-menu-operations'));
     expect(onOpenOperations).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('masthead-menu')).toBeNull();
+    expect(screen.queryByTestId('plan-search')).toBeNull();
   });
 
   it('is not mounted while closed: the pane\'s content is not rendered until the address opens it', async () => {
@@ -278,6 +282,7 @@ describe('WindowFirstShell — Operations, the admin\'s full-screen view (one-sc
     await settle();
     expect(document.querySelector('[aria-modal]')).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
+    expect(__inspectForTests().layers).toBe(0);
   });
 
   it('opening it takes the screen\'s dialogs down in the same commit (Find here)', async () => {

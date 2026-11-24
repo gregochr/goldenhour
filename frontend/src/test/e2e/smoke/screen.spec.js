@@ -92,6 +92,9 @@ test.describe('The ☰ menu and Operations', () => {
     // Back from the bare entry returns into Operations (the close was a forward step), and Back again leaves it.
     await page.goBack();
     await expect(page.getByTestId('operations-screen')).toBeVisible();
+    await page.goBack();
+    await expect(page.getByTestId('operations-screen')).toHaveCount(0);
+    expect(page.url()).not.toMatch(/#manage/);
   });
 
   test('Back inside Operations steps out of a sub-view, and Back past the first #manage entry closes it', async ({ page }) => {
@@ -140,6 +143,26 @@ test.describe('The ☰ menu and Operations', () => {
       await page.evaluate(() => { window.location.hash = 'manage/runs'; });
       await expect.poll(() => page.url()).not.toMatch(/#manage/);
       await expect(page.getByTestId('operations-screen')).toHaveCount(0);
+    });
+  }
+});
+
+test.describe('The masthead never overflows with the Ask dock open (the field collapses in its own container)', () => {
+  for (const [width, dock] of [[640, false], [768, false], [1024, true], [1180, true]]) {
+    test(`admin at ${width}px${dock ? ' with the dock open' : ''}: no horizontal scroll and the ☰ button is on screen`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await loginAndWaitForForecast(page, 'admin');
+      if (dock) {
+        await page.getByTestId('ask-field').click();
+        await expect(page.getByTestId('ask-dock')).toBeVisible();
+      }
+      const m = await page.evaluate(() => {
+        const box = document.querySelector('[data-testid="masthead-menu-button"]').getBoundingClientRect();
+        return { scroll: document.documentElement.scrollWidth, inner: window.innerWidth, right: box.right, left: box.left };
+      });
+      expect(m.scroll, 'no horizontal page scroll').toBeLessThanOrEqual(m.inner);
+      expect(m.left).toBeGreaterThanOrEqual(0);
+      expect(m.right).toBeLessThanOrEqual(m.inner);
     });
   }
 });

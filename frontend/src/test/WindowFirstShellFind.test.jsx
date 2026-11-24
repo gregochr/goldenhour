@@ -74,7 +74,8 @@ const findButton = () => screen.getByTestId('window-first-search');
 const find = () => screen.queryByTestId('plan-search-panel');
 const input = () => screen.getByTestId('plan-search-input');
 const sheet = () => screen.queryByTestId('location-sheet');
-const selectedTab = () => screen.getByTestId('this-week-heading');
+/** The screen is what is showing: the map view is closed or was never opened. */
+const expectScreen = () => expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
 
 /** The shell under the guide and Ask providers, with the screen it reports handed to the guide, as `App` does. */
 function Rig({ shellProps }) {
@@ -356,7 +357,7 @@ describe('what a pick does on This week (unchanged)', () => {
     await type('whitby');
     fireEvent.click(screen.getByRole('option', { name: /Whitby/ }));
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(selectedTab()).toHaveTextContent(/This week/);
+    expectScreen();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(sheet()).toBeNull());
 
@@ -386,7 +387,7 @@ describe('what a pick does with Further ahead on the screen (one-screen-plan.md 
     fireEvent.click(screen.getByRole('option', { name: /Whitby/ }));
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(selectedTab()).toHaveTextContent(/This week/);
+    expectScreen();
     expect(find()).toBeNull();
   });
 
@@ -412,8 +413,6 @@ describe('what a pick does with Further ahead on the screen (one-screen-plan.md 
     expect(onOpenMapTab).toHaveBeenCalledTimes(1);
     expect(onOpenMapTab.mock.calls[0][0]).toMatchObject({ kind: 'event', inPlace: false });
     expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
-    // The Plan pane stays the tab in force under the view.
-    expect(selectedTab()).toHaveTextContent(/This week/);
   });
 
   it('a region plans from it and leaves the reader on the screen', async () => {
@@ -423,7 +422,7 @@ describe('what a pick does with Further ahead on the screen (one-screen-plan.md 
     fireEvent.click(screen.getByRole('option', { name: /North York Moors/ }));
 
     expect(ctx.setOrigin).toHaveBeenCalledWith(REGION);
-    expect(selectedTab()).toHaveTextContent(/This week/);
+    expectScreen();
   });
 });
 
@@ -678,7 +677,7 @@ describe('areas in Find (F2)', () => {
       ]);
       expect(spotRows[0]).toHaveTextContent('4★ · Tonight Sunset');
       expect(spotRows[1]).toHaveTextContent('Not rated');
-      expect(selectedTab()).toHaveTextContent(/This week/);
+      expectScreen();
 
       fireEvent.keyDown(document, { key: 'Escape' });
 
@@ -810,7 +809,7 @@ describe('areas in Find (F2)', () => {
       pickWall();
 
       expect(await screen.findByTestId('area-sheet')).toBeInTheDocument();
-      expect(selectedTab()).toHaveTextContent(/This week/);
+      expectScreen();
       expect(find()).toBeNull();
     });
   });
@@ -913,7 +912,7 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
     fireEvent.click(await screen.findByTestId('your-places-chip'));
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(selectedTab()).toHaveTextContent(/This week/);
+    expectScreen();
   });
 
   it('an area chip with no window opens the area sheet', async () => {

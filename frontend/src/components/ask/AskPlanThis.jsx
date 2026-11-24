@@ -177,7 +177,7 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
             onClick={(event) => openInPlan(card, event.currentTarget)}
           >
             {/* No aria-label: the visible words are the name (WCAG 2.5.3) and the place follows in the sr-only run. */}
-            Open in This week
+            Show in This week
             {' '}
             <span className="sr-only">{`— ${card.name}`}</span>
             <span aria-hidden="true"> ›</span>

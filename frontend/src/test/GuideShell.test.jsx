@@ -114,20 +114,24 @@ afterEach(() => {
 });
 
 describe('the guide\'s door on desktop and tablet is the ☰ menu\'s Guide row', () => {
-  it.each([
-    ['This week', 'at-a-glance'],
-    ['Map', 'map'],
-  ])('on %s it opens that screen\'s page in the docked column', async (name, guidePage) => {
+  it('on This week it opens that screen\'s page in the docked column', async () => {
     mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
-    // The Map is a view: a door opens it, and the menu (inert behind the view, in a browser) names its page.
-    if (name === 'Map') openMapView();
     expect(guideRow()).toHaveTextContent('Guide');
     openGuide();
-    expect(frameSrc()).toBe(page(guidePage));
+    expect(frameSrc()).toBe(page('at-a-glance'));
     expect(guideDock()).toHaveAttribute('data-guide-surface');
     expect(guideDock().tagName).toBe('ASIDE');
     expect(modalCount()).toBe(0);
+  });
+
+  it('follows the reader onto the map view: opened on the screen, it loads the map page when the view opens', async () => {
+    mount({ props: { mapPane: MAP_PANE } });
+    await screen.findByTestId('ask-field');
+    openGuide();
+    expect(frameSrc()).toBe(page('at-a-glance'));
+    openMapView();
+    await waitFor(() => expect(frameSrc()).toBe(page('map')));
   });
 
   it('is a toggle: a second press of the Guide row closes the docked column', async () => {

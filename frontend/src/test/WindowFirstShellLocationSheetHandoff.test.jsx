@@ -116,7 +116,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
       id: 42, name: 'Bamburgh', regionName: 'North East', inPlan: true, nonce: 1,
     }));
 
-    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
     const sheet = await screen.findByTestId('location-sheet');
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Bamburgh');
     expect(sheet).toBeInTheDocument();
@@ -136,8 +136,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Bamburgh');
     expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
-    // The tab in force never moved (the map is a view over it), and the view stays up under the sheet.
-    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    // The view stays up under the sheet.
     expect(screen.getByTestId('map-pane')).toBeInTheDocument();
   });
 
@@ -214,7 +213,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
     expect(dialogs).toHaveLength(1);
     expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
     // And the tab did not move on the way — the whole point of this route.
-    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
   });
 
   it('stamps inPlace on the sheet footer\'s map door, from the tab in force', async () => {
@@ -281,7 +280,7 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
         locationSheetHandoff={{ id: 1, name: 'Spot 1', regionName: 'North East', nonce: 4 }}
       />,
     );
-    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
     expect(screen.queryByTestId('location-sheet')).toBeNull();
   });
 

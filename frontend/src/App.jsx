@@ -864,9 +864,10 @@ function AppInner() {
    * ADMIN only, because the pane is withheld from everyone else.
    *
    * <p>`ManageView` reads the `#manage/runs/start` hash when it mounts (the view mounts as the address changes), so it
-   * lands on the Start a run panel. With the map view open it goes first, and the hash waits for the dialog-history
-   * engine to settle: a hash set while the view's entry is still being unwound would be taken for the engine's own
-   * (D4, D9).
+   * lands on the Start a run panel. DEFENSIVE: the banner sits under the map view's inert block, so a reader cannot press
+   * it with the view open, but a view that IS open goes first and the hash waits for the dialog-history engine to settle
+   * (a hash set while the view's entry is still being unwound would be taken for the engine's own, D4, D9). Tested
+   * against the real engine in `AppAuroraBannerDoor.test.jsx`.
    */
   const openOperations = async () => {
     closeShellDialogs.current?.();

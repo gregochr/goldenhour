@@ -44,11 +44,13 @@ import PropTypes from 'prop-types';
  * @param {Function} props.onSignOut the Sign out row's handler
  * @param {Function} [props.onWarmSettings] warms the settings chunk on hover and focus of its row
  * @param {Function} [props.onGuide] the Guide row's handler (G2); no row when omitted
+ * @param {boolean} [props.guideOpen] whether the guide is showing: the row then reads "Close guide" and says expanded
+ * @param {string} [props.guideControls] the docked guide column's id, named by `aria-controls` while it is open
  * @param {Function} [props.onOperations] the Operations row's handler; no row when omitted (everyone but an admin)
  */
 export default function MastheadMenu({
   open, onOpenChange, buttonRef, statusLine = null, onSettings, onChangePostcode, onSignOut,
-  onWarmSettings, onGuide = undefined, onOperations = undefined,
+  onWarmSettings, onGuide = undefined, onOperations = undefined, guideOpen = false, guideControls = undefined,
 }) {
   const wrapRef = useRef(null);
 
@@ -146,9 +148,13 @@ export default function MastheadMenu({
                 type="button"
                 className="wf-mast-menu-row"
                 data-testid="masthead-menu-guide"
+                // The row is a toggle, so it says which way it goes and whether the guide is up; `aria-controls` names the
+                // docked column while that is what is open (a dialog or sheet is not in this tree).
+                aria-expanded={guideOpen}
+                aria-controls={guideOpen ? guideControls : undefined}
                 onClick={() => press(onGuide)}
               >
-                Guide
+                {guideOpen ? 'Close guide' : 'Guide'}
               </button>
             )}
             {onOperations && (
@@ -188,4 +194,6 @@ MastheadMenu.propTypes = {
   onWarmSettings: PropTypes.func,
   onGuide: PropTypes.func,
   onOperations: PropTypes.func,
+  guideOpen: PropTypes.bool,
+  guideControls: PropTypes.string,
 };

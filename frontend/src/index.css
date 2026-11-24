@@ -13611,6 +13611,36 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
    from 1180px; the map view's header carries its own copy at the sizes below. The cluster is the popover's anchor. */
 .wf-mast-tools { position: relative; }
 .wf-mast .wf-askf { margin: 0; align-self: center; }
+/* The field's room is a CONTAINER, not the window (the replacement for the old tab row's collapse): the wrapper takes
+   whatever the brand, the health pill and the ☰ button leave, and the Ask dock narrows the masthead without narrowing
+   the viewport. 340px steps down to 260px, then to a 34px "Ask" button; the label is CLIPPED, never `display: none`, so
+   the prompt stays in the accessible name. Empty (the map view draws its own field) it takes no room. */
+.wf-mast-askwrap {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  container: wf-mast / inline-size;
+}
+.wf-mast-askwrap:empty { display: none; }
+@container wf-mast (max-width: 339px) {
+  .wf-mast-askwrap .wf-askf[data-width="340"] { width: 260px; }
+}
+@container wf-mast (max-width: 259px) {
+  .wf-mast-askwrap .wf-askf[data-width] { width: 34px; padding: 0; justify-content: center; }
+  .wf-mast-askwrap .wf-askf-kbd { display: none; }
+  .wf-mast-askwrap .wf-askf-q {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
 .wf-askf {
   flex: none;
   align-self: flex-end;
@@ -13685,7 +13715,7 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 .wf-ops-back:focus-visible,
 .wf-ops-title:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
 .wf-ops-title { font-size: 22px; line-height: 1.2; color: var(--color-plex-text); }
-.wf-ops-title:focus { outline: none; }
+.wf-ops-title:focus:not(:focus-visible) { outline: none; }
 
 /* THE ASK UPSELL POPOVER (docs/engineering/ask-upsell-plan.md §4.2, §4.3): a non-modal dialog, inline and never
    portalled. The look is shared with the tide upsell (selector lists near `.wf-tide-upsell`); only the

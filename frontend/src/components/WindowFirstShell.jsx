@@ -223,7 +223,7 @@ const ASK_DOCK_CONTEXT = {
 
 /**
  * The field's width by band: 340px with the `/` hint from 1180px, 260px from 1024 to 1179 where the
- * dock (360px) leaves the tab row too little room for more, and the tablet's 260px below it.
+ * dock (360px) leaves the masthead too little room for more, and the tablet's 260px below it.
  */
 const ASK_FIELD_WIDTH = { tablet: 260, desktop: 260, wide: 340 };
 
@@ -234,7 +234,7 @@ const LOAD_WORD = { SUNRISE: 'sunrise', SUNSET: 'sunset', ASTRO: 'night', AURORA
 
 
 /**
- * The window-first Plan tab's own shell — masthead, tab bar, and the frame both sit in.
+ * The one screen's shell — the masthead and the frame the screen sits in.
  *
  * <h2>It renders its own masthead because it is the app's only header</h2>
  *
@@ -945,7 +945,7 @@ export default function WindowFirstShell({
     setMapNote(note);
   };
   /**
-   * Closes the map view. {@code restoreFocus: false} is for a route that places focus itself (the "Show in Glance"
+   * Closes the map view. {@code restoreFocus: false} is for a route that places focus itself (the "Show in This week"
    * routes, which open a sheet on the screen and return focus there when it closes). Scroll is untouched: the screen
    * never unmounts under the view, it only goes inert, and the view locks the body's scroll while it stands (D11).
    */
@@ -1022,7 +1022,7 @@ export default function WindowFirstShell({
 
   /**
    * Registers a "close the dialogs this shell owns" callback with `App` (overlay convergence C4).
-   * The aurora banner sits OUTSIDE the shell and, pressed on the Map tab, changes no tab - so nothing
+   * The aurora banner sits OUTSIDE the shell and, pressed with the map view open, moves nothing - so nothing
    * would take a Map-hosted four-day sheet down before the window changed under it. The closer is
    * {@link closeShellLayers}, the shell's one list of what a dialog is. Kept in a
    * ref refreshed every commit (it closes over this render's state), and registered once.
@@ -1491,7 +1491,7 @@ export default function WindowFirstShell({
   // An outside press closes the upsell. A `document` listener in the CAPTURE phase so nothing on the page
   // (Leaflet stops some of its own pointer events) can hide the press; it swallows nothing, so a Plan card
   // still opens its popup on the same click. ⚠️ Not `useOutsideDismiss`: that ignores presses inside the map
-  // frame, and a press on the map must close this popover, which belongs to the tab row and not the map.
+  // frame, and a press on the map must close this popover, which belongs to the masthead and not the map.
   // It stands down over a dialog this shell does not own (the postcode prompt, the four-day sheet), where a
   // press would otherwise close the upsell invisibly behind it. The trigger's own press toggles, so it is
   // excluded here.
@@ -2199,8 +2199,8 @@ export default function WindowFirstShell({
   }, [windowCards, topicIndex, planScopeNames]);
 
   /**
-   * The Ask entry fields and the Lite upsell popover: one set, drawn in the tab row while the screen is showing and in
-   * the map view's header while the view is open (the tab row is inert behind it). Never both.
+   * The Ask entry fields and the Lite upsell popover: one set, drawn in the masthead while the screen is showing and in
+   * the map view's header while the view is open (the masthead is inert behind it). Never both.
    */
   const askFields = (
     <>
@@ -2274,6 +2274,8 @@ export default function WindowFirstShell({
       onSignOut={onSignOut}
       onWarmSettings={warmSettingsModal}
       onGuide={guideTabPage ? toggleGuide : undefined}
+      guideOpen={guide.open}
+      guideControls={guideDockShown ? 'wf-guide-dock' : undefined}
       onOperations={onOpenOperations && operationsPane != null
         ? () => { closeShellLayers(); onOpenOperations(); }
         : undefined}
@@ -2286,21 +2288,18 @@ export default function WindowFirstShell({
       data-testid="window-first-shell"
       // `wf-shell` hosts `--wf-gutter`/`--wf-lens-reserve`/`--wf-lens-h` — the arm's shared horizontal inset and the
       // sticky-chrome measurements `useLensReserve` publishes. It carries NO width constraint of its own: the masthead
-      // and the tab bar stay wrapped at `WRAP_MAX_WIDTH` below. Plain block flow on every tab: the map is no longer a
-      // tab that recasts the page as a viewport-height flex column (one-screen-plan.md D11 deleted that layout switch);
+      // stays wrapped at `WRAP_MAX_WIDTH` below. Plain block flow: the map does not recast the page as a
+      // viewport-height flex column (one-screen-plan.md D11 deleted that layout switch);
       // it is a fixed view over this screen (`MapScreen`, below), so the screen never re-lays-out under it.
       //
       // ⚠️ With the Ask dock open (F2) the root is a ROW — `[column][dock]`, centred as a pair — and
       // `wf-shell--docked` says so in the stylesheet. The map view is `position: fixed` and so takes no part in it.
       className={`wf-shell w-full${dockedRow ? ' wf-shell--docked' : ''}${askEntry === 'bar' ? ' wf-ask-bar-on' : ''}`}
     >
-      {/* THE SHELL COLUMN: the masthead, the tab row and the panel region, and nothing else. It exists
-          so the Ask dock (this wrapper's next sibling in the shell root) can sit BESIDE all three at once — the
-          masthead and the panel then narrow together and O-17's "the two columns never drift apart"
-          holds, which a dock inside either wrapper could not promise. Undocked it is a plain block
-          (a `flex-1 min-h-0` flex column on the Map, taking the root's old place in that chain), so
-          nothing about the layout changes when Ask is off or closed. The two wrappers inside are
-          deliberately NOT re-indented one level, for the reason the tab row's own wrapper gives. */}
+      {/* THE SHELL COLUMN: the masthead and the screen's column, and nothing else. It exists so the Ask dock (this
+          wrapper's next sibling in the shell root) can sit BESIDE both at once, so the masthead and the screen narrow
+          together and the two columns never drift apart, which a dock inside either wrapper could not promise. Undocked it
+          is a plain block, so nothing about the layout changes when Ask is off or closed. */}
       <div
         className="wf-shell-col"
         // While the map view is open the screen and the masthead behind it are INERT (one-screen-plan.md D1): the same
@@ -2316,12 +2315,8 @@ export default function WindowFirstShell({
         style={dockedRow ? { maxWidth: WRAP_MAX_WIDTH } : undefined}
         data-testid="window-first-shell-col"
       >
-      {/* Masthead + tab bar + tab rule — wrapped at `WRAP_MAX_WIDTH` on EVERY tab, and since O-17
-          the panel region below shares that same width on every tab too (there is no longer a tab
-          whose wrap "releases"), at `sm` (640px) and up — below it `<main>`'s own padding still
-          differs per tab; see the shell root's own comment above. On the Map tab this is also the
-          flex column's first, natural-height item — `flex-shrink-0` so a tight column squeezes
-          the panel below it, never this. */}
+      {/* The masthead, wrapped at `WRAP_MAX_WIDTH`. The screen's column below shares that same width, so the two never
+          drift apart; below `sm` (640px) `<main>`'s own padding is the only difference (`App.test.jsx` covers it). */}
       <div
         className="mx-auto w-full"
         style={{ maxWidth: WRAP_MAX_WIDTH }}
@@ -2369,9 +2364,9 @@ export default function WindowFirstShell({
           {/* Brand, then (right) the admin's health pill, the Ask field and the ☰ menu (D14). The origin chip and Find
               are the tick line's, below. Settings, the guide and Sign out are the menu's rows now. The Ask field is
               drawn here while the screen shows and in the map view's header while the view is open. */}
-          <div className="wf-mast-tools ml-auto flex items-center gap-2">
+          <div className="wf-mast-tools flex flex-1 min-w-0 items-center justify-end gap-2">
             {healthPill}
-            {!mapOpen && askFields}
+            <div className="wf-mast-askwrap" data-testid="masthead-ask-room">{!mapOpen && askFields}</div>
             {mastMenu}
           </div>
         </div>
@@ -2456,31 +2451,10 @@ export default function WindowFirstShell({
 
       </div>
 
-      {/* The panel region — P7's width split, REVERSED (O-17, bundle rev 2, owner decision
-          2026-09-03): the Map tab no longer goes full-width. Bundle rev 2's own case is
-          structural, not a taste call — full-bleed reads as broken because the tab strip stops at
-          the content column while a full-width panel carries on to the window edge, so the tabs
-          look like they float above an unrelated surface, and full width adds sea and empty moor
-          rather than information (at 2400px one screen spans ~150 miles and the window control and
-          Filters end up a head-turn apart). So this wrapper now applies the SAME `WRAP_MAX_WIDTH`
-          + centering on EVERY tab, Map included — one `style` object below, shared rather than two
-          copies of the constant, so the masthead's column and the map panel's column can never
-          drift apart the way the design's complaint describes. A width change here on tab switch
-          was never actually a hazard either way (nothing sticky lives in this wrapper — the
-          masthead and the tab bar, the two elements a width jump would actually disturb, are both
-          in the wrapper above, which never changes) — but now THIS wrapper's own `maxWidth` never
-          changes either, at any viewport. That is not quite the whole width story, though: below
-          `sm` (640px) `<main>`'s own padding (`App.jsx`, outside this component) still differs
-          per tab for P12's full-bleed phone chrome, so the masthead still shifts by 32px on a
-          phone-width tab switch — see the shell root's own comment above for the full account.
-
-          The vertical behaviour is UNTOUCHED by O-17. On the Map tab this is still the flex
-          column's second item — `flex-1 min-h-0` so it takes every pixel the masthead+tab-bar item
-          above did not, `flex flex-col` so its own visible child (the Map tab's own slotted-pane
-          wrapper, `.wf-body.wf-body--map` — every OTHER child here is `hidden` while the Map tab
-          is active, so it is the pane's only flex participant) can do the same. No height is
-          computed anywhere in this chain; flexbox distributes it. `mx-auto` costs nothing on that
-          chain — a horizontally centred flex column is still a flex column. */}
+      {/* The screen's column: the SAME `WRAP_MAX_WIDTH` and centring as the masthead (O-17, owner decision 2026-09-03:
+          full-bleed read as broken because the masthead stopped at the content column while a panel carried on to the
+          window edge). One width, so the masthead and the screen can never drift apart. The map is not in this column:
+          it is the fixed view `MapScreen`, drawn after it. No height is computed anywhere in this chain. */}
       <div
         className="mx-auto w-full"
         style={{ maxWidth: WRAP_MAX_WIDTH }}

@@ -181,7 +181,7 @@ export function resolveDoor(trigger, ctx) {
     const points = matches.map((l) => [l.lat, l.lon]);
     const regions = new Set(matches.map((l) => l.regionName).filter(Boolean));
     return {
-      title: trigger.label || (trigger.darkSky ? 'Dark-sky spots' : trigger.filterAction) || 'Coming up',
+      title: trigger.label || (trigger.darkSky ? 'Dark-sky spots' : trigger.filterAction) || 'Further ahead',
       subLine: regions.size > 0 ? `${regions.size} ${regions.size === 1 ? 'region' : 'regions'}` : null,
       focus: points.length > 0
         ? { points, ...(unfiltered ? {} : { names: matches.map((l) => l.name) }) }

@@ -1381,7 +1381,7 @@ export default function MapCallout({
               onClick={() => onOpenInPlan?.()}
             >
               {/* Words short enough for every width: the callout is 286px and the button half of it. */}
-              Open in This week
+              Show in This week
             </button>
           )}
         </div>

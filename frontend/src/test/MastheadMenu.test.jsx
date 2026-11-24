@@ -28,6 +28,8 @@ function Harness({ initialOpen = false, statusLine = null, handlers = {}, onMapE
         onWarmSettings={handlers.onWarmSettings}
         onGuide={handlers.onGuide}
         onOperations={handlers.onOperations}
+        guideOpen={handlers.guideOpen}
+        guideControls={handlers.guideControls}
       />
       <button type="button" data-testid="elsewhere">elsewhere</button>
       {/* The Map pane stand-in: a document-level Escape listener and a press listener, as the real
@@ -282,5 +284,28 @@ describe('MastheadMenu — the ☰ button', () => {
     expect(button).toHaveTextContent('☰');
     expect(button.querySelector('[aria-hidden="true"]')).not.toBeNull();
     expect(button).toHaveAccessibleName('Menu');
+  });
+});
+
+describe('MastheadMenu — the Guide row is a toggle', () => {
+  it('reads "Guide", not expanded, while the guide is shut', () => {
+    render(<Harness initialOpen handlers={{ onGuide: vi.fn() }} />);
+    const row = screen.getByTestId('masthead-menu-guide');
+    expect(row).toHaveTextContent(/^Guide$/);
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(row).not.toHaveAttribute('aria-controls');
+  });
+
+  it('reads "Close guide" and says expanded while it is open, naming the docked column', () => {
+    render(<Harness initialOpen handlers={{ onGuide: vi.fn(), guideOpen: true, guideControls: 'wf-guide-dock' }} />);
+    const row = screen.getByTestId('masthead-menu-guide');
+    expect(row).toHaveTextContent(/^Close guide$/);
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(row).toHaveAttribute('aria-controls', 'wf-guide-dock');
+  });
+
+  it('names no controlled element for a guide that is open as a dialog or sheet', () => {
+    render(<Harness initialOpen handlers={{ onGuide: vi.fn(), guideOpen: true }} />);
+    expect(screen.getByTestId('masthead-menu-guide')).not.toHaveAttribute('aria-controls');
   });
 });

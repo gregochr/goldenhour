@@ -139,8 +139,6 @@ test.describe('Accessibility scan (advisory)', () => {
       await scan(page, testInfo, 'map-find');
     });
 
-    // Reached through the ☰ menu, as a reader reaches it (one-screen-plan.md D9); the scan covers the menu's own open state
-    // on the way in only through the next test, so this one scans the view itself.
     // The ☰ menu is the one masthead control at every width, so its open state is scanned on its own.
     test('Menu open', async ({ page }, testInfo) => {
       await openMenu(page);
@@ -148,6 +146,7 @@ test.describe('Accessibility scan (advisory)', () => {
       await scan(page, testInfo, 'menu');
     });
 
+    // Reached through the ☰ menu, as a reader reaches it (one-screen-plan.md D9); the scan is of the view itself.
     test('Operations', async ({ page }, testInfo) => {
       await openOperations(page);
       await expect(page.getByTestId('operations-title')).toBeFocused();

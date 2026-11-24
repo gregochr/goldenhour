@@ -63,6 +63,28 @@ describe('the Ask field in the masthead (one-screen-plan.md D14)', () => {
   });
 });
 
+describe('the masthead\'s Ask field collapses in its own container', () => {
+  it('makes the field\'s room a named inline-size container that takes what the brand, pill and menu leave', () => {
+    const body = ruleBody('.wf-mast-askwrap');
+    expect(body).toMatch(/container:\s*wf-mast\s*\/\s*inline-size/);
+    expect(body).toMatch(/flex:\s*1 1 0/);
+    expect(body).toMatch(/min-width:\s*0/);
+    expect(ruleBody('.wf-mast-askwrap:empty')).toMatch(/display:\s*none/);
+  });
+
+  it('steps 340 to 260 under 340px of room, then collapses to 34px under 260px, clipping the label rather than hiding it', () => {
+    const [step] = atRules('container wf-mast (max-width: 339px)');
+    expect(ruleBody('.wf-mast-askwrap .wf-askf[data-width="340"]', step)).toMatch(/width:\s*260px/);
+    const [collapse] = atRules('container wf-mast (max-width: 259px)');
+    expect(ruleBody('.wf-mast-askwrap .wf-askf[data-width]', collapse)).toMatch(/width:\s*34px/);
+    const label = ruleBody('.wf-mast-askwrap .wf-askf-q', collapse);
+    expect(label).toMatch(/clip:\s*rect/);
+    expect(label).not.toMatch(/display:\s*none/);
+    expect(ruleBody('.wf-mast-askwrap .wf-askf-kbd', collapse)).toMatch(/display:\s*none/);
+    expect(css.indexOf('(max-width: 259px)')).toBeGreaterThan(css.indexOf('(max-width: 339px)'));
+  });
+});
+
 describe('the shell column and the dock', () => {
   it('makes the docked root a ROW, centred as a pair', () => {
     const body = ruleBody('.wf-shell--docked');

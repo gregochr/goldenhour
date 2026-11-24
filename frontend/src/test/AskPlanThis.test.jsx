@@ -551,15 +551,15 @@ describe('the four figures and the note, as the view prints them', () => {
 });
 
 describe('the one action', () => {
-  it('"Open in This week ›" hands the surface the pick’s card, and is the ONLY action', async () => {
+  it('"Show in This week ›" hands the surface the pick’s card, and is the ONLY action', async () => {
     const actions = planActions();
     await renderAnswer({ planActions: actions });
     await planThis(2);
 
     const open = screen.getByTestId('ask-plan-open');
-    expect(open).toHaveAccessibleName('Open in This week — Whitby');
+    expect(open).toHaveAccessibleName('Show in This week — Whitby');
     expect(open).not.toHaveAttribute('aria-label');
-    expect(open).toHaveTextContent('Open in This week — Whitby ›');
+    expect(open).toHaveTextContent('Show in This week — Whitby ›');
     expect(within(screen.getByTestId('ask-plan')).getAllByRole('button').map((b) => b.dataset.testid))
       .toEqual(['ask-plan-back', 'ask-plan-open']);
     expect(screen.queryByText(/add to coming up/i)).toBeNull();

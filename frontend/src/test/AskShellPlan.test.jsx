@@ -177,7 +177,7 @@ describe('on the dock (1024px and up)', () => {
     expect(modalCount()).toBe(1);
     expect(dock()).toBeInTheDocument();
     expect(dock()).toHaveAttribute('inert');
-    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
   });
 
   it('from the MAP tab it moves to Plan, and the dock stays open beside it', async () => {
@@ -189,7 +189,7 @@ describe('on the dock (1024px and up)', () => {
     fireEvent.click(screen.getByTestId('ask-plan-open'));
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
     expect(dock()).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Saltburn');
     // Pick 2 is Saltburn TONIGHT: the window comes from the pick, whichever tab it was pressed on.
@@ -484,7 +484,7 @@ describe.each([
     expect(modalCount()).toBe(1);
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Whitby');
     expect(openRowKey()).toBe(`${TOMORROW}:SUNRISE`);
-    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
   });
 
   it('refuses over a dialog this shell does not own — and only Ask’s OWN sheet is excused, not any dialog', async () => {
@@ -598,7 +598,7 @@ describe('the tablet sheet over the Map', () => {
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(askSheet()).toBeNull();
-    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
     expect(modalCount()).toBe(1);
   });
 });

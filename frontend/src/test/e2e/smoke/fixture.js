@@ -366,11 +366,12 @@ export function visibleChips(page) {
 export async function openMapView(page, index = 2, { plain = false } = {}) {
   await page.getByTestId('wf-heat-card').nth(index).click();
   await expect(page.getByTestId('map-screen')).toBeVisible();
+  await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
   if (plain) {
+    // Only once the pane has placed its chips is the lens note drawn or absent for good: a check earlier would skip it.
     const clear = page.getByTestId('map-lens-note-clear');
     if (await clear.isVisible()) await clear.click();
   }
-  await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
   await page.evaluate(() => document.fonts.ready);
   await expect.poll(() => visibleChips(page).count()).toBeGreaterThan(0);
 }

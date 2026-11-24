@@ -41,11 +41,6 @@ export function closeMapView(options = {}) {
   act(() => { doors.close(options); });
 }
 
-/** Whether a shell has registered its doors (it does so on mount). */
-export function mapDoorReady() {
-  return doors != null;
-}
-
 /**
  * Presses a row of the ☰ menu, opening the menu first when it is shut: Settings, Change home postcode, Guide, Operations
  * and Sign out are rows of one menu at every width (`docs/engineering/one-screen-plan.md` D14), where the desktop's
