@@ -119,6 +119,9 @@ const renderShell = (overrides = {}, extraProps = {}) => {
 // jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
 const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 
+/** An Operations pane, so a test has a second real tab to move to (Coming up is a door onto Further ahead, O2). */
+const OPS = <p data-testid="ops-pane">operations pane</p>;
+
 /** Selects Coming up and lets the fetch settle, which is what actually paints the rows. */
 const openComingUp = async () => {
   fireEvent.click(tab('Coming up'));
@@ -267,7 +270,9 @@ describe('WindowFirstShell — the tab bar', () => {
       cleanup();
       renderShell();
       fireEvent.keyDown(tab('At a Glance'), { key: 'End' });
-      expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+      // The last tab that exists is Coming up, which is a door onto Further ahead (O2): Plan stays selected.
+      expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('Coming up')).toHaveAttribute('aria-selected', 'false');
     });
 
     // A selection can outlive its tab: a session that loses admin, or a stored id from a build with
@@ -305,7 +310,7 @@ describe('WindowFirstShell — the tab bar', () => {
     // only the selected tab's pairing is what let that through.
     renderShell();
 
-    for (const [name, testId] of [['At a Glance', 'window-first-pane'], ['Coming up', 'window-first-coming-up']]) {
+    for (const [name, testId] of [['At a Glance', 'window-first-pane'], ['Coming up', 'window-first-coming-up-door']]) {
       const panel = screen.getByTestId(testId);
       expect(panel.id).not.toBe('');
       expect(tab(name)).toHaveAttribute('aria-controls', panel.id);
@@ -328,16 +333,31 @@ describe('WindowFirstShell — the tab bar', () => {
 describe('WindowFirstShell — moving between tabs', () => {
   it('shows exactly one panel at a time, and both are always in the document', async () => {
     // Both panels are mounted for the aria-controls pairing, so "is it in the document" no longer
-    // distinguishes anything — visibility is the assertion that still can fail.
-    renderShell();
+    // distinguishes anything — visibility is the assertion that still can fail. Coming up is a door
+    // onto Further ahead (O2): its own panel is never the visible one.
+    renderShell({}, { operationsPane: OPS });
     expect(screen.getByTestId('window-first-pane')).toBeVisible();
-    expect(screen.getByTestId('window-first-coming-up')).not.toBeVisible();
+    expect(screen.getByTestId('window-first-coming-up-door')).not.toBeVisible();
 
     await openComingUp();
 
-    expect(screen.getByTestId('window-first-coming-up')).toBeVisible();
+    expect(screen.getByTestId('window-first-pane')).toBeVisible();
+    expect(screen.getByTestId('window-first-coming-up-door')).not.toBeVisible();
+    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'false');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
     expect(screen.getByTestId('window-first-pane')).not.toBeVisible();
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('choosing Coming up lands the reader on Further ahead: Plan selected, its heading scrolled to and focused', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    renderShell();
+    await openComingUp();
+
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(screen.getByTestId('further-ahead-heading')).toHaveFocus();
+    delete Element.prototype.scrollIntoView;
   });
 
   it('swaps the Plan pane’s display utility with the tab, not just its hidden attribute', async () => {
@@ -351,20 +371,19 @@ describe('WindowFirstShell — moving between tabs', () => {
     // picks `flex` vs `hidden` completely untested. Invert it and the Plan pane renders
     // `display: none` on first paint while `hidden` is false: a blank screen on load, in a browser,
     // with a green suite. This is the only assertion that catches that.
-    renderShell();
-    // Plan selected: it lays out, the feed carries the display rule that hides it.
+    renderShell({}, { operationsPane: OPS });
+    // Plan selected: it lays out, and the always-hidden Coming up door carries the display rule that hides it.
     expect(screen.getByTestId('window-first-pane').className).toContain('flex');
     expect(screen.getByTestId('window-first-pane').className).not.toContain('hidden');
-    expect(screen.getByTestId('window-first-coming-up').className).toContain('hidden');
+    expect(screen.getByTestId('window-first-coming-up-door').className).toContain('hidden');
 
-    await openComingUp();
+    fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
 
     // And the other way round. `hidden` must REPLACE the display utility on the Plan pane, not sit
     // beside it — Tailwind's `.flex` and `.hidden` are the same property, and which wins would then
     // be source order rather than intent.
     expect(screen.getByTestId('window-first-pane').className).toContain('hidden');
     expect(screen.getByTestId('window-first-pane').className).not.toContain('flex flex-col');
-    expect(screen.getByTestId('window-first-coming-up').className).not.toContain('hidden');
   });
 
   it('keeps the Plan pane mounted, so returning to it costs no remount', async () => {
@@ -381,8 +400,8 @@ describe('WindowFirstShell — moving between tabs', () => {
   it('takes the Plan pane out of the accessibility tree while it is not selected', async () => {
     // Hidden, not merely off-screen. The tab pattern requires an unselected panel to be
     // unreachable, and a CSS-only hide would leave it findable by a screen reader.
-    renderShell();
-    await openComingUp();
+    renderShell({}, { operationsPane: OPS });
+    fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
 
     expect(screen.getByTestId('window-first-pane')).toHaveAttribute('hidden');
   });
@@ -391,32 +410,36 @@ describe('WindowFirstShell — moving between tabs', () => {
     // Selection follows focus, which is the authoring-practices default and is right here because
     // both panes are cheap. This is the first roving-tabindex implementation in the codebase —
     // there was nothing to copy, so the whole contract is pinned.
-    renderShell();
+    renderShell({}, { operationsPane: OPS });
     tab('At a Glance').focus();
 
+    // Coming up is a door (O2): arrowing onto it keeps Plan selected and carries the reader to Further ahead.
     fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowRight' });
     await act(async () => { await Promise.resolve(); });
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
-    expect(tab('Coming up')).toHaveFocus();
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
 
     fireEvent.keyDown(tab('Coming up'), { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Operations' })).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Operations' }), { key: 'ArrowRight' });
     expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(tab('At a Glance')).toHaveFocus();
 
     fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowLeft' });
     await act(async () => { await Promise.resolve(); });
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('jumps to the ends with Home and End', async () => {
-    renderShell();
+    renderShell({}, { operationsPane: OPS });
     tab('At a Glance').focus();
 
     fireEvent.keyDown(tab('At a Glance'), { key: 'End' });
     await act(async () => { await Promise.resolve(); });
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
 
-    fireEvent.keyDown(tab('Coming up'), { key: 'Home' });
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Operations' }), { key: 'Home' });
     expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -476,7 +499,8 @@ describe('WindowFirstShell — moving between tabs', () => {
     fireEvent.keyDown(tab('At a Glance'), { key: 'ArrowRight' });
     await act(async () => { await Promise.resolve(); });
 
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+    // Coming up is a door onto Further ahead (O2): Plan stays selected, and the dialog still goes down with the move.
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByTestId('plan-search')).toBeNull();
     expect(screen.queryAllByRole('dialog')).toHaveLength(0);
   });
@@ -521,9 +545,9 @@ describe('WindowFirstShell — moving between tabs', () => {
     // interaction wrote and cannot be broken by an unrelated key the environment happens to carry.
     const before = keysNow();
 
-    const { unmount } = renderShell();
-    await openComingUp();
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+    const { unmount } = renderShell({}, { operationsPane: OPS });
+    fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
+    expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
     unmount();
 
     renderShell();
@@ -538,12 +562,18 @@ describe('WindowFirstShell — the reach lens across tabs', () => {
     expect(screen.getByTestId('window-first-lens')).toBeInTheDocument();
   });
 
-  it('withdraws the lens bar on Coming up, where it would gate nothing', async () => {
-    // The design's own heading for it is "Lens bar (Plan only)". The bar filters SPOTS and the
-    // almanac feed has none — §6 bans a control that gates data which does not exist, and its
-    // footer would otherwise read "0 spots across 5 windows" over a pane containing neither.
+  it('keeps the lens bar when Coming up is asked for, because Further ahead is on the Plan pane under it', async () => {
+    // It used to be withdrawn on the Coming up tab ("Lens bar (Plan only)"). Further ahead is the bottom section of
+    // the Plan pane now (one-screen-plan.md O2) and the lens stays sticky over the whole screen.
     renderShell();
     await openComingUp();
+
+    expect(screen.getByTestId('window-first-lens')).toBeInTheDocument();
+  });
+
+  it('withdraws the lens bar on Operations, where it would gate nothing', () => {
+    renderShell({}, { operationsPane: OPS });
+    fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
 
     expect(screen.queryByTestId('window-first-lens')).toBeNull();
   });
@@ -695,10 +725,11 @@ describe('WindowFirstShell — what stays put across a tab change', () => {
     const strip = await screen.findByTestId('wf-heat-strip');
     expect(screen.getByTestId('window-first-pane')).toContainElement(strip);
 
-    await openComingUp();
-
-    expect(screen.getByTestId('window-first-pane')).toHaveAttribute('hidden');
-    expect(within(screen.getByTestId('window-first-coming-up')).queryByTestId('wf-heat-strip'))
+    // Further ahead is part of the Plan pane (O2), so asking for Coming up leaves the strip where it was; the strip
+    // is the first section's and never the almanac's.
+    expect(screen.getByTestId('window-first-pane')).not.toHaveAttribute('hidden');
+    expect(screen.getByTestId('window-first-pane')).toContainElement(strip);
+    expect(within(screen.getByTestId('further-ahead')).queryByTestId('wf-heat-strip'))
       .toBeNull();
   });
 
@@ -910,10 +941,11 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       // hand, press the hatch again: an id-keyed request would see no change and do nothing.
       const { setRequest } = renderWithRequest();
       act(() => setRequest({ id: 'coming-up', nonce: 1 }));
-      fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
-      expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('further-ahead-heading')).toHaveFocus();
+      screen.getByRole('tab', { name: /^At a Glance/ }).focus();
+      expect(screen.getByTestId('further-ahead-heading')).not.toHaveFocus();
       act(() => setRequest({ id: 'coming-up', nonce: 2 }));
-      expect(screen.getByRole('tab', { name: 'Coming up' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('further-ahead-heading')).toHaveFocus();
     });
 
     describe('Operations, and the control a return carries (overlay convergence C4)', () => {
@@ -946,7 +978,8 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       it('arriving on a tab by a request puts focus on its tab button, not <body>', async () => {
         const { setRequest } = renderWithRequest();
         act(() => setRequest({ id: 'coming-up', nonce: 1 }));
-        await waitFor(() => expect(screen.getByRole('tab', { name: 'Coming up' })).toHaveFocus());
+        // Coming up is a door onto Further ahead (O2): focus lands on that section's heading.
+        await waitFor(() => expect(screen.getByTestId('further-ahead-heading')).toHaveFocus());
       });
     });
 
@@ -997,7 +1030,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       expect(screen.getByRole('tab', { name: 'Coming up' })).toHaveAttribute('aria-selected', 'false');
     });
 
-    it('moves focus to the tab it selected, because the asker just closed itself', () => {
+    it('moves focus to where it sent the reader, because the asker just closed itself', () => {
       // A click leaves focus on the tab the reader already put it on; a request arrives with focus
       // wherever the CALLER left it, and the caller is the map overlay, which closes on the same
       // press. Measured on the running app before this: `activeElement` was the document root — a
@@ -1005,7 +1038,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
       const { setRequest } = renderWithRequest();
       act(() => setRequest({ id: 'coming-up', nonce: 1 }));
-      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Coming up' }));
+      expect(document.activeElement).toBe(screen.getByTestId('further-ahead-heading'));
       raf.mockRestore();
     });
 
@@ -1043,11 +1076,12 @@ describe('WindowFirstShell — what the shell tells App about the tab and the ma
     const { onTabChange } = renderWithMap();
     onTabChange.mockClear();
     fireEvent.click(screen.getByRole('tab', { name: 'Coming up' }));
-    expect(onTabChange).toHaveBeenLastCalledWith('coming-up');
+    // Coming up is a door onto Further ahead (O2), so the tab in force is still Plan and nothing changed.
+    expect(onTabChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('window-first-tab-map'));
     expect(onTabChange).toHaveBeenLastCalledWith('map');
     fireEvent.click(screen.getByTestId('map-screen-close'));
-    expect(onTabChange).toHaveBeenLastCalledWith('coming-up');
+    expect(onTabChange).toHaveBeenLastCalledWith('plan');
   });
 
   it('the page keeps one layout: no flex-column recast and no wf-body--map panel, opened or not', () => {

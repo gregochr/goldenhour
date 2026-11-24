@@ -10,8 +10,8 @@ import { USERS } from './fixture.js';
  *    show to whichever spec logged in first and to none after). The prompt itself is covered by Vitest. The
  *    ADMIN's is dismissed here; `lite` and `pro` are inserted with it already dismissed
  *    (`E2eRoleUsers`, `postcodePromptDismissedAt`), so there is nothing to write for them;
- *  - the Coming up "seen" mark, for ALL THREE accounts, which would otherwise flip the tab's unseen badge under
- *    whichever spec happened to be the first to open that tab. Specs never assert the badge.
+ *  - the Coming up "seen" mark, for ALL THREE accounts, which would otherwise flip the "Further ahead ↓" jump's unseen
+ *    badge under whichever spec happened to be the first to reach that section. Specs never assert the badge.
  *
  * `lite` has no first-choice sub-region prompt to dismiss: the seeder gives it its picks, so its standing is
  * `OPEN` (the prompt shows only at `FIRST_CHOICE`).

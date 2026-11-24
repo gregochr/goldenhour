@@ -424,17 +424,20 @@ describe('the sheet', () => {
     renderAskShell({ width: 390 });
     await openSheet();
     expect(await screen.findByTestId('ask-ready-BEST_NEXT')).toBeInTheDocument();
-    expect(screen.queryByTestId('ask-ready-RARE_EVENTS')).toBeNull();
+    // Further ahead is part of the screen, so the rare-events question is the plan view's (D8).
+    expect(await screen.findByTestId('ask-ready-RARE_EVENTS')).toBeInTheDocument();
+    expect(screen.queryByTestId('ask-ready-COASTAL_HIGH')).toBeNull();
     expect(screen.getByTestId('ask-context')).toHaveTextContent('At a Glance · all regions');
     expect(screen.queryByTestId('ask-chip-window')).toBeNull();
   });
 
-  it('is labelled for Coming up when opened there', async () => {
+  it('keeps the screen\'s own label when Further ahead was asked for: Coming up is a door, not a view', async () => {
     renderAskShell({ width: 390 });
     await barReady();
     fireEvent.click(tab('Coming up'));
     await openSheet();
-    expect(screen.getByTestId('ask-context')).toHaveTextContent('Coming up · all regions');
+    expect(screen.getByTestId('ask-context')).toHaveTextContent('At a Glance · all regions');
+    expect(screen.getByTestId('ask-context')).not.toHaveTextContent('Coming up');
     expect(await screen.findByTestId('ask-ready-RARE_EVENTS')).toBeInTheDocument();
   });
 
@@ -645,7 +648,8 @@ describe('the sheet', () => {
       fireEvent.click(tab('Coming up'));
       expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
       expect(modalCount()).toBe(0);
-      expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+      // Coming up is a door onto Further ahead: it closes the sheet like any move, and Plan stays the tab.
+      expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     });
 
     it('a tab asked for from outside the bar (the shell\'s tabRequest)', async () => {
@@ -653,7 +657,7 @@ describe('the sheet', () => {
       await openSheet();
       rerenderShell({ tabRequest: { id: 'coming-up', nonce: 1 } });
       expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
-      expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     });
 
     it('settings opening (the settings edge calls selectTab, naming the tab in force)', async () => {
@@ -815,14 +819,14 @@ describe('the question field', () => {
     expect(ask).toHaveBeenCalledTimes(1);
   });
 
-  it('sends the Coming up view from Coming up', async () => {
+  it('sends the plan view from Further ahead, because the rare-events question is the plan view\'s', async () => {
     ask.mockResolvedValue(ownResponse());
     renderAskShell({ width: 390 });
     await barReady();
     fireEvent.click(tab('Coming up'));
     await openSheet();
     await userEvent.type(screen.getByTestId('ask-input'), 'Any rare events?{Enter}');
-    expect(ask).toHaveBeenCalledWith({ question: 'Any rare events?', regionIds: [], view: 'coming-up' });
+    expect(ask).toHaveBeenCalledWith({ question: 'Any rare events?', regionIds: [], view: 'plan' });
   });
 
   it('clears itself once the question is on its way', async () => {

@@ -1,4 +1,6 @@
-import { test, expect, loginAndWaitForForecast, openTab, openMapTab } from './fixture.js';
+import {
+  test, expect, loginAndWaitForForecast, openTab, openFurtherAhead, openMapTab,
+} from './fixture.js';
 
 /**
  * The tabs on the SEEDED fixture, and the Map door beside them. The Map door exists only once a forecast has arrived,
@@ -31,11 +33,18 @@ test.describe('Tabs on the seeded fixture', () => {
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
   });
 
-  test('Coming up renders the almanac list, with no error state', async ({ page }) => {
-    await openTab(page, 'coming-up');
-    await expect(page.getByTestId('window-first-coming-up')).toBeVisible();
+  test('Further ahead renders the almanac list at the bottom of the screen, with no error state', async ({ page }) => {
+    await openFurtherAhead(page);
+    await expect(page.getByTestId('further-ahead')).toBeVisible();
     await expect(page.getByTestId('coming-up-list').first()).toBeVisible();
     await expect(page.getByTestId('coming-up-error')).toHaveCount(0);
+  });
+
+  test('the Coming up tab is a door onto Further ahead: it selects nothing, and the Plan tab stays selected', async ({ page }) => {
+    await page.getByTestId('window-first-tab-coming-up').click();
+    await expect(page.getByTestId('window-first-tab-coming-up')).toHaveAttribute('aria-selected', 'false');
+    await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('further-ahead-heading')).toBeFocused();
   });
 
   test('the Map door opens the map view, which draws a Leaflet map', async ({ page }) => {

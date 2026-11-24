@@ -6,7 +6,7 @@ import { ProUpsellContent } from './ProUpsell.jsx';
 
 /** The upsell's words (roles-and-gating.md): worded, never a link, never an upgrade button; `/upgrade` is no route. */
 export const FAVOURITES_UPSELL_HEADING = 'Your places';
-export const FAVOURITES_UPSELL_BODY = 'Pro keeps your own list of places and areas. They come first in Find, have their own entry in the region pickers and a watchlist in Coming up.';
+export const FAVOURITES_UPSELL_BODY = 'Pro keeps your own list of places and areas. They come first in Find, have their own entry in the region pickers and a row of their own at the top of This week.';
 
 /**
  * One Lite reader's open upsell, shared by the toggle that opens it and the panel the host draws under its header.

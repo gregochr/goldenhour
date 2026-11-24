@@ -300,10 +300,11 @@ describe('the Ready list', () => {
   const { questions } = readyResponse();
 
   it('offers on a tab exactly the questions that name it, in served order', () => {
-    expect(questionsForView(questions, 'plan').map((q) => q.id)).toEqual(['BEST_NEXT', 'AM_OR_PM']);
+    expect(questionsForView(questions, 'plan').map((q) => q.id)).toEqual(['BEST_NEXT', 'AM_OR_PM', 'RARE_EVENTS']);
     expect(questionsForView(questions, 'map').map((q) => q.id))
       .toEqual(['BEST_NEXT', 'COASTAL_HIGH', 'RARE_EVENTS']);
-    expect(questionsForView(questions, 'coming-up').map((q) => q.id)).toEqual(['RARE_EVENTS']);
+    // The Coming up view is retired (one-screen-plan.md D8): no served question names it.
+    expect(questionsForView(questions, 'coming-up')).toEqual([]);
   });
 
   it('offers nothing from a malformed list', () => {

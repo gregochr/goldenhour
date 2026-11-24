@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
-import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
+import FurtherAhead from '../components/FurtherAhead.jsx';
 import { SubRegionStatusProvider } from '../context/SubRegionStatusContext.jsx';
 import { comingUpOutsideFacts, outsideLineText } from '../utils/comingUpOutside.js';
 import { isCoastalLocation, isDarkSkyLocation } from '../utils/locationPredicates.js';
@@ -51,9 +51,9 @@ function renderPane(entries, { briefing = {}, status = OPEN, locations = LOCATIO
   const onOpen = vi.fn();
   const view = render(
     <SubRegionStatusProvider enabled={Array.isArray(mockBriefing.allowedLocationIds)} onOpen={onOpen}>
-      <WindowFirstComingUp
+      <FurtherAhead
         id="p"
-        labelledBy="t"
+        headingId="further-ahead-h"
         status="ready"
         events={{ entries, counts: COUNTS }}
         todayStr={TODAY}
@@ -71,7 +71,8 @@ function renderPane(entries, { briefing = {}, status = OPEN, locations = LOCATIO
 const COAST = [entry('c1', 'coastal-spots', '2026-08-12'), entry('c2', 'coastal-spots', '2026-08-20')];
 const DARK = [entry('d1', 'dark-sky-spots', '2026-08-13'), entry('d2', 'dark-sky-spots', '2026-08-22')];
 
-beforeEach(() => { vi.clearAllMocks(); });
+// The chip a reader chose is remembered (D7), so a press in one test must not open the next on it.
+beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
 
 describe('the shared predicates (item 10)', () => {
   it('coastal is SEASCAPE in locationType, never tideType', () => {
@@ -172,7 +173,7 @@ describe('Coming up — the line under the door row (item 11)', () => {
 
   it('never says upgrade, not rated or not scored', () => {
     renderPane([...COAST, ...DARK], { briefing: { allowedLocationIds: [3] } });
-    expect(screen.getByTestId('window-first-coming-up').textContent).not.toMatch(/upgrade|not rated|not scored/i);
+    expect(screen.getByTestId('further-ahead').textContent).not.toMatch(/upgrade|not rated|not scored/i);
   });
 });
 
@@ -299,7 +300,7 @@ describe('Coming up — the sub-regions door (item 12)', () => {
     expect(outer).not.toHaveBeenCalled();
     expect(screen.queryByTestId('coming-up-subregions-coast-upsell-popover')).toBeNull();
     expect(document.activeElement).toBe(trigger);
-    expect(screen.getByTestId('window-first-coming-up')).toBeInTheDocument();
+    expect(screen.getByTestId('further-ahead')).toBeInTheDocument();
   });
 
   it('opens Settings through the status provider, and opens no dialog of its own', async () => {
@@ -356,8 +357,8 @@ describe('Coming up — residuals and filters', () => {
     getSubRegions.mockResolvedValue(OPEN);
     render(
       <SubRegionStatusProvider enabled onOpen={vi.fn()}>
-        <WindowFirstComingUp
-          id="p" labelledBy="t" status="ready" todayStr={TODAY} locations={LOCATIONS}
+        <FurtherAhead
+          id="p" headingId="further-ahead-h" status="ready" todayStr={TODAY} locations={LOCATIONS}
           events={{ entries: [entry('c1', 'coastal-spots', '2026-08-12', { endDate: '2026-09-30' })], counts: COUNTS }}
           forecastDates={[]}
           onRetry={vi.fn()} onGoToPlan={vi.fn()} onShowOnMap={vi.fn()} onMarkSeen={vi.fn()}
@@ -373,8 +374,8 @@ describe('Coming up — residuals and filters', () => {
     getSubRegions.mockResolvedValue(FIRST_CHOICE);
     render(
       <SubRegionStatusProvider enabled>
-        <WindowFirstComingUp
-          id="p" labelledBy="t" status="ready" todayStr={TODAY} locations={LOCATIONS}
+        <FurtherAhead
+          id="p" headingId="further-ahead-h" status="ready" todayStr={TODAY} locations={LOCATIONS}
           events={{ entries: [COAST[0]], counts: COUNTS }}
           onRetry={vi.fn()} onGoToPlan={vi.fn()} onShowOnMap={vi.fn()} onMarkSeen={vi.fn()}
         />

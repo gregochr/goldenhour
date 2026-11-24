@@ -14,7 +14,7 @@ vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContext
 
 import { getWarnings } from '../api/warningsApi.js';
 import { WarningsProvider } from '../context/WarningsContext.jsx';
-import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
+import FurtherAhead from '../components/FurtherAhead.jsx';
 import { ATTRIBUTION, METOFFICE_URL, response, warning } from './warningsFixture.js';
 
 const TODAY = '2026-08-14';
@@ -71,9 +71,9 @@ const mount = async (served, events = FEED, props = {}) => {
   const onGoToPlan = vi.fn();
   const result = render(
     <WarningsProvider>
-      <WindowFirstComingUp
+      <FurtherAhead
         id="p"
-        labelledBy="t"
+        headingId="further-ahead-h"
         status="ready"
         events={events}
         todayStr={TODAY}
@@ -91,6 +91,7 @@ const mount = async (served, events = FEED, props = {}) => {
 describe('Coming up warning entries', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    localStorage.clear();
     getWarnings.mockReset();
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-08-14T13:00:00Z'));

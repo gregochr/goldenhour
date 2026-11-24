@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
-import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
+import FurtherAhead from '../components/FurtherAhead.jsx';
 import { COMING_UP_OPEN_KEY } from '../utils/comingUpOpen.js';
 import { mockOpenGuide } from './guideContextMock.js';
 
@@ -11,7 +11,7 @@ const TODAY = '2026-08-09';
 
 // An entry starting more than 30 days out starts CLOSED (collapse-and-topic-pips-plan.md §5); a session's
 // presses would leak between tests, so each starts clean.
-beforeEach(() => { sessionStorage.clear(); });
+beforeEach(() => { sessionStorage.clear(); localStorage.clear(); });
 
 /** A `ComingUpEntry` as P2 actually serves one. */
 const wireEntry = (over = {}) => ({
@@ -49,9 +49,9 @@ const renderPane = (props = {}) => {
   const onGoToPlan = vi.fn();
   const onShowOnMap = vi.fn();
   const result = render(
-    <WindowFirstComingUp
-      id="window-first-panel-coming-up"
-      labelledBy="window-first-tab-coming-up"
+    <FurtherAhead
+      id="further-ahead-section"
+      headingId="further-ahead-h"
       status="ready"
       events={{ entries: ENTRIES, counts: COUNTS }}
       todayStr={TODAY}
@@ -64,23 +64,32 @@ const renderPane = (props = {}) => {
   return { ...result, onRetry, onGoToPlan, onShowOnMap };
 };
 
-describe('WindowFirstComingUp — the panel contract', () => {
-  it('is a tab panel tied to the tab that controls it', () => {
+describe('FurtherAhead — the section contract', () => {
+  it('is a section labelled by its own heading, which reads "Further ahead · dates known in advance"', () => {
     renderPane();
-    const panel = screen.getByRole('tabpanel');
-    expect(panel).toHaveAttribute('id', 'window-first-panel-coming-up');
-    expect(panel).toHaveAttribute('aria-labelledby', 'window-first-tab-coming-up');
+    const section = screen.getByRole('region', { name: /Further ahead/ });
+    expect(section).toHaveAttribute('id', 'further-ahead-section');
+    expect(section.tagName).toBe('SECTION');
+    const heading = screen.getByRole('heading', { level: 2 });
+    expect(heading).toHaveAttribute('id', 'further-ahead-h');
+    expect(heading).toHaveTextContent('Further ahead · dates known in advance');
+    expect(section).toHaveAttribute('aria-labelledby', 'further-ahead-h');
   });
 
-  it('is focusable, because everything inside it is text', () => {
+  it('is not a tab panel any more: no tabpanel role, no tab to label it', () => {
     renderPane();
-    expect(screen.getByRole('tabpanel')).toHaveAttribute('tabindex', '0');
+    expect(screen.queryByRole('tabpanel')).toBeNull();
+  });
+
+  it('makes the heading the focus target, programmatically focusable and not in the tab order', () => {
+    renderPane();
+    expect(screen.getByTestId('further-ahead-heading')).toHaveAttribute('tabindex', '-1');
   });
 
   it('prints no header subtitle naming the horizon', () => {
     renderPane();
     expect(screen.queryByTestId('coming-up-subtitle')).toBeNull();
-    expect(screen.getByTestId('window-first-coming-up')).not.toHaveTextContent('past the four-day forecast');
+    expect(screen.getByTestId('further-ahead')).not.toHaveTextContent('past the four-day forecast');
   });
 
   it('renders the legend unconditionally — not gated on entries, filters or status', () => {
@@ -107,7 +116,7 @@ describe('WindowFirstComingUp — the panel contract', () => {
   });
 });
 
-describe('WindowFirstComingUp — the four states', () => {
+describe('FurtherAhead — the four states', () => {
   it('renders one entry per served row, in the payload’s order', () => {
     renderPane();
     const entries = screen.getAllByTestId('coming-up-entry');
@@ -185,7 +194,7 @@ describe('WindowFirstComingUp — the four states', () => {
     expect(screen.queryByRole('list')).toBeNull();
   });
 
-  it('puts focus on the panel when a retry succeeds, rather than dropping it on the body', () => {
+  it('puts focus on the section heading when a retry succeeds, rather than dropping it on the body', () => {
     const { rerender, onRetry, onGoToPlan } = renderPane({ status: 'error', events: null });
     const button = screen.getByRole('button', { name: 'Try again' });
     button.focus();
@@ -193,9 +202,9 @@ describe('WindowFirstComingUp — the four states', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
 
     rerender(
-      <WindowFirstComingUp
-        id="window-first-panel-coming-up"
-        labelledBy="window-first-tab-coming-up"
+      <FurtherAhead
+        id="further-ahead-section"
+        headingId="further-ahead-h"
         status="ready"
         events={{ entries: ENTRIES, counts: COUNTS }}
         todayStr={TODAY}
@@ -204,7 +213,7 @@ describe('WindowFirstComingUp — the four states', () => {
         onShowOnMap={vi.fn()}
       />,
     );
-    expect(screen.getByRole('tabpanel')).toHaveFocus();
+    expect(screen.getByTestId('further-ahead-heading')).toHaveFocus();
   });
 
   it('offers a retry that actually retries', () => {
@@ -226,7 +235,7 @@ describe('WindowFirstComingUp — the four states', () => {
   });
 });
 
-describe('WindowFirstComingUp — month rules', () => {
+describe('FurtherAhead — month rules', () => {
   it('renders one month rule for a feed spanning one month', () => {
     renderPane();
     expect(screen.getAllByTestId('coming-up-month')).toHaveLength(1);
@@ -254,7 +263,7 @@ describe('WindowFirstComingUp — month rules', () => {
   });
 });
 
-describe('WindowFirstComingUp — filter chips (plan D6)', () => {
+describe('FurtherAhead — filter chips (plan D6)', () => {
   it('renders one chip per family plus All', () => {
     renderPane();
     const chips = screen.getAllByTestId('coming-up-chip');
@@ -327,7 +336,7 @@ describe('WindowFirstComingUp — filter chips (plan D6)', () => {
   });
 });
 
-describe('WindowFirstComingUp — filter chip glyphs (G4, plan §4.2)', () => {
+describe('FurtherAhead — filter chip glyphs (G4, plan §4.2)', () => {
   it('renders a glyph on every family chip, after the existing dot', () => {
     renderPane();
     const chips = screen.getAllByTestId('coming-up-chip');
@@ -359,7 +368,7 @@ describe('WindowFirstComingUp — filter chip glyphs (G4, plan §4.2)', () => {
   });
 });
 
-describe('WindowFirstComingUp — the vocabulary now lives on the card', () => {
+describe('FurtherAhead — the vocabulary now lives on the card', () => {
   it('does not claim the dates come from orbital mechanics, because two sources compute none', () => {
     renderPane();
     expect(screen.getByTestId('coming-up-footer').textContent).not.toMatch(/orbital/i);
@@ -373,7 +382,7 @@ describe('WindowFirstComingUp — the vocabulary now lives on the card', () => {
   });
 });
 
-describe('WindowFirstComingUp — the footer is one fixed sentence in every status', () => {
+describe('FurtherAhead — the footer is one fixed sentence in every status', () => {
   it('reads the same sentence in loading, error and ready, whatever the counts', () => {
     for (const [status, events] of [
       ['loading', null],
@@ -385,7 +394,7 @@ describe('WindowFirstComingUp — the footer is one fixed sentence in every stat
       expect(screen.getByTestId('coming-up-footer')).toHaveTextContent(
         'This list shows dates fixed in advance, from today on. '
         + "Weather-driven topics can't be known that far out, so they appear only under the next "
-        + 'four days on At a Glance, except Met Office weather warnings, which are listed here when they run past '
+        + 'four days in This week, except Met Office weather warnings, which are listed here when they run past '
         + 'those four days.',
       );
       unmount();
@@ -393,7 +402,7 @@ describe('WindowFirstComingUp — the footer is one fixed sentence in every stat
   });
 });
 
-describe('WindowFirstComingUp — the Recurring conditions panel is gone (coming-up-glance P2)', () => {
+describe('FurtherAhead — the Recurring conditions panel is gone (coming-up-glance P2)', () => {
   it('renders no .wf-cond element, even when the payload still carries conditions', () => {
     const { container } = renderPane({
       events: {
@@ -411,18 +420,18 @@ describe('WindowFirstComingUp — the Recurring conditions panel is gone (coming
   });
 });
 
-describe('WindowFirstComingUp — the "Next four days" block has moved to At a Glance (glance-topic-strip-plan.md)', () => {
+describe('FurtherAhead — the "Next four days" block has moved to At a Glance (glance-topic-strip-plan.md)', () => {
   it('renders no four-days block, in any status, hot topics or not', () => {
     for (const status of ['idle', 'loading', 'error', 'ready']) {
       const { unmount } = renderPane({ status });
       expect(screen.queryByTestId('coming-up-fourdays')).toBeNull();
-      expect(screen.getByTestId('window-first-coming-up')).not.toHaveTextContent('Next four days');
+      expect(screen.getByTestId('further-ahead')).not.toHaveTextContent('Next four days');
       unmount();
     }
   });
 });
 
-describe('WindowFirstComingUp — a focus request from At a Glance (glance-topic-strip-plan.md R4)', () => {
+describe('FurtherAhead — a focus request from At a Glance (glance-topic-strip-plan.md R4)', () => {
   const PERSEIDS = ENTRIES[0].id;
   const SPRING = ENTRIES[1].id;
 
@@ -456,9 +465,9 @@ describe('WindowFirstComingUp — a focus request from At a Glance (glance-topic
     fireEvent.click(chipFor('Night sky'));
     expect(cardOf(SPRING)).toBeNull();
     rerender(
-      <WindowFirstComingUp
-        id="window-first-panel-coming-up"
-        labelledBy="window-first-tab-coming-up"
+      <FurtherAhead
+        id="further-ahead-section"
+        headingId="further-ahead-h"
         status="ready"
         events={props.events}
         todayStr={TODAY}
@@ -482,9 +491,9 @@ describe('WindowFirstComingUp — a focus request from At a Glance (glance-topic
     const { rerender } = renderPane(props);
     fireEvent.click(chipFor('Coastal'));
     rerender(
-      <WindowFirstComingUp
-        id="window-first-panel-coming-up"
-        labelledBy="window-first-tab-coming-up"
+      <FurtherAhead
+        id="further-ahead-section"
+        headingId="further-ahead-h"
         status="ready"
         events={props.events}
         todayStr={TODAY}
@@ -522,29 +531,37 @@ describe('WindowFirstComingUp — a focus request from At a Glance (glance-topic
     expect(onFocusHandled).toHaveBeenCalledWith(false);
   });
 
-  it('waits while the panel is hidden, then answers once it shows', () => {
+  it('answers a request that arrives after the section has mounted, once', () => {
     const onFocusHandled = vi.fn();
     const props = {
-      id: 'window-first-panel-coming-up',
-      labelledBy: 'window-first-tab-coming-up',
+      id: 'further-ahead-section',
+      headingId: 'further-ahead-h',
       status: 'ready',
       events: { entries: ENTRIES, counts: COUNTS },
       todayStr: TODAY,
       onRetry: vi.fn(),
       onGoToPlan: vi.fn(),
       onShowOnMap: vi.fn(),
-      focusRequest: { entryId: PERSEIDS, seq: 1 },
       onFocusHandled,
     };
-    const { rerender } = render(<WindowFirstComingUp {...props} hidden />);
+    const { rerender } = render(<FurtherAhead {...props} />);
     expect(onFocusHandled).not.toHaveBeenCalled();
-    rerender(<WindowFirstComingUp {...props} hidden={false} />);
+    rerender(<FurtherAhead {...props} focusRequest={{ entryId: PERSEIDS, seq: 1 }} />);
     expect(onFocusHandled).toHaveBeenCalledTimes(1);
     expect(onFocusHandled).toHaveBeenCalledWith(true);
+    rerender(<FurtherAhead {...props} focusRequest={{ entryId: PERSEIDS, seq: 1 }} />);
+    expect(onFocusHandled).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not list an entry This week already draws as a lane, so a request for it falls back', () => {
+    const onFocusHandled = vi.fn();
+    renderPane({ graduatedIds: new Set([SPRING]), focusRequest: { entryId: SPRING, seq: 1 }, onFocusHandled });
+    expect(cardOf(SPRING)).toBeNull();
+    expect(onFocusHandled).toHaveBeenCalledWith(false);
   });
 });
 
-describe('WindowFirstComingUp — card-click fires the entry’s action', () => {
+describe('FurtherAhead — card-click fires the entry’s action', () => {
   it('invokes onGoToPlan with the action’s own date on a plan-kind card', () => {
     const { onGoToPlan } = renderPane({
       events: {
@@ -565,7 +582,7 @@ describe('WindowFirstComingUp — card-click fires the entry’s action', () => 
   });
 });
 
-describe('WindowFirstComingUp — map doors follow the reader’s forecast dates (plan §11.24)', () => {
+describe('FurtherAhead — map doors follow the reader’s forecast dates (plan §11.24)', () => {
   // Both fixtures are OVER-CAP spans (a months-long season's shape): a single-day or short entry gets
   // day chips instead (§11.25, §11.26), so only an over-cap one still takes the single, gated door.
   // Different action dates let one list split them.
@@ -628,9 +645,9 @@ describe('WindowFirstComingUp — map doors follow the reader’s forecast dates
     const { rerender, onShowOnMap, onRetry, onGoToPlan } = renderSplit({ forecastDates: [] });
     expect(screen.getAllByTestId('coming-up-card').map((c) => c.tagName)).toEqual(['DIV', 'DIV']);
     rerender(
-      <WindowFirstComingUp
-        id="window-first-panel-coming-up"
-        labelledBy="window-first-tab-coming-up"
+      <FurtherAhead
+        id="further-ahead-section"
+        headingId="further-ahead-h"
         status="ready"
         events={SPLIT_EVENTS}
         todayStr={TODAY}
@@ -644,7 +661,7 @@ describe('WindowFirstComingUp — map doors follow the reader’s forecast dates
   });
 });
 
-describe('WindowFirstComingUp — a run’s day chips follow the reader’s forecast dates (plan §11.25)', () => {
+describe('FurtherAhead — a run’s day chips follow the reader’s forecast dates (plan §11.25)', () => {
   const RUN_EVENTS = {
     entries: [wireEntry({
       id: 'spring-tide:2026-10-09:2026-10-14', type: 'spring-tide', family: 'coastal',
@@ -685,9 +702,9 @@ describe('WindowFirstComingUp — a run’s day chips follow the reader’s fore
       expect(chip).toBeDisabled();
     }
     rerender(
-      <WindowFirstComingUp
-        id="window-first-panel-coming-up"
-        labelledBy="window-first-tab-coming-up"
+      <FurtherAhead
+        id="further-ahead-section"
+        headingId="further-ahead-h"
         status="ready"
         events={RUN_EVENTS}
         todayStr="2026-10-07"
@@ -725,7 +742,7 @@ describe('WindowFirstComingUp — a run’s day chips follow the reader’s fore
   });
 });
 
-describe('WindowFirstComingUp — a single-day map entry draws a one-box row (plan §11.26)', () => {
+describe('FurtherAhead — a single-day map entry draws a one-box row (plan §11.26)', () => {
   const METEOR_EVENTS = {
     entries: [wireEntry({
       id: 'meteor:2026-10-21:2026-10-21', title: 'Orionids',
@@ -755,7 +772,7 @@ describe('WindowFirstComingUp — a single-day map entry draws a one-box row (pl
   });
 });
 
-describe('WindowFirstComingUp — a plan entry’s chips open the map, not the Plan tab (plan §11.26)', () => {
+describe('FurtherAhead — a plan entry’s chips open the map, not the Plan tab (plan §11.26)', () => {
   const SOLSTICE = {
     entries: [wireEntry({
       id: 'solstice:2026-12-18:2026-12-24', type: 'solstice', family: 'sun-moon',
@@ -781,7 +798,7 @@ describe('WindowFirstComingUp — a plan entry’s chips open the map, not the P
   });
 });
 
-describe('WindowFirstComingUp — a single-day plan entry draws a one-box All spots row (plan §11.26)', () => {
+describe('FurtherAhead — a single-day plan entry draws a one-box All spots row (plan §11.26)', () => {
   const ECLIPSE = {
     entries: [wireEntry({
       id: 'eclipse:2026-10-21:2026-10-21', type: 'eclipse', family: 'eclipse', title: 'Partial eclipse',
@@ -813,7 +830,7 @@ describe('WindowFirstComingUp — a single-day plan entry draws a one-box All sp
 });
 
 
-describe('WindowFirstComingUp — guide doors (G3)', () => {
+describe('FurtherAhead — guide doors (G3)', () => {
   beforeEach(() => mockOpenGuide.mockClear());
 
   it('draws a ? after the fixed / could-still-move legend that opens reading-the-forecast#fixed', () => {
@@ -836,5 +853,170 @@ describe('WindowFirstComingUp — guide doors (G3)', () => {
     fireEvent.click(link);
     expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'topics', expect.any(Object));
     expect(within(chips).getAllByTestId('coming-up-chip').map((c) => c.getAttribute('aria-pressed'))).toEqual(before);
+  });
+});
+
+describe('FurtherAhead — graduation: it lists what This week does not already draw as a lane (D5)', () => {
+  const PERSEIDS = ENTRIES[0].id;
+  const SPRING = ENTRIES[1].id;
+
+  it('lists every entry when no lane carries one', () => {
+    renderPane();
+    expect(screen.getAllByTestId('coming-up-entry')).toHaveLength(2);
+  });
+
+  it('leaves out the entries a lane carries, and keeps the lane-less ones', () => {
+    renderPane({ graduatedIds: new Set([SPRING]) });
+    expect(screen.getAllByTestId('coming-up-entry')).toHaveLength(1);
+    expect(document.querySelector(`[data-entry-id="${SPRING}"]`)).toBeNull();
+    expect(document.querySelector(`[data-entry-id="${PERSEIDS}"]`)).not.toBeNull();
+  });
+
+  it('counts the chips over what is listed, so a chip never promises a row that is not there', () => {
+    renderPane({ graduatedIds: new Set([SPRING]) });
+    const counts = Object.fromEntries(screen.getAllByTestId('coming-up-chip').map((chip) => [
+      chip.getAttribute('data-chip'),
+      chip.querySelector('.wf-cu-chip-count').textContent,
+    ]));
+    expect(counts).toMatchObject({ all: '1', coastal: '0', 'night-sky': '1' });
+  });
+
+  it('reads the served counts when nothing has graduated', () => {
+    renderPane();
+    const all = screen.getAllByTestId('coming-up-chip').find((chip) => chip.getAttribute('data-chip') === 'all');
+    expect(all.querySelector('.wf-cu-chip-count').textContent).toBe('2');
+  });
+
+  it('says so when every entry has graduated, naming no filter', () => {
+    renderPane({ graduatedIds: new Set([PERSEIDS, SPRING]) });
+    expect(screen.getByTestId('coming-up-empty')).toBeInTheDocument();
+  });
+});
+
+describe('FurtherAhead — the remembered filter (D7)', () => {
+  const chip = (id) => screen.getAllByTestId('coming-up-chip').find((c) => c.getAttribute('data-chip') === id);
+
+  it('starts on All with nothing stored', () => {
+    renderPane();
+    expect(chip('all')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('remembers the chip the reader chose, under localStorage furtherAheadFilter', () => {
+    renderPane();
+    fireEvent.click(chip('coastal'));
+    expect(localStorage.getItem('furtherAheadFilter')).toBe('coastal');
+  });
+
+  it('opens on the remembered chip next visit', () => {
+    localStorage.setItem('furtherAheadFilter', 'coastal');
+    renderPane();
+    expect(chip('coastal')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('all')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getAllByTestId('coming-up-entry')).toHaveLength(1);
+  });
+
+  it('falls back to All for a stored value that is not a chip', () => {
+    localStorage.setItem('furtherAheadFilter', 'tides-only');
+    renderPane();
+    expect(chip('all')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('survives a localStorage that throws, on read and on write', () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+    renderPane();
+    expect(chip('all')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(chip('coastal'));
+    expect(chip('coastal')).toHaveAttribute('aria-pressed', 'true');
+    get.mockRestore();
+    set.mockRestore();
+  });
+
+  it('does not overwrite the remembered chip when a topic jump resets the view to All', () => {
+    localStorage.setItem('furtherAheadFilter', 'night-sky');
+    const props = { events: { entries: ENTRIES, counts: COUNTS }, onFocusHandled: vi.fn() };
+    const { rerender } = renderPane(props);
+    rerender(
+      <FurtherAhead
+        id="further-ahead-section"
+        headingId="further-ahead-h"
+        status="ready"
+        events={props.events}
+        todayStr={TODAY}
+        onRetry={vi.fn()}
+        onGoToPlan={vi.fn()}
+        onShowOnMap={vi.fn()}
+        focusRequest={{ entryId: ENTRIES[1].id, seq: 1 }}
+        onFocusHandled={props.onFocusHandled}
+      />,
+    );
+    expect(chip('all')).toHaveAttribute('aria-pressed', 'true');
+    expect(localStorage.getItem('furtherAheadFilter')).toBe('night-sky');
+  });
+});
+
+describe('FurtherAhead — the heading carries the NEW badge, aria-hidden, and tells the shell it was reached (D6)', () => {
+  const ARRIVAL = wireEntry({
+    id: 'supermoon:2026-09-01:2026-09-01', type: 'supermoon', family: 'sun-moon', title: 'Supermoon',
+    startDate: '2026-09-01', endDate: '2026-09-01', bits: 9, enteredWindow: '2026-08-08',
+  });
+  const BANDS = { list: 2, announce: 6, interrupt: 11 };
+  let observers;
+
+  beforeEach(() => {
+    observers = [];
+    globalThis.IntersectionObserver = class {
+      constructor(callback) { this.callback = callback; this.observed = []; observers.push(this); }
+
+      observe(node) { this.observed.push(node); }
+
+      disconnect() { this.observed = []; }
+    };
+  });
+
+  afterEach(() => { delete globalThis.IntersectionObserver; });
+
+  it('shows a count badge on the heading, hidden from assistive technology, leaving the name clean', () => {
+    renderPane({
+      events: { entries: [ARRIVAL], counts: COUNTS, bands: BANDS },
+      comingUpLastSeenDate: '2026-08-01',
+    });
+    const badge = screen.getByTestId('further-ahead-heading-badge');
+    expect(badge).toHaveTextContent('1');
+    expect(badge).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveAccessibleName('Further ahead · dates known in advance');
+  });
+
+  it('draws a diamond for an interrupt-band arrival', () => {
+    renderPane({
+      events: { entries: [{ ...ARRIVAL, bits: 12 }], counts: COUNTS, bands: BANDS },
+      comingUpLastSeenDate: '2026-08-01',
+    });
+    expect(screen.getByTestId('further-ahead-heading-badge')).toHaveTextContent('◆');
+  });
+
+  it('draws no badge when nothing is new', () => {
+    renderPane({ events: { entries: [ARRIVAL], counts: COUNTS, bands: BANDS }, comingUpLastSeenDate: '2026-08-09' });
+    expect(screen.queryByTestId('further-ahead-heading-badge')).toBeNull();
+  });
+
+  it('calls onHeadingSeen when the heading intersects the viewport, and not before', () => {
+    const onHeadingSeen = vi.fn();
+    renderPane({ onHeadingSeen });
+    expect(observers).toHaveLength(1);
+    expect(observers[0].observed).toEqual([screen.getByTestId('further-ahead-heading')]);
+    expect(onHeadingSeen).not.toHaveBeenCalled();
+
+    observers[0].callback([{ isIntersecting: false }]);
+    expect(onHeadingSeen).not.toHaveBeenCalled();
+    observers[0].callback([{ isIntersecting: true }]);
+    expect(onHeadingSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it('observes nothing without an onHeadingSeen, and nothing in a browser with no IntersectionObserver', () => {
+    renderPane();
+    expect(observers).toHaveLength(0);
+    delete globalThis.IntersectionObserver;
+    expect(() => renderPane({ onHeadingSeen: vi.fn() })).not.toThrow();
   });
 });

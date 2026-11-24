@@ -6,7 +6,7 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
 /**
  * The shell's wiring of the Plan tab's "show this on the map" producers (overlay convergence C4,
- * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the Coming up cards and day chips.
+ * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the Further ahead cards and day chips.
  * Each used to be handed `App`'s overlay trigger (`onShowOnMap`); the shell now builds ONE function,
  * over its `openMapTab`, and hands that to every producer - so each sends the normalised trigger and
  * carries the Plan's live lens.
@@ -17,7 +17,7 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  * can be wrong about is the join between them.
  */
 
-vi.mock('../components/WindowFirstComingUp.jsx', () => ({
+vi.mock('../components/FurtherAhead.jsx', () => ({
   default: ({ onShowOnMap }) => (
     <div data-testid="stub-coming-up">
       <button

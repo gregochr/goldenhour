@@ -262,15 +262,17 @@ describe('WindowFirstShell — the Map landing preference (loadMapRoute.preferre
     expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('stays on Coming up when the reader chose it before the map pane arrived', () => {
+  it('stays on the screen when the reader chose Coming up (a door onto Further ahead) before the map pane arrived', () => {
     const { rerenderWith } = renderShell({ loadMapRoute: { preferred: true } });
     fireEvent.click(tab('Coming up'));
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
 
     act(() => rerenderWith({ mapPane: MAP_PANE }));
 
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+    // Choosing a tab is a choice: the late-arriving map landing preference no longer applies.
+    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByTestId('map-pane')).toBeNull();
+    expect(screen.queryByTestId('map-screen')).toBeNull();
   });
 
   it('puts focus on the view\'s title when the preference opens it, so a keyboard reader is not stranded', async () => {

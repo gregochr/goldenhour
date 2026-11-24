@@ -176,7 +176,8 @@ describe('the Map door beside the tabs', () => {
     const tabs = screen.getAllByRole('tab');
     tabs[0].focus();
     fireEvent.keyDown(tabs[0], { key: 'End' });
-    expect(document.activeElement).toBe(tabs[tabs.length - 1]);
+    // The last tab is Coming up, a door onto Further ahead: focus lands on that section's heading, not on the map door.
+    expect(document.activeElement).toBe(screen.getByTestId('further-ahead-heading'));
     expect(document.activeElement).not.toBe(door());
   });
 });

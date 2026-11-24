@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 vi.mock('../api/areasApi.js', () => ({ fetchAreaDirectory: vi.fn(), fetchAreaOutlook: vi.fn() }));
 let mockIsMobile = false;
@@ -12,7 +12,7 @@ import AreaSheet from '../components/AreaSheet.jsx';
 import PlanSearch from '../components/PlanSearch.jsx';
 import WindowSpotCard from '../components/WindowSpotCard.jsx';
 import RegionsJump from '../components/map/RegionsJump.jsx';
-import ComingUpWatchlist from '../components/ComingUpWatchlist.jsx';
+import YourPlacesRow from '../components/YourPlacesRow.jsx';
 import { buildScoreIndex } from '../utils/locationSheet.js';
 import { favouritesValue, withFavourites } from './favouritesKit.jsx';
 import { FavouritesContext } from '../context/FavouritesContext.jsx';
@@ -239,7 +239,7 @@ describe('the Map Regions list', () => {
   });
 });
 
-describe('the Coming up watchlist', () => {
+describe('Your places, the row at the top of This week', () => {
   const WINDOWS = [
     { key: '2026-10-05:SUNRISE', date: '2026-10-05', targetType: 'SUNRISE', label: 'Mon sunrise' },
     { key: '2026-10-05:SUNSET', date: '2026-10-05', targetType: 'SUNSET', label: 'Mon sunset' },
@@ -254,13 +254,13 @@ describe('the Coming up watchlist', () => {
   ]);
   const AREA = { id: 9, name: "Hadrian's Wall", kind: 'NAMED', locationIds: [3] };
   const list = (options, extra = {}) => withFavourites(
-    <ComingUpWatchlist
-      active
+    <YourPlacesRow
       spots={SPOTS}
       windows={WINDOWS}
       scoreIndex={INDEX}
       reachById={new Map([[1, { driveMinutes: 22 }]])}
       allowedLocationIds={null}
+      onOpenWindow={vi.fn()}
       onOpenPlace={vi.fn()}
       onOpenArea={vi.fn()}
       {...extra}
@@ -279,12 +279,12 @@ describe('the Coming up watchlist', () => {
 
   it('prints served figures with their window: areas first, a place, the quiet line below 3★, and not rated', async () => {
     render(list({ places: [1, 2, 4], areas: [9], starredAreas: [AREA] }));
-    const rows = await screen.findAllByTestId('coming-up-watchlist-row');
+    const rows = await screen.findAllByTestId('your-places-chip');
     expect(rows.map((r) => r.dataset.kind)).toEqual(['area', 'place', 'place', 'place']);
-    const text = rows.map((r) => within(r).getByTestId('coming-up-watchlist-detail').textContent);
+    const text = rows.map((r) => within(r).getByTestId('your-places-detail').textContent);
     await screen.findByText(/best Steel Rigg/);
     expect(rows[0]).toHaveTextContent("Hadrian's Wall");
-    expect(rows[0].querySelector('[data-testid="coming-up-watchlist-detail"]').textContent).toBe('best Steel Rigg · 5★ · Mon sunrise · 1 rated');
+    expect(rows[0].querySelector('[data-testid="your-places-detail"]').textContent).toBe('best Steel Rigg · 5★ · Mon sunrise · 1 rated');
     expect(text[1]).toBe('4★ · Mon sunset · 22 min');
     expect(text[2]).toBe('nothing above 2★ in the next days');
     expect(text[3]).toBe('not rated yet');
@@ -296,72 +296,143 @@ describe('the Coming up watchlist', () => {
       { locationId: 2, locationName: 'Craster', date: '2026-10-05', targetType: 'SUNRISE', rating: 5 },
     ]);
     render(list({ places: [1, 2] }, { scoreIndex: index }));
-    const rows = await screen.findAllByTestId('coming-up-watchlist-row');
+    const rows = await screen.findAllByTestId('your-places-chip');
     // Held order (ids 1 then 2), not rating order; nothing here re-ranks.
     expect(rows.map((r) => r.firstChild.textContent)).toEqual(['Bamburgh', 'Craster']);
   });
 
   it('a place outside a Lite-style pick list says so and shows no figure', async () => {
     render(list({ places: [1] }, { allowedLocationIds: [2] }));
-    expect((await screen.findByTestId('coming-up-watchlist-detail')).textContent).toBe('outside your picks');
+    expect((await screen.findByTestId('your-places-detail')).textContent).toBe('outside your picks');
   });
 
-  it('opens a place or an area on a press', async () => {
+  it('a chip with a worthwhile window opens the map view on it: a place on its best window, an area on its spots', async () => {
+    const onOpenWindow = vi.fn();
     const onOpenPlace = vi.fn();
     const onOpenArea = vi.fn();
-    render(list({ places: [1], areas: [9], starredAreas: [AREA] }, { onOpenPlace, onOpenArea }));
-    const rows = await screen.findAllByTestId('coming-up-watchlist-row');
-    fireEvent.click(rows[0]);
-    fireEvent.click(rows[1]);
+    render(list({ places: [1], areas: [9], starredAreas: [AREA] }, { onOpenWindow, onOpenPlace, onOpenArea }));
+    await screen.findByText(/best Steel Rigg/);
+    const chips = await screen.findAllByTestId('your-places-chip');
+    fireEvent.click(chips[0]);
+    fireEvent.click(chips[1]);
+    expect(onOpenArea).not.toHaveBeenCalled();
+    expect(onOpenPlace).not.toHaveBeenCalled();
+    expect(onOpenWindow).toHaveBeenNthCalledWith(1, {
+      window: { date: '2026-10-05', eventType: 'SUNRISE' }, focus: { kind: 'area', area: AREA }, from: chips[0],
+    });
+    expect(onOpenWindow).toHaveBeenNthCalledWith(2, {
+      window: { date: '2026-10-05', eventType: 'SUNSET' },
+      focus: { kind: 'location', id: 1, name: 'Bamburgh' },
+      from: chips[1],
+    });
+  });
+
+  it('a chip with no window worth a trip opens the place\'s or area\'s own sheet instead, never nothing', async () => {
+    const onOpenWindow = vi.fn();
+    const onOpenPlace = vi.fn();
+    const onOpenArea = vi.fn();
+    // Craster is rated 2 (quiet), the unrated place has no figure, and the area has no outlook window.
+    fetchAreaOutlook.mockResolvedValue([{ areaId: 9, windows: [] }]);
+    render(list({ places: [2, 4], areas: [9], starredAreas: [AREA] }, { onOpenWindow, onOpenPlace, onOpenArea }));
+    const chips = await screen.findAllByTestId('your-places-chip');
+    fireEvent.click(chips[0]);
+    fireEvent.click(chips[1]);
+    fireEvent.click(chips[2]);
     expect(onOpenArea).toHaveBeenCalledWith(AREA);
+    expect(onOpenPlace).toHaveBeenNthCalledWith(1, SPOTS[1]);
+    expect(onOpenPlace).toHaveBeenNthCalledWith(2, SPOTS[3]);
+    expect(onOpenWindow).not.toHaveBeenCalled();
+  });
+
+  it('a place outside the reader\'s picks opens its sheet and carries no window', async () => {
+    const onOpenWindow = vi.fn();
+    const onOpenPlace = vi.fn();
+    render(list({ places: [1] }, { allowedLocationIds: [2], onOpenWindow, onOpenPlace }));
+    fireEvent.click(await screen.findByTestId('your-places-chip'));
     expect(onOpenPlace).toHaveBeenCalledWith(SPOTS[0]);
+    expect(onOpenWindow).not.toHaveBeenCalled();
+  });
+
+  it('is one horizontal row, a list of chips, labelled "Your places" by its own heading', async () => {
+    render(list({ places: [1, 2] }));
+    const section = await screen.findByRole('region', { name: /Your places/ });
+    expect(within(section).getByTestId('your-places-row').tagName).toBe('UL');
+    expect(within(section).getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  describe('the outlook fetch waits for the row to be on screen', () => {
+    let observers;
+    beforeEach(() => {
+      observers = [];
+      globalThis.IntersectionObserver = class {
+        constructor(callback) { this.callback = callback; observers.push(this); }
+
+        observe() {}
+
+        disconnect() {}
+      };
+    });
+    afterEach(() => { delete globalThis.IntersectionObserver; });
+
+    it('fetches nothing until the row first intersects, then fetches once', async () => {
+      render(list({ places: [1], areas: [9], starredAreas: [AREA] }));
+      await screen.findAllByTestId('your-places-chip');
+      expect(fetchAreaOutlook).not.toHaveBeenCalled();
+
+      act(() => { observers.at(-1).callback([{ isIntersecting: false }]); });
+      expect(fetchAreaOutlook).not.toHaveBeenCalled();
+
+      act(() => { observers.at(-1).callback([{ isIntersecting: true }]); });
+      await screen.findByText(/best Steel Rigg/);
+      expect(fetchAreaOutlook).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('⚠️ an area-only reader whose directory has not named the area never sees the empty-state advice', async () => {
     // Served list: one area starred. Directory unresolved: starredAreas is empty.
     render(list({ areas: [9], locationIds: [3], starredAreas: [] }));
-    expect(screen.queryByTestId('coming-up-watchlist-empty')).toBeNull();
-    expect(await screen.findByTestId('coming-up-watchlist-areas-pending')).toHaveTextContent('1 starred area is not shown yet.');
-    expect(screen.queryByTestId('coming-up-watchlist-offplan')).toBeNull();
+    expect(screen.queryByTestId('your-places-empty')).toBeNull();
+    expect(await screen.findByTestId('your-places-areas-pending')).toHaveTextContent('1 starred area is not shown yet.');
+    expect(screen.queryByTestId('your-places-offplan')).toBeNull();
   });
 
   it('a starred place that is not on the plan says so rather than printing the empty-state advice', async () => {
     render(list({ places: [999] }));
-    expect(screen.queryByTestId('coming-up-watchlist-empty')).toBeNull();
-    expect(await screen.findByTestId('coming-up-watchlist-offplan')).toBeInTheDocument();
+    expect(screen.queryByTestId('your-places-empty')).toBeNull();
+    expect(await screen.findByTestId('your-places-offplan')).toBeInTheDocument();
   });
 
   it('Escape on the Lite teaser with the upsell open closes only the panel', () => {
     const onKey = vi.fn();
     document.addEventListener('keydown', onKey);
     render(list({ status: 'locked' }));
-    const teaser = screen.getByTestId('coming-up-watchlist-teaser-button');
+    const teaser = screen.getByTestId('your-places-teaser-button');
     fireEvent.click(teaser);
     fireEvent.keyDown(teaser, { key: 'Escape' });
-    expect(screen.queryByTestId('coming-up-watchlist-upsell-panel')).toBeNull();
+    expect(screen.queryByTestId('your-places-upsell-panel')).toBeNull();
     expect(onKey).not.toHaveBeenCalled();
     document.removeEventListener('keydown', onKey);
   });
 
   it('says what to do when nothing is starred, and draws no outlook request without a starred area', async () => {
     render(list({}));
-    expect(await screen.findByTestId('coming-up-watchlist-empty')).toHaveTextContent('Star a place or an area');
+    expect(await screen.findByTestId('your-places-empty')).toHaveTextContent('Star a place or an area');
     expect(fetchAreaOutlook).not.toHaveBeenCalled();
   });
 
   it('a Lite reader sees a one-line Your places · Pro teaser that opens the upsell, and nothing is fetched', () => {
     render(list({ status: 'locked' }));
-    const teaser = screen.getByTestId('coming-up-watchlist-teaser-button');
+    const teaser = screen.getByTestId('your-places-teaser-button');
     expect(teaser).toHaveTextContent('Your places');
     expect(teaser).toHaveTextContent('Pro');
     fireEvent.click(teaser);
-    expect(screen.getByTestId('coming-up-watchlist-upsell-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('your-places-upsell-panel')).toBeInTheDocument();
     expect(fetchAreaOutlook).not.toHaveBeenCalled();
   });
 
   it('draws nothing while the list is loading or has failed', () => {
     render(list({ status: 'loading' }));
-    expect(screen.queryByTestId('coming-up-watchlist')).toBeNull();
+    expect(screen.queryByTestId('your-places')).toBeNull();
   });
 
   it('an area with only gated members says so, and one with no window says not rated yet', async () => {

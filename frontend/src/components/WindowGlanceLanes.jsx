@@ -5,6 +5,9 @@ import {
 } from '../utils/warnings.js';
 import { WarningFooter } from './WarningChip.jsx';
 
+/** Every lane is tappable unless the strip says otherwise. */
+const ALWAYS = () => true;
+
 /** `Friday` — long weekday for a spoken form, noon UTC so no zone moves the date. */
 function longWeekday(dateStr) {
   return new Date(`${dateStr}T12:00:00Z`)
@@ -12,16 +15,18 @@ function longWeekday(dateStr) {
 }
 
 /**
- * Where the tap goes, in words — the four routes of {@code tapTopic} in {@code WindowFirstHeatStrip}, first match wins. The route and its
- * wording read the same lane fields, so what a reader is told and what a press does cannot disagree.
+ * Where the tap goes, in words — the routes of {@code tapTopic} in {@code WindowFirstHeatStrip}, first match wins: the
+ * Map door, else the strip's own window, else nowhere (null: the lane is plain text and its name says no destination).
+ * The route and its wording read the same lane fields, so what a reader is told and what a press does cannot disagree.
+ * Nothing says "Coming up" any more: a lane's almanac entry is shown here and not listed in Further ahead
+ * (one-screen-plan.md D5), so there is nowhere further to go.
  */
 function destination(lane) {
-  if (lane.jump) return 'shown in Coming up';
   if (lane.mapDoor) {
     return `opens the Map that ${lane.mapDoor.eventType === 'SUNSET' ? 'evening' : 'morning'}`;
   }
   if (lane.target) return `opens the ${GLANCE_LABEL} window`;
-  return 'opens Coming up';
+  return null;
 }
 
 /**
@@ -51,7 +56,8 @@ function spokenTail(lane, date) {
     if (date !== last) parts.push(`continues to ${longWeekday(last)}`);
     else if (lane.endsAfter) parts.push(`continues after ${longWeekday(last)}`);
   }
-  parts.push(destination(lane));
+  const where = destination(lane);
+  if (where) parts.push(where);
   return `, ${parts.join(', ')}`;
 }
 
@@ -75,11 +81,12 @@ function spokenTail(lane, date) {
  * {@code sr-only} text carrying what the swatch, the PEAK tag and the dotted / faded edges show only visually.
  * The swatch and the PEAK tag are {@code aria-hidden}.
  *
- * <p><b>What a tap does</b>, first match wins: a lane with a {@code jump} opens Coming up at that entry
- * ({@code onOpenComingUp(entryId)}); one with a {@code mapDoor} (a weather topic, for a date the reader holds a
- * forecast for) calls {@code onShowOnMap({kind:'event', date, eventType, topicType})}; otherwise
- * {@code onOpenLaneOnMap(target, type)} when a window card exists for it; else plain
- * {@code onOpenComingUp(null)}. The destination in the lane's name says which.
+ * <p><b>What a tap does</b>, first match wins: a lane with a {@code mapDoor} (a weather topic, for a date the reader
+ * holds a forecast for) calls {@code onShowOnMap({kind:'event', date, eventType, topicType})}; otherwise
+ * {@code onOpenLaneOnMap(target, type)} when a window card exists for it; else nothing. A lane's {@code jump} no
+ * longer goes anywhere: the entry it names is drawn as this lane and not listed in Further ahead (D5), so
+ * {@code canTap} (the strip's route test) is what tells a lane with a route, drawn as a button, from one without,
+ * drawn as text. The destination in the lane's name says which.
  *
  * <p>The phone rules live in {@code @media (max-width: 639px)} only.
  *
@@ -147,7 +154,9 @@ function spokenTail(lane, date) {
  * @param {object}   props
  * @param {Array}    props.lanes   the lanes from `buildGlanceLanes`, in DOM order
  * @param {?string}  [props.date]  the phone's day, `YYYY-MM-DD`: render that day's cell instead of the whole grid
- * @param {function} props.onTap   called with the pressed lane; the strip owns the four routes
+ * @param {function} props.onTap   called with the pressed lane; the strip owns the routes
+ * @param {function} [props.canTap] `(lane)` truthy when the lane has a route; a lane without one is plain text, never
+ *                   a button that opens nothing. Absent: every lane is a button
  * @param {Array}    [props.warningLanes] Met Office warning lanes from {@code buildWarningLanes}, each with a
  *                   {@code tappable} flag the strip decided; drawn FIRST in the stack (weather-warnings-plan.md W3)
  * @param {function} [props.onWarningTap] called with the pressed warning lane (opens its first window's popup)
@@ -155,7 +164,7 @@ function spokenTail(lane, date) {
  *                   {@code stale}, {@code lastCheckedAt}, {@code attribution}, {@code href}); null draws none
  */
 export default function WindowGlanceLanes({
-  lanes, date = null, onTap, warningLanes = [], onWarningTap = null, warningFooter = null,
+  lanes, date = null, onTap, canTap = ALWAYS, warningLanes = [], onWarningTap = null, warningFooter = null,
 }) {
   const phone = date !== null;
   const shown = phone ? lanes.filter((lane) => lane.dates.includes(date)) : lanes;
@@ -200,14 +209,17 @@ export default function WindowGlanceLanes({
         const last = lane.dates[lane.dates.length - 1];
         const startsBefore = phone ? (date !== first || lane.startsBefore) : lane.startsBefore;
         const endsAfter = phone ? (date === last && lane.endsAfter) : lane.endsAfter;
+        // A lane with no route is text, not a control that opens nothing (D5). The same class draws both.
+        const tappable = Boolean(canTap(lane));
+        const Tag = tappable ? 'button' : 'div';
         return (
           <li
             key={lane.key}
             className="wf-lane-item"
             style={phone ? undefined : { '--ls': lane.startCol, '--le': lane.endCol + 1, '--lr': lane.row + rowOffset }}
           >
-            <button
-              type="button"
+            <Tag
+              type={tappable ? 'button' : undefined}
               className="wf-lane"
               style={{ '--c': lane.colour }}
               data-topic={lane.type}
@@ -215,7 +227,7 @@ export default function WindowGlanceLanes({
               data-starts-before={startsBefore ? 'true' : undefined}
               data-ends-after={endsAfter ? 'true' : undefined}
               data-testid="wf-glance-lane"
-              onClick={() => onTap(lane)}
+              onClick={tappable ? () => onTap(lane) : undefined}
             >
               <span className="wf-lane-sw" aria-hidden="true" />
               <span className="wf-lane-name">{lane.name}</span>
@@ -229,7 +241,7 @@ export default function WindowGlanceLanes({
                 </>
               )}
               <span className="sr-only">{spokenTail(lane, phone ? date : null)}</span>
-            </button>
+            </Tag>
           </li>
         );
       })}
@@ -327,6 +339,7 @@ WindowGlanceLanes.propTypes = {
   lanes: PropTypes.arrayOf(laneShape).isRequired,
   date: PropTypes.string,
   onTap: PropTypes.func.isRequired,
+  canTap: PropTypes.func,
   warningLanes: PropTypes.arrayOf(PropTypes.object),
   onWarningTap: PropTypes.func,
   warningFooter: PropTypes.shape({

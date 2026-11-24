@@ -272,6 +272,18 @@ export async function openTab(page, id) {
 }
 
 /**
+ * Goes to Further ahead, the bottom section of the screen, by the "Further ahead ↓" jump at the top of This week, and
+ * waits until its heading is the focused element (one-screen-plan.md O2). The Coming up tab no longer shows a panel: it
+ * is a door onto this section, and nothing else links to it.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function openFurtherAhead(page) {
+  await page.getByTestId('further-ahead-jump').click();
+  await expect(page.getByTestId('further-ahead-heading')).toBeFocused();
+}
+
+/**
  * Makes the device answer "phone" to the one media query that decides the opening landing, so the page starts on the
  * screen and never on the map view (see {@link loginAndWaitForForecast}). For a spec that signs in by hand.
  *

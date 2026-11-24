@@ -37,23 +37,24 @@ beforeEach(installAskConversationMocks);
 afterEach(removeAskConversationMocks);
 
 describe('AskConversation — the empty state', () => {
-  it('offers the Ready questions of this tab, each tagged Ready, and none of another tab’s', async () => {
+  it('offers the Ready questions of this view, each tagged Ready, and none of another view’s', async () => {
     await renderAsk();
 
     const list = await screen.findByTestId('ask-ready-list');
     expect(within(list).getByTestId('ask-ready-BEST_NEXT')).toHaveTextContent('Best spot tonight?');
     expect(within(list).getByTestId('ask-ready-AM_OR_PM')).toHaveTextContent('Sunrise or sunset tomorrow?');
     expect(within(list).queryByTestId('ask-ready-COASTAL_HIGH')).toBeNull();
-    expect(within(list).queryByTestId('ask-ready-RARE_EVENTS')).toBeNull();
-    expect(within(list).getAllByText('Ready')).toHaveLength(2);
+    // The rare-events question is the plan view's too: Further ahead is part of the screen (D8).
+    expect(within(list).getByTestId('ask-ready-RARE_EVENTS')).toHaveTextContent('Any rare events coming up?');
+    expect(within(list).getAllByText('Ready')).toHaveLength(3);
   });
 
-  it('changes the suggestions with the tab', async () => {
-    await renderAsk({ view: 'coming-up', viewLabel: 'Coming up · all' });
+  it('changes the suggestions with the view', async () => {
+    await renderAsk({ view: 'map', viewLabel: 'Map · all' });
 
     const list = await screen.findByTestId('ask-ready-list');
     expect(within(list).getAllByRole('button').map((b) => b.dataset.testid))
-      .toEqual(['ask-ready-RARE_EVENTS']);
+      .toEqual(['ask-ready-BEST_NEXT', 'ask-ready-COASTAL_HIGH', 'ask-ready-RARE_EVENTS']);
   });
 
   it('names the run from the payload, never a hard-coded one', async () => {

@@ -4777,7 +4777,8 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     const lanes = screen.getAllByTestId('wf-glance-lane');
     expect(lanes).toHaveLength(1);
     expect(lanes[0]).toHaveAttribute('data-starts-before', 'true');
-    expect(lanes[0]).toHaveAccessibleName(/began earlier/);
+    // A tide lane with no card to open has no route, so it is plain text: its words are its text, not a button's name.
+    expect(lanes[0].textContent).toMatch(/began earlier/);
   });
 
   it('keeps every grid track: a matrix day outside the four dates draws no lane but keeps its column', async () => {
@@ -4808,32 +4809,103 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     expect(lanes[0]).toHaveAttribute('data-starts-before', 'true');
   });
 
-  it('routes a press: a jump goes to Coming up at that entry', async () => {
-    const onOpenComingUp = vi.fn();
+  const SPRING_RUN = {
+    id: 'spring-tide:run', type: 'spring-tide', startDate: D4, endDate: D6, coincidence: [], dayRanges: [],
+  };
+
+  it('routes a press: a lane carrying a jump opens its window, never Coming up (the entry is drawn as the lane)', async () => {
+    const onOpenLaneOnMap = vi.fn();
     await renderStrip({
       cards: COLUMNS,
       hotTopics: [tide(D4)],
-      comingUpEntries: [{
-        id: 'spring-tide:run', type: 'spring-tide', startDate: D4, endDate: D6, coincidence: [], dayRanges: [],
-      }],
-      renderedEntryIds: new Set(['spring-tide:run']),
-      onOpenComingUp,
+      comingUpEntries: [SPRING_RUN],
+      renderedEntryIds: new Set([SPRING_RUN.id]),
+      onOpenLaneOnMap,
+      openableKeys: new Set([`${D4}:SUNRISE`, `${D4}:SUNSET`]),
     });
-    fireEvent.click(screen.getByTestId('wf-glance-lane'));
-    expect(onOpenComingUp).toHaveBeenCalledWith('spring-tide:run');
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane.tagName).toBe('BUTTON');
+    expect(lane).toHaveAccessibleName(/opens the At a Glance window/);
+    fireEvent.click(lane);
+    expect(onOpenLaneOnMap).toHaveBeenCalledTimes(1);
+    expect(onOpenLaneOnMap).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^${D4}:`)), 'SPRING_TIDE');
+  });
+
+  it('draws a lane with a jump but no window or map door as text, never a button that opens nothing', async () => {
+    await renderStrip({
+      cards: COLUMNS,
+      hotTopics: [tide(D4)],
+      comingUpEntries: [SPRING_RUN],
+      renderedEntryIds: new Set([SPRING_RUN.id]),
+    });
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane.tagName).toBe('DIV');
+    expect(lane.textContent).not.toMatch(/Coming up/);
+  });
+
+  describe('reporting the entries the lanes carry, for Further ahead to leave out (D5)', () => {
+    it('reports the set of jump entries once the lanes are drawn', async () => {
+      const onLaneEntryIds = vi.fn();
+      await renderStrip({
+        cards: COLUMNS,
+        hotTopics: [tide(D4)],
+        comingUpEntries: [SPRING_RUN],
+        renderedEntryIds: new Set([SPRING_RUN.id]),
+        onLaneEntryIds,
+      });
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([SPRING_RUN.id]));
+    });
+
+    it('reports an empty set when no lane carries an entry (an entry with no lane stays listed)', async () => {
+      const onLaneEntryIds = vi.fn();
+      await renderStrip({
+        cards: COLUMNS,
+        hotTopics: [tide(D4)],
+        comingUpEntries: [],
+        renderedEntryIds: new Set(),
+        onLaneEntryIds,
+      });
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+    });
+
+    it('reports an entry once however many lanes or days carry it, and not again when nothing changed', async () => {
+      const onLaneEntryIds = vi.fn();
+      const props = {
+        cards: COLUMNS,
+        hotTopics: [tide(D4, 1, 2), tide(D5, 2, 2), inversion(D6)],
+        comingUpEntries: [{ ...SPRING_RUN, endDate: D5 }],
+        renderedEntryIds: new Set([SPRING_RUN.id]),
+        onLaneEntryIds,
+      };
+      const view = await renderStrip(props);
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([SPRING_RUN.id]));
+      const calls = onLaneEntryIds.mock.calls.length;
+      await view.rerender();
+      expect(onLaneEntryIds.mock.calls.length).toBe(calls);
+    });
+
+    it('is not an entry the feed has not rendered: a jump needs a listed entry to point at', async () => {
+      const onLaneEntryIds = vi.fn();
+      await renderStrip({
+        cards: COLUMNS,
+        hotTopics: [tide(D4)],
+        comingUpEntries: [SPRING_RUN],
+        renderedEntryIds: new Set(),
+        onLaneEntryIds,
+      });
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+    });
   });
 
   it('routes a press: a weather topic with a forecast opens the Map door, as the old block did', async () => {
     const onShowOnMap = vi.fn();
-    const onOpenComingUp = vi.fn();
     await renderStrip({
-      cards: COLUMNS, hotTopics: [inversion(D5)], onShowOnMap, onOpenComingUp, forecastDates: [D5],
+      cards: COLUMNS, hotTopics: [inversion(D5)], onShowOnMap, forecastDates: [D5],
     });
     fireEvent.click(screen.getByTestId('wf-glance-lane'));
     expect(onShowOnMap).toHaveBeenCalledWith({
       kind: 'event', date: D5, eventType: 'SUNRISE', topicType: 'INVERSION',
     });
-    expect(onOpenComingUp).not.toHaveBeenCalled();
   });
 
   it('routes a press: a topic with a window card opens that window with the topic emphasised', async () => {
@@ -4850,12 +4922,11 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     expect(onOpenLaneOnMap).toHaveBeenCalledWith(`${D5}:SUNRISE`, 'INVERSION');
   });
 
-  it('routes a press: otherwise Coming up with no entry', async () => {
-    const onOpenComingUp = vi.fn();
-    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)], onOpenComingUp });
-    fireEvent.click(screen.getByTestId('wf-glance-lane'));
-    expect(onOpenComingUp).toHaveBeenCalledTimes(1);
-    expect(onOpenComingUp).toHaveBeenLastCalledWith(null);
+  it('routes a press: otherwise nowhere, and the lane is text rather than a control', async () => {
+    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)] });
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane.tagName).toBe('DIV');
+    expect(screen.queryByRole('button', { name: /Spring tide/ })).toBeNull();
   });
 
   it('phone: each day\'s lanes are a cell directly under ITS OWN day header; lane-free days add nothing', async () => {

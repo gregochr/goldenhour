@@ -58,7 +58,11 @@ describe('buildAreaSheet', () => {
     const sheet = buildAreaSheet(AREA, SPOTS, WINDOWS, { scoreIndex, reachById });
 
     expect(sheet.rows.map((r) => r.spot.name)).toEqual(['Craster', 'Bamburgh', 'Alnmouth', 'Dunstan']);
-    expect(sheet.rows[2].top).toEqual({ rating: 4, label: 'Tue Sunrise' });
+    // The window it belongs to rides along (date, event), so a Your places chip can open the map on it.
+    expect(sheet.rows[2].top).toMatchObject({ rating: 4, label: 'Tue Sunrise' });
+    expect(sheet.rows[2].top).toEqual({
+      rating: 4, label: 'Tue Sunrise', date: expect.any(String), targetType: 'SUNRISE',
+    });
     expect(sheet).toMatchObject({
       name: 'Northumberland Coast', kindLabel: 'Sub-region', regionName: 'North East', count: 4, ratedCount: 3, gatedCount: 0,
       driveRange: '40 min to 1h 10min',
