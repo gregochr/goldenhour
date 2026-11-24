@@ -53,7 +53,7 @@ import { bigSeasCopy, bigSeasFor } from '../utils/bigSeas.js';
 import {
   bigSeasChipItems, dropProtectedBigSeasChips, NO_BIG_SEAS_CHIPS,
 } from '../utils/bigSeasChips.js';
-import FiltersPopover from './map/FiltersPopover.jsx';
+import FiltersPopover, { DRIVE_TIME_TIERS } from './map/FiltersPopover.jsx';
 import MapCallout from './map/MapCallout.jsx';
 import MapLegendPanel from './map/MapLegendPanel.jsx';
 import RegionsJump from './map/RegionsJump.jsx';
@@ -4116,9 +4116,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     ? null
     : (locations.find((l) => l.name === selectedLocationName)?.id ?? null);
   const publishRoute = mapScreen?.publishRoute;
+  // `viewOpen` is a dependency so a REOPEN republishes the route the pane is still on: the pane stays mounted behind
+  // `hidden`, its route does not change, and without this the layer would take the request's seed (or none) instead.
+  const viewOpen = mapScreen?.open ?? true;
   useEffect(() => {
+    if (!viewOpen) return;
     publishRoute?.({ date: routeDate, eventType: routeEventType, locationId: routeLocationId });
-  }, [publishRoute, routeDate, routeEventType, routeLocationId]);
+  }, [publishRoute, routeDate, routeEventType, routeLocationId, viewOpen]);
   // The Escape ladder is defined below (it reads values derived after the early return); the view reaches it
   // through this ref, assigned there on every render.
   const escapeCloseRef = useRef(() => false);
@@ -4126,6 +4130,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useEffect(() => {
     publishEscape?.(() => escapeCloseRef.current());
   }, [publishEscape]);
+  // The window stepper, reached the same way (assigned below, where the event list is in scope).
+  const stepWindowRef = useRef(() => {});
+  const publishStep = mapScreen?.publishStep;
+  useEffect(() => {
+    publishStep?.((delta) => stepWindowRef.current(delta));
+  }, [publishStep]);
 
   /**
    * A map with NO solar row opens on the live aurora night (overlay convergence C3, plan §3 C3).
@@ -6161,6 +6171,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * spots" cannot outrun the reader's other filters.
    */
   const doorLensClauses = [];
+  // What the door CARRIED and still holds (the retired breadcrumb's three carry clauses, one-screen-plan.md D12): each is
+  // recomputed from the state in force against what the door carried, so move the floor after landing and its clause goes.
+  const doorCarryClauses = [];
+  if (planDoor) {
+    if (planDoor.minRating != null && minStars === planDoor.minRating) doorCarryClauses.push(`${planDoor.minRating}★+`);
+    if (planDoor.limitMinutes != null && effectiveDriveTimeFilter === planDoor.limitMinutes) {
+      const tier = DRIVE_TIME_TIERS.find(([minutes]) => minutes === planDoor.limitMinutes);
+      if (tier) doorCarryClauses.push(`within ${tier[1]}`);
+    }
+    if (planDoor.region && jumpFitOverride?.regionName === planDoor.region) doorCarryClauses.push(planDoor.region);
+  }
   if (planDoor) {
     // An area picked in Find owns the named-spot lens while its chip stands: the door's breadcrumb must not describe it.
     if (focusLensNames && !findAreaShown) {
@@ -6987,6 +7008,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   function handleMapPaneKeyDown(mapPaneEvent) {
     if (mapPaneEvent.key !== 'Escape') return;
+    // A control inside already answered it (the window control's menu closes and prevents default): that was this
+    // press's one layer, and the bubble through the portal must not close a second.
+    if (mapPaneEvent.defaultPrevented) return;
     if (foreignModalOver(mapPaneRef.current)) return;
     // Told to the map view around the pane, so the same press does not also close the view (one press, one layer).
     if (closeInnerLayer()) markEscapeAnswered(mapPaneEvent.nativeEvent);
@@ -7072,6 +7096,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return false;
   }
   escapeCloseRef.current = closeInnerLayer;
+  /**
+   * One window step for the arrow keys pressed on the view's header (D12): the neighbouring row of the same list the
+   * stepper buttons walk. It stops at either end; the older-day fetch stays the stepper button's own business.
+   */
+  stepWindowRef.current = (delta) => {
+    const next = mapEvents[activeEvIndex + delta];
+    if (next) selectEvRow(next);
+  };
 
   return (
     // The pane root is a programmatic-only focus target (`tabIndex -1`) that hears Escape from
@@ -7113,14 +7145,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           §4 #3 of the doors plan forbids, so it is stated here, live (recomputed from the state in force), with the
           one control that lifts exactly what the door applied. Above the map frame and outside the Leaflet container,
           so nothing is drawn over a field. Door-sourced only. */}
-      {planDoor && doorLensClauses.length > 0 && (
+      {planDoor && (doorLensClauses.length > 0 || doorCarryClauses.length > 0) && (
         <div data-testid="map-lens-note" className="wf-map-lens-note font-mono">
-          <span>{doorLensClauses.join(' · ').replace(/^./, (first) => first.toUpperCase())}</span>
+          <span>
+            {doorCarryClauses.length > 0
+              ? `Carrying ${[...doorCarryClauses, ...doorLensClauses].join(' · ')}`
+              : doorLensClauses.join(' · ').replace(/^./, (first) => first.toUpperCase())}
+          </span>
           <button
             type="button"
             data-testid="map-lens-note-clear"
             className="wf-map-lens-note-clear"
-            onClick={clearDoorLens}
+            onClick={() => {
+              // ONE control, five resets in the retired breadcrumb's order (the sixth, the origin, has its own ⌂ in
+              // the header): the rating floor, the reach tier, the scope, then the door's temporary lenses.
+              setMinStars(DEFAULT_MIN_STARS);
+              clearMapFilter('mapFilterMinStars');
+              setDriveTimeFilter(0);
+              resetToMyArea();
+              clearDoorLens();
+              // The note unmounts under the press: focus goes to the view's title, never to <body>.
+              if (mapScreen?.focusTitle) mapScreen.focusTitle();
+              else mapPaneRef.current?.focus({ preventScroll: true });
+            }}
           >
             Clear
           </button>

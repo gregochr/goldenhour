@@ -864,8 +864,6 @@ function AppInner() {
       ...(door.darkSky ? { darkSky: true } : {}),
       // The hot-topic chip the Map selects on arrival (a Coming up weather chip's door); ABSENT otherwise.
       ...(door.topicType ? { topicType: door.topicType } : {}),
-      ...(door.title ? { title: door.title } : {}),
-      ...(door.caption ? { caption: door.caption } : {}),
       nonce: handoffNonce.current++,
     });
   };
@@ -946,7 +944,14 @@ function AppInner() {
         >
           <ServedDatesReporter onChange={setServedDates} />
       <div>
-        <SessionExpiryBanner />
+        {/* With the map view open the session notice stays reachable: fixed over the view (z 49, between the view's 48
+            and `Modal`'s 50), because a reader about to be signed out must be able to refresh the session. */}
+        <div className={isMapTabActive ? 'fixed top-0 inset-x-0 z-[49]' : undefined} data-testid="session-banner-slot">
+          <SessionExpiryBanner />
+        </div>
+        {/* Everything else up here is covered by the view, so it is inert while the view stands (the screen column is
+            made inert by the shell; this block and the footer sit outside it). */}
+        <div inert={isMapTabActive} data-testid="app-banner-block">
         {isAdmin && rewind && <RewindPill rewind={rewind} />}
         <div className="max-w-4xl mx-auto px-4 mt-4">
           {/* The banner's two doors, each WITHHELD when it would lead nowhere (the dead-control ban): the
@@ -973,6 +978,7 @@ function AppInner() {
             </p>
           </div>
         )}
+        </div>
       </div>
 
       <main className="px-4 py-6">
@@ -1098,7 +1104,7 @@ function AppInner() {
         </WindowFirstBriefingProvider>
       </PlanErrorBoundary>
 
-      <footer className="border-t border-plex-border px-4 py-4 mt-8">
+      <footer className="border-t border-plex-border px-4 py-4 mt-8" inert={isMapTabActive}>
           <div className="max-w-4xl mx-auto text-center text-xs text-plex-text-muted">
             <div className="flex justify-center gap-4">
               <a

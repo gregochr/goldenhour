@@ -174,3 +174,69 @@ describe('whenSettled', () => {
     await expect(waiting).resolves.toBeUndefined();
   });
 });
+
+describe('an address nobody wants any more is taken down (review round 1)', () => {
+  it('a swap from the map layer to a layer with no address rewrites the bare path, copying the state', async () => {
+    const view = await open({ url: '#map/2026-11-24/sunrise' });
+    view.layer.release();
+    registerBackLayer({ onBack: vi.fn() });
+    await tick();
+    expect(b.history.go).not.toHaveBeenCalled();
+    expect(b.win.location.hash).toBe('');
+    const [state, , url] = b.history.replaceState.mock.calls.at(-1);
+    expect(url).toBe('/');
+    expect(state).toBe(b.history.state);
+    expect(state.phLayer.depth).toBe(1);
+  });
+
+  it('...but never a hash someone else owns', async () => {
+    const view = await open({ url: '#map/2026-11-24/sunrise' });
+    b.history.replaceState(b.history.state, '', '#manage/runs/start');
+    b.history.replaceState.mockClear();
+    view.layer.release();
+    registerBackLayer({ onBack: vi.fn() });
+    await tick();
+    expect(b.win.location.hash).toBe('#manage/runs/start');
+    expect(b.history.replaceState).not.toHaveBeenCalled();
+  });
+
+  it('a layer with no address opened OVER the map leaves the map\'s address standing', async () => {
+    await open({ url: '#map/2026-11-24/sunrise' });
+    await open();
+    expect(b.win.location.hash).toBe('#map/2026-11-24/sunrise');
+  });
+
+  it('an entry-less map layer that closes under an entried layer rewrites the base entry when Back lands there', async () => {
+    b.setActivation(false);
+    const view = await open({ url: '#map/2026-11-24/sunrise' });
+    expect(b.win.location.hash).toBe('#map/2026-11-24/sunrise');
+    b.setActivation(true);
+    const sheet = await open();
+    expect(b.index).toBe(1);
+    view.layer.release();
+    await tick();
+    // The top entry is cleared at once; the BASE entry (which the map's address was written on) is not reachable yet.
+    expect(b.win.location.hash).toBe('');
+
+    sheet.layer.release();
+    await tick();
+    b.flush();
+
+    expect(b.index).toBe(0);
+    expect(b.win.location.hash).toBe('');
+  });
+
+  it('forgets a pending base rewrite once a layer wants an address again', async () => {
+    b.setActivation(false);
+    const view = await open({ url: '#map/2026-11-24/sunrise' });
+    b.setActivation(true);
+    const sheet = await open();
+    view.layer.release();
+    await tick();
+    await open({ url: '#map/2026-11-26/sunset' });
+    sheet.layer.release();
+    await tick();
+    b.flush();
+    expect(b.win.location.hash).toBe('#map/2026-11-26/sunset');
+  });
+});

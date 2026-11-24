@@ -19,6 +19,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import { registerBackLayer, __resetForTests as resetDialogHistory } from '../utils/dialogHistory.js';
 
 vi.mock('../api/forecastApi.js', () => ({
   fetchForecasts: vi.fn(),
@@ -197,7 +198,6 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
       eventType: 'AURORA',
       date: TODAY,
       night: { kind: 'aurora', date: TODAY },
-      title: 'Aurora tonight',
       minRating: 4,
       limitMinutes: 90,
     });
@@ -410,3 +410,84 @@ describe('App — the NLC sighting request follows the backend role gate (P2f)',
   });
 });
 
+
+describe('App — the REAL dialog-history engine under Operations\' door (D4, D9, review round 1)', () => {
+  const settleReal = () => act(async () => { await new Promise((resolve) => { setTimeout(resolve, 60); }); });
+
+  beforeEach(() => {
+    Object.defineProperty(window.navigator, 'userActivation', { configurable: true, value: { isActive: true } });
+    resetDialogHistory();
+  });
+
+  afterEach(() => {
+    delete window.navigator.userActivation;
+    resetDialogHistory();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('the view\'s history entry is unwound BEFORE #manage is written, so Back from Operations is not a stale #map', async () => {
+    getAuroraStatus.mockResolvedValue(alert({ simulated: true }));
+    renderApp('ADMIN');
+    await screen.findByTestId('aurora-banner');
+    // The shell's own layer, the real engine's, with its address: what an open map view holds.
+    const layer = registerBackLayer({ onBack: () => {}, url: '#map/2026-01-15/sunset' });
+    await settleReal();
+    expect(window.location.hash).toBe('#map/2026-01-15/sunset');
+    ShellStub.doors.close = vi.fn(() => layer.release());
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+
+    const order = [];
+    const goSpy = vi.spyOn(window.history, 'go').mockImplementation(function go(...args) {
+      order.push('go');
+      return Object.getPrototypeOf(window.history).go.apply(this, args);
+    });
+    window.addEventListener('hashchange', () => order.push('hash'));
+
+    await pressBanner();
+    await settleReal();
+
+    expect(ShellStub.doors.close).toHaveBeenCalledWith({ restoreFocus: false });
+    expect(window.location.hash).toBe('#manage/runs/start');
+    expect(order.indexOf('go')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('go')).toBeLessThan(order.indexOf('hash'));
+
+    // Back from Operations lands on the bare page, never on the closed view's old entry.
+    window.history.back();
+    await settleReal();
+    expect(window.location.hash).toBe('');
+    goSpy.mockRestore();
+  });
+});
+
+describe('App — what stays behind the map view (review round 1)', () => {
+  it('makes the banner block and the footer inert while the view is open, and not otherwise', async () => {
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    expect(screen.getByTestId('app-banner-block')).not.toHaveAttribute('inert');
+    expect(document.querySelector('footer')).not.toHaveAttribute('inert');
+
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+
+    expect(screen.getByTestId('app-banner-block')).toHaveAttribute('inert');
+    expect(document.querySelector('footer')).toHaveAttribute('inert');
+  });
+
+  it('keeps the session notice outside the inert block, fixed above the view (z 49), so it stays usable', async () => {
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+
+    const slot = screen.getByTestId('session-banner-slot');
+    expect(slot).not.toHaveAttribute('inert');
+    expect(slot.closest('[inert]')).toBeNull();
+    expect(slot.className).toMatch(/fixed/);
+    expect(slot.className).toMatch(/z-\[49\]/);
+    expect(screen.getByTestId('app-banner-block').contains(slot)).toBe(false);
+  });
+
+  it('leaves the session notice in the page\'s flow when the view is closed', async () => {
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    expect(screen.getByTestId('session-banner-slot').className).not.toMatch(/fixed/);
+  });
+});

@@ -1,4 +1,4 @@
-import { test, expect } from './fixture.js';
+import { test, expect, forceScreenLanding } from './fixture.js';
 
 /**
  * Runs in the `logout` project, AFTER the whole `smoke` project, on one worker (see
@@ -7,6 +7,8 @@ import { test, expect } from './fixture.js';
  */
 test.describe('Login and logout', () => {
   test('the form renders, accepts input, and the admin signs in and out cleanly', async ({ page }) => {
+    // Every spec starts on the screen: an untouched desktop would otherwise land on the map view, which is a race.
+    await forceScreenLanding(page);
     await page.goto('/');
     await expect(page.getByTestId('login-username')).toBeVisible();
     await expect(page.getByTestId('login-password')).toBeVisible();
@@ -23,12 +25,6 @@ test.describe('Login and logout', () => {
     await expect(page.getByTestId('window-first-shell')).toBeVisible();
     await expect(page.getByTestId('login-username')).toHaveCount(0);
 
-    // An untouched desktop lands on the map view (the kept Map landing), which makes the screen behind it inert.
-    const view = page.getByTestId('map-screen');
-    if (await view.isVisible()) {
-      await page.getByTestId('map-screen-close').click();
-      await expect(view).toBeHidden();
-    }
     await page.getByTestId('window-first-signout').click();
     await expect(page.getByTestId('login-username')).toBeVisible();
     await expect(page.getByTestId('window-first-shell')).toHaveCount(0);

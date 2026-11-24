@@ -260,6 +260,8 @@ const ASK_DOCK_CONTEXT = {
 const ASK_FIELD_WIDTH = { tablet: 260, desktop: 260, wide: 340 };
 
 /** The word a load-time route's event type is spoken as in "That sunrise has passed". */
+/** The served `targetType` a night trigger's `kind` stands for (a seed for the layer's address until the pane's own). */
+const NIGHT_KIND_TYPE = { aurora: 'AURORA', astro: 'ASTRO' };
 const LOAD_WORD = { SUNRISE: 'sunrise', SUNSET: 'sunset', ASTRO: 'night', AURORA: 'aurora' };
 
 /** `window-first-tab-plan` — the id the panel points back at, and the existing test-id. */
@@ -1010,7 +1012,8 @@ export default function WindowFirstShell({
   const outlierKeys = useMemo(() => outlierKeysOf({ days: briefing?.days }), [briefing?.days]);
   /** Whether the map view is open, readable from a callback that was made on an earlier render. */
   const mapOpenRef = useRef(false);
-  useEffect(() => { mapOpenRef.current = mapOpen; });
+  // A layout effect, so a close's own layout effect (below) and any cleanup that runs after it read the new value.
+  useLayoutEffect(() => { mapOpenRef.current = mapOpen; });
   /**
    * The element a door was pressed on, for focus to return to when the view closes. Safari and Firefox on macOS do
    * not focus a button on a click, so a door passes its own node when it has one; otherwise the focused element.
@@ -1040,7 +1043,7 @@ export default function WindowFirstShell({
    * @param {object} [request]
    * @param {?{date: string, eventType: string}} [request.window] null opens on the map's own window
    * @param {?object} [request.focus] `{kind: 'location', id|name}`, `{kind: 'region', name}`,
-   *        `{kind: 'names', focusNames, title, caption}`, `{kind: 'aurora'}` or null
+   *        `{kind: 'names', focusNames}`, `{kind: 'aurora'}` or null
    * @param {?Element} [request.from] the element focus returns to; the focused element when omitted
    * @param {?object} [request.trigger] a normalised trigger from `normalizeMapTrigger`
    * @param {boolean} [request.loadTime] the open came from the address or the opening preference, not a press
@@ -1063,11 +1066,11 @@ export default function WindowFirstShell({
           region: null,
           locationName: null,
           focusNames: focus.focusNames,
-          title: focus.title,
-          caption: focus.caption,
         };
       } else if (focus?.kind === 'aurora') {
         door = normalizeMapTrigger({ kind: 'aurora', date: win.date });
+      } else if (focus?.kind === 'astro') {
+        door = normalizeMapTrigger({ kind: 'astro', date: win.date });
       } else if (focus?.kind === 'region') {
         door = normalizeMapTrigger({ date: win.date, eventType: win.eventType, region: focus.name });
       } else if (place) {
@@ -1104,7 +1107,11 @@ export default function WindowFirstShell({
         : (placeName && Array.isArray(locations) ? locations.find((l) => l?.name === placeName)?.id ?? null : null);
       const routeDate = win?.date ?? door?.date ?? null;
       setMapRoute(routeDate
-        ? { date: routeDate, eventType: win?.eventType ?? door?.eventType ?? door?.targetType ?? null, locationId: placeId }
+        ? {
+          date: routeDate,
+          eventType: win?.eventType ?? NIGHT_KIND_TYPE[door?.kind] ?? door?.eventType ?? door?.targetType ?? null,
+          locationId: placeId,
+        }
         : null);
       warmStackedChunks();
     }
@@ -1128,12 +1135,16 @@ export default function WindowFirstShell({
    * while the view is open, otherwise the tab in force (until O2 gives the screen its own heading). Read from the DOM
    * and a ref, because it runs in a close's own cleanup, before a ref to a tab would have caught up.
    */
-  const selectedTabNode = useCallback(
-    () => (mapOpenRef.current
-      ? mapTitleRef.current
-      : (shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null)),
+  const tabButtonNode = useCallback(
+    () => shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null,
     [],
   );
+  const selectedTabNode = useCallback(() => {
+    const title = mapTitleRef.current;
+    // Only a title that is still on screen: a view that is closing has `hidden` set in the same commit.
+    const titleShown = mapOpenRef.current && title?.isConnected && !title.closest('[hidden]');
+    return titleShown ? title : tabButtonNode();
+  }, [tabButtonNode]);
   /**
    * Focus, when the view closes: back to the element that opened it if it is still on screen, otherwise the screen's
    * target. A layout effect, so it runs in the commit that removes `inert` and sets `hidden`, before anything paints.
@@ -1148,12 +1159,13 @@ export default function WindowFirstShell({
       if (mode !== 'skip') {
         const from = mapFromRef.current;
         const usable = from?.isConnected && !from.closest('[inert]') && !from.closest('[hidden]');
-        (usable ? from : selectedTabNode())?.focus({ preventScroll: true });
+        // The selected tab, never the view's own (now hidden) title: this runs in the commit that hides it.
+        (usable ? from : tabButtonNode())?.focus({ preventScroll: true });
       }
       mapFromRef.current = null;
     }
     mapWasOpen.current = mapOpen;
-  }, [mapOpen, selectedTabNode]);
+  }, [mapOpen, tabButtonNode]);
   /**
    * The Plan tab's "show this on the map" producers' ONE entry — the spot sheet's rows and the Coming up cards and
    * day chips: {@link normalizeMapTrigger} turns whatever the producer sends into the one trigger shape and
@@ -1164,11 +1176,13 @@ export default function WindowFirstShell({
    * @param {?string} eventType     SUNRISE/SUNSET for the plain-date call shapes
    * @param {?string} locationName  a specific location, for the location call shape
    */
-  const showOnMap = onOpenMapTab
-    ? (dateOrHandoff, eventType, locationName = null) => openMap({
-      trigger: normalizeMapTrigger(dateOrHandoff, eventType, locationName),
-    })
-    : undefined;
+  // Stable across renders: `openMap` is rebuilt every render, so the latest one is reached through the doors ref. Built
+  // once in a lazy state initialiser (not `useCallback`): the React Compiler lint rejects a callback that reads a ref
+  // when it is handed to JSX, and the initialiser's closure is the one place that read is invisible to it.
+  const [showOnMapStable] = useState(() => (dateOrHandoff, eventType, locationName = null) => mapDoorsRef.current?.open({
+    trigger: normalizeMapTrigger(dateOrHandoff, eventType, locationName),
+  }));
+  const showOnMap = onOpenMapTab ? showOnMapStable : undefined;
   /**
    * A tab asked for from OUTSIDE the bar — the breadcrumb's return, and the aurora banner's door to
    * Operations for a simulated alert.
@@ -1189,7 +1203,6 @@ export default function WindowFirstShell({
    */
   const requestedNonce = tabRequest?.nonce ?? null;
   const requestedId = tabRequest?.id ?? null;
-  const requestedOpener = tabRequest?.opener ?? null;
   // Seeded with whatever nonce is already in flight at MOUNT, not with null. `App` holds
   // `tabRequest` and never clears it, and it outlives this component — so a null seed on any
   // remount would replay the last request rather than treating it as already handled, which
@@ -1218,25 +1231,13 @@ export default function WindowFirstShell({
     // panes were handed over, so it is the one thing that moves when a tab appears or disappears —
     // exactly the case this effect exists for. The id is the component's own and is already what
     // `aria-controls` resolves against.
-    //
-    // A request may carry the control that was pressed to come away (the breadcrumb's return does:
-    // `tabRequest.opener`). It is focused when it is still mounted and now focusable - a Coming up
-    // card, whose pane merely hid while the Map was up - and otherwise the tab's own button takes
-    // the focus, as above (a Plan dialog's button is gone with its dialog).
     const domId = tabDomId(requestedId);
-    const opener = requestedOpener;
-    requestAnimationFrame(() => {
-      if (opener?.isConnected) {
-        opener.focus?.();
-        if (document.activeElement === opener) return;
-      }
-      document.getElementById(domId)?.focus();
-    });
+    requestAnimationFrame(() => document.getElementById(domId)?.focus());
     // `selectTab` is deliberately absent from the list. It is rebuilt every render, so listing it
     // would re-run this on every render with the nonce guard as the only thing stopping it. The
     // nonce IS the trigger, and it is in the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestedNonce, requestedId, requestedOpener, operationsPane]);
+  }, [requestedNonce, requestedId, operationsPane]);
 
   /**
    * Registers a "close the dialogs this shell owns" callback with `App` (overlay convergence C4).
@@ -1324,7 +1325,7 @@ export default function WindowFirstShell({
     if (toPlanTab) {
       // A handoff arriving from OUTSIDE this component: responding to it is the effect's whole purpose.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      closeMap({ restoreFocus: false });
+      if (mapOpen) closeMap({ restoreFocus: false });
       selectTab('plan');
     } else {
       closeShellLayers();
@@ -2107,10 +2108,14 @@ export default function WindowFirstShell({
     if (status === 'past') note = `That ${LOAD_WORD[eventType] ?? 'window'} has passed`;
     else if (status === 'unforecast') note = 'Not forecast yet';
     // Responding to an address that arrives from OUTSIDE this component is the effect's whole purpose, once.
+    // A night's address names the night, not a place: the aurora door and the astro night door reopen it.
+    let focus = place ? { kind: 'location', id: place.id, name: place.name } : null;
+    if (win?.eventType === 'AURORA') focus = { kind: 'aurora' };
+    else if (win?.eventType === 'ASTRO') focus = { kind: 'astro' };
     // eslint-disable-next-line react-hooks/set-state-in-effect
     openMap({
       window: win,
-      focus: place ? { kind: 'location', id: place.id, name: place.name } : null,
+      focus,
       loadTime: true,
       note,
     });
@@ -2321,12 +2326,7 @@ export default function WindowFirstShell({
     setAreaSheet(null);
     openMap({
       window: { date: target.date, eventType: target.targetType },
-      focus: {
-        kind: 'names',
-        focusNames: names,
-        title: area.name,
-        caption: `${names.length} ${names.length === 1 ? 'spot' : 'spots'}`,
-      },
+      focus: { kind: 'names', focusNames: names },
     });
   };
   /**
@@ -2743,18 +2743,8 @@ export default function WindowFirstShell({
           // sheet layer makes the search button refuse, so leaving it tabbable
           // would be a control with no visible effect, which plan §3 rule 14 bans outright.
           searchOpen={searchSeed != null || stackedOverLayer}
-          // map-tab-v2-plan.md §3 P11: a per-tab STATE of the tick line, read off the SAME
-          // `effectiveTab` every other map-only branch in this file already keys on (the full-frame
-          // recast at `:1154`/`:1355`, the search/sheet gates below) — never a second "which tab"
-          // test that could disagree with them. Since F1 it no longer withholds Find from the Map;
-          // it keeps the caption only the Map draws ("drive times from here").
-          isMapTab={false}
-          // Phone only (compact-chrome plan D-1, R2): the Map hides the row at Home — the HOME marker
-          // and reach rings show the origin there, and on the Plan tab the row is search's only way
-          // in — and every phone tab moves the times up into the masthead's one line. Desktop and
-          // tablet pass none of the three, so the row is exactly what it was.
-          hideAtHome={false}
-          fallbackFocus={isMobile ? menuBtnRef : null}
+          // Phone only (compact-chrome plan D-1, R2): every phone tab moves the times up into the masthead's one line.
+          // Desktop and tablet keep them, so the row is exactly what it was.
           showTimes={!isMobile}
         />
       </div>
@@ -3207,11 +3197,29 @@ export default function WindowFirstShell({
             </button>
           )}
           origin={(origin?.baseName || homePlace) ? (
-            <span data-testid="map-screen-origin" className="wf-map-screen-btn wf-map-screen-origin font-mono">
-              {origin?.baseName ? `From ${origin.baseName}` : `Home · ${homePlace}`}
-              {/* True on the map, where every drive time and leave-by is measured from this place. */}
-              <span className="hidden md:inline">{' · drive times from here'}</span>
-            </span>
+            <>
+              <span data-testid="map-screen-origin" className="wf-map-screen-btn wf-map-screen-origin font-mono">
+                {origin?.baseName ? `From ${origin.baseName}` : `Home · ${homePlace}`}
+                {/* True on the map, where every drive time and leave-by is measured from this place. */}
+                <span className="hidden md:inline">{' · drive times from here'}</span>
+              </span>
+              {/* The masthead's ⌂ is inert behind the view, so an away origin is undone from here. Its press removes
+                  it, so focus goes to the title first (never <body>). */}
+              {origin?.baseName && (
+                <button
+                  type="button"
+                  data-testid="map-screen-origin-home"
+                  className="wf-map-screen-btn font-mono"
+                  aria-label="Plan from home again"
+                  onClick={() => {
+                    mapTitleRef.current?.focus({ preventScroll: true });
+                    setOrigin?.(null);
+                  }}
+                >
+                  <span aria-hidden="true">⌂</span>
+                </button>
+              )}
+            </>
           ) : null}
           ask={mapOpen ? askFields : null}
         >
@@ -3579,7 +3587,6 @@ WindowFirstShell.propTypes = {
     id: PropTypes.string,
     nonce: PropTypes.number,
     // The control a door was pressed on, carried by the breadcrumb's return: focused if still mounted.
-    opener: PropTypes.object,
   }),
   /**
    * Registers a "close my dialogs" callback with `App` (called with the closer, and with null on

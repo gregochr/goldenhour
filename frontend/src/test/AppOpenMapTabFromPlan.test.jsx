@@ -277,7 +277,7 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
 
   it('a plain door\'s payload carries NONE of the new fields - absent, not null', async () => {
     const handoff = await press(DOOR);
-    for (const key of ['night', 'focusNames', 'focusPoints', 'filterAction', 'darkSky', 'title', 'caption']) {
+    for (const key of ['night', 'focusNames', 'focusPoints', 'filterAction', 'darkSky']) {
       expect(handoff).not.toHaveProperty(key);
     }
   });
@@ -289,8 +289,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       focusPoints: [[55.608, -1.719]],
       filterAction: 'SEASCAPE',
       darkSky: true,
-      title: 'Coastal',
-      caption: 'Tomorrow sunset',
     });
     expect(handoff).toMatchObject({
       source: 'plan',
@@ -298,8 +296,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       focusPoints: [[55.608, -1.719]],
       filterAction: 'SEASCAPE',
       darkSky: true,
-      title: 'Coastal',
-      caption: 'Tomorrow sunset',
     });
   });
 
@@ -311,7 +307,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       source: 'plan', eventType: 'SUNSET', date: TOMORROW, locationName: 'Bamburgh', region: null,
     });
     expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
-    expect(handoff.title).toBe('Bamburgh');
   });
 
   it('a trigger carrying the Plan lens lands in the handoff with it, not as nulls', async () => {
@@ -337,7 +332,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
     expect(handoff.focusNames).toEqual(['Bamburgh']);
     expect(handoff.focusPoints).toHaveLength(1);
     expect(handoff.filterAction).toBe('SEASCAPE');
-    expect(handoff.title).toBe('Spring tide run');
     // A coming-up card names no solar event: the handoff carries none rather than inventing one.
     expect(handoff.eventType).toBeNull();
     expect(handoff).not.toHaveProperty('darkSky');
@@ -353,7 +347,7 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
     // spots lands on its TOP spot's callout, the crumb headline naming the region.
     expect(handoff).toMatchObject({
       source: 'plan', locationName: 'Bamburgh', eventType: 'SUNSET', date: TOMORROW,
-      minRating: 3, limitMinutes: 45, title: 'Northumberland',
+      minRating: 3, limitMinutes: 45,
     });
     expect(handoff).not.toHaveProperty('night');
   });
@@ -394,7 +388,7 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       kind: 'coming-up', darkSky: true, filterAction: null, label: 'Meteor shower', date: TOMORROW,
       minRating: null, limitMinutes: null, inPlace: false,
     });
-    expect(handoff).toMatchObject({ source: 'plan', darkSky: true, title: 'Meteor shower' });
+    expect(handoff).toMatchObject({ source: 'plan', darkSky: true });
     expect(handoff).not.toHaveProperty('filterAction');
   });
 
@@ -405,7 +399,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       eventType: 'AURORA',
       date: TOMORROW,
       night: { kind: 'aurora', date: TOMORROW },
-      title: 'Aurora tonight',
     });
     expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
   });

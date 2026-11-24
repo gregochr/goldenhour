@@ -773,7 +773,7 @@ describe('areas in Find (F2)', () => {
       fireEvent.click(screen.getByTestId('area-sheet-map'));
 
       expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({
-        date: TODAY, targetType: 'SUNSET', region: null, locationName: null, title: "Hadrian's Wall", caption: '2 spots',
+        date: TODAY, targetType: 'SUNSET', region: null, locationName: null,
         focusNames: ['Whitby', 'Saltburn'],
       }));
       expect(areaSheet()).toBeNull();

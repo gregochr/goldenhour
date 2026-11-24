@@ -29,8 +29,8 @@
  * </ul>
  *
  * <p>Kept to those rules, a record the owner acts on was made in that same commit, while the reader
- * was on the node (a hidden subtree is the exception below). `MastheadTickLine` and `MapBreadcrumb`
- * each say in their class comment why their landing is the right one. Compare
+ * was on the node (a hidden subtree is the exception below). `MastheadTickLine`
+ * says in its class comment why their landing is the right one. Compare
  * `hooks/useRowFocusRescue.js`, which records from focus events and keeps the record after focus
  * has gone, so it can act while the reader's attention is elsewhere — which is why it guards against
  * a foreign modal over the pane and a hidden pane.

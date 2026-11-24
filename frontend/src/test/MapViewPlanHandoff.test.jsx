@@ -131,6 +131,7 @@ import { getAstroAvailableDates } from '../api/astroApi.js';
 import { getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 import { deferred } from './askFixtures.js';
 import { reachLensStub } from './reachLensStub.js';
+import { tierById } from '../utils/reachLens.js';
 
 const TODAY = '2026-01-15';
 
@@ -320,6 +321,7 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
   it('region: a region OUTSIDE "My area" jumps AND flips scope to the whole catalogue', async () => {
     await renderTab({ planHandoff: { ...DOOR_BASE, region: 'Lake District', nonce: 1 } });
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Lake District');
     // Far's own spot is only in the whole-catalogue pool, never in AREA_SPOTS — its presence in
     // what MapLabels was handed proves the scope really flipped, not just the crumb's own claim.
     expect(mapLabelsCalls.at(-1).spots.some((s) => s.name === 'Far')).toBe(true);
@@ -328,6 +330,7 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
   it('region: a region ALREADY inside "My area" jumps WITHOUT flipping scope', async () => {
     await renderTab({ planHandoff: { ...DOOR_BASE, region: 'North East', nonce: 1 } });
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('North East');
   });
 
   it('no region: resets to My area (resetToMyArea, never FitBoundsController) — proven by first '
@@ -357,6 +360,7 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
       );
     });
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
     // The scope really did narrow back — Far (Lake District) is out of the pool again.
     expect(mapLabelsCalls.at(-1).spots.some((s) => s.name === 'Far')).toBe(false);
   });
@@ -529,6 +533,74 @@ async function rerenderWith(rerender, props = {}) {
   });
 }
 
+describe('MapView — the lens note carries the retired breadcrumb\'s clauses (one-screen-plan D12)', () => {
+  // A STATEFUL shared lens (the real contract: selectTier moves the tier the Map reads back).
+  function SharedLensHost(props) {
+    const [id, setId] = React.useState('150');
+    const lens = { tier: tierById(id), tierId: id, selectTier: setId };
+    return (
+      <MapView
+        locations={ALL_LOCATIONS}
+        date={TODAY}
+        autoEventType="SUNSET"
+        forecastDates={[TODAY]}
+        heat={HEAT}
+        reachLens={lens}
+        reachMeasured
+        {...props}
+      />
+    );
+  }
+
+  it('states the rating floor the door carried, and the clause goes when the reader moves the floor (a live claim)', async () => {
+    await renderTab({ planHandoff: { ...DOOR_BASE, minRating: 4, nonce: 1 } });
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Carrying 4★+');
+    await act(async () => { filtersPopoverCalls.at(-1).onSelectMinStars(5); });
+    expect(filtersPopoverCalls.at(-1).minStars).toBe(5);
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
+  });
+
+  it('states the reach tier the door carried while the shared tier still equals it', async () => {
+    await act(async () => {
+      render(<SharedLensHost planHandoff={{ ...DOOR_BASE, limitMinutes: 150, nonce: 1 }} />);
+    });
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Carrying within 2h 30');
+  });
+
+  it('Clear is ONE control: floor to the map\'s default, tier to Any, scope to My area, then the door\'s lenses', async () => {
+    await act(async () => {
+      render(
+        <SharedLensHost
+          planHandoff={{
+            ...DOOR_BASE, minRating: 4, limitMinutes: 150, region: 'Lake District', nonce: 1,
+          }}
+        />,
+      );
+    });
+    expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
+    expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
+    expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('within');
+
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
+
+    expect(filtersPopoverCalls.at(-1).minStars).toBe(3); // DEFAULT_MIN_STARS
+    // The tier is the SHARED one: clearing writes Any to it, and the Map reads Any back.
+    expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(0);
+    expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
+  });
+
+  it('a Clear that leaves a clause standing (the carried floor IS the default 3★) keeps the note and its button', async () => {
+    // The premise is asserted, not assumed: if the map's default floor moves, the note no longer survives this press.
+    await renderTab({ planHandoff: { ...DOOR_BASE, minRating: 3, nonce: 1 } });
+    const clear = screen.getByTestId('map-lens-note-clear');
+    await act(async () => { fireEvent.click(clear); });
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Carrying 3★+');
+    expect(screen.getByTestId('map-lens-note-clear')).toBe(clear);
+  });
+});
+
 describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored whole by clear', () => {
   it('narrows the field, the pool and the count to the named spots, and the crumb says so', async () => {
     const { rerender } = await renderTab({ heat: HEAT_WITH_POINTS, planHandoff: null });
@@ -612,8 +684,8 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     });
     // The 1★ spot is named by the door but the 4★ floor still decides the pool; the crumb counts
     // the pool actually drawn, so "showing 1 spot" can never outrun the filters.
-    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Showing 1 spot');
-    expect(screen.getByTestId('map-lens-note')).not.toHaveTextContent('Showing 1 spots');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Carrying 4★+ · showing 1 spot');
+    expect(screen.getByTestId('map-lens-note')).not.toHaveTextContent('showing 1 spots');
   });
 
   it('⚠️ clears a selection OUTSIDE the incoming lens: no callout, no label for it, and the count matches the drawn pool', async () => {
@@ -841,7 +913,7 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
       },
     });
     const carrying = screen.getByTestId('map-lens-note');
-    expect(carrying).toHaveTextContent('None of the 2 named spots is rated for this day');
+    expect(carrying).toHaveTextContent(/none of the 2 named spots is rated for this day/i);
     expect(carrying).not.toHaveTextContent(/showing 0/);
   });
 
@@ -853,7 +925,7 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
       planHandoff: { ...DOOR_BASE, limitMinutes: 45, focusNames: ['Unrated A'], nonce: 1 },
     });
     expect(screen.getByTestId('map-lens-note'))
-      .toHaveTextContent('The named spot is not rated for this day');
+      .toHaveTextContent(/the named spot is not rated for this day/i);
   });
 
   it('when the named spots ARE rated but the reader\'s filters hold them back, it says so instead', async () => {
@@ -862,7 +934,7 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
       planHandoff: { ...DOOR_BASE, minRating: 4, focusNames: ['Excluded Unselected', 'Filtered Out'], nonce: 1 },
     });
     expect(screen.getByTestId('map-lens-note'))
-      .toHaveTextContent('None of the 2 named spots passes your filters');
+      .toHaveTextContent(/none of the 2 named spots passes your filters/i);
   });
 });
 

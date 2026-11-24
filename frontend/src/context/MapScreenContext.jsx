@@ -12,6 +12,8 @@ import { createContext, useContext } from 'react';
  *   <li>{@code publishRoute({date, eventType, locationId})}, which the shell turns into the layer's `#map/...` url;</li>
  *   <li>{@code publishEscape(close)}, the pane's Escape ladder: closes its innermost layer and answers whether it
  *       closed one, so an Escape pressed on the view's own header closes the callout before it closes the view.</li>
+ *   <li>{@code publishStep(step)}, the pane's window stepper ({@code step(-1|1)}), for the arrow keys on the header;</li>
+ *   <li>{@code focusTitle()}, which moves focus to the view's title (a control that unmounts under focus calls it).</li>
  * </ul>
  */
 export const MapScreenContext = createContext(null);

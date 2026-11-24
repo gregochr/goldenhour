@@ -173,20 +173,28 @@ const SUNSET_CARD = {
 const header = vi.fn();
 const route = vi.fn();
 const escapeRegistered = vi.fn();
+const stepRegistered = vi.fn();
+const focusTitle = vi.fn();
 
 /** The view's context, with the header slot a real node so the window control has somewhere to be portalled. */
-function ViewContext({ slot, children }) {
+function ViewContext({ slot, open = true, children }) {
   const value = React.useMemo(() => ({
-    windowSlot: slot, publishHeader: header, publishRoute: route, publishEscape: escapeRegistered,
-  }), [slot]);
+    windowSlot: slot,
+    publishHeader: header,
+    publishRoute: route,
+    publishEscape: escapeRegistered,
+    publishStep: stepRegistered,
+    focusTitle,
+    open,
+  }), [slot, open]);
   return <MapScreenContext.Provider value={value}>{children}</MapScreenContext.Provider>;
 }
 
-async function renderTab(props = {}, { slot = null } = {}) {
+async function renderTab(props = {}, { slot = null, open = true } = {}) {
   let result;
   await act(async () => {
     result = render(
-      <ViewContext slot={slot}>
+      <ViewContext slot={slot} open={open}>
         <MapView
           locations={[NEAR, OTHER]}
           date={TODAY}
@@ -212,6 +220,8 @@ beforeEach(() => {
   header.mockClear();
   route.mockClear();
   escapeRegistered.mockClear();
+  stepRegistered.mockClear();
+  focusTitle.mockClear();
   cornerEl = document.createElement('div');
   cornerEl.className = 'leaflet-bottom leaflet-right';
   document.body.appendChild(cornerEl);
@@ -301,5 +311,92 @@ describe('MapView: the lens note replaces the landing strip', () => {
     await renderTab({ planHandoff: door({}) });
     expect(screen.queryByTestId('map-lens-note')).toBeNull();
     expect(screen.queryByTestId('wf-map-breadcrumb')).toBeNull();
+  });
+});
+
+describe('MapView inside the map view: review round 1', () => {
+  it('the window control\'s Escape closes its menu and nothing else: the callout it sits beside stays', async () => {
+    const slot = document.createElement('div');
+    document.body.appendChild(slot);
+    await renderTab({ planHandoff: door({ locationName: 'Near' }) }, { slot });
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    expect(screen.getByTestId('wf-win-pill')).toHaveAttribute('aria-expanded', 'true');
+
+    await act(async () => { fireEvent.keyDown(screen.getByTestId('wf-win-pill'), { key: 'Escape' }); });
+
+    expect(screen.getByTestId('wf-win-pill')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    slot.remove();
+  });
+
+  it('a press the pane\'s children already answered (default prevented) closes nothing in the pane', async () => {
+    await renderTab({ planHandoff: door({ locationName: 'Near' }) });
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    event.preventDefault();
+    await act(async () => { screen.getByTestId('wf-map-pane').dispatchEvent(event); });
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(escapeAnswered(event)).toBe(false);
+  });
+
+  it('Clear hands focus to the view\'s title when the note unmounts under it', async () => {
+    await renderTab({ planHandoff: door({ focusNames: ['Near'] }) });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
+    expect(focusTitle).toHaveBeenCalledTimes(1);
+  });
+
+  it('Clear with no view around the pane focuses the pane itself, never <body>', async () => {
+    let result;
+    await act(async () => {
+      result = render(
+        <MapView
+          locations={[NEAR, OTHER]}
+          date={TODAY}
+          autoEventType="SUNSET"
+          forecastDates={[TODAY]}
+          heat={HEAT}
+          planHandoff={door({ focusNames: ['Near'] })}
+        />,
+      );
+    });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-pane'));
+    result.unmount();
+  });
+
+  it('republishes its current route each time the view opens, not only when the route changes', async () => {
+    const view = await renderTab({}, { open: false });
+    expect(route).not.toHaveBeenCalled();
+    const element = (open) => (
+      <ViewContext slot={null} open={open}>
+        <MapView
+          locations={[NEAR, OTHER]}
+          date={TODAY}
+          autoEventType="SUNSET"
+          forecastDates={[TODAY]}
+          heat={HEAT}
+          windowCardsByKey={new Map([[SUNSET_CARD.key, SUNSET_CARD]])}
+        />
+      </ViewContext>
+    );
+    await act(async () => { view.rerender(element(true)); });
+    expect(route).toHaveBeenCalledTimes(1);
+    expect(route).toHaveBeenLastCalledWith({ date: TODAY, eventType: 'SUNSET', locationId: null });
+    await act(async () => { view.rerender(element(false)); });
+    await act(async () => { view.rerender(element(true)); });
+    expect(route).toHaveBeenCalledTimes(2);
+  });
+
+  it('publishes a stepper that moves to the neighbouring window, and stops at the ends', async () => {
+    await renderTab();
+    const step = stepRegistered.mock.calls.at(-1)[0];
+    expect(header).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringMatching(/sunset/i) }));
+    await act(async () => { step(-1); });
+    expect(header).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringMatching(/sunrise/i) }));
+    await act(async () => { step(-1); });
+    expect(header).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringMatching(/sunrise/i) }));
+    await act(async () => { step(1); });
+    expect(header).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringMatching(/sunset/i) }));
   });
 });

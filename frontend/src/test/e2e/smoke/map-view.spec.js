@@ -138,6 +138,25 @@ test.describe('The map view over the screen', () => {
     await expect(page.getByTestId('window-first-shell')).toBeVisible();
   });
 
+  test('the arrow keys on the header step the window, and Escape works with focus on the page itself', async ({ page }) => {
+    test.setTimeout(60_000);
+    await (await cardAt(page)).card.click();
+    await expect(page.getByTestId('map-screen')).toBeVisible();
+    await expect(page.getByTestId('map-screen-title')).not.toHaveText('Map');
+    const first = await page.getByTestId('map-screen-title').innerText();
+
+    // The title holds focus on open: → moves to the next window, ← back to this one.
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('map-screen-title')).not.toHaveText(first);
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.getByTestId('map-screen-title')).toHaveText(first);
+
+    // Focus on <body> (the page behind is inert, so a click there lands nowhere): Escape still closes the view.
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('map-screen')).toBeHidden();
+  });
+
   test('Find opens over the view, and Back closes Find first and the view last', async ({ page }) => {
     test.setTimeout(60_000);
     await (await cardAt(page)).card.click();

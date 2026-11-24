@@ -7,6 +7,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { AskApiError } from '../api/askApi.js';
 import { resetViewport } from './askViewport.js';
+import { __resetForTests as resetDialogHistory } from '../utils/dialogHistory.js';
 import {
   MAP_PANE, matrixCtx, renderAskShell, TODAY,
 } from './askShellHarness.jsx';
@@ -195,6 +196,29 @@ describe('on the dock (1024px and up)', () => {
     // Pick 2 is Saltburn TONIGHT: the window comes from the pick, whichever tab it was pressed on.
     expect(openRowKey()).toBe(`${TODAY}:SUNSET`);
     expect(modalCount()).toBe(1);
+  });
+
+  it('from the map view, "Open in Plan ›" swaps the view\'s entry for the sheet\'s and takes the #map address down', async () => {
+    // A live user activation, so the view owns a real history entry (the swap is then the engine's same-depth swap).
+    Object.defineProperty(window.navigator, 'userActivation', { configurable: true, value: { isActive: true } });
+    resetDialogHistory();
+    try {
+      await dockWithAnswer({ props: { mapPane: MAP_PANE } });
+      fireEvent.click(screen.getByTestId('window-first-tab-map'));
+      await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 30); }); });
+      expect(window.location.hash).toMatch(/^#map/);
+      await planThis(2);
+
+      fireEvent.click(screen.getByTestId('ask-plan-open'));
+
+      expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
+      await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 30); }); });
+      expect(window.location.hash).toBe('');
+    } finally {
+      delete window.navigator.userActivation;
+      resetDialogHistory();
+      window.history.replaceState(null, '', '/');
+    }
   });
 
   it('the way OUT: closing the location sheet returns focus to the dock’s "Open in Plan ›", never <body>', async () => {

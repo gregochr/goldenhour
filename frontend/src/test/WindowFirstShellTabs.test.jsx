@@ -948,53 +948,6 @@ describe('WindowFirstShell — when the feed is fetched', () => {
         act(() => setRequest({ id: 'coming-up', nonce: 1 }));
         await waitFor(() => expect(screen.getByRole('tab', { name: 'Coming up' })).toHaveFocus());
       });
-
-      it('a return carrying a control that is still mounted focuses THAT control (a Coming up card)', async () => {
-        getAlmanac.mockResolvedValue({
-          ...FEED,
-          entries: [{
-            id: 'spring-tide:2026-08-12:2026-12-31', type: 'spring-tide', startDate: '2026-08-12',
-            endDate: '2026-12-31', kind: 'ALMANAC', family: 'coastal', title: 'Spring tide run',
-            kindTag: 'Almanac', facts: [],
-            action: { label: 'Show coastal spots for 12 Aug →', kind: 'coastal-spots', date: '2026-08-12' },
-          }],
-        });
-        // A card that is a real BUTTON (its date is among the forecast dates), so it can take focus.
-        const { setRequest } = renderWithRequest({ forecastDates: ['2026-08-12'], onOpenMapTab: vi.fn() });
-        await openComingUp();
-        const opener = screen.getByRole('button', { name: /Spring tide run/ });
-        act(() => setRequest({ id: 'plan', nonce: 1 }));
-        await waitFor(() => expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveFocus());
-
-        act(() => setRequest({ id: 'coming-up', nonce: 2, opener }));
-
-        expect(screen.getByRole('tab', { name: 'Coming up' })).toHaveAttribute('aria-selected', 'true');
-        await waitFor(() => expect(opener).toHaveFocus());
-      });
-
-      it('...and falls back to the tab\'s own button when the control is gone (a Plan dialog\'s button)', async () => {
-        const { setRequest } = renderWithRequest();
-        const gone = document.createElement('button');
-        document.body.appendChild(gone);
-        gone.remove();
-        act(() => setRequest({ id: 'coming-up', nonce: 1 }));
-        act(() => setRequest({ id: 'plan', nonce: 2, opener: gone }));
-
-        expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
-        await waitFor(() => expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveFocus());
-      });
-
-      it('...and when the control is mounted but cannot take focus, the tab\'s button does', async () => {
-        const { setRequest } = renderWithRequest();
-        const hidden = document.createElement('button');
-        hidden.disabled = true;
-        document.body.appendChild(hidden);
-        act(() => setRequest({ id: 'coming-up', nonce: 1 }));
-        act(() => setRequest({ id: 'plan', nonce: 2, opener: hidden }));
-
-        await waitFor(() => expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveFocus());
-        hidden.remove();
-      });
     });
 
     it('ignores a request for a pane it was handed nothing for — and does not jump later', () => {

@@ -1,4 +1,4 @@
-import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import useBodyScrollLock from '../hooks/useBodyScrollLock.js';
 import { MapScreenContext } from '../context/MapScreenContext.jsx';
@@ -80,15 +80,56 @@ export default function MapScreen({
   }, [open, titleRef]);
 
   const publishEscape = useCallback((close) => { escapeRef.current = close; }, []);
+  // The pane's window stepper (`step(delta)`), for the arrow keys pressed on the header.
+  const scrimDown = useRef(false);
+  const stepRef = useRef(null);
+  const publishStep = useCallback((step) => { stepRef.current = step; }, []);
+  /** Moves focus to the title, for a control that unmounts under focus (the lens note's Clear). */
+  const focusTitle = useCallback(() => { titleRef.current?.focus({ preventScroll: true }); }, [titleRef]);
   const value = useMemo(
     () => ({
       windowSlot,
       publishHeader: setInfo,
       publishRoute: onRoute,
       publishEscape,
+      publishStep,
+      focusTitle,
+      open,
     }),
-    [windowSlot, onRoute, publishEscape],
+    [windowSlot, onRoute, publishEscape, publishStep, focusTitle, open],
   );
+
+  // Escape with focus on <body> (the reader clicked the dimmed screen, or a focused control unmounted): no element
+  // inside the view hears it, so the document does. Stands down for a dialog over the pane and for a press an inner
+  // layer or the view's own handler already answered.
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; });
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocumentKey = (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (event.target !== document.body && event.target !== document.documentElement) return;
+      const pane = rootRef.current?.querySelector(MAP_PANE_SELECTOR) ?? null;
+      if (foreignModalOver(pane) || escapeAnswered(event)) return;
+      if (escapeRef.current?.()) return;
+      event.preventDefault();
+      closeRef.current();
+    };
+    document.addEventListener('keydown', onDocumentKey);
+    return () => document.removeEventListener('keydown', onDocumentKey);
+  }, [open]);
+
+  /** Where the arrow keys do NOT step the window: a field, a list, a menu, the map itself, the window control. */
+  const NO_STEP = 'input, textarea, select, [contenteditable], [role="listbox"], [role="menu"], '
+    + '[role="combobox"], .leaflet-container, [data-testid="wf-win-control"]';
+  function handleHeaderKeyDown(event) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.target.closest?.(NO_STEP)) return;
+    if (!stepRef.current) return;
+    event.preventDefault();
+    stepRef.current(event.key === 'ArrowLeft' ? -1 : 1);
+  }
 
   function handleKeyDown(event) {
     if (event.key !== 'Escape' || event.defaultPrevented) return;
@@ -120,16 +161,28 @@ export default function MapScreen({
         className="wf-map-screen"
         style={right > 0 ? { '--wf-map-right': `${right}px` } : undefined}
         onKeyDown={handleKeyDown}
+        // Capture runs before the scrim's own pointerdown, so a press anywhere else forgets an earlier scrim press.
+        onPointerDownCapture={() => { scrimDown.current = false; }}
       >
+        {/* A pointer-only dismissal surface: the keyboard's route is Escape and the close button; it is aria-hidden. */}
         <div
           aria-hidden="true"
           data-testid="map-screen-scrim"
           className="wf-map-screen-scrim"
-          onPointerDown={onScrimPress}
+          onPointerDown={() => { scrimDown.current = true; }}
+          onClick={() => {
+            // A click that began on the scrim itself: a touch that landed elsewhere and ended here is not a dismissal,
+            // and closing on pointerdown would hand the same tap to whatever sits under the closing view.
+            if (!scrimDown.current) return;
+            scrimDown.current = false;
+            onScrimPress();
+          }}
         />
         <div className="wf-map-screen-box">
           {/* A div, not a `<header>`: inside a landmark region a header would still map to a (nested) banner landmark. */}
-          <div className="wf-map-screen-head" data-testid="map-screen-header">
+          {/* The arrows step the window from anywhere on the header that is not a field or a list (D12). */}
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+          <div className="wf-map-screen-head" data-testid="map-screen-header" onKeyDown={handleHeaderKeyDown}>
             <div className="wf-map-screen-titleblock">
               <h2
                 id={titleId}

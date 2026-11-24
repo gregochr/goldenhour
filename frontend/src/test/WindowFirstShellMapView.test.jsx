@@ -451,16 +451,50 @@ describe('the scrim', () => {
   it('closes the view when nothing is stacked over it', async () => {
     mount();
     await openView();
-    await act(async () => { fireEvent.pointerDown(screen.getByTestId('map-screen-scrim')); });
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('map-screen-scrim'));
+      fireEvent.click(screen.getByTestId('map-screen-scrim'));
+    });
     await browser.settle();
     expect(viewIsOpen()).toBe(false);
+  });
+
+  it('does not close on the pointer going down: a touch would hand the same tap to what is under the view', async () => {
+    mount();
+    await openView();
+    await act(async () => { fireEvent.pointerDown(screen.getByTestId('map-screen-scrim')); });
+    expect(viewIsOpen()).toBe(true);
+  });
+
+  it('does not close on a click that did not begin on the scrim', async () => {
+    mount();
+    await openView();
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('inner-open'));
+      fireEvent.click(screen.getByTestId('map-screen-scrim'));
+    });
+    expect(viewIsOpen()).toBe(true);
+  });
+
+  it('forgets a scrim press once the pointer goes down anywhere else', async () => {
+    mount();
+    await openView();
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('map-screen-scrim'));
+      fireEvent.pointerDown(screen.getByTestId('inner-open'));
+      fireEvent.click(screen.getByTestId('map-screen-scrim'));
+    });
+    expect(viewIsOpen()).toBe(true);
   });
 
   it('leaves the view when Find stands over it', async () => {
     mount();
     await openView();
     await act(async () => { fireEvent.click(screen.getByTestId('map-screen-find')); });
-    await act(async () => { fireEvent.pointerDown(screen.getByTestId('map-screen-scrim')); });
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('map-screen-scrim'));
+      fireEvent.click(screen.getByTestId('map-screen-scrim'));
+    });
     expect(viewIsOpen()).toBe(true);
   });
 });
@@ -735,13 +769,11 @@ describe('openMap request shapes (the plan\'s window and focus arguments)', () =
     expect(onOpenMapTab).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'aurora', date: TODAY }));
   });
 
-  it('a names focus carries its spots, title and caption as a plain door', async () => {
+  it('a names focus carries its spots as a plain door', async () => {
     const { open, onOpenMapTab } = await doors();
-    await open({
-      window: win, focus: { kind: 'names', focusNames: ['Whitby'], title: 'Moors', caption: '1 spot' },
-    });
+    await open({ window: win, focus: { kind: 'names', focusNames: ['Whitby'] } });
     expect(onOpenMapTab).toHaveBeenLastCalledWith(expect.objectContaining({
-      date: TODAY, targetType: 'SUNSET', focusNames: ['Whitby'], title: 'Moors', caption: '1 spot', region: null,
+      date: TODAY, targetType: 'SUNSET', focusNames: ['Whitby'], region: null,
     }));
     expect(onOpenMapTab.mock.calls.at(-1)[0]).not.toHaveProperty('kind');
   });
@@ -758,5 +790,135 @@ describe('openMap request shapes (the plan\'s window and focus arguments)', () =
     await openView();
     await act(async () => { fireEvent.click(screen.getAllByTestId('ask-field')[0]); });
     expect(await screen.findByTestId('ask-dock-context')).toHaveTextContent('on Map');
+  });
+});
+
+describe('review round 1: focus, the address and the origin', () => {
+  const selectedTab = () => screen.getByRole('tab', { selected: true });
+
+  it('✕ after a load-time open puts focus on the selected tab, never on the hidden title', async () => {
+    mount({ props: { loadMapRoute: { date: TODAY, eventType: 'SUNSET', locationId: 11 } } });
+    await act(async () => {});
+    expect(viewIsOpen()).toBe(true);
+
+    await act(async () => { fireEvent.click(screen.getByTestId('map-screen-close')); });
+    await browser.settle();
+
+    expect(viewIsOpen()).toBe(false);
+    expect(document.activeElement).toBe(selectedTab());
+    expect(document.activeElement).not.toBe(screen.getByTestId('map-screen-title'));
+  });
+
+  it('✕ after the registered opener (the aurora banner\'s door) also lands on the selected tab', async () => {
+    const register = vi.fn();
+    mount({ props: { registerOpenMap: register } });
+    await act(async () => { register.mock.calls[0][0].open({}); });
+    await browser.settle();
+    expect(viewIsOpen()).toBe(true);
+
+    await act(async () => { fireEvent.click(screen.getByTestId('map-screen-close')); });
+    await browser.settle();
+
+    expect(document.activeElement).toBe(selectedTab());
+  });
+
+  it('Escape and Back put focus on the selected tab too when the opener left no element behind', async () => {
+    mount({ props: { loadMapRoute: { date: TODAY, eventType: 'SUNSET', locationId: null } } });
+    await act(async () => {});
+    await act(async () => { fireEvent.click(document.body); });
+    await browser.settle();
+    await browser.back();
+    expect(viewIsOpen()).toBe(false);
+    expect(document.activeElement).toBe(selectedTab());
+  });
+
+  it('the callout\'s "Open in Plan" takes the #map address down, with the view alone', async () => {
+    const { rerenderShell } = mount();
+    await openView();
+    expect(hash()).toMatch(/^#map\//);
+
+    await act(async () => {
+      rerenderShell({ locationSheetHandoff: { id: 11, name: 'Whitby', regionName: null, inPlan: true, nonce: 1 } });
+    });
+    await browser.settle();
+
+    expect(viewIsOpen()).toBe(false);
+    expect(hash()).toBe('');
+  });
+
+  it('...and with Find already stacked over the view', async () => {
+    const { rerenderShell } = mount();
+    await openView();
+    await act(async () => { fireEvent.click(screen.getByTestId('map-screen-find')); });
+    await browser.settle();
+    expect(layers()).toBe(2);
+
+    await act(async () => {
+      rerenderShell({ locationSheetHandoff: { id: 11, name: 'Whitby', regionName: null, inPlan: true, nonce: 1 } });
+    });
+    await browser.settle();
+
+    expect(viewIsOpen()).toBe(false);
+    expect(hash()).toBe('');
+  });
+
+  it('an inPlan handoff with the view CLOSED does not leave a skip that costs the next ✕ its focus return', async () => {
+    const { rerenderShell } = mount();
+    await act(async () => {
+      rerenderShell({ locationSheetHandoff: { id: 11, name: 'Whitby', regionName: null, inPlan: true, nonce: 1 } });
+    });
+    await browser.settle();
+    expect(screen.queryByTestId('map-screen')).toBeNull();
+
+    door().focus();
+    await openView();
+    await act(async () => { fireEvent.click(screen.getByTestId('map-screen-close')); });
+    await browser.settle();
+
+    expect(document.activeElement).toBe(door());
+  });
+
+  it('reopening through the Map door writes the pane\'s current route, not a bare or stale address', async () => {
+    mount();
+    await openView();
+    expect(hash()).toBe(`#map/${TODAY}/sunset/5`);
+    await act(async () => { fireEvent.click(screen.getByTestId('map-screen-close')); });
+    await browser.settle();
+    expect(hash()).toBe('');
+
+    await openView();
+
+    expect(hash()).toBe(`#map/${TODAY}/sunset/5`);
+  });
+
+  it('a night\'s address reopens the night: the aurora and astro doors, not a solar window', async () => {
+    const aurora = mount({ props: { loadMapRoute: { date: TODAY, eventType: 'AURORA', locationId: null } } });
+    await act(async () => {});
+    expect(aurora.onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ kind: 'aurora', date: TODAY }));
+    cleanup();
+    const astro = mount({ props: { loadMapRoute: { date: TODAY, eventType: 'ASTRO', locationId: null } } });
+    await act(async () => {});
+    expect(astro.onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ kind: 'astro', date: TODAY }));
+    expect(viewIsOpen()).toBe(true);
+  });
+
+  it('an away origin can be undone from the view\'s header, and focus lands on the title, not <body>', async () => {
+    const setOrigin = vi.fn();
+    mount({ ctx: { origin: { id: 'lakes', name: 'Lake District', baseName: 'Keswick' }, setOrigin } });
+    await openView();
+
+    expect(screen.getByTestId('map-screen-origin')).toHaveTextContent('From Keswick');
+    const home = screen.getByTestId('map-screen-origin-home');
+    expect(home).toHaveAccessibleName('Plan from home again');
+    await act(async () => { fireEvent.click(home); });
+
+    expect(setOrigin).toHaveBeenCalledExactlyOnceWith(null);
+    expect(document.activeElement).toBe(screen.getByTestId('map-screen-title'));
+  });
+
+  it('draws no ⌂ at home', async () => {
+    mount();
+    await openView();
+    expect(screen.queryByTestId('map-screen-origin-home')).toBeNull();
   });
 });

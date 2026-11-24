@@ -75,6 +75,11 @@ let booted = false;
 let listenedWindow = null;
 /** Resolvers of {@link whenSettled} promises, drained by {@link syncSettled} once nothing is outstanding. */
 let settledWaiters = [];
+/**
+ * True when an entry-less layer's address was cleared while entries of ours stood above the base entry, so the base
+ * entry (which carried the address) still shows it; rewritten bare once the history next lands at depth 0.
+ */
+let baseAddressStale = false;
 
 const getWindow = () => seam.win || (typeof window === 'undefined' ? null : window);
 const getHistory = () => seam.history || getWindow()?.history;
@@ -203,10 +208,30 @@ function addressIsOurs() {
 function syncUrl() {
   if (!enabled || inFlight || shrinkTimer) return;
   const want = effectiveUrl();
-  if (!want || currentHash() === want || !addressIsOurs()) return;
+  if (!want) {
+    // No layer wants an address, yet our own map hash is still showing: a layer with an address gave its entry to one
+    // without (a same-depth swap), or the base entry kept the address of an entry-less layer that closed above it.
+    const lingering = currentHash().startsWith('#map') && addressIsOurs();
+    if (lingering && (stack.length > 0 || (baseAddressStale && committedDepth === 0))) writeBareAddress();
+    if (committedDepth === 0) baseAddressStale = false;
+    return;
+  }
+  baseAddressStale = false;
+  if (currentHash() === want || !addressIsOurs()) return;
   try {
     const h = getHistory();
     h.replaceState(h.state, '', want);
+  } catch {
+    // The address is a nicety; the layers still work without it.
+  }
+}
+
+/** Replaces the current entry's address with the bare path, copying its state. */
+function writeBareAddress() {
+  try {
+    const loc = getWindow().location;
+    const h = getHistory();
+    h.replaceState(h.state, '', `${loc.pathname}${loc.search}`);
   } catch {
     // The address is a nicety; the layers still work without it.
   }
@@ -489,13 +514,10 @@ export function registerBackLayer({ onBack, mode = 'close', url = undefined } = 
  */
 function clearOwnAddress(layer) {
   if (layer.hasEntry || !layer.url || effectiveUrl() || currentHash() !== layer.url) return;
-  try {
-    const loc = getWindow().location;
-    const h = getHistory();
-    h.replaceState(h.state, '', `${loc.pathname}${loc.search}`);
-  } catch {
-    // Nothing more can be done; the address keeps its hash.
-  }
+  // Entries of ours stand above the base entry: the address was written on the base, which this cannot reach, so it
+  // is rewritten when a traversal next lands there (`syncUrl`).
+  if (committedDepth > 0) baseAddressStale = true;
+  writeBareAddress();
 }
 
 /**
@@ -542,6 +564,7 @@ export function __resetForTests({ history = null, win = null, enabled: on = BACK
   stack = [];
   seq = 0;
   committedDepth = 0;
+  baseAddressStale = false;
   reconcileScheduled = false;
   scrollManual = false;
   booted = false;

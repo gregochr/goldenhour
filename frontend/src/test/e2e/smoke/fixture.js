@@ -272,6 +272,19 @@ export async function openTab(page, id) {
 }
 
 /**
+ * Makes the device answer "phone" to the one media query that decides the opening landing, so the page starts on the
+ * screen and never on the map view (see {@link loginAndWaitForForecast}). For a spec that signs in by hand.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function forceScreenLanding(page) {
+  await page.addInitScript(() => {
+    const real = window.matchMedia.bind(window);
+    window.matchMedia = (query) => (String(query).includes('max-height: 499px') ? real('(min-width: 0px)') : real(query));
+  });
+}
+
+/**
  * Signs in, waits for the shell, and waits for the Map door (it is offered only once the forecast has arrived).
  *
  * <p>A tablet or desktop would also open the map VIEW on its own once the forecast lands (the Map landing, kept until
@@ -285,12 +298,7 @@ export async function openTab(page, id) {
  * @param {{settleLanding?: boolean}} [options]
  */
 export async function loginAndWaitForForecast(page, role = 'admin', { settleLanding = true } = {}) {
-  if (settleLanding) {
-    await page.addInitScript(() => {
-      const real = window.matchMedia.bind(window);
-      window.matchMedia = (query) => (String(query).includes('max-height: 499px') ? real('(min-width: 0px)') : real(query));
-    });
-  }
+  if (settleLanding) await forceScreenLanding(page);
   await loginAs(page, role);
   await expect(page.getByTestId('window-first-shell')).toBeVisible();
   await expect(page.getByTestId('window-first-tab-map')).toBeVisible();

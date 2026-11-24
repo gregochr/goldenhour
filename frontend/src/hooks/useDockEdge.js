@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 
 /** The columns that dock beside the shell: Ask's, and the guide's in the same slot. */
 const DOCK_SELECTOR = '.wf-ask-dock, .wf-guide-dock';
@@ -18,7 +18,8 @@ const DOCK_SELECTOR = '.wf-ask-dock, .wf-guide-dock';
  */
 export default function useDockEdge(rootRef, active) {
   const [edge, setEdge] = useState(0);
-  useEffect(() => {
+  // A layout effect that measures at once: a reopen must not paint one frame at the edge a previous dock left.
+  useLayoutEffect(() => {
     const root = rootRef.current;
     if (!active || !root) return undefined;
     let observer = null;
@@ -39,11 +40,13 @@ export default function useDockEdge(rootRef, active) {
       setEdge(rect.width > 0 ? Math.max(0, Math.round(width - rect.left)) : 0);
     };
     observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    queueMicrotask(measure);
+    measure();
     window.addEventListener('resize', measure);
     return () => {
       observer?.disconnect();
       window.removeEventListener('resize', measure);
+      // Forgotten while inactive, so the next activation never starts from this one's answer.
+      setEdge(0);
     };
   }, [rootRef, active]);
   return active ? edge : 0;
