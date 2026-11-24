@@ -266,6 +266,39 @@ describe('App — openMapTabFromPlan (doors D2)', () => {
   });
 });
 
+describe('App — leaving Operations takes its address off the page', () => {
+  const report = async (tab) => { await act(async () => { ShellStub.lastProps.onTabChange(tab); }); };
+
+  it('Operations then the Plan tab clears #manage, keeping history.state', async () => {
+    renderApp();
+    await screen.findByTestId('stub-map-pane');
+    window.history.replaceState({ keep: 1 }, '', '#manage/runs?view=cost');
+    await report('operations');
+    expect(window.location.hash).toBe('#manage/runs?view=cost');
+    await report('plan');
+    expect(window.location.hash).toBe('');
+    expect(window.history.state).toEqual({ keep: 1 });
+  });
+
+  it('the map view over Operations is not a leave', async () => {
+    renderApp();
+    await screen.findByTestId('stub-map-pane');
+    window.history.replaceState(null, '', '#manage/runs');
+    await report('operations');
+    await report('map');
+    expect(window.location.hash).toBe('#manage/runs');
+  });
+
+  it('a Plan tab that never left Operations leaves another fragment alone', async () => {
+    renderApp();
+    await screen.findByTestId('stub-map-pane');
+    window.history.replaceState(null, '', '#other');
+    await report('operations');
+    await report('plan');
+    expect(window.location.hash).toBe('#other');
+  });
+});
+
 describe('App — openMapTabFromPlan with a normalised trigger (overlay convergence C1)', () => {
   /** Opens the door with `arg` and returns the handoff the Map pane received. */
   async function press(arg) {
@@ -277,9 +310,14 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
 
   it('a plain door\'s payload carries NONE of the new fields - absent, not null', async () => {
     const handoff = await press(DOOR);
-    for (const key of ['night', 'focusNames', 'focusPoints', 'filterAction', 'darkSky']) {
+    for (const key of ['night', 'focusNames', 'focusPoints', 'filterAction', 'darkSky', 'frame']) {
       expect(handoff).not.toHaveProperty(key);
     }
+  });
+
+  it('a window door\'s frame rides the handoff for the map\'s camera', async () => {
+    const handoff = await press({ ...DOOR, frame: 'home-and-place' });
+    expect(handoff).toMatchObject({ source: 'plan', frame: 'home-and-place' });
   });
 
   it('a door that already names its fields passes them through to the handoff', async () => {

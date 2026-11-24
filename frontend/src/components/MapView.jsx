@@ -905,6 +905,22 @@ function containerIsUnsized(map) {
   return Boolean(box && box.clientWidth === 0 && box.clientHeight === 0);
 }
 
+/** The zoom cap of a window door's home-and-place frame: two close points must not crop in to street level. */
+const HOME_AND_PLACE_MAX_ZOOM = 11;
+
+/**
+ * The insets of a window door's home-and-place frame, so neither point sits under the top header, the callout or the
+ * phone's resting peek sheet (74px, `--psh`).
+ *
+ * @param {boolean} isMobile the phone layout
+ * @returns {{paddingTopLeft: number[], paddingBottomRight: number[]}}
+ */
+function homeAndPlacePadding(isMobile) {
+  return isMobile
+    ? { paddingTopLeft: [48, 90], paddingBottomRight: [48, 150] }
+    : { paddingTopLeft: [80, 90], paddingBottomRight: [80, 90] };
+}
+
 /**
  * Programmatically flies the map to a target lat/lon when `target` changes.
  *
@@ -971,7 +987,17 @@ function FitBoundsController({ target, active = true, onProgrammaticMove = undef
     appliedKey.current = target.key;
     onProgrammaticMove?.();
     map.invalidateSize?.({ animate: false });
-    map.fitBounds(L.latLngBounds(target.points), { padding: [60, 60], maxZoom: 12, animate: true });
+    // A door that frames two points (home and its best place) brings its own insets and a lower zoom cap, so two
+    // close points do not crop in and neither sits under the callout, the header or the phone's peek sheet.
+    const options = target.paddingTopLeft || target.paddingBottomRight
+      ? {
+        paddingTopLeft: target.paddingTopLeft ?? [60, 60],
+        paddingBottomRight: target.paddingBottomRight ?? [60, 60],
+        maxZoom: target.maxZoom ?? 12,
+        animate: true,
+      }
+      : { padding: [60, 60], maxZoom: target.maxZoom ?? 12, animate: true };
+    map.fitBounds(L.latLngBounds(target.points), options);
     return undefined;
     // Only re-fit when the handoff key changes (or the pane shows), not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -983,6 +1009,9 @@ FitBoundsController.propTypes = {
   target: PropTypes.shape({
     points: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
     key: PropTypes.string,
+    maxZoom: PropTypes.number,
+    paddingTopLeft: PropTypes.arrayOf(PropTypes.number),
+    paddingBottomRight: PropTypes.arrayOf(PropTypes.number),
   }),
   active: PropTypes.bool,
   onProgrammaticMove: PropTypes.func,
@@ -2312,7 +2341,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           // Only when the jump actually framed something (a region the heat catalogue holds spots for).
           const regionFramed = planHandoff.source !== 'map' && planHandoff.region
             && (heat?.spots || EMPTY_POINTS).some((sp) => sp?.regionName === planHandoff.region);
-          if (!regionFramed) setFlyTarget({ lat: loc.lat, lon: loc.lon });
+          // A WINDOW door (`frame: 'home-and-place'`, set only by the Glance card, lane and Your places chip)
+          // frames the reader's home and its best place together, so the map is not left zoomed in on one spot
+          // away from home. Without a home coordinate (none saved, or an away origin, which draws none) it flies
+          // to the place as every other door does.
+          const home = origin ? null : homeCoords;
+          const frameHome = planHandoff.frame === 'home-and-place' && !regionFramed
+            && home?.lat != null && home?.lon != null;
+          if (frameHome) {
+            setFitBoundsTarget({
+              points: [[home.lat, home.lon], [loc.lat, loc.lon]],
+              key: fitBoundsKey('door', planHandoff.nonce),
+              maxZoom: HOME_AND_PLACE_MAX_ZOOM,
+              ...homeAndPlacePadding(isMobile),
+            });
+          } else if (!regionFramed) {
+            setFlyTarget({ lat: loc.lat, lon: loc.lon });
+          }
         }
       }
     })();
@@ -8659,6 +8704,8 @@ MapView.propTypes = {
     minRating: PropTypes.number,
     limitMinutes: PropTypes.number,
     locationName: PropTypes.string,
+    /** `'home-and-place'` on a window door only: frame home and `locationName` together instead of flying to it. */
+    frame: PropTypes.oneOf(['home-and-place']),
     // Overlay convergence C1 - each ABSENT unless the door asked; see the planHandoff effects.
     // (The payload: source, eventType, date, region, minRating, limitMinutes, locationName, night,
     // focusNames, focusPoints, filterAction, darkSky, title, caption, nonce.)

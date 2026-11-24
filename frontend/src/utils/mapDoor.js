@@ -350,6 +350,7 @@ export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = nul
       date: dateOrHandoff.date,
       eventType: dateOrHandoff.eventType,
       ...(dateOrHandoff.topicType ? { topicType: dateOrHandoff.topicType } : {}),
+      ...(dateOrHandoff.frame ? { frame: dateOrHandoff.frame } : {}),
     };
   }
   if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
@@ -406,6 +407,9 @@ export function doorFromTrigger(trigger, ctx) {
   // The Coming up weather chip's topic, for the Map to select on arrival (`kind:'event'` only).
   if (trigger.kind === 'event' && trigger.topicType) door.topicType = trigger.topicType;
   if (h.darkSky) door.darkSky = true;
+  // A WINDOW door's camera (a Glance card, a lane, a Your places chip): frame home and the place it opens. Set by the
+  // producer, never inferred from the trigger's kind, and carried only when the door resolved a single place.
+  if (trigger.frame && door.locationName) door.frame = trigger.frame;
   if (resolved.focus?.names?.length) door.focusNames = resolved.focus.names;
   if (resolved.focus?.points?.length) door.focusPoints = resolved.focus.points;
   // The wrapper-supplied lens fields ride through untouched (`WindowFirstShell.openMapTab` ->

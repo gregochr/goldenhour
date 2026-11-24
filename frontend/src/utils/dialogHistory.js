@@ -207,6 +207,16 @@ function addressIsOurs() {
 }
 
 /**
+ * Whether the page is showing an Operations address (`#manage/...`) that this engine may push ITS OWN entry over. A
+ * push never clobbers it (the Operations entry stays behind us, and Back restores it), where a replace would; so a
+ * map view opened from a page still showing the address Operations left behind gets its own `#map/...` address, not
+ * the stale one.
+ */
+function addressIsManage() {
+  return currentHash().startsWith('#manage');
+}
+
+/**
  * Writes the stack's address onto the CURRENT entry (copying its state) when it differs. Skipped while a
  * traversal is outstanding (the location is in transit) and over a foreign hash.
  */
@@ -258,7 +268,7 @@ function pushEntry() {
     }
     const state = { ...stateObject(), [MARKER_KEY]: { session: session(), depth: committedDepth + 1 } };
     const url = effectiveUrl();
-    if (url && addressIsOurs()) {
+    if (url && (addressIsOurs() || addressIsManage())) {
       h.pushState(state, '', url);
       ownAddresses.add(url);
     } else h.pushState(state, '');

@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo
 import PropTypes from 'prop-types';
 import { computeAutoSelection, colourForecastDates } from './utils/conversions.js';
 import { normalizeMapTrigger, doorFromTrigger } from './utils/mapDoor.js';
+import { clearStaleManageAddress } from './utils/manageAddress.js';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBannerRoot from './components/AuroraBannerRoot.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
@@ -359,6 +360,19 @@ function AppInner() {
    * itself rather than being told the answer.
    */
   const [activePlanTab, setActivePlanTab] = useState('plan');
+  /**
+   * The tab before this one, so leaving Operations takes its `#manage/...` address off the page. Operations never clears
+   * it, and while it stands the map view cannot show its own `#map/...` address (`utils/manageAddress.js`). A move to the
+   * map view is not a leave: the view sits over the tab and closing it returns there.
+   */
+  const previousPlanTab = useRef(null);
+  useEffect(() => {
+    const previous = previousPlanTab.current;
+    previousPlanTab.current = activePlanTab;
+    if (previous === 'operations' && activePlanTab && activePlanTab !== 'operations' && activePlanTab !== 'map') {
+      clearStaleManageAddress();
+    }
+  }, [activePlanTab]);
   /** Whether the map view is open (the shell reports `'map'` while it is). */
   const isMapTabActive = activePlanTab === 'map';
   /**
@@ -874,6 +888,8 @@ function AppInner() {
       minRating: door.minRating ?? null,
       limitMinutes: door.limitMinutes ?? null,
       locationName: door.locationName ?? null,
+      // A window door's camera: home and the best place together. ABSENT unless the door asked.
+      ...(door.frame ? { frame: door.frame } : {}),
       // The overlay-convergence fields (C1, C4). ABSENT, not null, when the door carries none, so a
       // plain door's payload is exactly what it was and `MapView` reads absence as "not asked".
       ...(door.night ? { night: door.night } : {}),

@@ -199,6 +199,59 @@ test.describe('The map view over the screen', () => {
   });
 });
 
+/** The basemap zoom the map is showing: the `z` of the front tile level plus its CSS scale. */
+async function mapZoom(page) {
+  return page.evaluate(() => {
+    const levels = [...document.querySelectorAll('.leaflet-tile-container')]
+      .filter((l) => l.querySelector('img'))
+      .sort((a, b) => Number(b.style.zIndex || 0) - Number(a.style.zIndex || 0));
+    const front = levels[0];
+    if (!front) return null;
+    const z = Number(front.querySelector('img').src.match(/\/tile\/(\d+)\//)[1]);
+    const m = (front.style.transform || '').match(/scale\(([\d.]+)\)/);
+    return z + Math.log2(m ? Number(m[1]) : 1);
+  });
+}
+
+test.describe('A window door frames home and its best place', () => {
+  test('a This week card lands on a place with its callout, at a zoom no closer than 11 (never flown in on the place)', async ({ page }) => {
+    test.setTimeout(60_000);
+    await loginAndWaitForForecast(page, 'admin');
+    await (await cardAt(page)).card.click();
+    await expect(page.getByTestId('map-screen')).toBeVisible();
+    await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
+    // The best place is selected (its callout opens) and the camera framed it with home: the zoom is capped at 11,
+    // where the old fly-to went to `max(zoom, 11)` and stayed there.
+    await expect(page.getByTestId('map-callout')).toBeVisible();
+    await expect.poll(() => mapZoom(page)).toBeLessThanOrEqual(11.05);
+    // The callout stands inside the map frame, clear of the header.
+    const frame = await page.locator('[data-testid="map-screen"] .leaflet-container').boundingBox();
+    const callout = await page.getByTestId('map-callout').boundingBox();
+    const header = await page.getByTestId('map-screen-header').boundingBox();
+    expect(callout.y).toBeGreaterThanOrEqual(header.y + header.height - 1);
+    expect(callout.x).toBeGreaterThanOrEqual(frame.x - 1);
+    expect(callout.x + callout.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+  });
+});
+
+test.describe('The map view\'s address after Operations', () => {
+  test('an admin who leaves Operations for This week and presses a card sees #map/..., not #manage/...', async ({ page }) => {
+    test.setTimeout(60_000);
+    await loginAndWaitForForecast(page, 'admin');
+    await page.getByTestId('window-first-tab-operations').click();
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toMatch(/^#manage/);
+    await page.getByTestId('window-first-tab-plan').click();
+    await (await cardAt(page)).card.click();
+    await expect(page.getByTestId('map-screen')).toBeVisible();
+    await settled(page, 1);
+    expect(await page.evaluate(() => window.location.hash)).toMatch(/^#map\/\d{4}-\d{2}-\d{2}\/(sunrise|sunset)/);
+    await page.goBack();
+    await expect(page.getByTestId('map-screen')).toBeHidden();
+    await settled(page, 0);
+    expect(await page.evaluate(() => window.location.hash)).not.toMatch(/^#manage/);
+  });
+});
+
 test.describe('The Map landing (kept until the tab model goes)', () => {
   test('a desktop that has not been touched opens the view on its own once the forecast lands', async ({ page }) => {
     test.setTimeout(60_000);

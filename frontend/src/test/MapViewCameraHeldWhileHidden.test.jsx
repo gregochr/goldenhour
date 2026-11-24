@@ -302,4 +302,53 @@ describe('MapView door camera - held while the Map pane is hidden', () => {
     await act(async () => { fireResize(); });
     expect(flies()).toBe(1);
   });
+
+  describe('a window door frames home and its best place (frame: home-and-place)', () => {
+    const HOME = { lat: 55.0, lon: -1.6 };
+    /** The fits made by the door's `FitBoundsController` (a `{points}` bounds), not the heat field's. */
+    const doorFits = () => fitArgs.filter(([bounds]) => bounds?.points);
+    const framed = { ...DOOR_BASE, locationName: 'Far', frame: 'home-and-place' };
+
+    it('fits [home, place] with maxZoom 11 and the door insets, and does not fly', async () => {
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(1);
+      expect(flies()).toBe(0);
+      expect(doorFits()[0][0].points).toEqual([[55.0, -1.6], [FAR.lat, FAR.lon]]);
+      expect(doorFits()[0][1]).toEqual({
+        paddingTopLeft: [80, 90], paddingBottomRight: [80, 90], maxZoom: 11, animate: true,
+      });
+    });
+
+    it('holds at 0x0 and fits once on resize', async () => {
+      containerBox = { clientWidth: 0, clientHeight: 0 };
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(0);
+      containerBox = { clientWidth: 1200, clientHeight: 600 };
+      await act(async () => { fireResize(); });
+      expect(doorFits()).toHaveLength(1);
+      expect(doorFits()[0][1].maxZoom).toBe(11);
+    });
+
+    it('flies to the place when there is no home coordinate', async () => {
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: null });
+      expect(doorFits()).toHaveLength(0);
+      expect(flies()).toBe(1);
+    });
+
+    it('flies to the place under an away origin, which draws no home', async () => {
+      await renderTab({
+        planHandoff: { ...framed, nonce: 1 },
+        homeCoords: HOME,
+        origin: { id: 7, name: 'Lake District', baseName: 'Keswick' },
+      });
+      expect(doorFits()).toHaveLength(0);
+      expect(flies()).toBe(1);
+    });
+
+    it('a place door without the frame still flies, even with a home', async () => {
+      await renderTab({ planHandoff: { ...DOOR_BASE, locationName: 'Far', nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(0);
+      expect(flies()).toBe(1);
+    });
+  });
 });

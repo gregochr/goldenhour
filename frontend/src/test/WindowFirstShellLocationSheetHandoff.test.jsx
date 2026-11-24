@@ -266,6 +266,8 @@ describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () =>
 
     expect(onOpenMapTab).toHaveBeenCalledTimes(1);
     expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({ inPlace: true }));
+    // A door about a PLACE keeps the fly to it: no home-and-place frame.
+    expect(onOpenMapTab.mock.calls[0][0]).not.toHaveProperty('frame');
   });
 
   it('does not replay a handoff that was already in flight when the shell mounted (hidden-pane rule)', () => {

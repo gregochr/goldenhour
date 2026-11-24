@@ -169,6 +169,25 @@ lazy chunk landed, which the nginx smoke does on a slow runner) is "active" at 0
 alone while `containerIsUnsized(map)` and wake on Leaflet's `resize`; before this, the door's `maxZoom: 12` fit ran at 0x0, the
 reopened view sat at zoom 12 away from every chip, and `openMapTab` timed out waiting for a visible chip.
 
+**Window doors frame home and the best place (2026-11-24).** A door that opens a WINDOW (a This week card, a lane, a Your places
+chip) used to `flyTo` its best place at `max(zoom, 11)`, so the owner always landed zoomed in on one spot, not on home. Those
+doors now carry `frame: 'home-and-place'` (set by the producer in `WindowFirstShell`, never inferred; `mapDoor.doorFromTrigger`
+copies it only when the door resolved a single `locationName`, `App.openMapTabFromPlan` forwards it). `MapView`'s door effect
+selects the place and opens its callout as before, then hands `FitBoundsController` `[home, place]` (key `door:<nonce>`,
+`maxZoom` 11, asymmetric insets `homeAndPlacePadding`: 90px under the header, 150px at the bottom on a phone for the 74px peek
+sheet) instead of setting the fly target. Home is `homeCoords` and only at home: an away origin draws no home, a missing
+postcode has none, and a region door (`regionFramed`) frames the region; each of those keeps today's fly-to. Place doors (the
+location sheet's "Show on map", Find, the area sheet, Ask, `source: 'map'`) never carry the frame. The 0x0 hold applies to
+the fit like any other (`containerIsUnsized`). Tests: `MapViewCameraHeldWhileHidden.test.jsx`, `mapDoor.test.js`.
+
+**The map view's address after Operations (2026-11-24).** Operations writes `#manage/<tab>` and never cleared it, and the
+dialog-history engine writes a layer's address only over an empty hash or its own `#map`, so a view opened from This week
+after a visit to Operations kept showing `#manage/...`. Fixed twice: `App` takes the address off when the tab moves from
+Operations to anything but the map view (`utils/manageAddress.js`, `replaceState` copying `history.state`), and `pushEntry`
+now pushes the view's own entry over a `#manage` hash (a push never clobbers it; Back restores it), which covers opening the
+map straight from Operations. A replace (an entry-less layer) still never overwrites a foreign hash. Tests:
+`dialogHistoryUrl.test.js`, `AppOpenMapTabFromPlan.test.jsx`, `manageAddress.test.js`, `map-view.spec.js`.
+
 ## Met Office warning chips on the callout (weather-warnings W2, 2026-11-17)
 
 `MapCallout` renders a `WarningStrip` (chips plus the attribution line) directly **under** the verdict row and apart from the rating badge, for a live solar window only (not past, not a night, not High water). The chips are the polled served list matched by place and event time (`warningsForWindow`); travel days included. No geometry on the map in this series (plan section 12). See `weather-warnings.md` ("The client, W2").
