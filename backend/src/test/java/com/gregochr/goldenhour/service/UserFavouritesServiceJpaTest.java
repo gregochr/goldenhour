@@ -547,6 +547,43 @@ class UserFavouritesServiceJpaTest {
     }
 
     @Test
+    @DisplayName("the NLC season cannot be watched, and a start beyond the almanac's 90 days is refused")
+    void addDate_refusesNlcAndTheFarFuture() {
+        assertThatThrownBy(() -> service.addDate(PRO, "nlc-season:2019-03-10"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.addDate(PRO, "king-tide:2019-06-03"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Not a date that can be watched.");
+        assertThat(service.addDate(PRO, "king-tide:2019-06-02").dates()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a stored key that no longer parses (withdrawn type, garbage) never fails a read, is not served, and "
+            + "is deleted by the next write")
+    void unparsableStoredKeys_areSkippedAndSwept() {
+        plantDate("nlc-season:2019-03-01");
+        plantDate("garbage");
+
+        FavouritesResponse read = service.get(PRO);
+        assertThat(read.dates()).isEmpty();
+        assertThat(dateRows()).isEqualTo(2);
+
+        assertThat(service.addDate(PRO, KEPT).dates()).extracting(FavouritesResponse.Date::key).containsExactly(KEPT);
+        assertThat(dateRows()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("un-watching accepts any stored key shape, whatever its type, and refuses one that cannot be stored")
+    void removeDate_anyStoredKey() {
+        plantDate("aurora:2019-03-10");
+        assertThat(dateRows()).isEqualTo(1);
+
+        assertThat(service.removeDate(PRO, "aurora:2019-03-10").dates()).isEmpty();
+        assertThat(dateRows()).isZero();
+        assertThatThrownBy(() -> service.removeDate(PRO, "a".repeat(70)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("an unknown username is NoSuchElementException on a date write")
     void dates_unknownUser() {
         assertThatThrownBy(() -> service.addDate("nobody", KEPT)).isInstanceOf(NoSuchElementException.class);

@@ -61,11 +61,12 @@ export const YOUR_PLACES_EMPTY = 'Star a place or an area, from its sheet or its
  *        {@code {window: {date, eventType}, focus, from}}
  * @param {function(object): void} props.onOpenPlace opens a place's next-days sheet, given the heat spot
  * @param {function(object): void} props.onOpenArea opens an area's sheet, given the directory entry
+ * @param {?Set<string>} [props.graduatedIds] the entries This week already draws as lanes (not listed in Further ahead)
  * @param {function(string): void} [props.onOpenEntry] scrolls to and opens a Further ahead entry, given its id
  */
 export default function YourPlacesRow({
   spots, windows, scoreIndex, reachById, allowedLocationIds, onOpenWindow, onOpenPlace, onOpenArea,
-  entries = null, hotTopics = null, todayStr = '', onOpenEntry = undefined,
+  entries = null, hotTopics = null, todayStr = '', onOpenEntry = undefined, graduatedIds = undefined,
 }) {
   const favourites = useFavourites();
   const upsell = useFavouriteUpsell();
@@ -167,6 +168,10 @@ export default function YourPlacesRow({
           focus: chip.bestSpot ? { kind: 'location', id: chip.bestSpot.id, name: chip.bestSpot.name } : null,
           from: event.currentTarget,
         });
+      } else if (chip.kind === 'beyond' && chip.firstWindow && graduatedIds?.has(chip.entryId)) {
+        // The entry is a lane in This week now, so it is not listed in Further ahead to scroll to: open the map on the
+        // first window the date has reached instead.
+        onOpenWindow({ window: chip.firstWindow, focus: null, from: event.currentTarget });
       } else {
         onOpenEntry?.(chip.entryId);
       }
@@ -199,35 +204,15 @@ export default function YourPlacesRow({
         <>
           {rows.length > 0 && (
             <ul className="wf-yp-row m-0 list-none p-0" data-testid="your-places-row">
-              {rows.map((row) => (
-                <li key={row.key} className="wf-yp-item">
-                  {row.kind === 'date' && row.chip.kind === 'static' ? (
-                    // A watched date with no window of its own: a chip drawn as text, so a control never opens nothing.
-                    <div
-                      data-testid="your-places-chip"
-                      data-kind="date"
-                      data-date-state="static"
-                      className="wf-yp-chip wf-yp-chip-static text-left"
-                    >
-                      <span className="wf-yp-name">
-                        <span aria-hidden="true" className="wf-yp-star">★</span>
-                        <span className="sr-only">Watched date: </span>
-                        {row.chip.glyph && <span aria-hidden="true">{`${row.chip.glyph} `}</span>}
-                        {row.name}
-                      </span>
-                      <span className="wf-yp-detail" data-testid="your-places-detail">{detail(row)}</span>
-                    </div>
-                  ) : (
-                  <button
-                    type="button"
-                    data-testid="your-places-chip"
-                    data-kind={row.kind}
-                    data-date-state={row.kind === 'date' ? row.chip.kind : undefined}
-                    className="wf-yp-chip text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold"
-                    onClick={(event) => press(row, event)}
-                  >
+              {rows.map((row) => {
+                const isDate = row.kind === 'date';
+                // A chip that opens nothing is drawn as text, so a control never opens nothing: a date with no window
+                // of its own, and a watch whose entry the feed no longer lists.
+                const inert = isDate && (row.chip.kind === 'static' || row.chip.kind === 'unlisted');
+                const nameBlock = (
+                  <>
                     <span className="wf-yp-name">
-                      {row.kind === 'date' && (
+                      {isDate && (
                         <>
                           <span aria-hidden="true" className="wf-yp-star">★</span>
                           <span className="sr-only">Watched date: </span>
@@ -237,10 +222,46 @@ export default function YourPlacesRow({
                       {row.name}
                     </span>
                     <span className="wf-yp-detail" data-testid="your-places-detail">{detail(row)}</span>
-                  </button>
-                  )}
-                </li>
-              ))}
+                  </>
+                );
+                return (
+                  <li key={row.key} className={isDate ? 'wf-yp-item wf-yp-item-date' : 'wf-yp-item'}>
+                    {inert ? (
+                      <div
+                        data-testid="your-places-chip"
+                        data-kind="date"
+                        data-date-state={row.chip.kind}
+                        className="wf-yp-chip wf-yp-chip-static text-left"
+                      >
+                        {nameBlock}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid="your-places-chip"
+                        data-kind={row.kind}
+                        data-date-state={isDate ? row.chip.kind : undefined}
+                        className="wf-yp-chip text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold"
+                        onClick={(event) => press(row, event)}
+                      >
+                        {nameBlock}
+                      </button>
+                    )}
+                    {/* Every watched date can be taken away from its own chip: a sibling of the chip, never inside it. */}
+                    {isDate && (
+                      <button
+                        type="button"
+                        data-testid="your-places-stop-watching"
+                        className="wf-yp-stop focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold"
+                        aria-label={`Stop watching ${row.name}`}
+                        onClick={() => { void favourites.setStar('date', row.chip.key, row.name, false); }}
+                      >
+                        <span aria-hidden="true">×</span>
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
           {/* A starred area the directory has not named yet is said, never silently left out. */}
@@ -275,4 +296,5 @@ YourPlacesRow.propTypes = {
   hotTopics: PropTypes.arrayOf(PropTypes.object),
   todayStr: PropTypes.string,
   onOpenEntry: PropTypes.func,
+  graduatedIds: PropTypes.instanceOf(Set),
 };

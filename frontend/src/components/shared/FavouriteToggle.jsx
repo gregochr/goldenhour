@@ -201,8 +201,9 @@ export default function FavouriteToggle({
   const press = () => {
     // Void presses: nothing waits on the request, the toast and the revert report it.
     if (isDate && starred) {
-      matchedKeys.filter((key) => favourites.isDateWatched(key))
-        .forEach((key) => { void favourites.setStar('date', key, name, false); });
+      // One press, one Undo: each request carries the whole group, so the toast that survives restores all of them.
+      const group = matchedKeys.filter((key) => favourites.isDateWatched(key));
+      group.forEach((key) => { void favourites.setStar('date', key, name, false, false, group); });
       return;
     }
     void favourites.toggle(kind, id, name);

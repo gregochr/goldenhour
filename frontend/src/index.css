@@ -11560,6 +11560,21 @@ div.wf-lane { cursor: default; }
 /* A watched date that opens nothing (a meteor peak has no window of its own): the same chip, drawn as text, not a control. */
 .wf-yp-chip-static { cursor: default; border-style: dashed; }
 .wf-yp-chip-static:hover { border-color: var(--color-plex-border); }
+.wf-yp-item-date { display: flex; align-items: stretch; gap: 2px; }
+.wf-yp-stop {
+  min-width: 32px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: var(--color-plex-panel);
+  color: var(--color-plex-text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wf-yp-stop:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
+@media (max-width: 639px) {
+  .wf-yp-stop { min-width: 44px; }
+}
 .wf-yp-star { color: var(--color-plex-gold); margin-right: 4px; }
 @media (max-width: 639px) {
   .wf-yp-row { scroll-snap-type: x mandatory; }

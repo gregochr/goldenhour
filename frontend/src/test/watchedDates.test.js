@@ -40,6 +40,10 @@ describe('the watch key', () => {
       expect(watchKeyOf({ type, startDate: '2026-12-14' })).toBe(`${type}:2026-12-14`);
     }
     expect(watchKeyOf({ type: 'weather-warning', startDate: '2026-12-14' })).toBeNull();
+    // The NLC season's served start is clipped to the feed's first day, so a key on it would slide and expire early.
+    expect(watchKeyOf({ type: 'nlc-season', startDate: '2026-12-14' })).toBeNull();
+    expect(WATCHABLE_TYPES).not.toContain('nlc-season');
+    expect(parseWatchKey('nlc-season:2026-12-14')).toBeNull();
     expect(watchKeyOf({ type: 'king-tide', startDate: '2026-12-14', warning: {} })).toBeNull();
     expect(watchKeyOf({ type: 'king-tide' })).toBeNull();
     expect(watchKeyOf(null)).toBeNull();
@@ -223,7 +227,7 @@ describe('the chips for watched dates', () => {
     expect(chip.kind).toBe('beyond');
   });
 
-  it('a watch whose dates have passed, or whose entry is not served, draws nothing; the rest are earliest first', () => {
+  it('a watch whose dates have passed draws nothing, one the feed no longer lists is an unlisted chip, earliest first', () => {
     const passed = tide({ id: 'p', startDate: '2026-11-18', endDate: '2026-11-22' });
     const meteor = { id: 'meteor:2026-12-14', type: 'meteor', title: 'Geminids', startDate: '2026-12-14', endDate: '2026-12-14' };
     const chips = buildWatchedChips({
@@ -233,7 +237,9 @@ describe('the chips for watched dates', () => {
       hotTopics: [],
       todayStr: TODAY,
     });
-    expect(chips.map((chip) => chip.title)).toEqual(['King tide', 'Geminids']);
+    // The supermoon watch has no entry in the feed: it stays, as an unlisted chip, so it can be taken away.
+    expect(chips.map((chip) => chip.title)).toEqual(['King tide', 'Geminids', 'Supermoon']);
+    expect(chips[2].kind).toBe('unlisted');
     expect(buildWatchedChips({ dates: null, entries: null, windows: [], hotTopics: [], todayStr: TODAY })).toEqual([]);
   });
 
@@ -253,5 +259,29 @@ describe('the chips for watched dates', () => {
     const [chip] = buildWatchedChips({ dates, entries: [tide()], windows, hotTopics: [], todayStr: '2026-12-02' });
     expect(chip.detail).toBe('sunset · tide on the light');
     expect(chip.bestSpot).toBeNull();
+  });
+
+  it('a watch the feed no longer lists is a chip of its own, named from its key, so it can be taken away', () => {
+    const chips = buildWatchedChips({
+      dates: [{ key: 'king-tide:2027-01-05' }, { key: 'king-tide:2026-11-01' }, { key: 'meteor:2026-12-14' }],
+      entries: [], windows: [], hotTopics: [], todayStr: TODAY,
+    });
+    expect(chips.map((chip) => [chip.kind, chip.name, chip.detail])).toEqual([
+      ['unlisted', 'Meteor shower · 14 Dec', 'no longer listed'],
+      ['unlisted', 'King tide · 5 Jan', 'no longer listed'],
+    ]);
+    expect(chips[0]).toMatchObject({ key: 'meteor:2026-12-14', entryId: null, window: null });
+    // Until the feed has arrived nothing is said about it, and a key that does not parse says nothing either.
+    expect(buildWatchedChips({ dates, entries: null, windows: [], hotTopics: [], todayStr: TODAY })).toEqual([]);
+    expect(buildWatchedChips({ dates: [{ key: 'nlc-season:2026-12-14' }], entries: [], windows: [], hotTopics: [], todayStr: TODAY }))
+      .toEqual([]);
+  });
+
+  it('a beyond chip names the first window the date has reached, for an entry that is a lane now', () => {
+    const windows = [card('2026-12-03', 'SUNSET', { tide: { lightAlignment: 'NONE' } }), card('2026-12-04', 'SUNRISE')];
+    const [chip] = buildWatchedChips({ dates, entries: [tide()], windows, hotTopics: [], todayStr: '2026-12-02' });
+    expect(chip).toMatchObject({ kind: 'beyond', firstWindow: { date: '2026-12-03', eventType: 'SUNSET' } });
+    expect(buildWatchedChips({ dates, entries: [tide()], windows: [], hotTopics: [], todayStr: '2026-11-24' })[0].firstWindow)
+      .toBeNull();
   });
 });

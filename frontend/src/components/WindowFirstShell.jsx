@@ -3052,6 +3052,7 @@ export default function WindowFirstShell({
           hotTopics={briefing?.hotTopics}
           todayStr={todayStr}
           onOpenEntry={openFurtherAhead}
+          graduatedIds={graduatedIds}
           onOpenPlace={(spot) => {
             warmStackedChunks();
             openSheetLayer({ spot });

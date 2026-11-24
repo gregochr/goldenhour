@@ -19,9 +19,13 @@ import { topicWindowKeys } from './windowFirstTopics.js';
  * tide run whose end moves as the forecast firms up still matches.
  */
 
-/** The almanac types a reader may watch: the same list the server accepts ({@code WatchDateKey.TYPES}). */
+/**
+ * The almanac types a reader may watch: the same list the server accepts ({@code WatchDateKey.TYPES}). Not the NLC
+ * season: the feed clips its served start to the feed's first day, so the key would slide forward daily and the 14-day
+ * expiry would end the watch two weeks into an eleven-week season.
+ */
 export const WATCHABLE_TYPES = [
-  'spring-tide', 'king-tide', 'supermoon', 'meteor', 'nlc-season', 'eclipse', 'lunar-eclipse', 'equinox', 'solstice',
+  'spring-tide', 'king-tide', 'supermoon', 'meteor', 'eclipse', 'lunar-eclipse', 'equinox', 'solstice',
 ];
 
 /** The two tide types are one family for a watch: a run reclassified spring to king (or back) is the same watch. */
@@ -32,6 +36,12 @@ export const TIDE_FAMILY = ['spring-tide', 'king-tide'];
  * the tide model firms up; a watch that stopped matching on the first drift would silently orphan.
  */
 export const TIDE_DRIFT_DAYS = 3;
+
+/** What a watch on an entry the feed no longer lists is called, from its key's type alone. */
+const TYPE_NAMES = {
+  'spring-tide': 'Spring tide', 'king-tide': 'King tide', supermoon: 'Supermoon', meteor: 'Meteor shower',
+  eclipse: 'Solar eclipse', 'lunar-eclipse': 'Lunar eclipse', equinox: 'Equinox', solstice: 'Solstice',
+};
 
 /** What a watched chip says when its date has no window of its own to open (a meteor peak). */
 export const WATCH_NO_WINDOW_LINE = 'clear-sky check on the night';
@@ -216,14 +226,25 @@ export function buildWatchedChips({ dates, entries, windows, hotTopics, todayStr
   const chips = [];
   for (const { key } of dates ?? []) {
     const entry = matchWatchToEntry(key, entries);
-    if (!entry) continue;
     const watch = parseWatchKey(key);
+    if (!entry) {
+      // The feed has arrived and does not list this watch: kept as a chip of its own, so it can still be taken away.
+      if (Array.isArray(entries) && watch && watch.date >= todayStr) {
+        chips.push({
+          key, kind: 'unlisted', entryId: null, glyph: null, title: TYPE_NAMES[watch.type],
+          name: `${TYPE_NAMES[watch.type]} · ${formatArrivalDate(watch.date)}`, detail: 'no longer listed',
+          window: null, bestSpot: null, firstWindow: null, sortDate: watch.date,
+        });
+      }
+      continue;
+    }
     const span = spanOf(entry, TIDE_FAMILY.includes(watch.type));
     if (span.last < todayStr) continue;
     const glyph = entryGlyph(entry);
     const dateLabel = formatArrivalDate(span.first);
     const base = {
       key, entryId: entry.id, glyph, title: entry.title, sortDate: span.first, window: null, bestSpot: null,
+      firstWindow: null,
     };
     const plan = planFor(entry, watch, windows, hotTopics);
     if (plan?.state === 'window') {
@@ -247,11 +268,15 @@ export function buildWatchedChips({ dates, entries, windows, hotTopics, todayStr
         ...base, kind: 'static', name: `${entry.title} · ${dateLabel}`, detail: WATCH_NO_WINDOW_LINE,
       });
     } else {
-      const forecast = windowsIn(windows, span).length > 0;
+      const live = windowsIn(windows, span);
+      const forecast = live.length > 0;
       const countdown = buildDateRail(span.first, span.last, todayStr).countdown;
       chips.push({
         ...base,
         kind: 'beyond',
+        // The first window this date reaches, for a watch whose entry has graduated to a lane (it is not listed in
+        // Further ahead, so a tap goes to the map instead).
+        firstWindow: forecast ? { date: live[0].date, eventType: live[0].targetType } : null,
         name: `${entry.title} · ${dateLabel}`,
         detail: [countdown, forecast ? null : "best spots once it's forecast"].filter(Boolean).join(' · '),
       });

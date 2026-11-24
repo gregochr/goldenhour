@@ -259,8 +259,8 @@ public class UserFavouritesService {
      */
     @Transactional
     public FavouritesResponse addDate(String username, String key) {
-        if (isExpired(WatchDateKey.parse(key))) {
-            throw new IllegalArgumentException("That date has already passed: " + key);
+        if (isExpired(WatchDateKey.parse(key, ForecastHorizon.today(clock)))) {
+            throw new IllegalArgumentException("That date has already passed.");
         }
         Long userId = lock(username);
         List<FavouriteRow> held = purgeExpiredDates(userId);
@@ -281,7 +281,7 @@ public class UserFavouritesService {
      */
     @Transactional
     public FavouritesResponse removeDate(String username, String key) {
-        WatchDateKey.parse(key);
+        WatchDateKey.requireStorable(key);
         Long userId = lock(username);
         purgeExpiredDates(userId);
         favouriteRepository.deleteDates(userId, List.of(key));
@@ -412,6 +412,12 @@ public class UserFavouritesService {
         return start.isBefore(ForecastHorizon.today(clock).minusDays(WATCH_GRACE_DAYS));
     }
 
+    /** Whether a stored key is past its grace period, or no longer parses (a type withdrawn since it was stored). */
+    private boolean isGone(String key) {
+        LocalDate start = WatchDateKey.tryParse(key);
+        return start == null || isExpired(start);
+    }
+
     /**
      * Deletes the reader's expired watched dates, and returns what is left. Called by every write, after the
      * reader's lock is taken, so the rows nobody can see are gone before the cap is counted.
@@ -419,7 +425,7 @@ public class UserFavouritesService {
     private List<FavouriteRow> purgeExpiredDates(Long userId) {
         List<FavouriteRow> rows = favouriteRepository.findRowsByUserId(userId);
         List<String> expired = rows.stream().map(FavouriteRow::almanacKey)
-                .filter(key -> key != null && isExpired(WatchDateKey.startDateOf(key))).toList();
+                .filter(key -> key != null && isGone(key)).toList();
         if (expired.isEmpty()) {
             return rows;
         }
@@ -436,7 +442,7 @@ public class UserFavouritesService {
                 places.add(new FavouritesResponse.Place(row.locationId(), row.createdAt()));
             } else if (row.areaId() != null) {
                 areas.add(new FavouritesResponse.Area(row.areaId(), row.createdAt()));
-            } else if (!isExpired(WatchDateKey.startDateOf(row.almanacKey()))) {
+            } else if (!isGone(row.almanacKey())) {
                 dates.add(new FavouritesResponse.Date(row.almanacKey(), row.createdAt()));
             }
         }

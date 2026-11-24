@@ -76,7 +76,9 @@ describe('Watch this date, the toggle in an entry', () => {
     render(<FavouritesContext.Provider value={value}><WatchDateControl entry={entry()} /></FavouritesContext.Provider>);
     expect(toggle()).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(toggle());
-    expect(value.setStar).toHaveBeenCalledWith('date', 'spring-tide:2026-12-01', 'King tide · 3 Dec', false);
+    expect(value.setStar).toHaveBeenCalledWith(
+      'date', 'spring-tide:2026-12-01', 'King tide · 3 Dec', false, false, ['spring-tide:2026-12-01'],
+    );
     expect(value.toggle).not.toHaveBeenCalled();
   });
 
@@ -173,6 +175,25 @@ describe('the watch in the provider', () => {
     expect(spy.current.isDateWatched('king-tide:2026-12-03')).toBe(false);
     expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('You can keep up to 25 places and dates.');
   });
+
+  it('⚠️ un-watching several matched keys is one press with one Undo that puts every one of them back', async () => {
+    const both = { places: [], areas: [], locationIds: [], dates: [{ key: 'king-tide:2026-12-03' }, { key: 'spring-tide:2026-12-01' }] };
+    fetchFavourites.mockResolvedValue(both);
+    setFavourite.mockResolvedValue({ places: [], areas: [], locationIds: [], dates: [] });
+    render(<FavouritesProvider pro><Spy /></FavouritesProvider>);
+    await waitFor(() => expect(screen.getByTestId('spy-status')).toHaveTextContent('ready'));
+    const group = ['king-tide:2026-12-03', 'spring-tide:2026-12-01'];
+
+    await act(async () => {
+      await Promise.all(group.map((key) => spy.current.setStar('date', key, 'King tide · 3 Dec', false, false, group)));
+    });
+    expect(setFavourite).toHaveBeenCalledTimes(2);
+    await act(async () => { fireEvent.click(screen.getByTestId('undo-toast-undo')); });
+
+    expect(setFavourite).toHaveBeenCalledTimes(4);
+    expect(setFavourite).toHaveBeenCalledWith('date', 'king-tide:2026-12-03', true);
+    expect(setFavourite).toHaveBeenCalledWith('date', 'spring-tide:2026-12-01', true);
+  });
 });
 
 describe('Your places, watched dates', () => {
@@ -194,6 +215,7 @@ describe('Your places, watched dates', () => {
       onOpenPlace: vi.fn(),
       onOpenArea: vi.fn(),
       onOpenEntry: vi.fn(),
+      graduatedIds: undefined,
       entries: ENTRIES,
       hotTopics: [],
       todayStr: TODAY,
@@ -268,14 +290,14 @@ describe('Your places, watched dates', () => {
     expect(YOUR_PLACES_EMPTY).toMatch(/watch a date/);
   });
 
-  it('a watched date the feed does not name says so, rather than the starred-places line', () => {
+  it('a watched date with no feed yet says so, rather than the starred-places line', () => {
     mount({ dates: ['king-tide:2026-12-03'] }, { entries: null });
     expect(screen.queryByTestId('your-places-chip')).toBeNull();
     expect(screen.getByTestId('your-places-offplan')).toHaveTextContent('Your watched dates are not listed right now.');
   });
 
   it('a starred place that is off the plan keeps the original line beside a watched date', () => {
-    mount({ dates: ['king-tide:2026-12-03'], places: [99] }, { entries: [] });
+    mount({ dates: ['king-tide:2026-12-03'], places: [99] }, { entries: null });
     expect(screen.getByTestId('your-places-offplan')).toHaveTextContent('Your starred places are not on the plan right now.');
   });
 
@@ -283,6 +305,50 @@ describe('Your places, watched dates', () => {
     mount({ status: 'locked' });
     expect(screen.getByTestId('your-places-teaser-button')).toBeInTheDocument();
     expect(screen.queryByTestId('your-places-chip')).toBeNull();
+  });
+
+  it('⚠️ every date chip has its own stop-watching button, a sibling outside the chip, that un-watches that key', () => {
+    const value = favouritesValue({ dates: ['king-tide:2026-12-03'] });
+    render(<FavouritesContext.Provider value={value}><YourPlacesRow
+      spots={[]} windows={[]} scoreIndex={null} reachById={new Map()} allowedLocationIds={null}
+      onOpenWindow={vi.fn()} onOpenPlace={vi.fn()} onOpenArea={vi.fn()} entries={ENTRIES} hotTopics={[]} todayStr={TODAY}
+    /></FavouritesContext.Provider>);
+    const stop = screen.getByTestId('your-places-stop-watching');
+    expect(stop).toHaveAccessibleName('Stop watching King tide · 3 Dec');
+    expect(screen.getByTestId('your-places-chip').contains(stop)).toBe(false);
+    fireEvent.click(stop);
+    expect(value.setStar).toHaveBeenCalledWith('date', 'king-tide:2026-12-03', 'King tide · 3 Dec', false);
+  });
+
+  it('the stop button is on a window chip, a static chip and an unlisted chip too, and not on a place', () => {
+    const meteor = served({ id: 'meteor:2026-12-04', type: 'meteor', title: 'Geminids', startDate: '2026-12-04', endDate: '2026-12-04' });
+    mount(
+      { dates: ['king-tide:2026-12-03', 'meteor:2026-12-04', 'supermoon:2026-12-20'], places: [7] },
+      { entries: [...ENTRIES, meteor], windows: [...WINDOWS, card('2026-12-04', 'SUNSET')] },
+    );
+    const states = screen.getAllByTestId('your-places-chip').map((c) => c.dataset.dateState ?? c.dataset.kind);
+    expect(states).toEqual(['window', 'static', 'unlisted', 'place']);
+    expect(screen.getAllByTestId('your-places-stop-watching')).toHaveLength(3);
+    const unlisted = screen.getAllByTestId('your-places-chip')[2];
+    expect(unlisted.tagName).not.toBe('BUTTON');
+    expect(unlisted).toHaveTextContent('Supermoon · 20 Dec');
+    expect(unlisted).toHaveTextContent('no longer listed');
+  });
+
+  it('a beyond chip whose entry is a lane now opens the map on its first window, never Further ahead', () => {
+    const windows = [card('2026-12-03', 'SUNSET', { tide: { lightAlignment: 'NONE' } })];
+    const props = mount({ dates: ['king-tide:2026-12-03'] }, { windows, graduatedIds: new Set([ENTRIES[0].id]) });
+    fireEvent.click(screen.getByTestId('your-places-chip'));
+    expect(props.onOpenWindow).toHaveBeenCalledWith(expect.objectContaining({
+      window: { date: '2026-12-03', eventType: 'SUNSET' }, focus: null,
+    }));
+    expect(props.onOpenEntry).not.toHaveBeenCalled();
+  });
+
+  it('a graduated beyond chip with no window yet still opens its entry', () => {
+    const props = mount({ dates: ['king-tide:2026-12-03'] }, { graduatedIds: new Set([ENTRIES[0].id]) });
+    fireEvent.click(screen.getByTestId('your-places-chip'));
+    expect(props.onOpenEntry).toHaveBeenCalledWith(ENTRIES[0].id);
   });
 
   it('a tap with no handler to open the entry does nothing and does not throw', () => {

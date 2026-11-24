@@ -147,9 +147,11 @@ export function FavouritesProvider({ pro, children }) {
    * @param {string} name what the toast calls it
    * @param {boolean} on the state to move to
    * @param {boolean} [undo] true for an Undo press: the toast then says "Undone." and offers no second Undo
+   * @param {?Array<number|string>} [group] every id one press changes together (un-watching several matched dates), so the
+   *        one Undo on the last answer's toast puts them ALL back; omitted, the Undo restores just {@code id}
    * @returns {Promise<boolean>} whether the server took it
    */
-  const setStar = useCallback((kind, id, name, on, undo = false) => {
+  const setStar = useCallback((kind, id, name, on, undo = false, group = null) => {
     if (bodyRef.current == null) return Promise.resolve(false);
     // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands.
     const returnTo = document.activeElement;
@@ -181,7 +183,9 @@ export function FavouritesProvider({ pro, children }) {
               message: starToastText(kind, name, on),
               returnTo,
               // Void: Undo is a press handler, nothing waits on the second request.
-              onUndo: () => { void setStarRef.current(kind, id, name, !on, true); },
+              onUndo: () => {
+                (group ?? [id]).forEach((each) => { void setStarRef.current(kind, each, name, !on, true); });
+              },
             });
         }
         return true;
