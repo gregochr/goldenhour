@@ -5,6 +5,68 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.42.0] - 2026-11-24
+
+### Changed — the landing page pitches planning a shoot
+
+`photocast.online` now pitches PhotoCast as one screen and a map for planning a shoot, in four steps:
+when (Further ahead, dates known in advance, up to 90 days), which morning (This week), where (the map for a
+sunrise or sunset) and go (the place sheet, with a leave-by time for Pro readers who have a home postcode). The
+home page gains a "Plan a shoot" section with new screenshots of This week and Further ahead, the pricing lists
+name This week, Further ahead, Your places at the top of This week and watching a date (Pro), and the FAQ, Terms
+and the engineering pages no longer mention tabs, "Coming up" or "At a Glance". The hero, place-sheet and
+Hadrian's Wall story screenshots no longer show the tab bar (`shot-map` and `shot-detail` are new captures from a
+development build with sample data and are labelled as such; `field-map` and `field-decide` are the real
+24 October captures with the old tab bar cropped off). Three unreferenced, outdated images (`screenshot.png`,
+`screenshot-map.png`, `shot-ask.webp`) are removed along with their `COPY` lines.
+
+The owner deploys this with `release-landing.sh`, after the O4a guides (the home page and FAQ link to
+`guide/planning.html`).
+
+### Changed — the help guides describe one screen, not tabs
+
+The user guides (`docs/engineering/one-screen-plan.md`, phase O4a) now describe PhotoCast as one screen: This week, with
+Further ahead under it, and the map as a full-screen view over both.
+
+- `getting-started.html` is the workflow: when (Further ahead), which morning (This week), where (the map), go (the
+  callout and Leave by).
+- `planning.html`, "Planning a shoot", replaces `at-a-glance.html` and `coming-up.html` and carries every section id the two
+  had, plus `#this-week`, `#further-ahead`, `#your-places` and `#watch-a-date` (watched dates: the toggle, the chips,
+  stopping, the 25-place-and-date limit, the 14-day expiry, no NLC season). The two old addresses stay as meta-refresh
+  stubs (a small `moved.js` keeps the old `#section` and `?embed=1`), because links to them exist in the wild.
+- `map.html` is rewritten for the map view: how it opens and closes, its own `#map/...` address, Back, the header's window
+  control, the callout, "How was it?" and the phone layout.
+- `your-places.html` gains watched dates; `finding-places.html`, `settings.html`, `ask-photocast.html`, `night-sky.html`,
+  `reading-the-forecast.html`, `weather-warnings.html` and the hub lose "tab", "Coming up", "At a Glance" and the ⚙ button.
+- `utils/guide.js`: `GUIDE_PAGES` drops `at-a-glance` and `coming-up` for `planning`; `TAB_GUIDE` is now `SCREEN_GUIDE`
+  (`plan` and `map`); `GUIDE_SECTIONS` points at `planning`, and its `comingUp*` keys are `furtherAhead*`.
+  `guideSections.test.js` also checks that every internal guide link and anchor resolves.
+- New screenshots taken from a local build (no tab bar): the top of the screen, the days ahead, the warning lane, the
+  Your places row, the menu, Further ahead's list and filters, the map view, its window control, Ask beside the map, and
+  a phone screen and map. The old tab-bar shots (`glance-top`, `coming-up-december`, `coming-up-filters`) are deleted.
+- Review round 1: the Ask shot is re-taken with the question in the box and no answer; the old aurora, astro and hot-topics shots (which showed a real home marker) are removed or re-taken, and the tide panel shot is cropped to the panel; home framing, toast text, rating floors, watched-date chips, the stub redirects (3 s meta refresh so the script keeps the section and `?embed=1`) and a `moved.js` test are tightened.
+
+**Deploy order.** The landing site must go out first (the owner runs `release-landing.sh`), before any app build whose
+in-app guide links open `planning.html`; until then those links 404.
+
+### Changed — one screen: the tabs are gone and Operations lives in the menu (O3)
+
+The tab bar is removed. The app is one screen, This week over Further ahead, with the map as a full-screen view opened from a card or any other door, and every device (phone, tablet and desktop) now opens on This week. The "At a Glance" and "Coming up" names go with the tabs, along with the Coming up tab and its badge on the bar (the NEW badge stays on the "Further ahead ↓" jump), the opening-tab logic and the Map button beside the tab list.
+
+The masthead is now the brand, the Ask field on tablet and desktop, and one ☰ menu at every width. Settings, Change home postcode, Guide, Operations and Sign out are its rows; the old inline ⚙, `?` and Sign out buttons are folded into it. Operations is an admin-only full-screen view driven by the `#manage` address: Pro and Lite readers see no Operations row at all, a non-admin `#manage` link is cleared, and an admin can now open a `#manage/runs` link directly. "‹ PhotoCast" and Back both leave it.
+
+`selectTab` is deleted; `closeShellLayers()` remains the one list of what a dialog is. Ask's view is the map view or This week, and its old Coming up labels are gone (the backend still maps an old `coming-up` view to `plan` for one release). No rating, verdict, prompt or served payload changes.
+
+Review round 1: the Ask field collapses (340, 260, then a 34px button) inside the masthead's own container, so the dock cannot push the ☰ menu off screen; the menu's Guide row reads "Close guide" while the guide is open; the callout and Ask's plan card say "Show in This week".
+
+### Changed — a card opens the map framing home and its best place
+
+Opening the map from a This week card, a lane or a Your places window chip used to fly in on the window's best place, so
+the map always landed zoomed in on one spot. It now frames your home and that place together (never closer than zoom 11,
+with room for the callout, the header and the phone's sheet), and still opens the place's callout. Without a saved home, or
+under an away origin, it flies to the place as before; doors about a place (the location sheet, Find, the area sheet, Ask)
+are unchanged.
+
 ## [v2.41.2] - 2026-11-24
 
 ### Added — Watch a date (one screen, O2b; Pro)
