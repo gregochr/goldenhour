@@ -215,7 +215,7 @@ describe('PlanErrorBoundary', () => {
         <Boom />
       </PlanErrorBoundary>,
     );
-    expect(screen.getByRole('heading', { level: 2, name: 'At a Glance stopped working' })).toHaveFocus();
+    expect(screen.getByRole('heading', { level: 2, name: 'This week stopped working' })).toHaveFocus();
   });
 
   // A storage-denied browser (Safari "Block all cookies", an enterprise site-data policy) throws

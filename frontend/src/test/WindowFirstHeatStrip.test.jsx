@@ -4828,7 +4828,7 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     });
     const lane = screen.getByTestId('wf-glance-lane');
     expect(lane.tagName).toBe('BUTTON');
-    expect(lane).toHaveAccessibleName(/opens the At a Glance window/);
+    expect(lane).toHaveAccessibleName(/opens that window on the map/);
     fireEvent.click(lane);
     expect(onOpenLaneOnMap).toHaveBeenCalledTimes(1);
     expect(onOpenLaneOnMap).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^${D4}:`)), 'SPRING_TIDE');

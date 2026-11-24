@@ -62,18 +62,18 @@ const LAYER_SELECTOR = '[role="dialog"]';
  * (inert, no {@code aria-modal}) and withholds its own Escape, as {@code UserSettingsModal} does for its
  * sub-region sheet. Presentation 1 is not a dialog, so it asks nothing of anyone.
  *
- * <p><b>Tabs.</b> Presentations 2 and 3 close when the active tab changes (an effect keyed on the tab,
- * never {@code selectTab}, which runs during render). Presentation 1 follows the reader: if the page it is
- * showing is the old tab's {@code TAB_GUIDE} page it loads the new tab's, otherwise it stays; Operations
+ * <p><b>Screens.</b> Presentations 2 and 3 close when the active screen changes (an effect keyed on the screen,
+ * never during render). Presentation 1 follows the reader: if the page it is
+ * showing is the old screen's {@code TAB_GUIDE} page it loads the new screen's, otherwise it stays; Operations
  * has no guide page and closes it.
  *
  * @param {object} props
  * @param {React.ReactNode} props.children
  * @param {function(): void} [props.closeShellDialogs] unused since G3 review 1 (the two-deep rule no longer closes
  *        the shell's dialogs); App still passes it
- * @param {string} props.activeTab the tab id in force (App's {@code activePlanTab})
+ * @param {string} props.activeScreen the screen in force
  */
-export function GuideProvider({ children, activeTab }) {
+export function GuideProvider({ children, activeScreen }) {
   const surface = useAskSurface();
   const [guide, setGuide] = useState(null);
   const [tracked, setTracked] = useState(null);
@@ -83,10 +83,10 @@ export function GuideProvider({ children, activeTab }) {
   const trackedRef = useRef(null);
   const nonceRef = useRef(0);
   const surfaceRef = useRef(surface);
-  const tabRef = useRef(activeTab);
+  const screenRef = useRef(activeScreen);
   useEffect(() => {
     surfaceRef.current = surface;
-    tabRef.current = activeTab;
+    screenRef.current = activeScreen;
   });
 
   const commit = useCallback((next, nextTracked = null) => {
@@ -147,7 +147,7 @@ export function GuideProvider({ children, activeTab }) {
     const surfaceNow = surfaceRef.current;
     const wide = surfaceNow === 'desktop' || surfaceNow === 'wide';
     let presentation = 'sheet';
-    if (wide) presentation = layers === 0 && tabRef.current !== 'operations' ? 'docked' : 'dialog';
+    if (wide) presentation = layers === 0 && screenRef.current !== 'operations' ? 'docked' : 'dialog';
     nonceRef.current += 1;
     commit({
       presentation,
@@ -170,28 +170,28 @@ export function GuideProvider({ children, activeTab }) {
     if ((current.presentation === 'sheet') === wide) closeGuide({ restoreFocus: false });
   }, [surface, closeGuide]);
 
-  // A tab change. Never from `selectTab` (it runs during render and may hold shell setters only).
-  const previousTab = useRef(activeTab);
+  // A screen change (the shell reports it after commit, never during render).
+  const previousScreen = useRef(activeScreen);
   useEffect(() => {
-    const before = previousTab.current;
-    previousTab.current = activeTab;
-    if (before === activeTab) return;
+    const before = previousScreen.current;
+    previousScreen.current = activeScreen;
+    if (before === activeScreen) return;
     const current = guideRef.current;
     if (!current) return;
     if (current.presentation !== 'docked') {
       closeGuide({ restoreFocus: false });
       return;
     }
-    if (activeTab === 'operations' || !TAB_GUIDE[activeTab]) {
+    if (activeScreen === 'operations' || !TAB_GUIDE[activeScreen]) {
       closeGuide({ restoreFocus: false });
       return;
     }
     const showing = trackedRef.current?.page ?? current.page;
     if (TAB_GUIDE[before] && showing === TAB_GUIDE[before]) {
       nonceRef.current += 1;
-      commit({ ...current, page: TAB_GUIDE[activeTab], hash: '', nonce: nonceRef.current });
+      commit({ ...current, page: TAB_GUIDE[activeScreen], hash: '', nonce: nonceRef.current });
     }
-  }, [activeTab, closeGuide, commit]);
+  }, [activeScreen, closeGuide, commit]);
 
   const open = guide !== null;
   const guideModal = open && guide.presentation !== 'docked';
@@ -233,7 +233,7 @@ export function GuideProvider({ children, activeTab }) {
 GuideProvider.propTypes = {
   children: PropTypes.node,
   closeShellDialogs: PropTypes.func,
-  activeTab: PropTypes.string,
+  activeScreen: PropTypes.string,
 };
 
 /**

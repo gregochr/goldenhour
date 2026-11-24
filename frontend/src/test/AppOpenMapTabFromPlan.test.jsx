@@ -1,6 +1,6 @@
 /**
  * `App.jsx`'s `openMapTabFromPlan` (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 1) — the
- * sending side of the SAME `mapTabHandoff`/`tabRequest` channel `openFullMapTab` already uses,
+ * sending side of the SAME `mapTabHandoff` channel `openFullMapTab` already uses,
  * distinguished downstream by `source: 'plan'`.
  *
  * No door UI ships in this phase (D3/D4 add the real buttons), so — the same problem
@@ -192,18 +192,18 @@ describe('App — openMapTabFromPlan (doors D2)', () => {
   it('raises no tab request: the shell shows the map view itself (openMap), App only hands the map its landing', async () => {
     renderApp();
     await screen.findByTestId('stub-map-pane');
-    const before = ShellStub.lastProps.tabRequest;
+    const before = ShellStub.lastProps.operationsOpen ?? false;
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('trigger-door'));
     });
 
-    expect(ShellStub.lastProps.tabRequest).toBe(before);
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(before);
     expect(MapPaneStub.lastProps.handoff.source).toBe('plan');
     expect(typeof MapPaneStub.lastProps.handoff.nonce).toBe('number');
   });
 
-  it('an inPlace door carries NO source, NO lens and NO tabRequest — the reader is already there', async () => {
+  it('an inPlace door carries NO source, NO lens and NO Operations request — the reader is already there', async () => {
     // ⚠️ The four-day sheet can now be open OVER the Map tab (the callout's `Four days here ›`
     // peek), and its footer's `Show on map → <window>` presses this same entry from there. A door
     // payload would be destructive rather than redundant: `MapView`'s landing effect writes
@@ -237,16 +237,16 @@ describe('App — openMapTabFromPlan (doors D2)', () => {
     expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
   });
 
-  it('an inPlace door raises no tabRequest — a tab move would only steal focus to the tab in force', async () => {
+  it('an inPlace door raises no Operations request — nothing here moves off the screen', async () => {
     renderApp();
     await screen.findByTestId('stub-map-pane');
-    const before = ShellStub.lastProps.tabRequest;
+    const before = ShellStub.lastProps.operationsOpen ?? false;
 
     await act(async () => {
       ShellStub.lastProps.onOpenMapTab({ ...DOOR, inPlace: true });
     });
 
-    expect(ShellStub.lastProps.tabRequest).toBe(before);
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(before);
   });
 
   it('a null field on the door (no region/rating/reach/location) lands as null, never undefined, '
@@ -326,7 +326,7 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
 
   it('a kind:\'coming-up\' trigger carries the exact spot set, the subject filter and its headline', async () => {
     const handoff = await press({
-      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: TOMORROW,
+      kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: TOMORROW,
     });
     expect(handoff.source).toBe('plan');
     expect(handoff.focusNames).toEqual(['Bamburgh']);
@@ -385,7 +385,7 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
 
   it('C4: a dark-sky coming-up trigger carries the dark-sky lens and the card\'s headline, no subject filter', async () => {
     const handoff = await press({
-      kind: 'coming-up', darkSky: true, filterAction: null, label: 'Meteor shower', date: TOMORROW,
+      kind: 'further-ahead', darkSky: true, filterAction: null, label: 'Meteor shower', date: TOMORROW,
       minRating: null, limitMinutes: null, inPlace: false,
     });
     expect(handoff).toMatchObject({ source: 'plan', darkSky: true });
@@ -430,7 +430,7 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
 
   it('a trigger raises no tab request either', async () => {
     await press({ kind: 'aurora', date: TOMORROW });
-    expect(ShellStub.lastProps.tabRequest).toBeNull();
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(false);
   });
 });
 
@@ -443,7 +443,7 @@ describe('App — a door never gives the Plan tab a date (plan 4 #7)', () => {
     'a plain door': DOOR,
     'a location trigger': { kind: 'location', locationName: 'Bamburgh', date: TOMORROW, eventType: 'SUNSET' },
     'a coming-up trigger': {
-      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Coastal', date: TOMORROW,
+      kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: false, label: 'Coastal', date: TOMORROW,
     },
     'an aurora trigger': { kind: 'aurora', date: TOMORROW },
     'a region trigger': { kind: 'region', region: 'Northumberland', date: TOMORROW, eventType: 'SUNSET' },

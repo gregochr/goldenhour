@@ -34,7 +34,7 @@ describe('PlanErrorBoundary branches', () => {
       </PlanErrorBoundary>,
     );
     expect(screen.getByTestId('plan-error-detail')).toHaveTextContent('late failure');
-    expect(screen.getByRole('heading', { name: 'At a Glance stopped working' })).toHaveFocus();
+    expect(screen.getByRole('heading', { name: 'This week stopped working' })).toHaveFocus();
   });
 
   it('does not steal focus back to the heading when the fallback re-renders', () => {

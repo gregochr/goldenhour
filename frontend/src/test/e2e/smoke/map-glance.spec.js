@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openTab, openMapTab, activeWindowId, SOLAR_ID, visibleChips,
+  test, expect, loginAndWaitForForecast, openMapView, activeWindowId, SOLAR_ID, visibleChips,
   installDialogDepthObserver, dialogDepth,
 } from './fixture.js';
 
@@ -25,7 +25,6 @@ function nextUkDay() {
 test.describe('Glance to Map', () => {
   /** Opens the Plan tab and waits for the matrix. */
   async function openPlan(page) {
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
   }
 
@@ -59,7 +58,7 @@ test.describe('Glance to Map', () => {
     test.setTimeout(60_000);
     await installDialogDepthObserver(page);
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
     const callout = page.getByTestId('map-callout');
     await expect(callout).toHaveCount(0);
 
@@ -136,7 +135,7 @@ test.describe('Glance to Map', () => {
   test('the warning chip\'s Details toggle opens and closes the warning in full', async ({ page }) => {
     test.setTimeout(90_000);
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
 
     // Open the Map on the T+1 sunset window (the one window the fixture's warning is valid for), never the first.
     const target = `solar:${nextUkDay()}:SUNSET`;

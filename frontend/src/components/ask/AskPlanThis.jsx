@@ -7,7 +7,6 @@ import {
 import { pickCardShape, planActionsShape } from './askShapes.js';
 import { buildScoreIndex } from '../../utils/locationSheet.js';
 import { planFigures } from '../../utils/askPlan.js';
-import GlanceLabel from '../GlanceLabel.jsx';
 import { SET_POSTCODE_LONG, SET_POSTCODE_SHORT } from '../../utils/postcodeNudge.js';
 
 /**
@@ -177,11 +176,8 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
             // location sheet closes, and a mouse press does not focus a button in every browser.
             onClick={(event) => openInPlan(card, event.currentTarget)}
           >
-            {/* No aria-label: the CSS pair is the visible word, so the name is already those words
-                (WCAG 2.5.3) and the place follows in the sr-only run. */}
-            Open in
-            {' '}
-            <GlanceLabel />
+            {/* No aria-label: the visible words are the name (WCAG 2.5.3) and the place follows in the sr-only run. */}
+            Open in This week
             {' '}
             <span className="sr-only">{`— ${card.name}`}</span>
             <span aria-hidden="true"> ›</span>

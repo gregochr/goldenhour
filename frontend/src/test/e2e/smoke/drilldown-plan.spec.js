@@ -1,6 +1,6 @@
 import { devices } from '@playwright/test';
 import {
-  test, expect, loginAndWaitForForecast, openTab, fetchForecast, installDialogDepthObserver, dialogDepth,
+  test, expect, loginAndWaitForForecast, fetchForecast, installDialogDepthObserver, dialogDepth,
 } from './fixture.js';
 import { waitForDetail, servedRow, sheetRows, expectExpandedRow } from './sheet-helpers.js';
 
@@ -13,7 +13,6 @@ import { waitForDetail, servedRow, sheetRows, expectExpandedRow } from './sheet-
 test.describe('Forecast drill-down from the Plan matrix', () => {
   /** Opens a place's location sheet through Find on the Plan tab, and returns it. */
   async function openPlaceSheet(page, name) {
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     await page.getByTestId('window-first-search').click();
     await page.getByTestId('plan-search-input').fill(name);
@@ -28,7 +27,6 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
   test('a heat card opens the Map on that window', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     // Never the first card: it may be the window that is about to pass.
     await page.getByTestId('wf-heat-card').nth(2).click();
@@ -86,7 +84,6 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
   test('keyboard: Tab onto a card, Enter opens its window on the Map', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
-    await openTab(page, 'plan');
     const buttons = page.getByTestId('wf-heat-card-button');
     await expect.poll(() => buttons.count()).toBeGreaterThanOrEqual(6);
 
@@ -118,7 +115,6 @@ test.describe('Forecast drill-down from the Plan matrix', () => {
   test('pointer: the legend\'s overhang opens its window, and the hit button never takes a pointer', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
 
     // `pointer-events: none` on `.wf-hc-hit`: the element under the pointer at a card's centre, and under the
@@ -182,7 +178,6 @@ delete PIXEL_7.defaultBrowserType;
 
 /** Opens the Plan and returns the elements at four points of one card: its centre, canvas, time and verdict. */
 async function elementsAtCardPoints(page) {
-  await openTab(page, 'plan');
   await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
   return page.evaluate(() => {
     const card = document.querySelectorAll('[data-testid="wf-heat-card"]')[2];

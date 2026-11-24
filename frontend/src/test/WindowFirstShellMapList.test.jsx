@@ -284,10 +284,11 @@ describe('WindowFirstShell: the Map List door', () => {
     expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
   });
 
-  it('goes with the tab when the reader moves to another (selectTab clears its snapshot)', async () => {
+  it('goes when the reader leaves the screen (closeShellLayers clears its snapshot)', async () => {
     renderShell(baseRequest());
     await press();
-    fireEvent.click(screen.getByRole('tab', { name: /^At a Glance/ }));
+    expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByTestId('further-ahead-jump')); });
     expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
   });
 });

@@ -115,7 +115,7 @@ export const FURTHER_AHEAD_SUBHEADING = 'dates known in advance';
  *                                     §11.24). Three-valued: null/absent is "not known yet" and
  *                                     withholds nothing; an array, even empty, is known
  * @param {function} props.onMarkSeen  clears the badge and every NEW flag (plan §6/P5)
- * @param {?{entryId: ?string, seq: number}} [props.focusRequest] a request from At a Glance's topic pills to
+ * @param {?{entryId: ?string, seq: number}} [props.focusRequest] a request from This week's topic pills to
  *                                     open the tab at one entry (glance-topic-strip-plan.md R4); `entryId` null
  *                                     is the door, which asks for nothing in particular
  * @param {function} [props.onFocusHandled] `(found: boolean)` — called exactly once per request, once it has
@@ -236,7 +236,7 @@ export default function FurtherAhead({
   }, [status]);
 
   /**
-   * Honours At a Glance's pill press (glance-topic-strip-plan.md R4): opens the tab at one entry, in two phases.
+   * Honours This week's pill press (glance-topic-strip-plan.md R4): opens the tab at one entry, in two phases.
    *
    * <p><b>Phase one, during render.</b> The entry may be filtered out. On the render that first sees a request,
    * when the entry is in the feed but not rendered under the active chip, the chip is reset to {@code all} (every
@@ -301,7 +301,7 @@ export default function FurtherAhead({
             <span
               aria-hidden="true"
               data-testid="further-ahead-heading-badge"
-              className={badge.band === 'interrupt' ? 'wf-tab-badge wf-tab-badge-rare' : 'wf-tab-badge'}
+              className={badge.band === 'interrupt' ? 'wf-jump-badge wf-jump-badge-rare' : 'wf-jump-badge'}
             >
               {badge.band === 'interrupt' ? '◆' : badge.count}
             </span>
@@ -373,7 +373,7 @@ export default function FurtherAhead({
 
           {/* ⚠️ SCOPED TO THE DATED LIST — "No dates", never a bare "Nothing coming up".
               `totalEntries` counts `events.entries` alone, while weather-driven topics (which have no
-              row here) are shown on At a Glance's day headers, so a broader sentence would deny content
+              row here) are shown on This week's day headers, so a broader sentence would deny content
               the app does show — which is what the pre-copy-pass wording avoided with the word "dated",
               and what a Codex review of #748 caught when the copy pass dropped it. */}
           {status === 'ready' && totalEntries === 0 && (

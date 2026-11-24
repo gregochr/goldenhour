@@ -204,7 +204,7 @@ describe('WindowFirstShell — the NEW badge on the jump and the heading', () =>
     for (const id of ['further-ahead-jump-badge', 'further-ahead-heading-badge']) {
       const badge = screen.getByTestId(id);
       expect(badge).toHaveTextContent('1');
-      expect(badge.className).not.toContain('wf-tab-badge-rare');
+      expect(badge.className).not.toContain('wf-jump-badge-rare');
     }
   });
 
@@ -216,7 +216,7 @@ describe('WindowFirstShell — the NEW badge on the jump and the heading', () =>
     for (const id of ['further-ahead-jump-badge', 'further-ahead-heading-badge']) {
       const badge = screen.getByTestId(id);
       expect(badge).toHaveTextContent('◆');
-      expect(badge.className).toContain('wf-tab-badge-rare');
+      expect(badge.className).toContain('wf-jump-badge-rare');
     }
   });
 
@@ -241,7 +241,7 @@ describe('WindowFirstShell — the NEW badge on the jump and the heading', () =>
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
     await settle();
 
-    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
     expect(screen.getByTestId('this-week-bar')).toContainElement(screen.getByTestId('further-ahead-jump-badge'));
   });
 
@@ -306,13 +306,13 @@ describe('WindowFirstShell — the NEW badge on the jump and the heading', () =>
     delete Element.prototype.scrollIntoView;
   });
 
-  it('has no badge on the Coming up tab any more', async () => {
+  it('has no badge on a tab, because there is no tab: the badge is the jump\'s and the heading\'s', async () => {
     getAlmanac.mockResolvedValue(FEED([ANNOUNCE_ENTRY]));
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
     await settle();
 
     expect(screen.queryByTestId('coming-up-tab-badge')).toBeNull();
-    expect(screen.getByRole('tab', { name: 'Coming up' })).not.toHaveAttribute('aria-label');
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
   });
 });
 

@@ -35,7 +35,6 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
 import FavouriteToggle, { FavouriteUpsell, useFavouriteUpsell } from '../shared/FavouriteToggle.jsx';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { PEEK_HEIGHT } from '../../utils/askPeek.js';
-import { GLANCE_SHORT_LABEL } from '../../utils/tabLabels.js';
 import { useWarnings } from '../../context/WarningsContext.jsx';
 import { warningsForWindow } from '../../utils/warnings.js';
 import WarningStrip from '../WarningStrip.jsx';
@@ -1381,8 +1380,8 @@ export default function MapCallout({
               aria-haspopup="dialog"
               onClick={() => onOpenInPlan?.()}
             >
-              {/* The short name at every width: the callout is 286px and the button half of it. */}
-              {`Open in ${GLANCE_SHORT_LABEL}`}
+              {/* Words short enough for every width: the callout is 286px and the button half of it. */}
+              Open in This week
             </button>
           )}
         </div>

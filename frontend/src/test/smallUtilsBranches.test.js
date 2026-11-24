@@ -4,7 +4,6 @@ import {
   comingUpOutsideFacts, entrySubject, outsideLineText, COASTAL_KIND, DARK_SKY_KIND,
 } from '../utils/comingUpOutside.js';
 import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost.js';
-import { resolveInitialTab } from '../utils/initialTab.js';
 import {
   buildLocationTypeMap, locationTypeLabel, isSkyPromptCandidate, subjectWordsOf, isWildlifeOnly,
 } from '../utils/locationTypes.js';
@@ -132,27 +131,6 @@ describe('formatCost', () => {
     expect(formatTokens(1234567)).toBe((1234567).toLocaleString());
     expect(formatTokens(0)).toBe('—');
     expect(formatTokens(null)).toBe('—');
-  });
-});
-
-describe('initialTab', () => {
-  it('opens Plan when the window cannot answer media queries', () => {
-    expect(resolveInitialTab({})).toBe('plan');
-  });
-
-  it('opens Plan on a phone and Map otherwise', () => {
-    expect(resolveInitialTab({ matchMedia: () => ({ matches: true }) })).toBe('plan');
-    expect(resolveInitialTab({ matchMedia: () => ({ matches: false }) })).toBe('map');
-  });
-
-  it('reads the global window by default', () => {
-    vi.stubGlobal('matchMedia', () => ({ matches: false }));
-    expect(resolveInitialTab()).toBe('map');
-  });
-
-  it('opens Plan with no window at all', () => {
-    vi.stubGlobal('window', undefined);
-    expect(resolveInitialTab()).toBe('plan');
   });
 });
 

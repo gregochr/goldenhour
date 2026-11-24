@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  test, expect, loginAndWaitForForecast, openTab, openFurtherAhead, openMapTab, closeMapView, tokenOf,
+  test, expect, loginAndWaitForForecast, openOperations, openFurtherAhead, openMapView, closeMapView, tokenOf,
 } from './fixture.js';
 
 /**
@@ -178,11 +178,10 @@ test.describe('The production nginx config', () => {
     expect(result.ms).toBeLessThan(STATUS_STREAM_FIRST_EVENT_MS);
   });
 
-  test('no inline <style> element appears on any main tab (style-src is self only)', async ({ page }) => {
+  test('no inline <style> element appears on any screen (style-src is self only)', async ({ page }) => {
     const styleCount = () => page.evaluate(() => document.querySelectorAll('style').length);
     await loginAndWaitForForecast(page);
     expect(await styleCount(), 'on sign-in').toBe(0);
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     expect(await styleCount(), 'on the Plan').toBe(0);
     await page.getByTestId('wf-heat-card').nth(2).click();
@@ -191,10 +190,10 @@ test.describe('The production nginx config', () => {
     await closeMapView(page);
     await openFurtherAhead(page);
     expect(await styleCount(), 'on Further ahead').toBe(0);
-    await openMapTab(page);
+    await openMapView(page);
     expect(await styleCount(), 'on the Map').toBe(0);
     await closeMapView(page);
-    await openTab(page, 'operations');
+    await openOperations(page);
     expect(await styleCount(), 'on Operations').toBe(0);
   });
 });

@@ -55,10 +55,11 @@ test.describe('Map view — core', () => {
     await page.goto('/');
     await loginAsAdmin(page);
     await page.goto('/');
-    await page.getByRole('tab', { name: 'Map' }).click();
+    // The map is a view opened from a This week card (one-screen-plan.md D1); there is no Map tab.
+    await page.getByTestId('wf-heat-card').nth(2).click();
   });
 
-  test('renders map container and date strip after opening the Map tab', async ({ page }) => {
+  test('renders map container and date strip after opening the map view', async ({ page }) => {
     await expect(page.getByTestId('map-container')).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('date-strip')).toBeVisible();
   });
@@ -94,7 +95,8 @@ test.describe('Map view — label chip interaction', () => {
     await page.goto('/');
     await loginAsAdmin(page);
     await page.goto('/');
-    await page.getByRole('tab', { name: 'Map' }).click();
+    // The map is a view opened from a This week card (one-screen-plan.md D1); there is no Map tab.
+    await page.getByTestId('wf-heat-card').nth(2).click();
     await page.waitForSelector('[data-testid="map-label-chip"]', { timeout: 10000 });
   });
 
@@ -125,10 +127,9 @@ test.describe('Operations view — ADMIN', () => {
     await page.goto('/');
   });
 
-  test('Operations tab is visible for admin and shows sub-tabs', async ({ page }) => {
-    const operationsTab = page.getByRole('tab', { name: 'Operations' });
-    await expect(operationsTab).toBeVisible();
-    await operationsTab.click();
+  test('Operations is in the admin\'s menu and shows sub-tabs', async ({ page }) => {
+    await page.getByTestId('masthead-menu-button').click();
+    await page.getByTestId('masthead-menu-operations').click();
 
     // Playwright runs Desktop Chrome at 1280px, so the Operations sidebar renders: every tab of
     // every group is visible at once, and there are no manage-group-* buttons.
@@ -145,7 +146,8 @@ test.describe('Operations view — ADMIN', () => {
   });
 
   test('Locations sub-tab shows location cards with coordinates', async ({ page }) => {
-    await page.getByRole('tab', { name: 'Operations' }).click();
+    await page.getByTestId('masthead-menu-button').click();
+    await page.getByTestId('masthead-menu-operations').click();
     await page.getByTestId('manage-tab-locations').click();
     // Location cards contain lat/lon coordinates text (e.g. "54.7753° N, 1.5849° W")
     await expect(page.locator('text=/\\d+\\.\\d+° [NS]/').first()).toBeVisible({ timeout: 10000 });

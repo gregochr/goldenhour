@@ -1,5 +1,7 @@
 # Coming up — one chronology, with a surprise model: implementation plan
 
+> **Tab parts superseded (one-screen-plan.md O2 and O3, 2026-11-24).** Coming up is no longer a tab: it is **Further ahead**, the bottom section of the one screen (`FurtherAhead.jsx`), and its NEW badge sits on the "Further ahead ↓" jump. The feed, the surprise model and the arrivals rules are unchanged. See `docs/engineering/one-screen-plan.md`.
+
 **Design bundle:** `docs/design/coming-up/` (`README.md` is the handoff spec; `Coming Up.html` is the
 design of record — open it in a browser, the model spec is rendered below the frame).
 **Status:** planned, not started. Phases are sized for one focused session each and are written to be

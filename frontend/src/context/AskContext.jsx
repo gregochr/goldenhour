@@ -18,7 +18,7 @@ import { ukDateStr } from '../utils/mapDates.js';
  * Ask PhotoCast's conversation (`docs/engineering/ask-photocast-plan.md` §2.6).
  *
  * <p><b>The conversation only.</b> Whether Ask is OPEN is shell state (`WindowFirstShell`'s own
- * {@code useState}, F1b): {@code selectTab} runs during render and may call only the shell's own
+ * {@code useState}, F1b): {@code closeShellLayers} runs during render and may call only the shell's own
  * setters. This provider holds one question and its answer — nothing about a surface. Mount it
  * inside `WindowFirstBriefingProvider` (it reads the briefing and the home reach map from it), above
  * every surface that shows Ask.

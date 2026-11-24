@@ -3,7 +3,7 @@ import { shiftDateStr } from './mapDates.js';
 import { topicStyle } from './topicPalette.js';
 
 /**
- * The "Next four days" topic tiles' model — now the source of At a Glance's "The days ahead" lanes, which
+ * The "Next four days" topic tiles' model — now the source of This week's "The days ahead" lanes, which
  * {@link buildGlanceLanes} re-buckets and {@code WindowGlanceLanes} draws through {@code WindowFirstHeatStrip}
  * (days-ahead-lanes-plan.md; it began as the stacked day-header pills of glance-topic-strip-plan.md). It began as
  * the Coming up tab's block of the same name (coming-up-glance-plan §3 T1), which that plan moved here, and
@@ -295,7 +295,7 @@ export function buildFourDayTiles({
 }
 
 /**
- * The At a Glance "days ahead" lanes (days-ahead-lanes-plan.md §2): the four days' chips re-bucketed into one lane
+ * The This week "days ahead" lanes (days-ahead-lanes-plan.md §2): the four days' chips re-bucketed into one lane
  * per RUN of an event. It re-buckets served chips and derives no fact — every printed string is a served
  * {@code glance} field, and the edges read only served topic dates (never the almanac, D14).
  *

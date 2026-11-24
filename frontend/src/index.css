@@ -473,8 +473,7 @@
   }
 
   /* Themed scrollbars (owner, 2026-11-13: the default grey bars clashed with the warm dark palette).
-     Layered in `base` so the hidden-scrollbar scrollers' own unlayered rules (`.wf-tabs`,
-     the deleted `.wf-spots`, `.wf-sheet-seg`) still win. `scrollbar-color` inherits, `scrollbar-width` does not. */
+     Layered in `base` so the hidden-scrollbar scrollers' own unlayered rules (the deleted `.wf-spots`, `.wf-sheet-seg`) still win. `scrollbar-color` inherits, `scrollbar-width` does not. */
   :root {
     scrollbar-color: var(--color-plex-text-faint) transparent;
   }
@@ -1105,59 +1104,10 @@
   letter-spacing: 0.1em;
   color: var(--color-plex-text-secondary);
 }
-/* A scroller from four tabs on, and the trigger was written into `WindowFirstShell` when the bar
-   had two: a fourth tab needs `overflow-x: auto` PLUS bottom room, because the overflow computes
-   `overflow-y` to `auto` and clips a focus ring drawn outside the padding box. The technique is
-   buy the room, then give it straight back with a negative margin so nothing below moves. (It was
-   documented on the retired day rail's `.rail-scroller`, which went with the rail at P2.)
-
-   ⚠️ The threshold is much lower than the trigger assumed. Measured on the running app at the phone
-   type scale, all four tabs present: content extent 296.3px, so the bar FITS from 360px up and
-   overflows only at 320 (by 22px, where the page itself also overflows by 6). So this is a 320px
-   safeguard, not the common case — which is why nothing here changes the resting look, and why the
-   bar keeps `flex` rather than becoming a scroll-snap rail. Verified inert at two tabs: no
-   scrollbar gutter, no reflow, `ruleTop` unchanged.
-
-   Re-measured for the P5 badge, and the number is smaller than a naive "badge width" estimate:
-   at 320px with the three tabs this sandbox can seed (Plan/Coming up/Operations — Map needs
-   forecast data this local DB has none of, the same limitation earlier phases recorded), the bar
-   sits at ZERO overflow with no badge and grows to only **9px** with a single-digit announce
-   badge showing, even though the badge itself measures 26px (18px pill + 8px margin) and the tab
-   button it sits in grows by exactly that much — because these are ordinary flex items with no
-   `flex-shrink:0`, so Plan and Operations narrow to absorb most of the growth before anything
-   spills into the scroller. The admin four-tab case (Map included) was not re-measured live —
-   seeding it needs a paid evaluation run — but the mechanism above means its overflow grows by
-   less than the badge's own width too, and `overflow-x: auto` still degrades rather than breaks
-   either way. */
-.wf-tabs {
-  padding: 12px var(--wf-gutter) 4px;
-  margin-bottom: -4px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.wf-tabs::-webkit-scrollbar { display: none; }
-/* `border-bottom-width: 0`, never `border-bottom: none` — P4a's rule, kept because the tab shares
-   its background with the pane below and the missing edge is what joins them. */
-.wf-tab {
-  font-size: 12.5px;
-  font-weight: 500;
-  border-bottom-width: 0;
-  border-radius: 8px 8px 0 0;
-  padding: 8px 14px;
-}
-/* The Coming-up tab badge (design §6) — two shapes on one surface, not two controls. `count`
-   (announce band) and `rare` (interrupt band) share every rule except background/colour/border/
-   size, matching the design's own "third and fourth bands of one surface" framing (README §3/§6).
-   `aria-hidden` in the markup; the button's own `aria-label` carries the equivalent words.
-
-   `margin-left`, NOT the design's `.tab{display:inline-flex;gap:8px}` container rule — a review
-   caught that the design's literal container-level `gap` would have applied to every OTHER tab
-   too (Plan/Map bake their own trailing-space-in-the-glyph-span spacing, so a second gap on top
-   would have widened both by the space's own width AND the new 8px, a visible regression this
-   tab never asked for). Margining the badge itself gets the identical visual result on Coming up
-   with zero blast radius on its siblings. */
-.wf-tab-badge {
+/* The NEW badge on the "Further ahead ↓" jump and its heading (design §6; one-screen-plan.md D6) — two shapes on one
+   surface, not two controls. `count` (announce band) and `rare` (interrupt band) share every rule except
+   background/colour/border/size. `aria-hidden` in the markup; the jump's own `aria-label` carries the equivalent words. */
+.wf-jump-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1174,39 +1124,18 @@
   color: var(--color-badge-coral);
   border: 1px solid color-mix(in oklch, var(--color-plex-coral) 45%, transparent);
 }
-.wf-tab-badge-rare {
+.wf-jump-badge-rare {
   font-size: 9px;
   background: var(--color-plex-coral);
   color: #1B1411;
   border-color: var(--color-plex-coral);
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-plex-coral) 16%, transparent);
 }
-/* The admin tab, marked the way the mock marks it — a dashed edge and a push to the right — and
-   NOT with its "· admin" words, which measured +44.16px and put the four-tab bar past every common
-   phone. The mock uses four signals for this; these are the two that cost nothing.
-
-   The ink is deliberately NOT muted as well. This project has corrected muted-ink contrast five
-   times, most recently at 3.55:1 against AA's 4.5, and a dashed border already says "different
-   kind of destination" without spending legibility to say it. */
-.wf-tab-gated {
-  margin-left: auto;
-  border-style: dashed;
-}
-
-/* The mock's own weights — 500 resting, 600 active — and the gold top rule, which is the only
-   selected treatment that survives the tab sharing the pane's background. Hung off `aria-selected`
-   because the tab pattern already requires that attribute, so the state needs no second carrier. */
-.wf-tab[aria-selected='true'] {
-  font-weight: 600;
-  box-shadow: inset 0 2px 0 var(--color-close-to-home);
-}
-/* Both panes, Plan and Coming up. They sit in the same slot under the same tab rule, so a
-   difference here would make the frame appear to move on a tab change; one class is what makes
-   that structurally impossible rather than a comment asking two files to stay in step. */
+/* The screen's column and the Operations view share this inset, so the content edge never jumps between them. */
 .wf-body {
   padding: 13px var(--wf-gutter) 20px;
-  /* Reaches only the Plan pane, which is the flex one; the Coming-up panel is a block, where `gap`
-     has nothing to space. No `:not()` needed to say so. */
+  /* Reaches the screen's column, which is the flex one; the Operations view is a block, where `gap` has nothing to
+     space. */
   gap: 10px;
 }
 /* The Plan pane's always-mounted pending/empty status wrapper (`WindowFirstShell.jsx`,
@@ -1320,69 +1249,6 @@
   .wf-mast-status-word[data-status='UP'] { color: var(--color-badge-go); }
   .wf-mast-status-word[data-status='DEGRADED'] { color: var(--color-badge-maybe); }
   .wf-mast-status-word[data-status='DOWN'] { color: var(--color-badge-poor); }
-  /* The ⋯ menu: a 30px box (1px #3A2C23, radius 8) in a 40px hit area, the extra ten pixels coming
-     from a pseudo-element so layout sees 30 and the box's edge sits on the gutter. */
-  .wf-mast-menu { position: relative; flex: none; }
-  .wf-mast-menu-btn {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border: 1px solid #3A2C23;
-    border-radius: 8px;
-    color: var(--color-plex-text-secondary);
-    font-size: 15px;
-    letter-spacing: 0.05em;
-    line-height: 1;
-  }
-  .wf-mast-menu-btn::before { content: ''; position: absolute; inset: -5px; }
-  .wf-mast-menu-btn[data-open='true'] {
-    border-color: rgba(201, 162, 75, 0.6);
-    color: #EBD9A8;
-  }
-  /* The catcher swallows the press that dismisses the menu, so it never reaches the map under it.
-     Both sit inside `.wf-mast`'s stacking context, which is what keeps them over the map's chrome. */
-  .wf-mast-menu-catcher { position: fixed; inset: 0; z-index: 1; background: transparent; }
-  .wf-mast-menu-pop {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: -4px;
-    z-index: 2;
-    width: 210px;
-    padding: 6px;
-    display: flex;
-    flex-direction: column;
-    background: #1E1712;
-    border: 1px solid var(--color-plex-border-light);
-    border-radius: 12px;
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
-  }
-  .wf-mast-menu-row,
-  .wf-mast-menu-status {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    min-height: 44px;
-    padding: 0 10px;
-    border-radius: 8px;
-    text-align: left;
-    color: var(--color-plex-text);
-  }
-  .wf-mast-menu-row { font-size: 14px; }
-  .wf-mast-menu-row:hover,
-  .wf-mast-menu-row:focus-visible { background: var(--color-plex-surface-light); }
-  .wf-mast-menu-status-wrap { border-bottom: 1px solid var(--color-plex-border); margin-bottom: 4px; }
-  /* The app's status node can render nothing (status still unknown); the strip must go with it. */
-  .wf-mast-menu-status-wrap:empty { display: none; }
-  .wf-mast-menu-status {
-    gap: 7px;
-    min-height: 44px;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--color-plex-text-secondary);
-  }
   /* The compact origin row (README §2) — the Map tab at Away or Unset, the only states it draws:
      one 36px line, ⌂ (32×28) first, then the group at 28px, the place name ellipsised. */
   .wf-tick[data-compact='true'] {
@@ -1417,26 +1283,71 @@
     letter-spacing: 0.08em;
   }
   .wf-tick-origin-set { gap: 6px; }
-  /* Restates the 4px. A `padding` shorthand ending in `0` is exactly how this file has twice
-     zeroed a focus-ring reservation while its paired negative margin still applied. */
-  .wf-tabs { padding: 6px var(--wf-gutter) 4px; }
-  .wf-tab { padding: 7px 11px; font-size: 13px; }
-  /* At a Glance → "Glance" rename (coming-up-glance-plan.md R1): the tabs share the bar's width
-     instead of huddling left. Compact tabs (map-mobile-compact README §3, plan R9): a 34px body
-     (13px type, 7px padding) with the hit area grown back to 44px by the pseudo-element — 6px ABOVE
-     the body, inside the bar's 6px top padding, and 4px BELOW it, inside the bar's 4px bottom
-     padding (the bar's `margin-bottom: -4px` puts the pane's top edge under the tab's foot, so the
-     extension stays inside the bar's own box and `overflow-x: auto` clips nothing). That is 44px on
-     Plan, Coming up and Operations. ⚠️ On the MAP tab the bottom 4px lies under the map container,
-     which paints over `.wf-tabrow` there, so the real target is about 41px (6 + 34 + the part of
-     the 4px not covered). The geometry is kept; the claim is "≥ 40px, ~41px on Map". `overflow-x:
-     auto` above stays: an admin sees four tabs. Phone only, so tablet and desktop are untouched.
-     `mapMobileCompactCascade.test.jsx` pins the arithmetic. */
-  .wf-tab { flex: 1 1 auto; min-height: 34px; position: relative; }
-  .wf-tab::before { content: ''; position: absolute; inset: -6px 0 -4px; }
-  /* `flex: 1 1 auto` above would cancel the admin tab's `margin-left: auto` push to the right. */
-  .wf-tab-gated { flex-grow: 0; }
   .wf-body { padding: 12px var(--wf-gutter) 18px; }
+}
+
+/* The ☰ menu, at every width (one-screen-plan.md D9, D14): a 30px box (1px #3A2C23, radius 8) in a 40px hit area, the extra ten pixels coming
+   from a pseudo-element so layout sees 30 and the box's edge sits on the gutter. */
+.wf-mast-menu { position: relative; flex: none; }
+.wf-mast-menu-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #3A2C23;
+  border-radius: 8px;
+  color: var(--color-plex-text-secondary);
+  font-size: 15px;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+.wf-mast-menu-btn::before { content: ''; position: absolute; inset: -5px; }
+.wf-mast-menu-btn[data-open='true'] {
+  border-color: rgba(201, 162, 75, 0.6);
+  color: #EBD9A8;
+}
+/* The catcher swallows the press that dismisses the menu, so it never reaches the map under it.
+   Both sit inside `.wf-mast`'s stacking context, which is what keeps them over the map's chrome. */
+.wf-mast-menu-catcher { position: fixed; inset: 0; z-index: 1; background: transparent; }
+.wf-mast-menu-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: -4px;
+  z-index: 2;
+  width: 210px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  background: #1E1712;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+.wf-mast-menu-row,
+.wf-mast-menu-status {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
+  text-align: left;
+  color: var(--color-plex-text);
+}
+.wf-mast-menu-row { font-size: 14px; }
+.wf-mast-menu-row:hover,
+.wf-mast-menu-row:focus-visible { background: var(--color-plex-surface-light); }
+.wf-mast-menu-status-wrap { border-bottom: 1px solid var(--color-plex-border); margin-bottom: 4px; }
+/* The app's status node can render nothing (status still unknown); the strip must go with it. */
+.wf-mast-menu-status-wrap:empty { display: none; }
+.wf-mast-menu-status {
+  gap: 7px;
+  min-height: 44px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
 }
 
 /* ── Window-first heat strip ──
@@ -1703,7 +1614,7 @@
 .wf-hday.today .wf-hday-dn {
   color: var(--color-close-to-home);
 }
-/* "The days ahead" lanes (days-ahead-lanes-plan.md; design handoff "At a Glance — The days ahead as lanes"): one
+/* "The days ahead" lanes (days-ahead-lanes-plan.md; design handoff "This week — The days ahead as lanes"): one
    compact row per RUN of a topic, under its day and spanning the columns it covers. Desktop and tablet draw them in
    `.wf-lanes`, a NON-sticky grid between `.wf-dhrow` and the first card row, with the same `--dc` tracks and column gap as
    both (see the shared rule above), so a day stays one column. ⚠️ It must stay outside `.wf-dhrow`: that row is sticky
@@ -9895,15 +9806,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    phone's transposed grid — and it was reserved against nothing, so a keyboard reader tabbing into
    the matrix scrolled a card flush to the viewport top and lost it, its verdict word and its focus
    ring behind the sticky chrome. It cost 53.5px before M3, ~180px while the masthead was believed
-   to pin, and 98px now that the bar is the only thing over a card. ⚠️ `.wf-tab` was added on a
-   mechanism that no longer exists — "the tab bar scrolls under the masthead", which cannot happen
-   now that the masthead does not pin and the tab bar precedes the bar in document order, so the
-   bar is never at `top: 0` while a tab is at the viewport top. Its `scrollIntoView({block:
-   'nearest'})` therefore reserves against nothing today. It stays because the reservation is inert
-   rather than wrong (it leaves the band's own bottom edge showing above a focused tab), and because
-   a phase that pins the masthead for real makes the original mechanism true again. */
+   to pin, and 98px now that the bar is the only thing over a card. (`.wf-tab` was on this list until the tabs went; it reserved
+   against a mechanism that never existed once the masthead stopped pinning.) */
 .wf-hc,
-.wf-tab,
 .wf-spot,
 .wf-clash-act {
   /* ⚠️ Plus `--safe-t`. `useLensReserve` publishes the bar's measured HEIGHT plus its focus ring;
@@ -11514,8 +11419,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 .wf-sec-jump:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
 .wf-sec-jump:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
-.wf-sec-jump .wf-tab-badge { margin-left: 6px; }
-.wf-sec-h .wf-tab-badge { margin-left: 8px; vertical-align: 1px; }
+.wf-sec-jump .wf-jump-badge { margin-left: 6px; }
+.wf-sec-h .wf-jump-badge { margin-left: 8px; vertical-align: 1px; }
 /* Every focusable thing in Further ahead and in Your places reserves against the sticky stack, as the cards do. Written
    as a sum in a different order from the card rules, which a stylesheet test finds by their exact text. */
 .wf-further-ahead :is(button, a, [tabindex]):not(.wf-sec-h),
@@ -13702,16 +13607,10 @@ div.wf-lane { cursor: default; }
    scroller on Plan and Coming up, the only tabs the bar is drawn on. */
 html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8px); }
 
-/* THE TABLET FIELD, beside the tab list in the tab ROW. The tab list is a flex item that keeps its
-   own overflow-x scroll (`min-width: 0`); the row is a plain flex row with or without the field, so
-   a tab row without Ask lays out as it always did. */
-.wf-tabrow { display: flex; align-items: flex-end; container: wf-tabrow / inline-size; position: relative; }
-/* The Ask upsell's popover hangs from the row. The row's `container-type` already makes it a stacking context
-   at tree order, which would paint it UNDER the Map's `#map-container` (z-index 0, later in the page); while
-   the popover is open the row rises to 44 (one under the masthead's 45, `.wf-mast`): over the map and its
-   chrome (1100 and up, inside their own contexts), below `Modal`'s z-50 and the sheet scrim. */
-.wf-tabrow[data-ask-upsell="open"] { z-index: 44; }
-.wf-tabrow > .wf-tabs { flex: 1 1 0; min-width: 0; }
+/* THE ASK FIELD, in the masthead's right-hand cluster beside the ☰ menu (one-screen-plan.md D14): 260px from 640px, 340px
+   from 1180px; the map view's header carries its own copy at the sizes below. The cluster is the popover's anchor. */
+.wf-mast-tools { position: relative; }
+.wf-mast .wf-askf { margin: 0; align-self: center; }
 .wf-askf {
   flex: none;
   align-self: flex-end;
@@ -13729,10 +13628,6 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   cursor: pointer;
 }
 .wf-askf[data-width="340"] { width: 340px; }
-/* The field's width held where the field is not drawn (the tablet's Operations tab), so the tab pinned
-   to the list's right edge does not move when the field leaves. A box, not a control: no role, no
-   focus, nothing to read. */
-.wf-askf-ghost { visibility: hidden; pointer-events: none; }
 .wf-askf[aria-expanded="true"] {
   border-color: rgba(201, 162, 75, .8);
   background: rgba(201, 162, 75, .1);
@@ -13768,54 +13663,38 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   border-radius: 5px;
   padding: 1px 5px;
 }
-/* With four tabs (an admin) 260px does not fit beside them under 720px of COLUMN width: the field
-   becomes a 34px "Ask" button. The label is CLIPPED, not hidden, so the prompt stays in the accessible
-   name.
-
-   ⚠️ A CONTAINER query on `.wf-tabrow`, not a viewport one (F2). Until the dock, the column was the
-   viewport minus `<main>`'s 32px, so a viewport query was a fair stand-in for "how much room is there".
-   The dock narrows the COLUMN and not the viewport: a 360px dock at a 1024px viewport leaves ~632px,
-   where no viewport query fires and four tabs plus a 260px field would scroll the tab list. The same
-   rule now also collapses the tablet's field at a column of 719px (a viewport of ~751px), 32px earlier
-   than the media query it replaces did — the safe direction, since that estimate left under 10px of
-   slack. Whether it fits is a browser check, not a jsdom test.
-
-   The 340px form (from 1180px, with the dock open the column is the viewport minus 412px) needs ~80px
-   more than the 260px one, so with four tabs it steps down to 260 under an ESTIMATED 800px before it
-   collapses at 720 — a hand estimate like the 720 itself, and in the same safe direction. The 34px rule
-   below names `[data-width]` so it outranks this one by specificity as well as by source order. */
-@container wf-tabrow (max-width: 799px) {
-  .wf-tabrow[data-tab-count="4"] .wf-askf[data-width="340"] { width: 260px; }
+/* OPERATIONS, the admin's full-screen view (one-screen-plan.md D9): a header line (the way back and the title) over the
+   existing Operations content, which sits at the screen's own inset (`.wf-body`). */
+.wf-ops-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px var(--wf-gutter, 16px) 0;
 }
-@container wf-tabrow (max-width: 719px) {
-  .wf-tabrow[data-tab-count="4"] .wf-askf[data-width] {
-    width: 34px;
-    padding: 0;
-    justify-content: center;
-  }
-  /* The key cap has no room in a 34px button, and no meaning: it is aria-hidden already. */
-  .wf-tabrow[data-tab-count="4"] .wf-askf-kbd { display: none; }
-  .wf-tabrow[data-tab-count="4"] .wf-askf-q {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
+.wf-ops-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 7px;
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
 }
+.wf-ops-back:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
+.wf-ops-back:focus-visible,
+.wf-ops-title:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+.wf-ops-title { font-size: 22px; line-height: 1.2; color: var(--color-plex-text); }
+.wf-ops-title:focus { outline: none; }
 
 /* THE ASK UPSELL POPOVER (docs/engineering/ask-upsell-plan.md §4.2, §4.3): a non-modal dialog, inline and never
    portalled. The look is shared with the tide upsell (selector lists near `.wf-tide-upsell`); only the
-   placement is here. Under the field it hangs from the tab row; above the phone bar it is fixed at the bar's
+   placement is here. Under the field it hangs from the masthead's tools cluster; above the phone bar it is fixed at the bar's
    own sides and tier (z-index 40, the bar's, below `Modal`'s z-50 and the sheet scrim). */
 .wf-ask-upsell-pop[data-placement="field"] {
   position: absolute;
   top: 100%;
-  right: var(--wf-gutter);
+  right: 0;
   z-index: 1;
   width: 320px;
   max-width: calc(100% - 16px);

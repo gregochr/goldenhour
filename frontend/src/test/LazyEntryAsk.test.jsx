@@ -1,3 +1,4 @@
+import { openMapView } from './shellMapDoor.js';
 import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
@@ -126,7 +127,7 @@ describe('the sheet (phone)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull());
     const unmountsBefore = g.unmounts;
 
-    fireEvent.click(screen.getByTestId('window-first-tab-map'));
+    openMapView();
     expect(screen.queryByTestId('ask-bar')).toBeNull();
     await waitFor(() => expect(g.unmounts).toBe(unmountsBefore + 1));
 

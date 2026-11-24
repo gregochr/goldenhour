@@ -198,18 +198,3 @@ test.describe('The map view over the screen', () => {
     await settled(page, 0);
   });
 });
-
-test.describe('The Map landing (kept until the tab model goes)', () => {
-  test('a desktop that has not been touched opens the view on its own once the forecast lands', async ({ page }) => {
-    test.setTimeout(60_000);
-    await loginAndWaitForForecast(page, 'admin', { settleLanding: false });
-
-    await expect(page.getByTestId('map-screen')).toBeVisible();
-    // Activation-gated: the entry is pushed on the first gesture (or at once if the sign-in click is still live).
-    await page.getByTestId('map-screen-title').click();
-    await settled(page, 1);
-    await page.getByTestId('map-screen-close').click();
-    await expect(page.getByTestId('map-screen')).toBeHidden();
-    await settled(page, 0);
-  });
-});

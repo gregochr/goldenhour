@@ -576,7 +576,7 @@ describe('MastheadTickLine — the origin slot keeps focus when its element is s
   });
 
   it('⚠️ nor when a switch to the Map tab swaps the origin button for the statement', () => {
-    // The route that rules the looser test out: the shell's `tabRequest` handoff switches tabs with
+    // The route that rules the looser test out: the shell's old tab handoff switched tabs with
     // focus wherever a closing dialog left it — `<body>` — and moves it to the tab itself a frame
     // later. A statement grabbing it first would be announced for nothing.
     const { rerender } = render(tick({ isMapTab: false }));
@@ -934,7 +934,7 @@ describe('MastheadTickLine — theme tokens it cites', () => {
   // `--color-badge-tide` and two ink tokens, and leaving the newer block unguarded would put the
   // guard on the surface that has already been checked and not on the one that has not.
   it.each([
-    ['the tick line', '/* ── The tick line (M3) ──', '.wf-tabs {'],
+    ['the tick line', '/* ── The tick line (M3) ──', '/* The NEW badge on the "Further ahead'],
     ['the search panel', '.wf-search-anchored {', '/* ── P8 · the four-day location sheet'],
   ])('cites only tokens the stylesheet declares — %s', (_label, from, to) => {
     const css = read('../index.css');

@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
@@ -122,11 +122,16 @@ let resizeCallbacks;
 
 const renderShell = (extraProps = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-  return render(<WindowFirstShell
-    onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
-    locations={[]}
-    {...extraProps}
-  />);
+  const ui = (next = {}) => (
+    <WindowFirstShell
+      onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
+      locations={[]}
+      {...extraProps}
+      {...next}
+    />
+  );
+  const view = render(ui());
+  return { ...view, rerenderShell: (next) => view.rerender(ui(next)) };
 };
 
 beforeEach(() => {
@@ -200,8 +205,8 @@ describe('WindowFirstShell — the measured sticky chrome', () => {
     // The bar is unmounted on Operations. With no bar there is nothing on the pane to reserve
     // against at all, and the stylesheet's own fallback is the right answer — which only works if
     // the property is REMOVED rather than frozen at its last value.
-    renderShell({ operationsPane: <p>operations</p> });
-    fireEvent.click(screen.getByTestId('window-first-tab-operations'));
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
+    rerenderShell({ operationsOpen: true });
     // The bar's removal is a layout change, which is what the observer on the SHELL exists to
     // catch — the hook looks the bar up on each callback rather than watching it, precisely so a
     // removal is observable. jsdom fires nothing on its own, so the callback is driven here.
@@ -228,8 +233,8 @@ describe('WindowFirstShell — the measured sticky chrome', () => {
     // rail with no bar above it floats the row-rails matrix over open space. `bar ?? 0` is still a
     // real measurement — of an absent element's rendered height — never the banned zero fallback
     // baked into the stylesheet.
-    renderShell({ operationsPane: <p>operations</p> });
-    fireEvent.click(screen.getByTestId('window-first-tab-operations'));
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
+    rerenderShell({ operationsOpen: true });
     act(() => resizeCallbacks.forEach((cb) => cb()));
 
     const shell = screen.getByTestId('window-first-shell');
@@ -264,8 +269,8 @@ describe('WindowFirstShell — the section heading bar under the lens (one-scree
 
   it('is zero while the Plan pane is not showing, because a hidden bar has no box', () => {
     // A hidden element measures nothing: stand that in by dropping the fixture height.
-    renderShell({ operationsPane: <p>operations</p> });
-    fireEvent.click(screen.getByTestId('window-first-tab-operations'));
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
+    rerenderShell({ operationsOpen: true });
     delete HEIGHTS['wf-sec-bar-week'];
     act(() => resizeCallbacks.forEach((cb) => cb()));
 
@@ -302,8 +307,8 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
   });
 
   it('unmounts the sentinel with the bar, so it cannot report a stick for an absent element', () => {
-    renderShell({ operationsPane: <p>operations</p> });
-    fireEvent.click(screen.getByTestId('window-first-tab-operations'));
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
+    rerenderShell({ operationsOpen: true });
 
     expect(screen.queryByTestId('window-first-lens-sentinel')).toBeNull();
   });
@@ -352,12 +357,12 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
   });
 
   it('⚠️ resets to unstuck when the bar goes, so the next one does not mount already shadowed', () => {
-    renderShell({ operationsPane: <p>operations</p> });
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
     act(() => lensObserver().cb([{ isIntersecting: false }]));
     expect(screen.getByTestId('window-first-lens').className).toContain('wf-lens-stuck');
 
-    fireEvent.click(screen.getByTestId('window-first-tab-operations'));
-    fireEvent.click(screen.getByTestId('window-first-tab-plan'));
+    rerenderShell({ operationsOpen: true });
+    rerenderShell({ operationsOpen: false });
 
     expect(screen.getByTestId('window-first-lens').className).not.toContain('wf-lens-stuck');
   });
@@ -495,10 +500,9 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     fallbacks.forEach((value) => expect(value).toBe('98px'));
   });
 
-  it('reserves for the matrix cards and the tab bar, which are the pane\'s primary controls', () => {
-    // `.wf-hc` is six focusable cards, any of which can sit above the fold; `.wf-tab`'s roving
-    // arrow handler calls `scrollIntoView`. Neither was on the list when the reservation was a
-    // literal.
+  it('reserves for the matrix cards, which are the pane\'s primary controls (and no longer for a tab bar)', () => {
+    // `.wf-hc` is six focusable cards, any of which can sit above the fold. It was not on the list when the reservation
+    // was a literal; `.wf-tab` left it with the tabs.
     // The pane's own list, which is the LAST `scroll-margin-top` rule in the file. Sliced back from the declaration to the previous rule's
     // closing brace, so what is searched is that rule's selector list (and the comments interleaved
     // in it) and nothing else.
@@ -511,7 +515,7 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     const at = css.lastIndexOf('scroll-margin-top: calc(var(--wf-lens-reserve');
     const selectors = css.slice(css.lastIndexOf('\n}', at), at);
     expect(selectors).toContain('.wf-hc,');
-    expect(selectors).toContain('.wf-tab,');
+    expect(selectors).not.toContain('.wf-tab,');
     // …and it really is the list, not a comment that happens to name them.
     expect(selectors).toContain('.wf-spot,');
   });

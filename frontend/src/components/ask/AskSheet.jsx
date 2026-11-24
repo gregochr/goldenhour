@@ -40,7 +40,7 @@ import { ASK_SHEET_LABEL } from './askIds.js';
  * @param {object} props
  * @param {boolean} props.open
  * @param {function(): void} props.onClose the ✕, the scrim and Escape all call this
- * @param {'map'|'plan'|'coming-up'} props.view the tab the suggestions are offered for and the view the
+ * @param {'map'|'plan'} props.view the screen the suggestions are offered for and the view the
  *        question is sent with
  * @param {string} props.viewLabel the view chip's text, e.g. "Plan · all regions"
  * @param {function(object): React.ReactNode} [props.pickActions] controls for each pick card's row
@@ -100,7 +100,7 @@ export default function AskSheet({
 AskSheet.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
-  view: PropTypes.oneOf(['map', 'plan', 'coming-up']).isRequired,
+  view: PropTypes.oneOf(['map', 'plan']).isRequired,
   viewLabel: PropTypes.string.isRequired,
   pickActions: PropTypes.func,
   planActions: planActionsShape,

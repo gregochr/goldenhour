@@ -394,7 +394,7 @@ Each phase's built diff gets its own adversarial review before commit (CLAUDE.md
 Per CLAUDE.md, a Sonnet subagent builds each phase in its own worktree from this plan. It runs the build ladder, the frontend's four commands and the E2E smoke until they are green. The planner reviews the diff read-only, and any fixes go back to Sonnet. Then a `changelog.d/` entry, a ready PR, green CI and Codex 👍 on the head commit, merge, and the next phase branches from the updated `main`.
 
 ## 6. Superseded on merge of O3
-Each of these gets a one-line pointer to this plan:
+**Done in O3 (2026-11-24).** Each of these has a one-line pointer to this plan (`plan-tab.md` also carries "The one screen", and `map-tab.md` the map-view note):
 - `default-tab-by-device-plan.md` (whole)
 - `map-tab-v2-plan.md` (tab parts)
 - `coming-up-plan.md` and the other `coming-up-*` plans (tab parts)

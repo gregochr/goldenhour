@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, openFurtherAhead, stepIntoPast, clickMiddleChip, apiGet,
+  test, expect, loginAndWaitForForecast, openMapView, openFurtherAhead, stepIntoPast, clickMiddleChip, apiGet,
 } from './fixture.js';
 
 // A taller viewport than the default 1280x720: a Map callout opens beside its chip and is not scrollable, so with a
@@ -23,7 +23,7 @@ test.describe('Pro reader rates a past window', () => {
   test('the stars save, the block reads rated, and the saved row reads back', async ({ page }, testInfo) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page, 'pro');
-    await openMapTab(page);
+    await openMapView(page);
     await stepIntoPast(page);
     await clickMiddleChip(page);
 

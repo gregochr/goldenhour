@@ -1,3 +1,4 @@
+import { openMapView, registerMapDoor } from './shellMapDoor.js';
 /**
  * The Four-days sheet is gated at the shell (docs/engineering/tide-pro-gate-plan.md §2, Q2): the shell
  * builds the sheet's tide index from `briefing.days`, and a locked (LITE) reader's sheet is handed
@@ -6,7 +7,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
@@ -87,10 +88,10 @@ async function openSheet(overrides) {
     onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
     locations: [], mapPane: <p data-testid="map-pane">map pane</p>,
   };
-  const view = render(<WindowFirstShell {...base} />);
-  fireEvent.click(screen.getByTestId('window-first-tab-map'));
+  const view = render(<WindowFirstShell registerOpenMap={registerMapDoor} {...base} />);
+  openMapView();
   await act(async () => {
-    view.rerender(<WindowFirstShell {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
+    view.rerender(<WindowFirstShell registerOpenMap={registerMapDoor} {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
   });
   await screen.findByTestId('location-sheet-stub');
   return view;
