@@ -225,13 +225,20 @@ describe('Your places, watched dates', () => {
     return props;
   };
 
-  it('beyond the forecast the chip names the date and the countdown, and a tap opens its entry in Further ahead', () => {
+  it('beyond the forecast the chip shows the calendar tile, no countdown, and a tap opens its entry in Further ahead', () => {
     const props = mount({ dates: ['king-tide:2026-12-03'] });
     const chip = screen.getByTestId('your-places-chip');
     expect(chip).toHaveAttribute('data-kind', 'date');
     expect(chip).toHaveAttribute('data-date-state', 'beyond');
-    expect(chip).toHaveTextContent('Watched date: 🌊 King tide · 3 Dec');
-    expect(screen.getByTestId('your-places-detail')).toHaveTextContent("tomorrow · best spots once it's forecast");
+    const tile = screen.getByTestId('your-places-date-tile');
+    expect(chip).toContainElement(tile);
+    expect(tile).toHaveTextContent('3–7Dec');
+    expect(tile.querySelector('.wf-cu-dn-run')).not.toBeNull();
+    expect(tile.querySelector('.wf-cu-dow')).toBeNull();
+    expect(chip).toHaveTextContent('Watched date: 🌊 King tide');
+    expect(chip.textContent).not.toMatch(/in \d+ days|tomorrow/);
+    expect(screen.getByTestId('your-places-detail')).toHaveTextContent("best spots once it's forecast");
+    expect(screen.getByTestId('your-places-stop-watching')).toHaveAttribute('aria-label', 'Stop watching King tide · 3 Dec');
     fireEvent.click(chip);
     expect(props.onOpenEntry).toHaveBeenCalledWith('king-tide:2026-12-03:2026-12-07');
     expect(props.onOpenWindow).not.toHaveBeenCalled();
@@ -271,6 +278,7 @@ describe('Your places, watched dates', () => {
     const chip = screen.getByTestId('your-places-chip');
     expect(chip.tagName).not.toBe('BUTTON');
     expect(chip).toHaveAttribute('data-date-state', 'static');
+    expect(screen.getByTestId('your-places-date-tile')).toHaveTextContent('Fri4Dec');
     expect(screen.getByTestId('your-places-detail')).toHaveTextContent('clear-sky check on the night');
     fireEvent.click(chip);
     expect(props.onOpenEntry).not.toHaveBeenCalled();
@@ -281,13 +289,15 @@ describe('Your places, watched dates', () => {
     mount({ dates: ['king-tide:2026-12-03'], places: [7] });
     const chips = screen.getAllByTestId('your-places-chip');
     expect(chips.map((c) => c.dataset.kind)).toEqual(['date', 'place']);
+    expect(screen.getAllByTestId('your-places-date-tile')).toHaveLength(1);
+    expect(chips[1].querySelector('[data-testid="your-places-date-tile"]')).toBeNull();
     expect(screen.queryByTestId('your-places-empty')).toBeNull();
   });
 
-  it('a reader with nothing starred or watched still gets the advice, which now names dates', () => {
+  it('a reader with nothing starred or watched still gets the advice, which names dates', () => {
     mount({});
     expect(screen.getByTestId('your-places-empty')).toHaveTextContent(YOUR_PLACES_EMPTY);
-    expect(YOUR_PLACES_EMPTY).toMatch(/watch a date/);
+    expect(YOUR_PLACES_EMPTY).toBe('Tap ☆ on a place, an area or a date, and it lands here.');
   });
 
   it('a watched date with no feed yet says so, rather than the starred-places line', () => {
@@ -331,7 +341,7 @@ describe('Your places, watched dates', () => {
     expect(screen.getAllByTestId('your-places-stop-watching')).toHaveLength(3);
     const unlisted = screen.getAllByTestId('your-places-chip')[2];
     expect(unlisted.tagName).not.toBe('BUTTON');
-    expect(unlisted).toHaveTextContent('Supermoon · 20 Dec');
+    expect(unlisted).toHaveTextContent('Sun20Dec★Watched date: Supermoon');
     expect(unlisted).toHaveTextContent('no longer listed');
   });
 

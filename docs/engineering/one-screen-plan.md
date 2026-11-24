@@ -257,7 +257,7 @@ Paths are under `frontend/src` unless they say otherwise.
   - It sits outside the entry's disclosure button.
   - It isn't rendered until favourites are `ready`.
   - Lite gets the `PRO` pill and the upsell.
-- **The chip, beyond the forecast:** `★ <glyph> <title> · <date> · in N days`. A tap scrolls to the entry and expands it.
+- **The chip, beyond the forecast:** the entry's calendar tile (as Further ahead's rail draws it) then `★ <glyph> <title>` with `best spots once it's forecast`; no "in N days" countdown. A tap scrolls to the entry and expands it.
 - **The chip, inside the forecast:** it shows that morning's window, the best spot and its stars, and "tide on the light", all from served fields. A tap calls `openMap`.
 - **Which window, inside the forecast:**
   - **A tide:** the window marked on the light, with the higher served rating breaking a tie.

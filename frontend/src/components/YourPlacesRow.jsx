@@ -14,7 +14,7 @@ import { FavouriteUpsell, upsellEscape, useFavouriteUpsell } from './shared/Favo
 /** Below this the line reads quietly: the reader's own place has nothing worth a trip in the days we have scored. */
 const QUIET_BELOW = 3;
 const QUIET_LINE = 'nothing above 2★ in the next days';
-export const YOUR_PLACES_EMPTY = 'Star a place or an area, from its sheet or its map callout, or watch a date in Further ahead, and it shows here.';
+export const YOUR_PLACES_EMPTY = 'Tap ☆ on a place, an area or a date, and it lands here.';
 
 /**
  * Your places (find-and-favourites-plan.md F4, D3, D4; one-screen-plan.md D15): the reader's own starred areas and
@@ -38,12 +38,14 @@ export const YOUR_PLACES_EMPTY = 'Star a place or an area, from its sheet or its
  * scrolls to a starred area never pays for it.
  *
  * <p><b>Watched dates (one-screen-plan.md D16)</b> join the row as chips of their own, earliest date first, before the
- * places. A date still beyond the forecast reads {@code ★ 🌊 King tide · 3 Dec} with {@code in N days}, and a tap scrolls
- * to its entry in Further ahead and opens it ({@code onOpenEntry}). Once its dates reach the forecast the chip becomes
- * that morning's plan, from served fields only ({@code utils/watchedDates.js}): the window, the best spot and its stars,
- * and for a tide {@code tide on the light}; a tap opens the map view on that window. A date with no window of its own (a
- * meteor peak) is a plain chip that says {@code clear-sky check on the night} and opens nothing. A date that has passed
- * draws nothing (the row is kept, not shown).
+ * places. Each leads with the same calendar tile Further ahead draws in its rail (day of week for a single day, the day
+ * or {@code 23–29} range, the month), then the name ({@code ★ 🌊 King tide}) and a detail line. A date still beyond the
+ * forecast reads {@code best spots once it's forecast} (or {@code in this week's forecast} once it has windows), and a
+ * tap scrolls to its entry in Further ahead and opens it ({@code onOpenEntry}). Once its dates reach the forecast the
+ * chip becomes that morning's plan, from served fields only ({@code utils/watchedDates.js}): the window, the best spot
+ * and its stars, and for a tide {@code tide on the light}; a tap opens the map view on that window. A date with no
+ * window of its own (a meteor peak) is a plain chip that says {@code clear-sky check on the night} and opens nothing.
+ * A date that has passed draws nothing (the row is kept, not shown).
  *
  * <p>A Lite reader gets one line, {@code Your places · PRO}, opening the worded upsell. Anyone else (no provider, the
  * list not yet landed) gets nothing.
@@ -209,7 +211,7 @@ export default function YourPlacesRow({
                 // A chip that opens nothing is drawn as text, so a control never opens nothing: a date with no window
                 // of its own, and a watch whose entry the feed no longer lists.
                 const inert = isDate && (row.chip.kind === 'static' || row.chip.kind === 'unlisted');
-                const nameBlock = (
+                const textBlock = (
                   <>
                     <span className="wf-yp-name">
                       {isDate && (
@@ -219,11 +221,24 @@ export default function YourPlacesRow({
                           {row.chip.glyph && <span aria-hidden="true">{`${row.chip.glyph} `}</span>}
                         </>
                       )}
-                      {row.name}
+                      {isDate ? row.chip.label : row.name}
                     </span>
                     <span className="wf-yp-detail" data-testid="your-places-detail">{detail(row)}</span>
                   </>
                 );
+                // A date chip leads with the calendar tile Further ahead draws, then the name and detail in a column.
+                const nameBlock = isDate ? (
+                  <>
+                    <span className="wf-cu-dbox wf-yp-dbox" data-testid="your-places-date-tile">
+                      {row.chip.rail.dow && <span className="wf-cu-dow">{row.chip.rail.dow}</span>}
+                      <span className={row.chip.rail.isRange ? 'wf-cu-dn wf-cu-dn-run' : 'wf-cu-dn'}>
+                        {row.chip.rail.day}
+                      </span>
+                      <span className="wf-cu-mo">{row.chip.rail.month}</span>
+                    </span>
+                    <span className="wf-yp-text">{textBlock}</span>
+                  </>
+                ) : textBlock;
                 return (
                   <li key={row.key} className={isDate ? 'wf-yp-item wf-yp-item-date' : 'wf-yp-item'}>
                     {inert ? (
@@ -231,7 +246,7 @@ export default function YourPlacesRow({
                         data-testid="your-places-chip"
                         data-kind="date"
                         data-date-state={row.chip.kind}
-                        className="wf-yp-chip wf-yp-chip-static text-left"
+                        className="wf-yp-chip wf-yp-chip-static wf-yp-chip-date text-left"
                       >
                         {nameBlock}
                       </div>
@@ -241,7 +256,7 @@ export default function YourPlacesRow({
                         data-testid="your-places-chip"
                         data-kind={row.kind}
                         data-date-state={isDate ? row.chip.kind : undefined}
-                        className="wf-yp-chip text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold"
+                        className={`wf-yp-chip text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold${isDate ? ' wf-yp-chip-date' : ''}`}
                         onClick={(event) => press(row, event)}
                       >
                         {nameBlock}

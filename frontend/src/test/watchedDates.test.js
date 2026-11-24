@@ -122,21 +122,31 @@ describe('matching a watch to a served entry', () => {
 describe('the chips for watched dates', () => {
   const dates = [{ key: 'king-tide:2026-12-03' }];
 
-  it('beyond the forecast: title, date and the countdown, opening its entry', () => {
+  it('beyond the forecast: title, tile and no countdown, opening its entry', () => {
     const [chip] = buildWatchedChips({ dates, entries: [tide()], windows: [card('2026-11-24', 'SUNRISE')], hotTopics: [], todayStr: TODAY });
     expect(chip).toMatchObject({
       kind: 'beyond', entryId: 'king-tide:2026-12-03:2026-12-07', title: 'King tide', name: 'King tide · 3 Dec', glyph: '🌊',
-      detail: "in 9 days · best spots once it's forecast", window: null,
+      label: 'King tide', rail: { dow: null, day: '3–7', month: 'Dec', isRange: true },
+      detail: "best spots once it's forecast", window: null,
     });
+    expect(chip.detail).not.toMatch(/in \d+ days/);
   });
 
-  it('a date that starts tomorrow says so, and one under way says now', () => {
+  it('a tile is drawn for a date that starts tomorrow or is under way, with no countdown in the detail', () => {
     const entry = tide({ startDate: '2026-11-25', endDate: '2026-11-29', id: 'x' });
-    expect(buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-25' }], entries: [entry], windows: [], hotTopics: [], todayStr: TODAY })[0].detail)
-      .toContain('tomorrow');
+    const [soon] = buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-25' }], entries: [entry], windows: [], hotTopics: [], todayStr: TODAY });
+    expect(soon.rail).toEqual({ dow: null, day: '25–29', month: 'Nov', isRange: true });
+    expect(soon.detail).toBe("best spots once it's forecast");
     const under = tide({ startDate: '2026-11-22', endDate: '2026-11-26', id: 'y' });
-    expect(buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-22' }], entries: [under], windows: [], hotTopics: [], todayStr: TODAY })[0].detail)
-      .toContain('now');
+    const [now] = buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-22' }], entries: [under], windows: [], hotTopics: [], todayStr: TODAY });
+    expect(now.rail).toEqual({ dow: null, day: '22–26', month: 'Nov', isRange: true });
+    expect(now.detail).toBe("best spots once it's forecast");
+  });
+
+  it('a month-crossing run has the month-crossing tile', () => {
+    const run = tide({ id: 'z', startDate: '2026-11-29', endDate: '2026-12-02' });
+    const [chip] = buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-29' }], entries: [run], windows: [], hotTopics: [], todayStr: TODAY });
+    expect(chip.rail).toEqual({ dow: null, day: '29 Nov', month: '–2 Dec', isRange: true });
   });
 
   it('inside the forecast, a tide chip names the window marked on the light, the best spot and its stars', () => {
@@ -149,6 +159,8 @@ describe('the chips for watched dates', () => {
     expect(chip).toMatchObject({
       kind: 'window',
       name: 'King tide · Fri',
+      label: 'King tide · Fri',
+      rail: { dow: null, day: '3–7', month: 'Dec', isRange: true },
       detail: 'sunrise 07:48 · best Crimdon Beach 4★ · tide on the light',
       window: { date: '2026-12-04', eventType: 'SUNRISE' },
       bestSpot: { id: 7, name: 'Crimdon Beach' },
@@ -177,11 +189,10 @@ describe('the chips for watched dates', () => {
     expect(chip.kind).toBe('beyond');
   });
 
-  it('in the forecast but with no window on the light falls back to the beyond chip, without "once forecast"', () => {
+  it('in the forecast but with no window on the light falls back to the beyond chip, saying it is in the forecast', () => {
     const windows = [card('2026-12-03', 'SUNRISE', { tide: { lightAlignment: 'NONE' } }), card('2026-12-04', 'SUNRISE')];
     const [chip] = buildWatchedChips({ dates, entries: [tide()], windows, hotTopics: [], todayStr: '2026-12-02' });
-    expect(chip).toMatchObject({ kind: 'beyond', detail: 'tomorrow' });
-    expect(chip.detail).not.toContain('forecast');
+    expect(chip).toMatchObject({ kind: 'beyond', detail: "in this week's forecast" });
   });
 
   it('a supermoon opens its served topic window: a night topic is that evening\'s sunset', () => {
@@ -213,7 +224,9 @@ describe('the chips for watched dates', () => {
       dates: [{ key: 'meteor:2026-12-14' }], entries: [meteor], windows: [card('2026-12-14', 'SUNSET')],
       hotTopics: [{ type: 'METEOR', date: '2026-12-14', eventType: 'NIGHT' }], todayStr: '2026-12-13',
     });
-    expect(chip).toMatchObject({ kind: 'static', name: 'Geminids · 14 Dec', detail: WATCH_NO_WINDOW_LINE, window: null });
+    expect(chip).toMatchObject({ kind: 'static', name: 'Geminids · 14 Dec', label: 'Geminids', detail: WATCH_NO_WINDOW_LINE, window: null,
+      rail: { dow: 'Mon', day: '14', month: 'Dec', isRange: false },
+    });
     // Beyond the forecast the same meteor is the ordinary beyond chip, which opens its entry.
     expect(buildWatchedChips({ dates: [{ key: 'meteor:2026-12-14' }], entries: [meteor], windows: [], hotTopics: [], todayStr: '2026-12-01' })[0].kind)
       .toBe('beyond');
@@ -270,7 +283,11 @@ describe('the chips for watched dates', () => {
       ['unlisted', 'Meteor shower · 14 Dec', 'no longer listed'],
       ['unlisted', 'King tide · 5 Jan', 'no longer listed'],
     ]);
-    expect(chips[0]).toMatchObject({ key: 'meteor:2026-12-14', entryId: null, window: null });
+    expect(chips[0]).toMatchObject({
+      key: 'meteor:2026-12-14', entryId: null, window: null, label: 'Meteor shower',
+      rail: { dow: 'Mon', day: '14', month: 'Dec', isRange: false },
+    });
+    expect(chips[1]).toMatchObject({ label: 'King tide', rail: { dow: 'Tue', day: '5', month: 'Jan', isRange: false } });
     // Until the feed has arrived nothing is said about it, and a key that does not parse says nothing either.
     expect(buildWatchedChips({ dates, entries: null, windows: [], hotTopics: [], todayStr: TODAY })).toEqual([]);
     expect(buildWatchedChips({ dates: [{ key: 'nlc-season:2026-12-14' }], entries: [], windows: [], hotTopics: [], todayStr: TODAY }))
