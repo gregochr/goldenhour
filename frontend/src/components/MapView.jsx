@@ -989,14 +989,14 @@ function FitBoundsController({ target, active = true, onProgrammaticMove = undef
     map.invalidateSize?.({ animate: false });
     // A door that frames two points (home and its best place) brings its own insets and a lower zoom cap, so two
     // close points do not crop in and neither sits under the callout, the header or the phone's peek sheet.
-    const options = target.paddingTopLeft || target.paddingBottomRight
+    const options = target.paddingTopLeft
       ? {
-        paddingTopLeft: target.paddingTopLeft ?? [60, 60],
-        paddingBottomRight: target.paddingBottomRight ?? [60, 60],
-        maxZoom: target.maxZoom ?? 12,
+        paddingTopLeft: target.paddingTopLeft,
+        paddingBottomRight: target.paddingBottomRight,
+        maxZoom: target.maxZoom,
         animate: true,
       }
-      : { padding: [60, 60], maxZoom: target.maxZoom ?? 12, animate: true };
+      : { padding: [60, 60], maxZoom: 12, animate: true };
     map.fitBounds(L.latLngBounds(target.points), options);
     return undefined;
     // Only re-fit when the handoff key changes (or the pane shows), not on every render.

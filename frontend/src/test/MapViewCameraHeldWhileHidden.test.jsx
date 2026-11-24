@@ -91,7 +91,9 @@ vi.mock('../components/map/FiltersPopover.jsx', () => ({
   DRIVE_TIME_TIERS: [[0, 'Any'], [45, '45 min'], [90, '1h 30'], [150, '2h 30']],
 }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
-vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
+/** The phone layout, switched per test. */
+let phone = false;
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => phone }));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
@@ -180,6 +182,7 @@ const fits = () => cameraLog.filter((c) => c === 'fitBounds').length;
 const flies = () => cameraLog.filter((c) => c === 'flyTo').length;
 
 beforeEach(() => {
+  phone = false;
   localStorage.clear();
   cameraLog.length = 0;
   fitArgs.length = 0;
@@ -316,6 +319,15 @@ describe('MapView door camera - held while the Map pane is hidden', () => {
       expect(doorFits()[0][0].points).toEqual([[55.0, -1.6], [FAR.lat, FAR.lon]]);
       expect(doorFits()[0][1]).toEqual({
         paddingTopLeft: [80, 90], paddingBottomRight: [80, 90], maxZoom: 11, animate: true,
+      });
+    });
+
+    it('uses the phone insets (clear of the 74px peek sheet) on a phone', async () => {
+      phone = true;
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(1);
+      expect(doorFits()[0][1]).toEqual({
+        paddingTopLeft: [48, 90], paddingBottomRight: [48, 150], maxZoom: 11, animate: true,
       });
     });
 
