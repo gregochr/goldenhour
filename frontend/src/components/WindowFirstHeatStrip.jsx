@@ -919,7 +919,7 @@ export default function WindowFirstHeatStrip({
   const lanesDrawn = cards.length > 0 && spots.length > 0;
   const laneEntryKey = useMemo(
     () => (lanesDrawn
-      ? [...new Set(glanceLanes.filter((lane) => lane.jump).map((lane) => lane.jump.entryId))].sort().join('\n')
+      ? [...new Set(glanceLanes.filter((lane) => lane.jump).map((lane) => lane.jump.entryId))].sort((a, b) => a.localeCompare(b)).join('\n')
       : ''),
     [glanceLanes, lanesDrawn],
   );
