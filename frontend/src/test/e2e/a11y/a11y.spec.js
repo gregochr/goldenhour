@@ -8,7 +8,7 @@ import {
 /**
  * The advisory accessibility scan (docs/engineering/engineering-gaps-plan.md, Phase 3c). One test per scan, so one
  * failure never hides another, run at desktop and phone width (the two projects in `playwright.a11y.config.js`) on the
- * seeded fixture, signed in as the admin (read-only).
+ * seeded fixture, signed in as the admin (read-only), except the Lite scan of the locked lens, which signs in as `lite`.
  *
  * The rules, from the plan:
  *  - the WHOLE page is scanned (for a dialog, with the dialog open: axe skips inert and hidden content anyway);
@@ -69,6 +69,15 @@ async function scan(page, testInfo, scan_) {
 }
 
 test.describe('Accessibility scan (advisory)', () => {
+  // The Lite reader's greyed reach control on the lens bar: its caption ("Drive from home") must stay at full strength,
+  // since the lock dims the tier buttons only. Signed in as `lite`, read-only.
+  test('This week as a Lite reader, with the lens locked', async ({ page }, testInfo) => {
+    await loginAndWaitForForecast(page, 'lite');
+    await expect(page.getByTestId('window-first-lens-upsell')).toBeVisible();
+    await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
+    await scan(page, testInfo, 'plan-lite-lens');
+  });
+
   test('sign-in page', async ({ page }, testInfo) => {
     await page.goto('/');
     await expect(page.getByTestId('login-submit')).toBeVisible();
