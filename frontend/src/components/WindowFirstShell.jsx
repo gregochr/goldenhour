@@ -2338,7 +2338,7 @@ export default function WindowFirstShell({
    * @param {{window: {date: string, eventType: string}, focus: object, from: ?Element}} request
    */
   const openYourPlace = ({ window: win, focus, from }) => {
-    if (focus.kind === 'area') {
+    if (focus?.kind === 'area') {
       const members = new Set(focus.area.locationIds);
       const names = heatSpots.filter((spot) => members.has(spot.id)).map((spot) => spot.name);
       openMap({ window: win, focus: { kind: 'names', focusNames: names }, from });
@@ -3048,6 +3048,11 @@ export default function WindowFirstShell({
           reachById={effectiveReachById}
           allowedLocationIds={allowedLocationIds}
           onOpenWindow={openYourPlace}
+          entries={comingUp.events?.entries}
+          hotTopics={briefing?.hotTopics}
+          todayStr={todayStr}
+          onOpenEntry={openFurtherAhead}
+          graduatedIds={graduatedIds}
           onOpenPlace={(spot) => {
             warmStackedChunks();
             openSheetLayer({ spot });

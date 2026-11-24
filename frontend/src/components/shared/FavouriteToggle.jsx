@@ -4,9 +4,19 @@ import { useFavourites } from '../../context/FavouritesContext.jsx';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { ProUpsellContent } from './ProUpsell.jsx';
 
+/** A stable empty list, so a place or area toggle's default prop is not a new array every render. */
+const NO_KEYS = [];
+
 /** The upsell's words (roles-and-gating.md): worded, never a link, never an upgrade button; `/upgrade` is no route. */
 export const FAVOURITES_UPSELL_HEADING = 'Your places';
 export const FAVOURITES_UPSELL_BODY = 'Pro keeps your own list of places and areas. They come first in Find, have their own entry in the region pickers and a row of their own at the top of This week.';
+
+/** The upsell a Lite reader's "Watch this date" opens (one-screen-plan.md D16), in its own words. */
+export const WATCH_UPSELL_HEADING = 'Watch a date';
+export const WATCH_UPSELL_BODY = 'Pro can watch a date known in advance. It joins your places at the top of This week, and once it is forecast it names the morning to go and the best spot.';
+
+/** The watch toggle's one constant label. */
+export const WATCH_LABEL = 'Watch this date';
 
 /**
  * One Lite reader's open upsell, shared by the toggle that opens it and the panel the host draws under its header.
@@ -55,8 +65,12 @@ export function upsellEscape(upsell) {
  * @param {object} props
  * @param {ReturnType<typeof useFavouriteUpsell>} props.upsell
  * @param {string} [props.testIdPrefix]
+ * @param {string} [props.heading] the panel's heading (places and areas by default)
+ * @param {string} [props.body] the panel's sentence (places and areas by default)
  */
-export function FavouriteUpsell({ upsell, testIdPrefix = 'favourite-upsell' }) {
+export function FavouriteUpsell({
+  upsell, testIdPrefix = 'favourite-upsell', heading = FAVOURITES_UPSELL_HEADING, body = FAVOURITES_UPSELL_BODY,
+}) {
   const headingRef = useRef(null);
   const headingId = `${upsell.id}-h`;
   const bodyId = `${upsell.id}-b`;
@@ -88,8 +102,8 @@ export function FavouriteUpsell({ upsell, testIdPrefix = 'favourite-upsell' }) {
         }}
       >
         <ProUpsellContent
-          heading={FAVOURITES_UPSELL_HEADING}
-          body={FAVOURITES_UPSELL_BODY}
+          heading={heading}
+          body={body}
           headingId={headingId}
           headingRef={headingRef}
           bodyId={bodyId}
@@ -116,6 +130,8 @@ FavouriteUpsell.propTypes = {
     focusTrigger: PropTypes.func.isRequired,
   }).isRequired,
   testIdPrefix: PropTypes.string,
+  heading: PropTypes.string,
+  body: PropTypes.string,
 };
 
 /**
@@ -130,18 +146,31 @@ FavouriteUpsell.propTypes = {
  * opens the worded upsell through {@code upsell} (the host draws {@link FavouriteUpsell}). Anyone else (no
  * provider, loading, failed) gets nothing: a toggle with a wrong {@code aria-pressed} would be a false statement.
  *
+ * <p><b>{@code kind="date"} is the Further ahead entry's "Watch this date"</b> (one-screen-plan.md D16): {@code id} is
+ * the entry's watch key, the label is {@link WATCH_LABEL} on every viewport (it sits in an entry, not a header, so it is
+ * never glyph-only), and the Lite door opens the date-worded upsell. It reads as pressed when ANY of
+ * {@code matchedKeys} is watched (a stored watch can differ from the entry's own key after a drift), and a press on a
+ * pressed toggle un-watches every one of them.
+ *
  * @param {object} props
- * @param {'place'|'area'} props.kind
- * @param {?number} props.id the location or area id; none, none drawn
+ * @param {'place'|'area'|'date'} props.kind
+ * @param {?(number|string)} props.id the location or area id, or the date's watch key; none, none drawn
  * @param {string} props.name what the toast calls it
  * @param {ReturnType<typeof useFavouriteUpsell>} props.upsell the host's upsell state, for the Lite reader
  * @param {string} [props.testId]
+ * @param {string[]} [props.matchedKeys] {@code kind="date"} only: the stored watches that are this entry
  */
-export default function FavouriteToggle({ kind, id, name, upsell, testId = 'favourite-toggle' }) {
+export default function FavouriteToggle({
+  kind, id, name, upsell, testId = 'favourite-toggle', matchedKeys = NO_KEYS,
+}) {
   const favourites = useFavourites();
   const isMobile = useIsMobile();
   const { setTrigger } = upsell;
   if (id == null) return null;
+  const isDate = kind === 'date';
+  const label = isDate ? WATCH_LABEL : 'Your place';
+  // A date reads its words on every viewport; a place's collapses to the glyph on a phone.
+  const wordsClass = isMobile && !isDate ? 'sr-only' : 'wf-fav-t';
 
   if (favourites.status === 'locked') {
     return (
@@ -157,7 +186,7 @@ export default function FavouriteToggle({ kind, id, name, upsell, testId = 'favo
           onKeyDown={upsellEscape(upsell)}
         >
           <span aria-hidden="true" className="wf-fav-g">☆</span>
-          <span className={isMobile ? 'sr-only' : 'wf-fav-t'}>Your place</span>
+          <span className={wordsClass}>{label}</span>
           {' '}
           <span className="wf-lens-pro">Pro</span>
         </button>
@@ -166,7 +195,19 @@ export default function FavouriteToggle({ kind, id, name, upsell, testId = 'favo
   }
   if (favourites.status !== 'ready') return null;
 
-  const starred = kind === 'area' ? favourites.isAreaStarred(id) : favourites.isPlaceStarred(id);
+  const starred = isDate
+    ? matchedKeys.some((key) => favourites.isDateWatched(key))
+    : (kind === 'area' ? favourites.isAreaStarred(id) : favourites.isPlaceStarred(id));
+  const press = () => {
+    // Void presses: nothing waits on the request, the toast and the revert report it.
+    if (isDate && starred) {
+      // One press, one Undo: each request carries the whole group, so the toast that survives restores all of them.
+      const group = matchedKeys.filter((key) => favourites.isDateWatched(key));
+      group.forEach((key) => { void favourites.setStar('date', key, name, false, false, group); });
+      return;
+    }
+    void favourites.toggle(kind, id, name);
+  };
   return (
     <span className="wf-fav-wrap">
       <button
@@ -175,19 +216,18 @@ export default function FavouriteToggle({ kind, id, name, upsell, testId = 'favo
         data-testid={testId}
         data-starred={starred ? 'true' : 'false'}
         aria-pressed={starred}
-        // A void press: nothing waits on the request, the toast and the revert report it.
-        onClick={() => { void favourites.toggle(kind, id, name); }}
+        onClick={press}
       >
         <span aria-hidden="true" className="wf-fav-g">{starred ? '★' : '☆'}</span>
-        <span className={isMobile ? 'sr-only' : 'wf-fav-t'}>Your place</span>
+        <span className={wordsClass}>{label}</span>
       </button>
     </span>
   );
 }
 
 FavouriteToggle.propTypes = {
-  kind: PropTypes.oneOf(['place', 'area']).isRequired,
-  id: PropTypes.number,
+  kind: PropTypes.oneOf(['place', 'area', 'date']).isRequired,
+  id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   name: PropTypes.string.isRequired,
   upsell: PropTypes.shape({
     open: PropTypes.bool.isRequired,
@@ -197,6 +237,7 @@ FavouriteToggle.propTypes = {
     setTrigger: PropTypes.func.isRequired,
   }).isRequired,
   testId: PropTypes.string,
+  matchedKeys: PropTypes.arrayOf(PropTypes.string),
 };
 
 /**

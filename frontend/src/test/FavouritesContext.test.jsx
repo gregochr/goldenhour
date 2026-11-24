@@ -130,6 +130,8 @@ describe('FavouritesProvider', () => {
   it('the off value answers every question with no, and its actions do nothing', async () => {
     expect(OFF_FAVOURITES.isPlaceStarred(1)).toBe(false);
     expect(OFF_FAVOURITES.isAreaStarred(1)).toBe(false);
+    expect(OFF_FAVOURITES.isDateWatched('king-tide:2026-12-03')).toBe(false);
+    expect(OFF_FAVOURITES.dateKeys.size).toBe(0);
     await expect(OFF_FAVOURITES.setStar()).resolves.toBe(false);
     await expect(OFF_FAVOURITES.toggle()).resolves.toBe(false);
   });

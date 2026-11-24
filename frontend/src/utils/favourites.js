@@ -21,20 +21,28 @@ export const FAVOURITE_FAILED = "Couldn't update your places. Try again.";
 const NONE = Object.freeze(new Set());
 
 /** The empty sets, for a reader with nothing starred or no favourites at all. */
-export const NO_FAVOURITES = Object.freeze({ placeIds: NONE, areaIds: NONE, locationIds: NONE });
+export const NO_FAVOURITES = Object.freeze({
+  placeIds: NONE, areaIds: NONE, locationIds: NONE, dateKeys: NONE, dates: Object.freeze([]),
+});
 
 /**
- * The reader's favourites as the sets the lists read.
+ * The reader's favourites as the sets the lists read. {@code dates} are the watched almanac dates (one-screen-plan.md
+ * D16), kept as served ({@code {key, createdAt}}, oldest watch first) beside their key set; they are not places, so
+ * nothing that reads {@code locationIds} sees them.
  *
- * @param {?{places?: Array<{locationId: number}>, areas?: Array<{areaId: number}>, locationIds?: number[]}} body the
- *        served body
- * @returns {{placeIds: Set<number>, areaIds: Set<number>, locationIds: Set<number>}}
+ * @param {?{places?: Array<{locationId: number}>, areas?: Array<{areaId: number}>, locationIds?: number[],
+ *        dates?: Array<{key: string}>}} body the served body
+ * @returns {{placeIds: Set<number>, areaIds: Set<number>, locationIds: Set<number>, dateKeys: Set<string>,
+ *          dates: Array<{key: string}>}}
  */
 export function favouriteSets(body) {
+  const dates = body?.dates ?? [];
   return {
     placeIds: new Set((body?.places ?? []).map((p) => p.locationId)),
     areaIds: new Set((body?.areas ?? []).map((a) => a.areaId)),
     locationIds: new Set(body?.locationIds ?? []),
+    dateKeys: new Set(dates.map((d) => d.key)),
+    dates,
   };
 }
 
@@ -44,14 +52,14 @@ export function favouriteSets(body) {
  * area's members are the server's to name.
  *
  * @param {object} body the current body
- * @param {'place'|'area'} kind
- * @param {number} id
+ * @param {'place'|'area'|'date'} kind
+ * @param {number|string} id the location or area id, or a watched date's key
  * @param {boolean} on
  * @returns {object} a new body
  */
 export function applyStar(body, kind, id, on) {
-  const key = kind === 'area' ? 'areas' : 'places';
-  const idKey = kind === 'area' ? 'areaId' : 'locationId';
+  const key = { area: 'areas', date: 'dates' }[kind] ?? 'places';
+  const idKey = { area: 'areaId', date: 'key' }[kind] ?? 'locationId';
   const list = (body?.[key] ?? []).filter((row) => row[idKey] !== id);
   return { ...body, [key]: on ? [...list, { [idKey]: id, createdAt: null }] : list };
 }
@@ -104,12 +112,13 @@ export function pickerEntries(sets, starredAreas) {
 /**
  * The words the toast says after a change.
  *
- * @param {'place'|'area'} kind
+ * @param {'place'|'area'|'date'} kind
  * @param {string} name
  * @param {boolean} on
  * @returns {string}
  */
 export function starToastText(kind, name, on) {
+  if (kind === 'date') return on ? `Watching ${name}. It joins your places.` : `Stopped watching ${name}.`;
   const what = kind === 'area' ? `${name} (area)` : name;
   return on ? `Added ${what} to your places.` : `Removed ${what} from your places.`;
 }

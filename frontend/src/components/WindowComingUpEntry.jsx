@@ -6,6 +6,7 @@ import ComingUpOutsideDoor from './subregions/ComingUpOutsideDoor.jsx';
 import WindowComingUpWarning from './WindowComingUpWarning.jsx';
 import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
 import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
+import WatchDateControl from './WatchDateControl.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
 import { rangeBarHeight, BIG_RANGE_PERCENTILE } from '../utils/comingUpFeed.js';
 
@@ -748,6 +749,9 @@ export default function WindowComingUpEntry({
           zeroPicks={outsideDoor.zeroPicks}
         />
       )}
+      {/* Watch this date (one-screen-plan.md D16): an open entry's own control, a sibling of the card and of the Open /
+          Close button below, never inside either. Renders nothing for a warning, and until favourites are known. */}
+      {open && <WatchDateControl entry={entry} />}
       {/* The Open / Close button (collapse-and-topic-pips-plan.md §5), drawn over the card's top right corner by
           CSS (absolute). A sibling of the card, because a single-action card is itself a button, and last in the
           DOM so the sub-regions door stays right after the card. Named plainly (Close / Open): a name carrying

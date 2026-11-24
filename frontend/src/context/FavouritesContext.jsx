@@ -28,6 +28,7 @@ export const OFF_FAVOURITES = Object.freeze({
   areasUnresolved: 0,
   isPlaceStarred: () => false,
   isAreaStarred: () => false,
+  isDateWatched: () => false,
   setStar: () => Promise.resolve(false),
   toggle: () => Promise.resolve(false),
 });
@@ -141,14 +142,16 @@ export function FavouritesProvider({ pro, children }) {
   /**
    * Sets one place or area to a given state: optimistic, then the server's merged list, with the toast.
    *
-   * @param {'place'|'area'} kind
-   * @param {number} id
+   * @param {'place'|'area'|'date'} kind
+   * @param {number|string} id the location or area id, or a watched date's key
    * @param {string} name what the toast calls it
    * @param {boolean} on the state to move to
    * @param {boolean} [undo] true for an Undo press: the toast then says "Undone." and offers no second Undo
+   * @param {?Array<number|string>} [group] every id one press changes together (un-watching several matched dates), so the
+   *        one Undo on the last answer's toast puts them ALL back; omitted, the Undo restores just {@code id}
    * @returns {Promise<boolean>} whether the server took it
    */
-  const setStar = useCallback((kind, id, name, on, undo = false) => {
+  const setStar = useCallback((kind, id, name, on, undo = false, group = null) => {
     if (bodyRef.current == null) return Promise.resolve(false);
     // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands.
     const returnTo = document.activeElement;
@@ -180,7 +183,9 @@ export function FavouritesProvider({ pro, children }) {
               message: starToastText(kind, name, on),
               returnTo,
               // Void: Undo is a press handler, nothing waits on the second request.
-              onUndo: () => { void setStarRef.current(kind, id, name, !on, true); },
+              onUndo: () => {
+                (group ?? [id]).forEach((each) => { void setStarRef.current(kind, each, name, !on, true); });
+              },
             });
         }
         return true;
@@ -213,8 +218,11 @@ export function FavouritesProvider({ pro, children }) {
       areasUnresolved: Math.max(0, sets.areaIds.size - starredAreas.length),
       isPlaceStarred: (id) => sets.placeIds.has(id),
       isAreaStarred: (id) => sets.areaIds.has(id),
+      isDateWatched: (key) => sets.dateKeys.has(key),
       setStar,
-      toggle: (kind, id, name) => setStar(kind, id, name, !(kind === 'area' ? sets.areaIds : sets.placeIds).has(id)),
+      toggle: (kind, id, name) => setStar(
+        kind, id, name, !({ area: sets.areaIds, date: sets.dateKeys }[kind] ?? sets.placeIds).has(id),
+      ),
     };
   }, [pro, body, failed, sets, starredAreas, setStar]);
 

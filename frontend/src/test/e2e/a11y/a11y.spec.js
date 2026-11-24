@@ -8,7 +8,8 @@ import {
 /**
  * The advisory accessibility scan (docs/engineering/engineering-gaps-plan.md, Phase 3c). One test per scan, so one
  * failure never hides another, run at desktop and phone width (the two projects in `playwright.a11y.config.js`) on the
- * seeded fixture, signed in as the admin (read-only), except the Lite scan of the locked lens, which signs in as `lite`.
+ * seeded fixture, signed in as the admin (read-only), except two Lite scans, which sign in as `lite` (also read-only: a
+ * Lite reader's doors never call the endpoint): the locked lens, and Further ahead's "Watch this date".
  *
  * The rules, from the plan:
  *  - the WHOLE page is scanned (for a dialog, with the dialog open: axe skips inert and hidden content anyway);
@@ -76,6 +77,25 @@ test.describe('Accessibility scan (advisory)', () => {
     await expect(page.getByTestId('window-first-lens-upsell')).toBeVisible();
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     await scan(page, testInfo, 'plan-lite-lens');
+  });
+
+  // The Lite reader's "Watch this date" (one-screen-plan.md O2b, D16): the control with its Pro pill in an open Further
+  // ahead entry, then the date-worded upsell it opens. Read-only (a Lite reader's door never calls the endpoint), and
+  // signed in as `lite` rather than the admin the rest of the suite uses.
+  test('Further ahead as a Lite reader, with the watch toggle and its upsell', async ({ page }, testInfo) => {
+    await loginAndWaitForForecast(page, 'lite');
+    await openFurtherAhead(page);
+    const openAll = page.getByTestId('coming-up-toggle-all');
+    await expect(openAll).toBeVisible();
+    if ((await openAll.textContent()).trim() === 'Open all') await openAll.click();
+    const door = page.getByTestId('coming-up-watch-toggle-locked').first();
+    await expect(door).toBeVisible();
+    await expect(door.locator('.wf-lens-pro')).toBeVisible();
+    await scan(page, testInfo, 'further-ahead-lite-watch');
+    await door.click();
+    await expect(page.getByTestId('coming-up-watch-upsell-panel')).toBeVisible();
+    await expect(page.getByTestId('coming-up-watch-upsell-panel')).toContainText('Watch a date');
+    await scan(page, testInfo, 'further-ahead-lite-watch-upsell');
   });
 
   test('sign-in page', async ({ page }, testInfo) => {

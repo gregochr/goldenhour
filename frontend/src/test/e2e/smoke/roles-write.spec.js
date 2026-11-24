@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, stepIntoPast, clickMiddleChip, apiGet,
+  test, expect, loginAndWaitForForecast, openMapTab, openFurtherAhead, stepIntoPast, clickMiddleChip, apiGet,
 } from './fixture.js';
 
 // A taller viewport than the default 1280x720: a Map callout opens beside its chip and is not scrollable, so with a
@@ -66,5 +66,61 @@ test.describe('Pro reader rates a past window', () => {
       && r.eventDate === sent.eventDate);
     expect(row, 'the saved rating is in the reader\'s own list').toBeTruthy();
     expect(row.rating).toBe(stars);
+  });
+});
+
+/**
+ * The Pro reader watches a date (docs/engineering/one-screen-plan.md O2b, D16): "Watch this date" in an open Further
+ * ahead entry writes one favourite row (`POST /api/user/settings/favourites/dates/{key}`), and the date joins Your places
+ * at the top of This week as a chip carrying the entry's title.
+ *
+ * <p>Like the rating above it WRITES shared state (the `pro` reader's own list), so it lives in this serial project and
+ * takes the watch straight back, even when an assertion fails, so a re-run (`--repeat-each`) finds the list as it began.
+ * It does not depend on which dates the seeded almanac holds: it takes the first open entry that offers the toggle.
+ */
+test.describe('Pro reader watches a date', () => {
+  test('the watch joins Your places as a chip, and un-watching takes it away', async ({ page }) => {
+    test.setTimeout(60_000);
+    await loginAndWaitForForecast(page, 'pro');
+    await openFurtherAhead(page);
+    const openAll = page.getByTestId('coming-up-toggle-all');
+    await expect(openAll).toBeVisible();
+    if ((await openAll.textContent()).trim() === 'Open all') await openAll.click();
+
+    const toggle = page.getByTestId('coming-up-watch-toggle').and(page.locator('[aria-pressed="false"]')).first();
+    await expect(toggle, 'an open entry offers Watch this date to a Pro reader').toBeVisible();
+    // Fixed by id now: once the toggle is pressed the locator above (which asks for an unpressed one) matches nothing.
+    const entryId = await page.getByTestId('coming-up-entry').filter({ has: toggle }).first().getAttribute('data-entry-id');
+    const entry = page.locator(`[data-testid="coming-up-entry"][data-entry-id="${entryId}"]`);
+    const title = (await entry.getByTestId('coming-up-title').textContent()).trim();
+    const watchedChips = page.locator('[data-testid="your-places-chip"][data-kind="date"]');
+    const before = await watchedChips.count();
+
+    try {
+      const saved = page.waitForResponse((r) => r.url().includes('/api/user/settings/favourites/dates/')
+        && r.request().method() === 'POST');
+      await toggle.click();
+      const response = await saved;
+      expect(response.status(), 'POST .../favourites/dates/{key}').toBe(200);
+      const key = decodeURIComponent(response.url().split('/dates/')[1]);
+      expect(key).toMatch(/^[a-z-]+:\d{4}-\d{2}-\d{2}$/);
+      expect((await response.json()).dates.map((d) => d.key)).toContain(key);
+
+      await expect(entry.getByTestId('coming-up-watch-toggle')).toHaveAttribute('aria-pressed', 'true');
+      await expect(watchedChips).toHaveCount(before + 1);
+      await expect(watchedChips.filter({ hasText: title })).toHaveCount(1);
+
+      // The list reads back from the reader's own endpoint.
+      const own = await apiGet(page, '/api/user/settings/favourites');
+      expect(own.status()).toBe(200);
+      expect((await own.json()).dates.map((d) => d.key)).toContain(key);
+    } finally {
+      const pressed = entry.getByTestId('coming-up-watch-toggle');
+      if ((await pressed.getAttribute('aria-pressed')) === 'true') {
+        await pressed.click();
+        await expect(pressed).toHaveAttribute('aria-pressed', 'false');
+      }
+    }
+    await expect(watchedChips).toHaveCount(before);
   });
 });

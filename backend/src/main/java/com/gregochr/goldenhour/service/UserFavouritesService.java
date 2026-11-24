@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.UserFavouriteRepository;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -40,7 +42,14 @@ import java.util.TreeSet;
  * sub-region's {@code location_sub_region} rows), de-duplicated and in id order. A disabled location may be
  * starred; it stays in {@code places} and is hidden from {@code locationIds} until it is enabled.
  *
- * <p><strong>The cap (D5).</strong> {@value #MAX_FAVOURITES} places plus areas per reader. Every write takes
+ * <p><strong>Watched dates (one-screen-plan D16).</strong> A third kind of row, keyed
+ * {@code <almanac type>:<start date>} ({@link WatchDateKey}). A date is not a place: it adds nothing to
+ * {@link FavouritesResponse#locationIds()} and Ask never reads it ({@link #forAsk} asks for place and area rows only).
+ * It counts toward the cap. Once its start date is more than {@value #WATCH_GRACE_DAYS} UK civil days gone, every
+ * write deletes it under the reader's lock, so a row nobody can see never blocks the cap; a read stops serving it at
+ * the same moment.
+ *
+ * <p><strong>The cap (D5).</strong> {@value #MAX_FAVOURITES} places, areas and dates per reader. Every write takes
  * the reader's {@code app_user} row lock ({@code SELECT ... FOR UPDATE}) first, so two requests for one
  * reader run one after the other and the second counts what the first committed; the partial unique indexes
  * of V226 are the backstop. Exceeding it is {@link FavouritesLimitException} (HTTP 409).
@@ -57,8 +66,11 @@ public class UserFavouritesService {
     /** The most favourites (places plus areas) one reader may hold. */
     public static final int MAX_FAVOURITES = 25;
 
+    /** How many UK civil days after its start a watched date is still kept (and served) before it expires. */
+    public static final int WATCH_GRACE_DAYS = 14;
+
     /** What the reader is told at the cap. */
-    public static final String LIMIT_MESSAGE = "You can keep up to " + MAX_FAVOURITES + " places.";
+    public static final String LIMIT_MESSAGE = "You can keep up to " + MAX_FAVOURITES + " places and dates.";
 
     private static final Logger LOG = LoggerFactory.getLogger(UserFavouritesService.class);
 
@@ -106,12 +118,14 @@ public class UserFavouritesService {
      * The reader's favourites as Ask reads them: the enabled favourite locations, and the name of the starred area
      * each member belongs to. Read-only; the caller must already have established that the reader is Pro or Admin.
      *
+     * Places and areas only: a watched date is not a place, so the read never asks for date rows.
+     *
      * @param userId the reader's id
      * @return the favourites; {@link FavouriteLocations#NONE} when the reader has none
      */
     @Transactional(readOnly = true)
     public FavouriteLocations forAsk(Long userId) {
-        List<FavouriteRow> rows = favouriteRepository.findRowsByUserId(userId);
+        List<FavouriteRow> rows = favouriteRepository.findPlaceAndAreaRowsByUserId(userId);
         if (rows.isEmpty()) {
             return FavouriteLocations.NONE;
         }
@@ -143,13 +157,14 @@ public class UserFavouritesService {
     }
 
     /**
-     * Replaces the caller's whole list. Stars that stay keep their original time.
+     * Replaces the caller's places and areas. Stars that stay keep their original time. The request names no dates, so
+     * the reader's watched dates are left as they are, and they count toward the cap.
      *
      * @param username the caller
      * @param request  the places and areas to hold; null lists read as empty
      * @return the new list, merged
      * @throws IllegalArgumentException if an id is null (HTTP 400)
-     * @throws FavouritesLimitException if the two lists hold more than the cap (HTTP 409)
+     * @throws FavouritesLimitException if the lists and the watched dates hold more than the cap (HTTP 409)
      * @throws NoSuchElementException   if an id is not a location or an area (HTTP 404)
      */
     @Transactional
@@ -157,20 +172,23 @@ public class UserFavouritesService {
         Long userId = lock(username);
         Set<Long> places = distinct(request.locationIds());
         Set<Long> areas = distinct(request.areaIds());
-        if (places.size() + areas.size() > MAX_FAVOURITES) {
+        Set<Long> heldPlaces = new HashSet<>();
+        Set<Long> heldAreas = new HashSet<>();
+        int heldDates = 0;
+        for (FavouriteRow row : purgeExpiredDates(userId)) {
+            if (row.locationId() != null) {
+                heldPlaces.add(row.locationId());
+            } else if (row.areaId() != null) {
+                heldAreas.add(row.areaId());
+            } else {
+                heldDates++;
+            }
+        }
+        if (places.size() + areas.size() + heldDates > MAX_FAVOURITES) {
             throw new FavouritesLimitException(LIMIT_MESSAGE);
         }
         requireLocations(places);
         requireAreas(areas);
-        Set<Long> heldPlaces = new HashSet<>();
-        Set<Long> heldAreas = new HashSet<>();
-        for (FavouriteRow row : favouriteRepository.findRowsByUserId(userId)) {
-            if (row.locationId() != null) {
-                heldPlaces.add(row.locationId());
-            } else {
-                heldAreas.add(row.areaId());
-            }
-        }
         Set<Long> droppedPlaces = minus(heldPlaces, places);
         Set<Long> droppedAreas = minus(heldAreas, areas);
         if (!droppedPlaces.isEmpty()) {
@@ -200,7 +218,7 @@ public class UserFavouritesService {
     public FavouritesResponse addPlace(String username, Long locationId) {
         Long userId = lock(username);
         requireLocations(Set.of(locationId));
-        List<FavouriteRow> held = favouriteRepository.findRowsByUserId(userId);
+        List<FavouriteRow> held = purgeExpiredDates(userId);
         if (held.stream().noneMatch(row -> locationId.equals(row.locationId()))) {
             requireRoom(held.size());
             insertPlace(userId, locationId, LocalDateTime.now(clock));
@@ -221,11 +239,52 @@ public class UserFavouritesService {
     public FavouritesResponse addArea(String username, Long areaId) {
         Long userId = lock(username);
         requireAreas(Set.of(areaId));
-        List<FavouriteRow> held = favouriteRepository.findRowsByUserId(userId);
+        List<FavouriteRow> held = purgeExpiredDates(userId);
         if (held.stream().noneMatch(row -> areaId.equals(row.areaId()))) {
             requireRoom(held.size());
             insertArea(userId, areaId, LocalDateTime.now(clock));
         }
+        return build(userId);
+    }
+
+    /**
+     * Watches one almanac date. Watching a date already watched changes nothing.
+     *
+     * @param username the caller
+     * @param key      {@code <almanac type>:<start date>}, for example {@code king-tide:2026-12-03}
+     * @return the new list, merged
+     * @throws IllegalArgumentException if the key is not a known type and an ISO date, or the date is already past
+     *                                  its grace period (HTTP 400)
+     * @throws FavouritesLimitException if the reader is at the cap and this is a new watch (HTTP 409)
+     */
+    @Transactional
+    public FavouritesResponse addDate(String username, String key) {
+        if (isExpired(WatchDateKey.parse(key, ForecastHorizon.today(clock)))) {
+            throw new IllegalArgumentException("That date has already passed.");
+        }
+        Long userId = lock(username);
+        List<FavouriteRow> held = purgeExpiredDates(userId);
+        if (held.stream().noneMatch(row -> key.equals(row.almanacKey()))) {
+            requireRoom(held.size());
+            favouriteRepository.insertDate(userId, key, LocalDateTime.now(clock));
+        }
+        return build(userId);
+    }
+
+    /**
+     * Un-watches one almanac date. Un-watching a date that is not watched changes nothing.
+     *
+     * @param username the caller
+     * @param key      {@code <almanac type>:<start date>}
+     * @return the new list, merged
+     * @throws IllegalArgumentException if the key is not a known type and an ISO date (HTTP 400)
+     */
+    @Transactional
+    public FavouritesResponse removeDate(String username, String key) {
+        WatchDateKey.requireStorable(key);
+        Long userId = lock(username);
+        purgeExpiredDates(userId);
+        favouriteRepository.deleteDates(userId, List.of(key));
         return build(userId);
     }
 
@@ -241,6 +300,7 @@ public class UserFavouritesService {
     public FavouritesResponse removePlace(String username, Long locationId) {
         Long userId = lock(username);
         requireLocations(Set.of(locationId));
+        purgeExpiredDates(userId);
         favouriteRepository.deletePlaces(userId, List.of(locationId));
         return build(userId);
     }
@@ -257,6 +317,7 @@ public class UserFavouritesService {
     public FavouritesResponse removeArea(String username, Long areaId) {
         Long userId = lock(username);
         requireAreas(Set.of(areaId));
+        purgeExpiredDates(userId);
         favouriteRepository.deleteAreas(userId, List.of(areaId));
         return build(userId);
     }
@@ -346,14 +407,43 @@ public class UserFavouritesService {
         return id;
     }
 
+    /** Whether a watched date's start is past the grace period (UK civil today, from the injected clock). */
+    private boolean isExpired(LocalDate start) {
+        return start.isBefore(ForecastHorizon.today(clock).minusDays(WATCH_GRACE_DAYS));
+    }
+
+    /** Whether a stored key is past its grace period, or no longer parses (a type withdrawn since it was stored). */
+    private boolean isGone(String key) {
+        LocalDate start = WatchDateKey.tryParse(key);
+        return start == null || isExpired(start);
+    }
+
+    /**
+     * Deletes the reader's expired watched dates, and returns what is left. Called by every write, after the
+     * reader's lock is taken, so the rows nobody can see are gone before the cap is counted.
+     */
+    private List<FavouriteRow> purgeExpiredDates(Long userId) {
+        List<FavouriteRow> rows = favouriteRepository.findRowsByUserId(userId);
+        List<String> expired = rows.stream().map(FavouriteRow::almanacKey)
+                .filter(key -> key != null && isGone(key)).toList();
+        if (expired.isEmpty()) {
+            return rows;
+        }
+        favouriteRepository.deleteDates(userId, expired);
+        return rows.stream().filter(row -> row.almanacKey() == null || !expired.contains(row.almanacKey())).toList();
+    }
+
     private FavouritesResponse build(Long userId) {
         List<FavouritesResponse.Place> places = new ArrayList<>();
         List<FavouritesResponse.Area> areas = new ArrayList<>();
+        List<FavouritesResponse.Date> dates = new ArrayList<>();
         for (FavouriteRow row : favouriteRepository.findRowsByUserId(userId)) {
             if (row.locationId() != null) {
                 places.add(new FavouritesResponse.Place(row.locationId(), row.createdAt()));
-            } else {
+            } else if (row.areaId() != null) {
                 areas.add(new FavouritesResponse.Area(row.areaId(), row.createdAt()));
+            } else if (!isGone(row.almanacKey())) {
+                dates.add(new FavouritesResponse.Date(row.almanacKey(), row.createdAt()));
             }
         }
         Set<Long> wanted = new TreeSet<>();
@@ -369,7 +459,7 @@ public class UserFavouritesService {
             membersOf(kinds).values().forEach(wanted::addAll);
         }
         wanted.retainAll(new HashSet<>(locationRepository.findEnabledIds()));
-        return new FavouritesResponse(places, areas, List.copyOf(wanted));
+        return new FavouritesResponse(places, areas, List.copyOf(wanted), dates);
     }
 
     /** Every starred area's members: named areas in one read, sub-regions in one read, whatever the count. */

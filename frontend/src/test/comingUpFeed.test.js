@@ -945,3 +945,15 @@ describe('buildEntryView — inNext4Days (coming-up-glance-plan §2.3)', () => {
     expect(buildEntryView(entry({ startDate: '2026-08-12' }), '', null, null).inNext4Days).toBe(false);
   });
 });
+
+describe('buildEntryView — what the watch match reads (one-screen-plan.md D16)', () => {
+  it('passes the entry\'s own end date through, and the tide\'s own days on a merged entry', () => {
+    const view = buildEntryView(entry({ dayRanges: [{ date: '2026-08-16' }] }), TODAY, null, null);
+    expect(view.endDate).toBe('2026-08-18');
+    expect(view.dayRanges).toEqual([{ date: '2026-08-16' }]);
+  });
+
+  it('an unmerged entry has no day ranges', () => {
+    expect(buildEntryView(entry(), TODAY, null, null).dayRanges).toBeNull();
+  });
+});

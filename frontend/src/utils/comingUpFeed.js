@@ -493,6 +493,10 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
     id: entry.id,
     type: entry.type,
     startDate: entry.startDate,
+    // Passed through for the watch match (utils/watchedDates.js): the entry's own span and, on a merged entry, the
+    // tide's own days.
+    endDate: entry.endDate,
+    dayRanges: entry.dayRanges ?? null,
     inNext4Days: overlapsNext4Days(entry, todayStr),
     family: entry.family,
     isForecast: entry.kind === 'FORECAST',
