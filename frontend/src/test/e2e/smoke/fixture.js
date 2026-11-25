@@ -459,21 +459,29 @@ export async function activeWindowId(page) {
 }
 
 /**
- * Clicks the visible chip nearest the vertical middle of the viewport. A Map callout opens beside its chip and
- * cannot scroll, so a chip low on the map can leave the callout's lower controls (the "How was it?" stars) below
- * the fold, and which chip is first in the DOM varies with how the label layer culled them. A middle chip always
- * leaves room both ways.
+ * Clicks the visible chip nearest the vertical middle of the viewport and waits for its callout. A Map callout
+ * opens beside its chip and cannot scroll, so a chip low on the map can leave the callout's lower controls (the
+ * "How was it?" stars) below the fold, and which chip is first in the DOM varies with how the label layer culled
+ * them. A middle chip always leaves room both ways.
+ *
+ * ⚠️ The label layer re-places its chips a frame or two after a window change or a close (see `settledChipStars`),
+ * so this first waits for the chips to settle, then clicks the chosen chip by its accessible name rather than by
+ * index: a repaint between measuring and clicking can re-order or drop chips, and an index would then land the
+ * click on bare map (the roles.spec.js "no LITE locks" flake, which saw no callout at all). It finishes by
+ * asserting the callout opened, which every caller expects.
  *
  * @param {import('@playwright/test').Page} page
  */
 export async function clickMiddleChip(page) {
-  const chips = visibleChips(page);
+  await settledChipStars(page);
   const middle = page.viewportSize().height / 2;
-  const distances = await chips.evaluateAll((els, mid) => els.map((el) => {
+  const measured = await visibleChips(page).evaluateAll((els, mid) => els.map((el) => {
     const box = el.getBoundingClientRect();
-    return Math.abs(box.top + box.height / 2 - mid);
+    return { label: el.getAttribute('aria-label'), distance: Math.abs(box.top + box.height / 2 - mid) };
   }), middle);
-  await chips.nth(distances.indexOf(Math.min(...distances))).click();
+  const nearest = measured.reduce((best, chip) => (chip.distance < best.distance ? chip : best));
+  await page.getByRole('button', { name: nearest.label, exact: true }).first().click();
+  await expect(page.getByTestId('map-callout')).toBeVisible();
 }
 
 /**
