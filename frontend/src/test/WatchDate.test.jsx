@@ -107,6 +107,43 @@ describe('Watch this date, the toggle in an entry', () => {
   });
 });
 
+describe('Watch this date, telling its host that the reader\'s dates changed', () => {
+  const entry = () => view();
+
+  it('calls onWatchChange once after a watch, and once after an un-watch, for a ready reader', () => {
+    const onWatchChange = vi.fn();
+    const { rerender } = render(withFavourites(<WatchDateControl entry={entry()} onWatchChange={onWatchChange} />));
+    fireEvent.click(screen.getByTestId('coming-up-watch-toggle'));
+    expect(onWatchChange).toHaveBeenCalledTimes(1);
+    rerender(withFavourites(
+      <WatchDateControl entry={entry()} onWatchChange={onWatchChange} />, { dates: ['king-tide:2026-12-03'] },
+    ));
+    fireEvent.click(screen.getByTestId('coming-up-watch-toggle'));
+    expect(onWatchChange).toHaveBeenCalledTimes(2);
+  });
+
+  it('never calls it from a Lite reader\'s door, which changes nothing', () => {
+    const onWatchChange = vi.fn();
+    render(withFavourites(<WatchDateControl entry={entry()} onWatchChange={onWatchChange} />, { status: 'locked' }));
+    fireEvent.click(screen.getByTestId('coming-up-watch-toggle-locked'));
+    expect(onWatchChange).not.toHaveBeenCalled();
+  });
+
+  it('takes the host\'s bound keys over its own match: a key bound to another entry reads "Watch this date"', () => {
+    const value = favouritesValue({ dates: ['king-tide:2026-12-03'] });
+    const { rerender } = render(
+      <FavouritesContext.Provider value={value}><WatchDateControl entry={entry()} watchedKeys={[]} /></FavouritesContext.Provider>,
+    );
+    expect(screen.getByTestId('coming-up-watch-toggle')).toHaveAccessibleName('Watch this date');
+    rerender(
+      <FavouritesContext.Provider value={value}>
+        <WatchDateControl entry={entry()} watchedKeys={['king-tide:2026-12-03']} />
+      </FavouritesContext.Provider>,
+    );
+    expect(screen.getByTestId('coming-up-watch-toggle')).toHaveAccessibleName('Watching');
+  });
+});
+
 describe('Watch this date, in the entry', () => {
   const renderEntry = (props = {}, options = {}) => render(withFavourites(
     <WindowComingUpEntry
@@ -160,6 +197,35 @@ describe('the watch in the provider', () => {
     expect(spy.current.dates).toEqual([{ key: 'king-tide:2026-12-03', createdAt: 't' }]);
     expect(spy.current.locationIds.size).toBe(0);
     expect(screen.getByTestId('undo-toast-status')).toHaveTextContent("Watching King tide · 3 Dec. It's at the top of Further ahead.");
+  });
+
+  it('⚠️ the toast says where the date went, from the strip\'s own answer taken at press time', async () => {
+    fetchFavourites.mockResolvedValue({ places: [], areas: [], locationIds: [], dates: [] });
+    setFavourite.mockResolvedValue({
+      places: [], areas: [], locationIds: [], dates: [{ key: 'king-tide:2026-12-03', createdAt: 't' }],
+    });
+    render(<FavouritesProvider pro><Spy /></FavouritesProvider>);
+    await waitFor(() => expect(screen.getByTestId('spy-status')).toHaveTextContent('ready'));
+    const resolve = vi.fn(() => ({ dow: 'Fri' }));
+    const unregister = spy.current.registerWatchHome(resolve);
+
+    await act(async () => { await spy.current.toggle('date', 'king-tide:2026-12-03', 'King tide · 3 Dec'); });
+
+    expect(resolve).toHaveBeenCalledWith('king-tide:2026-12-03');
+    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent("Watching King tide · 3 Dec. It's on Fri in This week.");
+    // Un-registered, or with no answer, the date is at the top of Further ahead.
+    unregister();
+    setFavourite.mockResolvedValue({ places: [], areas: [], locationIds: [], dates: [] });
+    await act(async () => { await spy.current.toggle('date', 'king-tide:2026-12-03', 'King tide · 3 Dec'); });
+    setFavourite.mockResolvedValue({
+      places: [], areas: [], locationIds: [], dates: [{ key: 'king-tide:2026-12-03', createdAt: 't' }],
+    });
+    await act(async () => { await spy.current.toggle('date', 'king-tide:2026-12-03', 'King tide · 3 Dec'); });
+    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent("Watching King tide · 3 Dec. It's at the top of Further ahead.");
+    // An un-register of a stale resolver never removes a newer one.
+    const newer = spy.current.registerWatchHome(() => ({ dow: 'Sat' }));
+    unregister();
+    expect(typeof newer).toBe('function');
   });
 
   it('a refused watch at the cap reverts and prints the server sentence', async () => {

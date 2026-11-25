@@ -130,6 +130,23 @@ export function watchKeysMatching(dates, entry) {
     .filter((key) => matchWatchToEntry(key, [entry]) !== null);
 }
 
+/**
+ * The stored keys that belong to this entry, binding each key to ONE entry: a key is the entry's when
+ * {@link matchWatchToEntry} (the earliest start among those that match) names this very entry. Watching, the lanes, the
+ * jump's count and the toggle's pressed state all use it, so an entry is watched iff this is non-empty and a key never
+ * puts two entries in Watching.
+ *
+ * @param {Array<{key: string}|string>} dates the reader's watched dates
+ * @param {?object} entry a served or view entry
+ * @param {?Array<object>} entries the served almanac entries ({@code comingUp.events.entries})
+ * @returns {string[]} the keys
+ */
+export function watchedKeysFor(dates, entry, entries) {
+  if (!entry) return [];
+  return (dates ?? []).map((d) => (typeof d === 'string' ? d : d.key))
+    .filter((key) => matchWatchToEntry(key, entries)?.id === entry.id);
+}
+
 /** The score a window is ranked on when two share the light: the reader's own best, else the window's served best. */
 function ratingOf(card) {
   return card.bestReach?.rating ?? card.bestRating ?? null;
@@ -225,45 +242,68 @@ function planFor(entry, watch, windows, hotTopics) {
  *   window: ?{date: string, eventType: string}, bestSpot: ?{id: number, name: string}}>}
  */
 export function buildWatchedLanes({ dates, entries, windows, hotTopics, todayStr }) {
-  const lanes = [];
-  const seen = new Set();
-  const cards = windows ?? [];
-  for (const { key } of dates ?? []) {
-    const entry = matchWatchToEntry(key, entries);
-    const watch = parseWatchKey(key);
-    if (!entry || !watch || seen.has(entry.id)) continue;
-    const span = spanOf(entry, TIDE_FAMILY.includes(watch.type));
-    if (!span || span.last < todayStr) continue;
-    const plan = planFor(entry, watch, cards, hotTopics);
-    if (!plan) continue;
-    seen.add(entry.id);
+  return resolveWatches({ dates, entries, windows, hotTopics, todayStr }).flatMap(({
+    key, entry, plan, span,
+  }) => {
+    if (!plan) return [];
+    const cards = windows ?? [];
     const base = {
       key, entryId: entry.id, title: entry.title,
       name: entry.metric ? `${entry.title} · ${entry.metric}` : entry.title,
     };
     if (plan.state === 'static') {
-      lanes.push({
+      return [{
         ...base, kind: 'static', date: windowsIn(cards, span)[0].date, plan: null, window: null, bestSpot: null,
-      });
-      continue;
+      }];
     }
     const { card } = plan;
     const best = card.bestReach;
     const event = card.sunrise ? 'sunrise' : 'sunset';
-    lanes.push({
+    return [{
       ...base,
       kind: 'window',
       date: card.date,
       plan: {
+        dow: card.dow,
         event: card.time ? `${event} ${card.time}` : event,
         best: best ? { id: best.locationId, name: best.locationName, rating: best.rating } : null,
         tideOnLight: plan.tideOnLight,
       },
       window: { date: card.date, eventType: card.targetType },
       bestSpot: best?.locationId != null ? { id: best.locationId, name: best.locationName } : null,
-    });
+    }];
+  }).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Each distinct watched entry that is not yet past, with its plan (null when {@code planFor} finds no window).
+ * One entry per watch, whichever keys name it.
+ */
+function resolveWatches({ dates, entries, windows, hotTopics, todayStr }) {
+  const out = [];
+  const seen = new Set();
+  for (const { key } of dates ?? []) {
+    const entry = matchWatchToEntry(key, entries);
+    const watch = parseWatchKey(key);
+    if (!entry || !watch || seen.has(entry.id)) continue;
+    const span = spanOf(entry, TIDE_FAMILY.includes(watch.type));
+    if (!span || span.last < todayStr) continue;
+    seen.add(entry.id);
+    out.push({ key, entry, span, plan: planFor(entry, watch, windows ?? [], hotTopics) });
   }
-  return lanes.sort((a, b) => a.date.localeCompare(b.date));
+  return out;
+}
+
+/**
+ * The watched entries inside their dates that have NO plan window (a tide with no window on the light, a topic the
+ * served topics do not name). A topic lane that carries such an entry is decorated with the mark only, so the date still
+ * shows and keeps one home; an entry no lane carries stays in Watching.
+ *
+ * @param {object} args the same arguments as {@link buildWatchedLanes}
+ * @returns {Array<{key: string, entryId: string}>}
+ */
+export function watchedWithoutPlan(args) {
+  return resolveWatches(args).filter(({ plan }) => !plan).map(({ key, entry }) => ({ key, entryId: entry.id }));
 }
 
 /**
@@ -311,8 +351,9 @@ export function watchedStillToCome({ dates, entries, todayStr }) {
     const watch = parseWatchKey(key);
     if (!watch) continue;
     const entry = matchWatchToEntry(key, entries);
+    // A matched entry whose span is unknown still counts: it is shown, so it is counted.
     const last = entry ? spanOf(entry, TIDE_FAMILY.includes(watch.type))?.last : watch.date;
-    if (last != null && last >= todayStr) counted.add(entry ? entry.id : key);
+    if (last == null || last >= todayStr) counted.add(entry ? entry.id : key);
   }
   return counted.size;
 }

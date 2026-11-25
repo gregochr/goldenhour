@@ -139,7 +139,7 @@ export default function YourPlacesRow({
 
   // The row keeps scroll-snap on a phone, and a browser re-snaps to the chip it had snapped to when the chips reorder,
   // which would scroll the best chip out of view the moment the sort lands. So a reorder puts an untouched row back at
-  // its start; a reader who has already reached for it (pointer, touch, wheel, keys) is never moved.
+  // its start; a reader who has already reached for it (pointer, touch, wheel, keys, focus) is never moved.
   const listRef = useRef(null);
   const touched = useRef(false);
   const orderKey = rows.map((row) => row.key).join('|');
@@ -151,7 +151,7 @@ export default function YourPlacesRow({
     const list = listRef.current;
     if (!list) return undefined;
     const note = () => { touched.current = true; };
-    const gestures = ['pointerdown', 'touchstart', 'wheel', 'keydown'];
+    const gestures = ['pointerdown', 'touchstart', 'wheel', 'keydown', 'focusin'];
     gestures.forEach((gesture) => list.addEventListener(gesture, note, { passive: true }));
     return () => gestures.forEach((gesture) => list.removeEventListener(gesture, note));
   }, [hasRow]);

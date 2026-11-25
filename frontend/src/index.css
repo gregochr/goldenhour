@@ -10569,13 +10569,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border-left-color: var(--wf-cu-accent, var(--color-plex-border-light));
 }
 .wf-cu-card:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
-/* Momentary highlight after a lane's jump button scrolls a card into
-   view (scrollToEntry.js) — a transition rather than an instant ring, so the eye can
-   follow which card the click landed on rather than needing to notice a ring that was just there. */
-.wf-cu-ent-highlight .wf-cu-card {
-  box-shadow: 0 0 0 2px var(--color-plex-gold);
-  transition: box-shadow 0.2s ease-out;
-}
 /* Dashed rather than solid marks a FORECAST entry that can still move — must always be paired
    with the legend above (design README §5: "without it the dashed border is undecodable"). */
 .wf-cu-card-fc { border-left-style: dashed; }
@@ -11478,7 +11471,20 @@ div.wf-lane { cursor: default; }
 .wf-yp-chip.wf-yp-quiet { border-style: dashed; }
 .wf-yp-chip.wf-yp-quiet .wf-yp-name { font-weight: 500; color: var(--color-plex-text-secondary); }
 @media (max-width: 639px) {
-  .wf-yp-row { scroll-snap-type: x mandatory; }
+  .wf-yp-row { scroll-snap-type: x mandatory; padding: 0 1px 6px; }
+  /* The heading stays a real heading for assistive tech, but the mark on every chip carries the meaning on a phone
+     (spec section 4: Your places is one 34px line). The same box as Tailwind's `sr-only`. */
+  .wf-yp > .wf-fav-section-h {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
 /* Watch this date (D16): under an open entry's card, in the card's own column of the entry grid, never inside the card

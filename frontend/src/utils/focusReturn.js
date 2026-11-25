@@ -10,6 +10,9 @@
  * {@code data-testid}. When it is still in the page it is its own answer.
  */
 
+/** Marks the element focus falls back to when a control's row has left the page altogether. */
+const FALLBACK_ATTRIBUTE = 'data-focus-fallback';
+
 /** The attributes that name the row a control sits in, which survive that row being re-parented. */
 const ROW_ATTRIBUTES = ['data-entry-id', 'data-watch-key'];
 
@@ -40,12 +43,13 @@ export function lazyReturnTo(element) {
   const testId = element.getAttribute?.('data-testid') ?? null;
   return () => {
     if (element.isConnected) return element;
-    if (testId === null) return null;
+    if (anchors.length === 0 || testId === null) return null;
     for (const { attribute, value } of anchors) {
       const hit = findRow(attribute, value)?.querySelector(`[data-testid="${testId}"]`);
       if (hit) return hit;
     }
-    return null;
+    // The row is gone (a watched date that became a lane): the section's heading is the named successor.
+    return document.querySelector(`[${FALLBACK_ATTRIBUTE}]`);
   };
 }
 

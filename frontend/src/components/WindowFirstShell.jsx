@@ -551,7 +551,7 @@ export default function WindowFirstShell({
   const polledWarnings = useWarnings();
   const warningSetKey = useMemo(() => warningsKey(polledWarnings), [polledWarnings]);
   const comingUp = useComingUpFeed(true, todayStr, warningSetKey);
-  // A pending "open Further ahead at this entry" request (see `openFurtherAhead`).
+  // A pending "focus Further ahead's heading" request (see `openFurtherAhead`).
   const [comingUpFocus, setComingUpFocus] = useState(null);
   const comingUpSeq = useRef(0);
   // The almanac entries This week already draws as lanes, reported by the heat strip (one-screen-plan.md D5). Further
@@ -702,32 +702,23 @@ export default function WindowFirstShell({
     focusSectionHeading(THIS_WEEK_HEADING_ID);
   };
   /**
-   * Opens Further ahead (one-screen-plan.md O2), at one entry when one is named: the "Further ahead ↓" jump (no entry)
-   * and any producer that names an entry. None does today: a lane's entry is not listed there (D5), and Your places'
-   * date chips, which did, are gone (screen-spec.md D2). Further ahead still honours a named entry, Watching's included.
-   *
-   * <p>Stores a request {@code {entryId, seq}} and takes the dialogs down. The request lives in this shell's state, so it
-   * survives the commit that closes them; {@code FurtherAhead} answers it (resetting its filter if the entry is hidden,
-   * scrolling to the card) and reports back through {@link handleComingUpFocusHandled}. {@code seq} makes a second press
-   * on the same entry a new request.
-   *
-   * @param {?string} entryId the almanac entry to open at, or null for the section's heading
+   * Opens Further ahead (one-screen-plan.md O2): the "Further ahead ↓" jump. Stores a request {@code {seq}} and takes
+   * the dialogs down. The request lives in this shell's state, so it survives the commit that closes them;
+   * {@code FurtherAhead} answers it through {@link handleComingUpFocusHandled}. {@code seq} makes a second press a new
+   * request. (It once named an entry to open; nothing does any more, since a lane's entry is not listed and Your
+   * places lost its date chips, screen-spec.md D2.)
    */
-  const openFurtherAhead = (entryId) => {
+  const openFurtherAhead = () => {
     comingUpSeq.current += 1;
-    setComingUpFocus({ entryId: entryId ?? null, seq: comingUpSeq.current });
+    setComingUpFocus({ seq: comingUpSeq.current });
     closeShellLayers();
   };
   /**
-   * Further ahead has answered the request. Found: the section already scrolled to and focused the card. Not found
-   * (no entry named, or one that is not listed, or a feed that has not loaded): focus goes to the section's heading,
-   * scrolled into view, so it never falls to {@code <body>}.
-   *
-   * @param {boolean} found whether an entry was scrolled to
+   * Further ahead has answered the request: focus goes to the section's heading, scrolled into view, so it never falls
+   * to {@code <body>}.
    */
-  const handleComingUpFocusHandled = (found) => {
+  const handleComingUpFocusHandled = () => {
     setComingUpFocus(null);
-    if (found) return;
     focusSectionHeading(FURTHER_AHEAD_HEADING_ID);
   };
   /**
@@ -2549,7 +2540,7 @@ export default function WindowFirstShell({
             className="wf-sec-jump"
             data-testid="further-ahead-jump"
             aria-label={furtherAheadJumpLabel}
-            onClick={() => openFurtherAhead(null)}
+            onClick={openFurtherAhead}
           >
             Further ahead
             <span aria-hidden="true">{' ↓'}</span>

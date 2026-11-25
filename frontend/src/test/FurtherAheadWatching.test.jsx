@@ -131,6 +131,8 @@ describe('Watching, drawn from the watched entries', () => {
     render(withFavourites(pane(), { dates: ['meteor:2026-08-12', 'spring-tide:2026-08-12', 'supermoon:2026-08-20'] }));
     expect(ids(screen.getByTestId('watching-list'))).toHaveLength(3);
     expect(screen.queryByTestId('coming-up-month')).toBeNull();
+    // No chips for an empty month list either, and neither empty note: Watching shows.
+    expect(screen.queryByTestId('coming-up-chips')).toBeNull();
     expect(screen.queryByTestId('coming-up-filter-empty')).toBeNull();
     expect(screen.queryByTestId('coming-up-empty')).toBeNull();
   });
@@ -152,26 +154,21 @@ describe('Watching, drawn from the watched entries', () => {
     fireEvent.click(screen.getByTestId('coming-up-toggle-all'));
     expect(within(screen.getByTestId('watching-list')).getByTestId('coming-up-watch')).toBeInTheDocument();
   });
+});
 
-  it('a request to open a watched entry finds it in Watching and focuses its card', () => {
-    const onFocusHandled = vi.fn();
-    render(withFavourites(
-      pane({ focusRequest: { entryId: SPRING, seq: 1 }, onFocusHandled }),
-      { dates: ['spring-tide:2026-08-12'] },
-    ));
-    expect(onFocusHandled).toHaveBeenCalledWith(true);
-    expect(screen.getByTestId('watching-list')).toContainElement(document.activeElement);
-    expect(document.activeElement.closest('[data-entry-id]')).toHaveAttribute('data-entry-id', SPRING);
-  });
+describe('Watching, one key for one entry', () => {
+  const KING = 'king-tide:2026-08-14:2026-08-15';
+  const entries = [...ENTRIES, wireEntry({
+    id: KING, type: 'king-tide', family: 'coastal', title: 'King tide run', metric: null, startDate: '2026-08-14',
+    endDate: '2026-08-15', action: { label: 'Show coastal spots for 14 Aug →', kind: 'coastal-spots', date: '2026-08-14' },
+  })];
 
-  it('a request for a watched entry does not reset the filter that hides everything else', () => {
-    localStorage.setItem('furtherAheadFilter', 'night-sky');
-    render(withFavourites(
-      pane({ focusRequest: { entryId: SPRING, seq: 1 }, onFocusHandled: vi.fn() }),
-      { dates: ['spring-tide:2026-08-12'] },
-    ));
-    expect(screen.getAllByTestId('coming-up-chip').find((c) => c.getAttribute('data-chip') === 'night-sky'))
-      .toHaveAttribute('aria-pressed', 'true');
+  it('puts only the entry the key is bound to in Watching, and the other entry\'s toggle stays "Watch this date"', () => {
+    render(withFavourites(pane({ events: { entries, counts: COUNTS } }), { dates: ['spring-tide:2026-08-12'] }));
+    expect(ids(screen.getByTestId('watching-list'))).toEqual([SPRING]);
+    expect(monthIds()).toContain(KING);
+    expect(toggleOf(KING)).toHaveAccessibleName('Watch this date');
+    expect(toggleOf(SPRING)).toHaveAccessibleName('Watching');
   });
 });
 
@@ -303,6 +300,67 @@ describe('Watching, focus when a card moves (the real provider)', () => {
     expect(monthIds()).toContain(PERSEIDS);
     expect(document.activeElement).not.toBe(document.body);
     expect(document.activeElement).toBe(toggleOf(PERSEIDS));
+  });
+
+  const remount = (props) => render(<FavouritesProvider pro>{pane(props)}</FavouritesProvider>);
+
+  it('⚠️ a watch whose entry graduates to a lane as it lands: focus goes to the Further ahead heading, never the body', async () => {
+    setFavourite.mockResolvedValue(served(['meteor:2026-08-12']));
+    fetchFavourites.mockResolvedValue(served([]));
+    const { rerender } = remount();
+    await waitFor(() => expect(toggleOf(PERSEIDS)).not.toBeNull());
+    const before = toggleOf(PERSEIDS);
+    before.focus();
+    await act(async () => { fireEvent.click(before); });
+    expect(document.activeElement).toBe(within(screen.getByTestId('watching-list')).getByTestId('coming-up-watch-toggle'));
+    // The strip reports the lane a render later: the card unmounts, and the heading takes focus.
+    await act(async () => {
+      rerender(<FavouritesProvider pro>{pane({ graduatedIds: new Set([PERSEIDS]) })}</FavouritesProvider>);
+    });
+    expect(document.querySelector(`[data-entry-id="${PERSEIDS}"]`)).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('further-ahead-heading'));
+  });
+
+  it('⚠️ Undo of that watch, with the entry still a lane, lands on the heading rather than a detached node', async () => {
+    setFavourite.mockResolvedValueOnce(served(['meteor:2026-08-12'])).mockResolvedValueOnce(served([]));
+    fetchFavourites.mockResolvedValue(served([]));
+    const { rerender } = remount();
+    await waitFor(() => expect(toggleOf(PERSEIDS)).not.toBeNull());
+    const before = toggleOf(PERSEIDS);
+    before.focus();
+    await act(async () => { fireEvent.click(before); });
+    await act(async () => {
+      rerender(<FavouritesProvider pro>{pane({ graduatedIds: new Set([PERSEIDS]) })}</FavouritesProvider>);
+    });
+    await act(async () => { fireEvent.click(screen.getByTestId('undo-toast-undo')); });
+    expect(setFavourite).toHaveBeenLastCalledWith('date', 'meteor:2026-08-12', false);
+    expect(document.activeElement).toBe(screen.getByTestId('further-ahead-heading'));
+  });
+
+  it('a reader who has moved focus elsewhere is not pulled back when the entry graduates', async () => {
+    setFavourite.mockResolvedValue(served(['meteor:2026-08-12']));
+    fetchFavourites.mockResolvedValue(served([]));
+    const { rerender } = remount();
+    await waitFor(() => expect(toggleOf(PERSEIDS)).not.toBeNull());
+    const before = toggleOf(PERSEIDS);
+    before.focus();
+    await act(async () => { fireEvent.click(before); });
+    const elsewhere = screen.getByTestId('coming-up-toggle-all');
+    elsewhere.focus();
+    await act(async () => {
+      rerender(<FavouritesProvider pro>{pane({ graduatedIds: new Set([PERSEIDS]) })}</FavouritesProvider>);
+    });
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it('a Lite reader\'s door press moves nothing and owes no focus', async () => {
+    render(withFavourites(pane(), { status: 'locked' }));
+    const door = document.querySelector(`[data-entry-id="${PERSEIDS}"] [data-testid="coming-up-watch-toggle-locked"]`);
+    const elsewhere = screen.getByTestId('coming-up-toggle-all');
+    fireEvent.click(door);
+    elsewhere.focus();
+    await act(async () => {});
+    expect(document.activeElement).toBe(elsewhere);
   });
 
   it('Undo after an un-watch returns the card to Watching with focus on its toggle there', async () => {

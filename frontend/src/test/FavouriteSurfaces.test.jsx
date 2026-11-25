@@ -394,7 +394,7 @@ describe('Your places, the row at the top of This week', () => {
   });
 
   it('a row the reader has already reached for is never moved by the sort', async () => {
-    for (const gesture of ['pointerDown', 'touchStart', 'wheel', 'keyDown']) {
+    for (const gesture of ['pointerDown', 'touchStart', 'wheel', 'keyDown', 'focusIn']) {
       const { rerender, unmount } = render(list({ places: [2, 1] }, { scoreIndex: null }));
       const row = await screen.findByTestId('your-places-row');
       fireEvent[gesture](row);

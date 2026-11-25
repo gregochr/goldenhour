@@ -12,7 +12,8 @@ import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { withFavourites } from './favouritesKit.jsx';
+import { favouritesValue, withFavourites } from './favouritesKit.jsx';
+import { FavouritesContext } from '../context/FavouritesContext.jsx';
 
 /**
  * The Plan pane's heat strip — six solar-window thumbnails, replacing the day rail (plan D1, §1.1).
@@ -5518,7 +5519,7 @@ describe('WindowFirstHeatStrip — a watched date is its day\'s lane (screen-spe
     expect(lane).toHaveAttribute('data-watched', 'true');
     expect(lane.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
     expect(within(lane).getByTestId('wf-watched-plan').textContent)
-      .toBe('sunrise 05:20 · , best Crimdon Beach 4★ stars · , tide on the light →');
+      .toBe('Wed sunrise 05:20 · , best Crimdon Beach 4★ stars · , tide on the light →');
     expect(lane).toHaveAccessibleName(/, watching/);
     expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([RUN.id]));
     // Its own route is unchanged: it still opens its own window.
@@ -5565,5 +5566,110 @@ describe('WindowFirstHeatStrip — a watched date is its day\'s lane (screen-spe
     expect([...cells[0].querySelector('ul').children].map((li) => li.getAttribute('data-testid') ?? 'topic'))
       .toEqual(['wf-watched-lane-item', 'topic']);
     expect(screen.getAllByTestId('wf-watched-lane')).toHaveLength(1);
+  });
+
+  it('⚠️ a watched entry a topic lane carries but whose plan finds no window still shows: the mark alone, no plan, no arrow', async () => {
+    const onLaneEntryIds = vi.fn();
+    const noLight = CARDS.map((card) => ({ ...card, tide: { lightAlignment: 'NONE' }, bestReach: null }));
+    await watching(['spring-tide:2026-08-04'], {
+      cards: noLight,
+      hotTopics: [tideTopic(D4, 1), tideTopic(D5, 2), tideTopic(D6, 3)],
+      onLaneEntryIds,
+      onOpenWatched: vi.fn(),
+      onOpenLaneOnMap: vi.fn(),
+      openableKeys: new Set([`${D5}:SUNRISE`, `${D4}:SUNSET`]),
+    });
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane).toHaveAttribute('data-watched', 'true');
+    expect(lane.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
+    expect(within(lane).queryByTestId('wf-watched-plan')).toBeNull();
+    expect(lane.textContent).not.toContain('→');
+    expect(lane).toHaveAccessibleName(/, watching/);
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    // One home: the lane that carries it.
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([RUN.id]));
+  });
+
+  it('with no lane carrying a plan-less watched entry, nothing is drawn and the entry is left for Watching', async () => {
+    const onLaneEntryIds = vi.fn();
+    const noLight = CARDS.map((card) => ({ ...card, tide: { lightAlignment: 'NONE' }, bestReach: null }));
+    await watching(['spring-tide:2026-08-04'], { cards: noLight, onLaneEntryIds, onOpenWatched: vi.fn() });
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    expect(screen.queryByTestId('wf-glance-lane')).toBeNull();
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+  });
+
+  it('⚠️ a decorated topic lane with a plan presses through the watched route: the window and the best place', async () => {
+    const onOpenWatched = vi.fn();
+    const onOpenLaneOnMap = vi.fn();
+    await watching(['spring-tide:2026-08-04'], {
+      hotTopics: [tideTopic(D4, 1), tideTopic(D5, 2), tideTopic(D6, 3)],
+      onOpenWatched,
+      onOpenLaneOnMap,
+      openableKeys: new Set([`${D5}:SUNRISE`, `${D4}:SUNSET`]),
+    });
+    const lane = screen.getByTestId('wf-glance-lane');
+    fireEvent.click(lane);
+    expect(onOpenLaneOnMap).not.toHaveBeenCalled();
+    expect(onOpenWatched).toHaveBeenCalledWith({
+      window: { date: D5, eventType: 'SUNRISE' },
+      focus: { kind: 'location', id: 7, name: 'Crimdon Beach' },
+      from: lane,
+    });
+  });
+
+  it('a multi-day decorated lane names the plan\'s day on the desktop, and the phone (its own day\'s cell) does not', async () => {
+    const topics = [tideTopic(D4, 1), tideTopic(D5, 2), tideTopic(D6, 3)];
+    await watching(['spring-tide:2026-08-04'], { hotTopics: topics, onOpenWatched: vi.fn() });
+    expect(within(screen.getByTestId('wf-glance-lane')).getByTestId('wf-watched-plan').textContent)
+      .toMatch(/^Wed sunrise 05:20/);
+    cleanup();
+    useIsMobile.mockReturnValue(true);
+    await watching(['spring-tide:2026-08-04'], { hotTopics: topics, onOpenWatched: vi.fn() });
+    const plans = screen.getAllByTestId('wf-watched-plan');
+    expect(plans).toHaveLength(1);
+    expect(plans[0].textContent).toMatch(/^sunrise 05:20/);
+  });
+
+  it('⚠️ a lane that cannot be tapped never draws the arrow: the plan reads as plain text', async () => {
+    await watching(['spring-tide:2026-08-04'], { onOpenWatched: undefined });
+    const lane = screen.getByTestId('wf-watched-lane');
+    expect(lane.tagName).toBe('DIV');
+    expect(within(lane).getByTestId('wf-watched-plan').textContent).not.toContain('→');
+  });
+
+  it('registers where a date about to be watched will live, for the toast: its day in this strip, else nothing', async () => {
+    const value = favouritesValue({ dates: [] });
+    await renderStrip({
+      cards: CARDS,
+      comingUpEntries: [RUN],
+      renderedEntryIds: new Set([RUN.id]),
+      wrap: (node) => <FavouritesContext.Provider value={value}>{node}</FavouritesContext.Provider>,
+    });
+    const resolve = value.registerWatchHome.mock.calls.at(-1)[0];
+    expect(resolve('spring-tide:2026-08-04')).toEqual({ dow: 'Wed' });
+    // A key with no entry, or one whose plan finds no window here, has no lane to name.
+    expect(resolve('spring-tide:2027-01-07')).toBeNull();
+    expect(resolve('meteor:2026-08-05')).toBeNull();
+  });
+
+  it('stops answering when the strip goes, and the strip never needs a registrar', async () => {
+    const value = favouritesValue({ dates: [] });
+    const cleanupSpy = vi.fn();
+    value.registerWatchHome = vi.fn(() => cleanupSpy);
+    const view = await renderStrip({
+      cards: CARDS,
+      comingUpEntries: [RUN],
+      wrap: (node) => <FavouritesContext.Provider value={value}>{node}</FavouritesContext.Provider>,
+    });
+    await view.unmount();
+    expect(cleanupSpy).toHaveBeenCalled();
+    cleanup();
+    const bare = { ...favouritesValue({ dates: [] }) };
+    delete bare.registerWatchHome;
+    await renderStrip({
+      cards: CARDS, wrap: (node) => <FavouritesContext.Provider value={bare}>{node}</FavouritesContext.Provider>,
+    });
+    expect(screen.getByTestId('wf-heat-grid')).toBeInTheDocument();
   });
 });

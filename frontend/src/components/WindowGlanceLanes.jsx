@@ -159,7 +159,7 @@ function spokenTail(lane, date) {
  * @param {object}   props
  * @param {Array}    props.lanes   the lanes from `buildGlanceLanes`, in DOM order
  * @param {?string}  [props.date]  the phone's day, `YYYY-MM-DD`: render that day's cell instead of the whole grid
- * @param {function} props.onTap   called with the pressed lane; the strip owns the routes
+ * @param {function} props.onTap   called with the pressed lane and its element; the strip owns the routes
  * @param {function} [props.canTap] `(lane)` truthy when the lane has a route; a lane without one is plain text, never
  *                   a button that opens nothing. Absent: every lane is a button
  * @param {Array}    [props.warningLanes] Met Office warning lanes from {@code buildWarningLanes}, each with a
@@ -238,7 +238,9 @@ export default function WindowGlanceLanes({
         const tappable = Boolean(canTap(lane));
         const Tag = tappable ? 'button' : 'div';
         // A topic lane that carries a watched entry wears its mark and plan (never replaced: the two-question rule).
-        const decorated = Boolean(lane.watched) && (!phone || lane.watched.date === date);
+        const decorated = Boolean(lane.watched) && (!phone || lane.watched.date == null || lane.watched.date === date);
+        // The plan clause only when a plan was found; a multi-day lane on the desktop names the plan's day in it.
+        const watchedPlan = decorated ? lane.watched.plan : null;
         return (
           <li
             key={lane.key}
@@ -255,7 +257,7 @@ export default function WindowGlanceLanes({
               data-ends-after={endsAfter ? 'true' : undefined}
               data-testid="wf-glance-lane"
               data-watched={decorated ? 'true' : undefined}
-              onClick={tappable ? () => onTap(lane) : undefined}
+              onClick={tappable ? (event) => onTap(lane, event.currentTarget) : undefined}
             >
               <span className="wf-lane-sw" aria-hidden="true" />
               {decorated && <BookmarkMark className="wf-wt-mark" />}
@@ -269,11 +271,11 @@ export default function WindowGlanceLanes({
                   <span className="wf-lane-val">{lane.detail}</span>
                 </>
               )}
-              {decorated && (
+              {watchedPlan && (
                 <>
                   {' '}
                   <span className="wf-lane-val wf-wt-plan" data-testid="wf-watched-plan">
-                    <WatchedPlan plan={lane.watched.plan} />
+                    <WatchedPlan plan={watchedPlan} arrow={tappable} showDay={!phone && lane.dates.length > 1} />
                   </span>
                 </>
               )}
@@ -291,10 +293,11 @@ export default function WindowGlanceLanes({
  * A watched date's plan clause: {@code sunrise 07:54 · best Crimdon Beach 4★ · tide on the light →}. The stars are
  * spoken as words and the arrow is decoration. A plan-less (meteor) date reads {@code clear-sky check on the night}.
  */
-function WatchedPlan({ plan }) {
+function WatchedPlan({ plan, arrow = true, showDay = false }) {
   if (!plan) return <>{WATCH_NO_WINDOW_LINE}</>;
   return (
     <>
+      {showDay && plan.dow ? `${plan.dow} ` : ''}
       {plan.event}
       {plan.best && (
         <>
@@ -313,13 +316,16 @@ function WatchedPlan({ plan }) {
           tide on the light
         </>
       )}
-      <span aria-hidden="true">{' →'}</span>
+      {arrow && <span aria-hidden="true">{' →'}</span>}
     </>
   );
 }
 
 WatchedPlan.propTypes = {
+  arrow: PropTypes.bool,
+  showDay: PropTypes.bool,
   plan: PropTypes.shape({
+    dow: PropTypes.string,
     event: PropTypes.string.isRequired,
     best: PropTypes.shape({ name: PropTypes.string.isRequired, rating: PropTypes.number.isRequired }),
     tideOnLight: PropTypes.bool,
@@ -353,7 +359,7 @@ function WatchedLane({ lane, phone, row, onTap }) {
         </span>
         {' '}
         <span className="wf-lane-val wf-wt-plan" data-testid="wf-watched-plan">
-          <WatchedPlan plan={lane.plan} />
+          <WatchedPlan plan={lane.plan} arrow={tappable} />
         </span>
         <span className="sr-only">
           {`, watching, ${longWeekday(lane.date)}${tappable ? ', opens that window on the map' : ''}`}
@@ -462,7 +468,7 @@ const laneShape = PropTypes.shape({
   jump: PropTypes.shape({ entryId: PropTypes.string.isRequired }),
   mapDoor: PropTypes.shape({ date: PropTypes.string.isRequired, eventType: PropTypes.string.isRequired }),
   target: PropTypes.string,
-  watched: PropTypes.shape({ date: PropTypes.string.isRequired, plan: PropTypes.object }),
+  watched: PropTypes.shape({ date: PropTypes.string, plan: PropTypes.object }),
 });
 
 WindowGlanceLanes.propTypes = {

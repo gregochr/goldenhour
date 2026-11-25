@@ -33,6 +33,7 @@ export function favouritesValue({
     isPlaceStarred: (id) => placeIds.has(id),
     isAreaStarred: (id) => areaIds.has(id),
     isDateWatched: (key) => dateKeys.has(key),
+    registerWatchHome: vi.fn(() => () => {}),
     setStar: vi.fn(() => Promise.resolve(true)),
     toggle: vi.fn(() => Promise.resolve(true)),
   };

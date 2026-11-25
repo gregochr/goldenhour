@@ -81,6 +81,13 @@ describe('favourites helpers', () => {
     expect(starToastText('date', 'King tide · 3 Dec', true)).toBe("Watching King tide · 3 Dec. It's at the top of Further ahead.");
     expect(starToastText('date', 'King tide · 3 Dec', false)).toBe('Stopped watching King tide · 3 Dec.');
   });
+
+  it('says where a date really went: its day in This week when it became a lane, else the top of Further ahead', () => {
+    expect(starToastText('date', 'King tide · 3 Dec', true, { dow: 'Fri' })).toBe("Watching King tide · 3 Dec. It's on Fri in This week.");
+    expect(starToastText('date', 'King tide · 3 Dec', true, null)).toBe("Watching King tide · 3 Dec. It's at the top of Further ahead.");
+    // An un-watch ignores any home.
+    expect(starToastText('date', 'King tide · 3 Dec', false, { dow: 'Fri' })).toBe('Stopped watching King tide · 3 Dec.');
+  });
 });
 
 describe('the honesty rule in Find: a favourite only breaks a tie among rows that already matched', () => {

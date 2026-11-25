@@ -8,12 +8,11 @@ import GuideLink from './guide/GuideLink.jsx';
 import {
   buildChronology, buildEntryView, chipCounts, chipCountsOf, FOOTER,
 } from '../utils/comingUpFeed.js';
-import { unlistedWatches, watchKeysMatching } from '../utils/watchedDates.js';
+import { unlistedWatches, watchedKeysFor } from '../utils/watchedDates.js';
 import { readFurtherAheadFilter, writeFurtherAheadFilter } from '../utils/furtherAheadFilter.js';
 import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 import { comingUpOutsideFacts, entrySubject, outsideLineText } from '../utils/comingUpOutside.js';
-import { scrollToEntry } from '../utils/scrollToEntry.js';
 import { isEntryOpen, readOpenOverrides, writeOpenOverrides } from '../utils/comingUpOpen.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useWarnings } from '../context/WarningsContext.jsx';
@@ -25,6 +24,10 @@ import useListedFeed from '../hooks/useListedFeed.js';
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
  * legacy shape ({@code {entries: []}}, which carries no {@code counts} key at all). */
 const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
+
+/** How long, and over how many effect passes, a move keeps its owed focus while the strip reports graduation. */
+const MOVE_INTENT_MS = 1500;
+const MOVE_INTENT_PASSES = 4;
 
 /** No graduated entries: the default, so a caller that passes none lists everything the feed served. */
 const NO_GRADUATED = new Set();
@@ -60,7 +63,8 @@ export const FURTHER_AHEAD_SUBHEADING = 'dates known in advance';
  * {@code [mark] Watching} and its own {@code role="list"} of the SAME {@code WindowComingUpEntry} cards (the same open
  * panel, with {@code WatchDateControl} inside), drawn only when it has a member. A watched entry MOVES there from its
  * month (it is never in both), and unwatching returns it. Members are the listed entries with
- * {@code watchKeysMatching(dates, entry)} non-empty; the filter chips and their counts describe the month lists only.
+ * {@code watchedKeysFor(dates, entry, servedEntries)} non-empty (a key is bound to ONE entry, the one
+ * {@code matchWatchToEntry} names, so the jump's count, the lanes and this group never disagree); the filter chips and their counts describe the month lists only.
  * A watch whose key matches no entry in the SERVED feed is a quiet row, {@code [mark] <title> · no longer listed}, with a
  * real Stop watching button. (An entry This week draws as a watched lane is served and not listed, so it is neither.)
  *
@@ -138,12 +142,9 @@ export const FURTHER_AHEAD_SUBHEADING = 'dates known in advance';
  *                                     §11.24). Three-valued: null/absent is "not known yet" and
  *                                     withholds nothing; an array, even empty, is known
  * @param {function} props.onMarkSeen  clears the badge and every NEW flag (plan §6/P5)
- * @param {?{entryId: ?string, seq: number}} [props.focusRequest] a request from This week's topic pills to
- *                                     open the tab at one entry (glance-topic-strip-plan.md R4); `entryId` null
- *                                     is the door, which asks for nothing in particular
- * @param {function} [props.onFocusHandled] `(found: boolean)` — called exactly once per request, once it has
- *                                     been honoured (`true`) or could not be (`false`: the entry is not in the
- *                                     feed, or the feed is not ready), so the shell can fall back
+ * @param {?{seq: number}} [props.focusRequest] a request from the "Further ahead ↓" jump to put focus on this
+ *                                     section's heading, after the shell's dialogs have closed
+ * @param {function} [props.onFocusHandled] `()` — called exactly once per request, so the shell can move focus
  * @param {Array} [props.locations] the served enabled roster (`/api/locations`): a Lite reader on a shaped
  *                                     body gets the outside-your-sub-regions line from its coastal and
  *                                     dark-sky facts (S5b-2); unused on every other body
@@ -175,12 +176,13 @@ export default function FurtherAhead({
 
   // Watching: the listed entries the reader watches, soonest first. Only for a reader whose list has landed.
   const watchesReady = favourites.status === 'ready';
+  const servedEntries = events?.entries;
   const watchingEntries = useMemo(
     () => (watchesReady && Array.isArray(listedEntries)
-      ? listedEntries.filter((entry) => watchKeysMatching(favourites.dates, entry).length > 0)
+      ? listedEntries.filter((entry) => watchedKeysFor(favourites.dates, entry, servedEntries).length > 0)
         .sort((a, b) => a.startDate.localeCompare(b.startDate))
       : []),
-    [watchesReady, listedEntries, favourites.dates],
+    [watchesReady, listedEntries, favourites.dates, servedEntries],
   );
   const watchingViews = useMemo(
     () => watchingEntries.map((entry) => buildEntryView(entry, todayStr, comingUpLastSeenDate, forecastDates)),
@@ -269,11 +271,15 @@ export default function FurtherAhead({
   const watchingHeadingRef = useRef(null);
   /** Where focus is owed after a press moved or removed what the reader pressed (see "Focus on a move" above). */
   const moveIntent = useRef(null);
-  /** A press on an entry's Watch toggle (capture phase, before the toggle's own handler): the entry that will move. */
-  const noteWatchPress = (event) => {
-    const toggle = event.target.closest?.('[data-testid="coming-up-watch-toggle"]');
-    const entryId = toggle?.closest('[data-entry-id]')?.getAttribute('data-entry-id') ?? null;
-    if (entryId !== null) moveIntent.current = { kind: 'entry', entryId };
+  /**
+   * The Watch control actually changed the reader's dates for this entry (its own callback, never a sniffed click): focus
+   * is owed to the entry's toggle in its new place. The intent lives a few effect passes at most and for 1.5 s at most,
+   * because the entry may then graduate to a lane (the strip reports that a render later) and unmount.
+   */
+  const markMoved = (entryId) => {
+    const intent = { kind: 'entry', entryId, focused: false, passes: 0 };
+    moveIntent.current = intent;
+    setTimeout(() => { if (moveIntent.current === intent) moveIntent.current = null; }, MOVE_INTENT_MS);
   };
   /** Stop watching an unlisted row: the next row (or the one before it) takes focus, else a heading. */
   const stopUnlisted = (row, index) => {
@@ -285,20 +291,38 @@ export default function FurtherAhead({
   useLayoutEffect(() => {
     const intent = moveIntent.current;
     if (!intent) return;
-    moveIntent.current = null;
     const within = (attribute, value) => [...document.querySelectorAll(`[${attribute}]`)]
       .find((node) => node.getAttribute(attribute) === value);
-    let target = null;
+    const land = (node) => {
+      node.focus();
+      node.scrollIntoView?.({ block: 'nearest' });
+    };
     if (intent.kind === 'entry') {
-      target = within('data-entry-id', intent.entryId)?.querySelector('[data-testid="coming-up-watch-toggle"]');
-    } else if (intent.kind === 'row') {
-      target = within('data-watch-key', intent.watchKey)?.querySelector('[data-testid="watching-unlisted-stop"]');
+      const toggle = within('data-entry-id', intent.entryId)?.querySelector('[data-testid="coming-up-watch-toggle"]');
+      intent.passes += 1;
+      if (toggle) {
+        if (!intent.focused) {
+          land(toggle);
+          intent.focused = true;
+        }
+        if (intent.passes >= MOVE_INTENT_PASSES) moveIntent.current = null;
+        return;
+      }
+      moveIntent.current = null;
+      // Gone: it became a lane in This week (this section's heading), or a filter hides it (the nearest heading). Only
+      // when focus has actually fallen; a reader who has moved on is never pulled back.
+      if (document.activeElement && document.activeElement !== document.body) return;
+      const heading = graduatedIds.has(intent.entryId)
+        ? headingRef.current : (watchingHeadingRef.current ?? headingRef.current);
+      if (heading) land(heading);
+      return;
     }
-    // A card the filter now hides, or the last row of a group that has gone: the nearest heading that is still there.
+    moveIntent.current = null;
+    const target = intent.kind === 'row'
+      ? within('data-watch-key', intent.watchKey)?.querySelector('[data-testid="watching-unlisted-stop"]') : null;
+    // The last row of a group that has gone: the nearest heading that is still there.
     const landing = target ?? watchingHeadingRef.current ?? headingRef.current;
-    if (!landing) return;
-    landing.focus();
-    landing.scrollIntoView?.({ block: 'nearest' });
+    if (landing) land(landing);
   });
   const retryRef = useRef(null);
   const retriedRef = useRef(false);
@@ -325,44 +349,15 @@ export default function FurtherAhead({
   }, [status]);
 
   /**
-   * Honours This week's pill press (glance-topic-strip-plan.md R4): opens the tab at one entry, in two phases.
-   *
-   * <p><b>Phase one, during render.</b> The entry may be filtered out. On the render that first sees a request,
-   * when the entry is in the feed but not rendered under the active chip, the chip is reset to {@code all} (every
-   * entry renders there, and the reader pressed a topic, not a filter). It is the React-documented "adjust state
-   * on a prop change" shape, keyed on the request's {@code seq}, rather than a state write inside an effect.
-   */
-  const [seenFocusSeq, setSeenFocusSeq] = useState(null);
-  if (focusRequest && focusRequest.seq !== seenFocusSeq) {
-    setSeenFocusSeq(focusRequest.seq);
-    const wanted = focusRequest.entryId;
-    if (wanted != null && status === 'ready' && activeFilter !== 'all'
-        && !renderedEntries.some((entry) => entry.id === wanted)
-        && listedEntries?.some((entry) => entry.id === wanted)) {
-      // Not persisted: the reader pressed a topic, not a filter, so their remembered chip is left alone.
-      setActiveFilter('all');
-    }
-    // A deep link to a closed entry opens it first: the scroll below then centres the open card.
-    if (wanted != null && status === 'ready' && listedEntries?.some((entry) => entry.id === wanted)) {
-      setOpenOverrides((prev) => (prev[wanted] === true ? prev : { ...prev, [wanted]: true }));
-    }
-  }
-  /**
-   * <b>Phase two, an effect.</b> {@code scrollToEntry} scrolls, rings and focuses the card. The shell makes the
-   * request in the same batch that shows the Plan pane, so the section is on screen by the time this runs. A null
-   * entry, a feed that is not ready, an entry not listed even under {@code all} (a graduated one, which This week
-   * shows as a lane), or a {@code scrollToEntry} that finds nothing, all fall back through
-   * {@code onFocusHandled(false)}; every path calls it exactly once, so the request cannot loop.
+   * Honours the "Further ahead ↓" jump: the shell asks for focus on this section's heading once its dialogs have closed.
+   * Answered once per request ({@code seq}), so a re-render never answers it twice.
    */
   useEffect(() => {
     if (!focusRequest) return;
     if (handledFocusSeq.current === focusRequest.seq) return;
-    const { entryId, seq } = focusRequest;
-    handledFocusSeq.current = seq;
-    const rendered = entryId != null && status === 'ready'
-      && renderedEntries.some((entry) => entry.id === entryId);
-    onFocusHandled?.(rendered ? scrollToEntry(entryId) : false);
-  }, [focusRequest, status, renderedEntries, onFocusHandled]);
+    handledFocusSeq.current = focusRequest.seq;
+    onFocusHandled?.();
+  }, [focusRequest, onFocusHandled]);
 
   /** One entry card: the month lists and Watching draw the very same component with the very same props. */
   const renderEntry = (entry) => {
@@ -373,6 +368,8 @@ export default function FurtherAhead({
         entry={entry}
         open={entryOpen(entry)}
         onToggleOpen={() => setEntries([entry.id], !entryOpen(entry))}
+        watchedKeys={watchedKeysFor(favourites.dates, entry, servedEntries)}
+        onWatchChange={() => markMoved(entry.id)}
         onGoToPlan={onGoToPlan}
         onShowOnMap={onShowOnMap}
         outsideLine={outside?.text ?? null}
@@ -391,7 +388,6 @@ export default function FurtherAhead({
       aria-labelledby={headingId}
       className="wf-sec wf-further-ahead"
       data-testid="further-ahead"
-      onClickCapture={noteWatchPress}
     >
       {/* The sticky heading (D5/D11): an `<h2>` inside a sticky bar, so the bar can stick under the lens while the
           heading's own accessible name stays its text. The badge is `aria-hidden`; the jump on This week's heading
@@ -401,6 +397,7 @@ export default function FurtherAhead({
         <h2
           id={headingId}
           ref={setHeadingNode}
+          data-focus-fallback="further-ahead"
           tabIndex={-1}
           className="wf-sec-h"
           data-testid="further-ahead-heading"
@@ -586,7 +583,7 @@ export default function FurtherAhead({
             above and below: their counts and rows come from data that does not exist yet during
             `idle`/`loading`/`error`, and a row of chips reading zero everywhere would understate
             the sky rather than describe it. */}
-        {status === 'ready' && (
+        {status === 'ready' && (monthEntries?.length ?? 0) > 0 && (
           <div className="wf-cu-chips" data-testid="coming-up-chips">
             {chips.map((chip) => (
               <button
@@ -681,7 +678,6 @@ FurtherAhead.propTypes = {
   onMarkSeen: PropTypes.func.isRequired,
   locations: PropTypes.array,
   focusRequest: PropTypes.shape({
-    entryId: PropTypes.string,
     seq: PropTypes.number.isRequired,
   }),
   onFocusHandled: PropTypes.func,

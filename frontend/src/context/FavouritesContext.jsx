@@ -30,6 +30,7 @@ export const OFF_FAVOURITES = Object.freeze({
   isPlaceStarred: () => false,
   isAreaStarred: () => false,
   isDateWatched: () => false,
+  registerWatchHome: () => () => {},
   setStar: () => Promise.resolve(false),
   toggle: () => Promise.resolve(false),
 });
@@ -76,6 +77,13 @@ export function FavouritesProvider({ pro, children }) {
   const epoch = useRef(0);
   // The newest setStar, so an Undo press made later calls the current one (a callback cannot name itself).
   const setStarRef = useRef(null);
+  // Where a date about to be watched will live: registered by the This week strip, which owns the one-home rule (a lane
+  // on its day, or Watching), so the toast can say where the date went. Read at press time.
+  const watchHomeRef = useRef(null);
+  const registerWatchHome = useCallback((resolve) => {
+    watchHomeRef.current = resolve;
+    return () => { if (watchHomeRef.current === resolve) watchHomeRef.current = null; };
+  }, []);
   // One number per reader session: bumped when the provider unmounts or `pro` changes, so a queued write, a retry or a
   // re-read that outlives the session finds it stale and does nothing (no request, no state, no toast).
   const session = useRef(0);
@@ -159,6 +167,7 @@ export function FavouritesProvider({ pro, children }) {
     // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands. A function
     // resolved at Undo time, because the control may have MOVED by then (a watched date's card changes lists).
     const returnTo = focusBack ?? lazyReturnTo(document.activeElement);
+    const home = kind === 'date' && on && !undo ? (watchHomeRef.current?.(id) ?? null) : null;
     setBody(applyStar(bodyRef.current, kind, id, on));
     epoch.current += 1;
     pending.current += 1;
@@ -184,7 +193,7 @@ export function FavouritesProvider({ pro, children }) {
           show(undo
             ? { message: 'Undone.', returnTo }
             : {
-              message: starToastText(kind, name, on),
+              message: starToastText(kind, name, on, home),
               returnTo,
               // Void: Undo is a press handler, nothing waits on the second request.
               onUndo: () => {
@@ -225,12 +234,13 @@ export function FavouritesProvider({ pro, children }) {
       isPlaceStarred: (id) => sets.placeIds.has(id),
       isAreaStarred: (id) => sets.areaIds.has(id),
       isDateWatched: (key) => sets.dateKeys.has(key),
+      registerWatchHome,
       setStar,
       toggle: (kind, id, name) => setStar(
         kind, id, name, !({ area: sets.areaIds, date: sets.dateKeys }[kind] ?? sets.placeIds).has(id),
       ),
     };
-  }, [pro, body, failed, sets, bookmarkedAreas, setStar]);
+  }, [pro, body, failed, sets, bookmarkedAreas, setStar, registerWatchHome]);
 
   return (
     <FavouritesContext.Provider value={value}>

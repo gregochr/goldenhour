@@ -43,6 +43,22 @@ describe('lazyReturnTo', () => {
     expect(target()).toBe(back.button);
   });
 
+  it('falls back to the marked heading when its row has left the page altogether (a date that became a lane)', () => {
+    const { wrapper, button } = row('data-entry-id', 'king-tide:run', 'coming-up-watch-toggle');
+    const heading = document.createElement('h2');
+    heading.setAttribute('data-focus-fallback', 'further-ahead');
+    document.body.appendChild(heading);
+    const target = lazyReturnTo(button);
+    wrapper.remove();
+    expect(target()).toBe(heading);
+    // A control with no row anchor has no such successor.
+    const bare = document.createElement('button');
+    document.body.appendChild(bare);
+    const bareTarget = lazyReturnTo(bare);
+    bare.remove();
+    expect(bareTarget()).toBeNull();
+  });
+
   it('does not borrow another entry\'s control, and a control with no row or test id has nothing to fall back on', () => {
     const { wrapper, button } = row('data-entry-id', 'a', 'toggle');
     const target = lazyReturnTo(button);
