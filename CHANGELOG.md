@@ -5,6 +5,63 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.42.2] - 2026-11-25
+
+### Docs — plan: month rules in Watching
+
+Plan (`docs/engineering/watching-month-rules-plan.md`) for drawing the month lists' `DEC 2026` rules inside Further
+ahead's Watching group, so a watched tide run's dates say which month they fall in. Amends screen-spec D2. Not built yet.
+
+### Fixed — snow topics read each place's own snowpack and white summits in view (snow S3)
+
+"Fresh snow", "Fresh snow with mist" and "Snow on the fells" no longer read the 9 km grid snow depth or the
+freezing level. They read the point snowpack each place and summit is modelled with (`snow_state`, from S2): a
+place has snow underfoot when its own modelled snow water reaches 3 mm, at any height, and a place is ringed for
+"Snow on the fells" when its nearest white summit (5 mm) is within 12 km and its sunrise low cloud is at most
+60 %. An all-white place carries both. The fells topic words itself per day as green below, white throughout, or
+unknown below, from the majority of its ringed places. Facts become `fresh ~N cm` or `lying` and `<summit> white`;
+the `snow line` and `N m below the tops` facts are gone. A place with a missing or stale snow row gets no snow topic.
+The daily topic log's SNOW intensity switches from grid depth in metres to modelled snow water in millimetres from
+today (a unit change under the same topic type), and the Ready question "Is there snow on the tops?" is now offered
+only when "Snow on the fells" is live.
+
+### Added — a point snowpack recorded per place and summit (snow S2, record only)
+
+A new job, `snow_state_refresh`, runs three times a day and works out how much snow is lying at every enabled place
+and at fifteen reviewed fell summits, from each point's own last seven days of weather (wet-bulb rain-or-snow split,
+a settling gate, degree-day melt) instead of Open-Meteo's 9 km grid snow depth. It records the modelled water
+equivalent, the snow added in the 24 hours before the slot, and the low cloud at that hour, for today and the next
+four sunrises and sunsets, in a new `snow_state` table (V231). A point that could not be fetched keeps its previous
+row, and a row more than 36 hours old reads as unknown, never as bare ground. Nothing reads the table yet: no hot
+topic, rating or prompt changes until the detectors switch over in the next phase. It uses Open-Meteo only (no Claude
+cost), asks for wind in m/s, has its own 150 second budget, and a minute-limit or concurrency refusal ends its run
+without starting the cool-off the main fetch shares.
+
+### Fixed — snow topics ring only the snowy places, one topic per day
+
+"Fresh snow" and "Snow, mist & frost" named no places, so the map ringed every place in the topic's regions
+(230 rings for 60 snowy rows on a Friday sunrise). Each day's topic now carries the exact snowy places, is built
+from sunrise rows only, and stays until midnight instead of vanishing at dawn. A multi-day spell is one topic per
+day instead of one dated to its earliest day, so a travel day on day 1 no longer hides day 2's snow, and the detail
+no longer says "today and tomorrow". Ask's hot-topics and coming-up lists now offer every kind's first day before
+any kind's second, so a long snow spell does not push the aurora out.
+
+### Added — a Frost & mist hot topic for the hoar-frost morning
+
+A sunrise with valley mist likely and sub-zero air (the 2 m temperature at the first hour at or after sunrise, strictly below 0 °C) now gets its own "Frost & mist" topic: one card per day naming exactly the ringed places, with the coldest place's air reading, the site count and a hoar-frost and rime explanation. It replaces Valley mist for those sunrise place-days instead of stacking a second ring on them; Valley mist keeps the milder mornings and every sunset. A place with snow lying still qualifies, so a snowy frost-and-mist morning carries both this and the snow topic. The topic ranks above Valley mist in rarity (Valley mist and Sea mist each move down one rank), has a new sky-blue swatch kept apart from every other topic under deuteranopia and protanopia, the 🧊 glyph, and the snow (winter) badge channel. The sub-zero air rounding is now one shared helper, so the snow-mist frost fact and this one read identically.
+
+### Docs — a plan for a Frost & mist hot topic
+
+`docs/engineering/frost-mist-plan.md` plans a "Frost & mist" topic for the hoar-frost morning on bare ground: valley mist likely at sunrise with sub-zero air. Until now frost was named only over lying snow ("Snow, mist & frost"). It replaces Valley mist for the same sunrise place-day rather than stacking, and is built after snow S3 and the bluebell rings fix.
+
+### Fixed — E2E smoke: the middle-chip click no longer lands on bare map
+
+Test infrastructure only. `clickMiddleChip` now waits for the Map label layer to settle, clicks the chosen chip by its accessible name instead of its index, and asserts the callout opened, so a repaint right after a window change can no longer redirect the click (the intermittent `roles.spec.js` "none of the LITE locks appear" failure).
+
+### Fixed — bluebell topics ring only the woods that qualified
+
+The Bluebell hot topic named only its regions, so the map ringed every bluebell wood in those regions, including woods rated below the topic threshold because a neighbour qualified. The topic now carries the exact woods rated 3/5 or better that day (best first, then by name), limited to the regions it names.
+
 ## [v2.42.1] - 2026-11-25
 
 ### Docs — a plan to make the snow hot topics tell the truth
