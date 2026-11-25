@@ -38,7 +38,8 @@ final class ReadyRelevance {
      * Whether an event of this type is relevant to the question: the one event predicate. A pick
      * question keeps no event card (its cards are picks), except {@code NIGHT_SKY}, which keeps the
      * {@code AURORA} hot topic and nothing else; {@code RARE_EVENTS} keeps any; {@code SNOW_TOPS} keeps
-     * only the snow topic types ({@code SNOW_TOPS}, {@code SNOW_FRESH}, {@code SNOW_MIST}).
+     * only the {@code SNOW_TOPS} hot topic (snow underfoot, {@code SNOW_FRESH}/{@code SNOW_MIST}, is not
+     * snow on the tops).
      *
      * @param question the question
      * @param type     the event's served type, any case or spelling ({@link AskEventType#key})

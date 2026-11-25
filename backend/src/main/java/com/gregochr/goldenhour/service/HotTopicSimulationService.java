@@ -475,9 +475,9 @@ public class HotTopicSimulationService {
                     List.of("The Lake District", "The North York Moors"), 1, null),
             new SimulationTemplate(
                     "SNOW_TOPS", "Snow on the fells",
-                    "Tops white above 600m",
-                    "When the freezing level drops below the peaks, fell tops are capped with"
-                            + " snow while valleys stay green. A classic Lake District and"
+                    "Tops white above green valleys",
+                    "Snow has fallen on the high ground: fell tops are capped with snow while"
+                            + " valleys stay green. A classic Lake District and"
                             + " Pennine composition.",
                     2, null,
                     List.of("The Lake District"), 1, null),

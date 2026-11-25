@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.SnowStateEntity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -141,6 +142,34 @@ class HotTopicInputsTest {
     }
 
     @Test
+    @DisplayName("snowRows runs the source once however often it is asked, and is shared by every caller")
+    void snowRows_memoised() {
+        AtomicInteger calls = new AtomicInteger();
+        HotTopicInputs inputs = HotTopicInputs.ofSnow(null, null, () -> {
+            calls.incrementAndGet();
+            return List.of(SnowStateEntity.builder().pointKey("loc:1").build());
+        });
+
+        assertThat(inputs.snowRows()).hasSize(1);
+        assertThat(inputs.snowRows()).hasSize(1);
+
+        assertThat(calls).hasValue(1);
+        assertThatThrownBy(() -> inputs.snowRows().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("ofSnow carries the slot signals and the enabled roster beside the snow rows")
+    void ofSnow_carriesSlotsAndRoster() {
+        LocationEntity place = location("Rydal Water");
+        HotTopicInputs inputs = HotTopicInputs.ofSnow(List::of, () -> List.of(place), List::of);
+
+        assertThat(inputs.slotSignals()).isEmpty();
+        assertThat(inputs.enabledLocations()).containsExactly(place);
+        assertThat(inputs.snowRows()).isEmpty();
+        assertThatThrownBy(inputs::coastalLocations).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     @DisplayName("a source that was not provided fails loudly instead of returning an empty list")
     void missingSource_failsLoudly() {
         HotTopicInputs inputs = HotTopicInputs.ofSlotSignals(List::of);
@@ -151,6 +180,8 @@ class HotTopicInputsTest {
         assertThatThrownBy(inputs::darkSkyLocations).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(inputs::bluebellLocations).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> inputs.isTravelDay(DAY)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(inputs::snowRows).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("snow rows");
         assertThatThrownBy(() -> HotTopicInputs.ofCoastal(List::of).slotSignals())
                 .isInstanceOf(IllegalStateException.class);
     }

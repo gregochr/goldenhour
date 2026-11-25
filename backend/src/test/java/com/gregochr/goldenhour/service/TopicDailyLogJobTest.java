@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.StormSurgeDetails;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SnowStateEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
@@ -15,6 +16,7 @@ import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SnowStateRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.repository.TopicDailyLogRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,6 +74,9 @@ class TopicDailyLogJobTest {
     private SlotAtmosphereRepository slotAtmosphereRepository;
 
     @Mock
+    private SnowStateRepository snowStateRepository;
+
+    @Mock
     private TideExtremeRepository tideExtremeRepository;
 
     @Mock
@@ -105,6 +110,9 @@ class TopicDailyLogJobTest {
         lenient().when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(any(), anyCollection()))
                 .thenReturn(List.of());
         lenient().when(slotAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
+        lenient().when(snowStateRepository.findByEvaluationDateBetween(YESTERDAY, YESTERDAY))
+                .thenReturn(List.of());
+        lenient().when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
         lenient().when(locationRepository.findCoastalLocations()).thenReturn(List.of());
         lenient().when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(any()))
                 .thenReturn(List.of());
@@ -114,7 +122,8 @@ class TopicDailyLogJobTest {
         lenient().when(lunarPhaseService.nearestSyzygyIsPerigean(any())).thenReturn(false);
 
         job = new TopicDailyLogJob(forecastEvaluationRepository,
-                slotAtmosphereRepository, tideExtremeRepository, tideService, lunarPhaseService,
+                slotAtmosphereRepository, snowStateRepository, tideExtremeRepository, tideService,
+                lunarPhaseService,
                 locationRepository, auroraForecastResultRepository, nlcClarityService, regionService,
                 topicDailyLogRepository, dynamicSchedulerService, CLOCK);
     }
@@ -498,8 +507,10 @@ class TopicDailyLogJobTest {
         RegionEntity region = region(1L);
         LocationEntity location = locationWithRegion(10L, region);
         SlotAtmosphereEntity row = slot(location, TargetType.SUNRISE, true, 9.0);
-        row.setSnowDepthMetres(0.05);
         when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(row));
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(location));
+        when(snowStateRepository.findByEvaluationDateBetween(YESTERDAY, YESTERDAY))
+                .thenReturn(List.of(snowRow(10L, TargetType.SUNRISE, 12.5)));
         when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(eq(YESTERDAY), anyCollection()))
                 .thenReturn(List.of(ForecastEvaluationEntity.builder()
                         .location(location).aerosolOpticalDepth(new BigDecimal("0.55")).build()));
@@ -509,7 +520,7 @@ class TopicDailyLogJobTest {
         List<TopicDailyLogEntity> snow = savedRowsOfType("SNOW");
         assertThat(snow).hasSize(1);
         assertThat(snow.get(0).isPresent()).isTrue();
-        assertThat(snow.get(0).getIntensity()).isEqualByComparingTo("0.05");
+        assertThat(snow.get(0).getIntensity()).isEqualByComparingTo("12.5");
         List<TopicDailyLogEntity> dust = savedRowsOfType("DUST");
         assertThat(dust).hasSize(1);
         assertThat(dust.get(0).isPresent()).isTrue();
@@ -519,37 +530,115 @@ class TopicDailyLogJobTest {
 
     // ---------------------------------------------------------------- SNOW
 
+    private static SnowStateEntity snowRow(long locationId, TargetType event, Double waterMm) {
+        return SnowStateEntity.builder().pointKey(SnowStateEntity.locationKey(locationId))
+                .evaluationDate(YESTERDAY).eventType(event).snowWaterMm(waterMm)
+                .computedAt(LocalDateTime.of(2027, 3, 5, 4, 0)).build();
+    }
+
+    private void snowRows(List<LocationEntity> roster, SnowStateEntity... rows) {
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(roster);
+        when(snowStateRepository.findByEvaluationDateBetween(YESTERDAY, YESTERDAY)).thenReturn(List.of(rows));
+    }
+
     @Test
-    @DisplayName("SNOW fires at or above the 2 cm lying-snow threshold")
+    @DisplayName("SNOW is present from 3.0 mm of a place's own modelled snow water, intensity in millimetres")
     void snow_firesAtThreshold() {
-        RegionEntity region = region(1L);
-        LocationEntity location = locationWithRegion(10L, region);
-        SlotAtmosphereEntity row = new SlotAtmosphereEntity();
-        row.setLocation(location);
-        row.setSnowDepthMetres(0.03);
-        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(row));
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        snowRows(List.of(location), snowRow(10L, TargetType.SUNRISE, 3.0));
 
         job.runScheduled();
 
         List<TopicDailyLogEntity> snow = savedRowsOfType("SNOW");
         assertThat(snow).hasSize(1);
         assertThat(snow.get(0).isPresent()).isTrue();
-        assertThat(snow.get(0).getIntensity()).isEqualByComparingTo("0.03");
+        assertThat(snow.get(0).getIntensity()).isEqualByComparingTo("3.0");
     }
 
     @Test
-    @DisplayName("a trace below the lying-snow threshold logs present=false")
+    @DisplayName("just under 3.0 mm logs present=false, but still records the intensity")
     void snow_belowThreshold_logsFalsePresence() {
-        RegionEntity region = region(1L);
-        LocationEntity location = locationWithRegion(10L, region);
-        SlotAtmosphereEntity row = new SlotAtmosphereEntity();
-        row.setLocation(location);
-        row.setSnowDepthMetres(0.01);
-        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(row));
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        snowRows(List.of(location), snowRow(10L, TargetType.SUNRISE, 2.9));
 
         job.runScheduled();
 
-        assertThat(savedRowsOfType("SNOW").get(0).isPresent()).isFalse();
+        List<TopicDailyLogEntity> snow = savedRowsOfType("SNOW");
+        assertThat(snow.get(0).isPresent()).isFalse();
+        assertThat(snow.get(0).getIntensity()).isEqualByComparingTo("2.9");
+    }
+
+    @Test
+    @DisplayName("a region's SNOW is present when any one place has snow lying, and the intensity is the maximum")
+    void snow_anyPlaceLying_maxIntensity() {
+        RegionEntity region = region(1L);
+        LocationEntity high = locationWithRegion(10L, region);
+        high.setElevationMetres(780);
+        LocationEntity low = locationWithRegion(11L, region);
+        snowRows(List.of(high, low), snowRow(10L, TargetType.SUNRISE, 20.0), snowRow(11L, TargetType.SUNRISE, 0.0));
+
+        job.runScheduled();
+
+        List<TopicDailyLogEntity> snow = savedRowsOfType("SNOW");
+        assertThat(snow).hasSize(1);
+        assertThat(snow.get(0).isPresent()).isTrue();
+        assertThat(snow.get(0).getIntensity()).isEqualByComparingTo("20.0");
+    }
+
+    @Test
+    @DisplayName("SNOW reads enabled places' sunrise rows only: a sunset row, a summit, an unknown place add nothing")
+    void snow_ignoresRowsThatAreNotAPlacesSunrise() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        SnowStateEntity summit = SnowStateEntity.builder().pointKey("summit:helvellyn").evaluationDate(YESTERDAY)
+                .eventType(TargetType.SUNRISE).snowWaterMm(60.0).computedAt(LocalDateTime.of(2027, 3, 5, 4, 0))
+                .build();
+        snowRows(List.of(location), snowRow(10L, TargetType.SUNSET, 20.0), summit,
+                snowRow(99L, TargetType.SUNRISE, 20.0));
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("SNOW")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a place whose snow water is null logs the region with no intensity and not present")
+    void snow_nullWater_notPresentNoIntensity() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        snowRows(List.of(location), snowRow(10L, TargetType.SUNRISE, null));
+
+        job.runScheduled();
+
+        List<TopicDailyLogEntity> snow = savedRowsOfType("SNOW");
+        assertThat(snow).hasSize(1);
+        assertThat(snow.get(0).isPresent()).isFalse();
+        assertThat(snow.get(0).getIntensity()).isNull();
+    }
+
+    @Test
+    @DisplayName("a roster place with no id is left out of the SNOW lookup; the other places still log")
+    void snow_placeWithoutId_skipped() {
+        LocationEntity anonymous = locationWithRegion(10L, region(1L));
+        anonymous.setId(null);
+        LocationEntity known = locationWithRegion(11L, region(2L));
+        snowRows(List.of(anonymous, known), snowRow(11L, TargetType.SUNRISE, 6.0));
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("SNOW")).extracting(TopicDailyLogEntity::getRegionId).containsExactly(2L);
+    }
+
+    @Test
+    @DisplayName("the snow_state read failing is caught for SNOW and does not stop other topics")
+    void snow_sourceFailure_isCaught() {
+        when(snowStateRepository.findByEvaluationDateBetween(YESTERDAY, YESTERDAY))
+                .thenThrow(new IllegalStateException("DB unavailable"));
+        when(regionService.findAll()).thenReturn(List.of(region(1L)));
+        when(nlcClarityService.isNlcSeason(YESTERDAY)).thenReturn(true);
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("SNOW")).isEmpty();
+        assertThat(savedRowsOfType("NLC")).hasSize(1);
     }
 
     // ---------------------------------------------------------------- SPRING_TIDE / KING_TIDE

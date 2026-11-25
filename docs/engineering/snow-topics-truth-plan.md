@@ -1,6 +1,6 @@
 # Snow topics that tell the truth — plan
 
-**Status:** revision 3 (2026-11-24): a six-lens adversarial review, then a second round (a live-data replay
+**Status:** S1–S3 built (2026-11-25). Revision 3 (2026-11-24): a six-lens adversarial review, then a second round (a live-data replay
 of the §3.1 rules, and a refutation of revision 2's design). Owner decisions recorded in §6 (2026-11-24).
 **Sequencing (owner, 2026-11-24):** built only **after the screen-spec series (`screen-spec-plan.md`, P1–P5) has
 merged**, one phase at a time, never alongside another build (laptop hardware is the bottleneck).
