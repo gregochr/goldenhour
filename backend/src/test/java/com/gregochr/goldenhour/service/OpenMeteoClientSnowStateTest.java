@@ -202,6 +202,19 @@ class OpenMeteoClientSnowStateTest {
     }
 
     @Test
+    @DisplayName("isCoolingOff is false at rest, true after a daily-limit refusal, and asking it changes nothing")
+    void isCoolingOffReportsTheCoolOffReadOnly() {
+        assertThat(client.isCoolingOff()).isFalse();
+        expectRefusal(DAILY_LIMIT);
+
+        client.fetchSnowStateBatch(points(3));
+
+        assertThat(client.isCoolingOff()).isTrue();
+        assertThat(client.isCoolingOff()).isTrue();
+        server.verify();
+    }
+
+    @Test
     @DisplayName("a minute-limit 429 ends the snow run at that chunk and starts no cool-off")
     void minuteLimitEndsTheRunWithoutACoolOff() {
         expectOk(20);

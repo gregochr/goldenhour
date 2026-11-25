@@ -158,6 +158,8 @@ class SchedulerJobCatalogueTest {
                 .containsExactly("snow_state_refresh");
         assertThat(snow.services()).containsExactly("Open-Meteo");
         assertThat(snow.usesClaude()).isFalse();
+        assertThat(snow.what()).contains("The snow topics read these figures.")
+                .doesNotContain("nothing shows them yet");
     }
 
     @Test

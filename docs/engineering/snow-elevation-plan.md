@@ -1,6 +1,6 @@
 # Snow state: never run a place at the grid cell's height — plan
 
-**Status:** revision 2 (2026-11-25), after one adversarial review (counts, accepted gap, rate limit folded into §2.3). The owner approved the snow-only fix on 2026-11-25 ("yes please").
+**Status:** built (2026-11-25), from revision 2 after one adversarial review (counts, accepted gap, rate limit folded into §2.3). The owner approved the snow-only fix on 2026-11-25 ("yes please").
 **Roles:** Opus plans and reviews; Sonnet builds (CLAUDE.md, "How every code change is made"). One PR.
 
 ## 1. The defect, measured in production

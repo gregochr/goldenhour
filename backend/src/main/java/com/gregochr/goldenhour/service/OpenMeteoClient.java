@@ -477,7 +477,8 @@ public class OpenMeteoClient {
      * Fetches the point snowpack inputs for many places and summits (snow-topics-truth-plan §3.2). Best effort,
      * data only, modelled on {@link #fetchInversionProfileBatch}: shared {@code open-meteo} rate limiter, no
      * retry, no circuit breaker. Each chunk of {@value #BATCH_COORD_LIMIT} sends one {@code elevation} per point
-     * (a NaN elevation sends {@code nan}, the model's own cell height) and {@code past_days=}
+     * (a NaN elevation sends {@code nan}, the model's own cell height; no caller sends one now, it is a
+     * defensive fallback) and {@code past_days=}
      * {@value #SNOW_STATE_PAST_DAYS}, with the usual inter-chunk pause. Callers put summits first, so a run cut
      * short loses places before backdrops.
      *
@@ -1212,6 +1213,15 @@ public class OpenMeteoClient {
         if (active != null) {
             throw new OpenMeteoCoolOffException(active.reason(), Instant.ofEpochMilli(active.untilMs()));
         }
+    }
+
+    /**
+     * Read-only: true while a cool-off is in force. Starts and extends nothing.
+     *
+     * @return whether Open-Meteo requests are currently being refused locally
+     */
+    public boolean isCoolingOff() {
+        return coolOffInForce();
     }
 
     /** True while a cool-off is in force. */
