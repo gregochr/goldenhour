@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   FURTHER_AHEAD_HEADING_ID, FURTHER_AHEAD_ID, THIS_WEEK_HEADING, THIS_WEEK_HEADING_ID, THIS_WEEK_ID,
-  THIS_WEEK_SUBHEADING, focusSectionHeading,
+  focusSectionHeading,
 } from '../utils/screenSections.js';
 
 /** The two sections' ids and the one "go to this heading" move every door makes (one-screen-plan.md O2, D11). */
@@ -11,9 +11,9 @@ afterEach(() => {
 });
 
 describe('screenSections', () => {
-  it('has four distinct ids and the two heading words', () => {
+  it('has four distinct ids and the heading word', () => {
     expect(new Set([THIS_WEEK_ID, THIS_WEEK_HEADING_ID, FURTHER_AHEAD_ID, FURTHER_AHEAD_HEADING_ID]).size).toBe(4);
-    expect(`${THIS_WEEK_HEADING} · ${THIS_WEEK_SUBHEADING}`).toBe('This week · forecast');
+    expect(THIS_WEEK_HEADING).toBe('This week');
   });
 
   it('scrolls the SECTION to the top (never the sticky heading), then focuses the heading without a second scroll', () => {

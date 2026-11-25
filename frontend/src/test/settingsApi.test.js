@@ -6,7 +6,7 @@ import apiClient from '../api/axiosClient.js';
 import {
   getSettings, lookupPostcode, reverseLookupPostcode, saveHome, refreshDriveTimes,
   saveMapColourPreferences, saveMapTideMode, markComingUpSeen, getReach, markPostcodePromptDismissed,
-  getReachVerdicts,
+  getReachVerdicts, markPlacesHintDismissed,
 } from '../api/settingsApi.js';
 
 const BASE = '/api/user/settings';
@@ -73,8 +73,14 @@ describe('settingsApi', () => {
     expect(apiClient.put).toHaveBeenCalledWith(`${BASE}/postcode-prompt-dismissed`, undefined, { timeout: 10000 });
   });
 
+  it('markPlacesHintDismissed PUTs with no body and a 10 s timeout', async () => {
+    expect(await markPlacesHintDismissed()).toBe('body');
+    expect(apiClient.put).toHaveBeenCalledWith(`${BASE}/places-hint-dismissed`, undefined, { timeout: 10000 });
+  });
+
   it('propagates a failure', async () => {
     apiClient.put.mockRejectedValue(new Error('500'));
     await expect(markPostcodePromptDismissed()).rejects.toThrow('500');
+    await expect(markPlacesHintDismissed()).rejects.toThrow('500');
   });
 });

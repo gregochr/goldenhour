@@ -28,22 +28,26 @@ import useReaderSettings, { recordReducer, INITIAL_RECORD } from '../hooks/useRe
 vi.mock('../api/settingsApi.js', () => ({
   getSettings: vi.fn(),
   saveMapTideMode: vi.fn(),
+  markPlacesHintDismissed: vi.fn(),
 }));
 
-import { getSettings, saveMapTideMode } from '../api/settingsApi.js';
+import { getSettings, markPlacesHintDismissed, saveMapTideMode } from '../api/settingsApi.js';
 
 /** `GET /api/user/settings` for one reader, before and after moving from Morpeth to Keswick. */
 const MORPETH = {
   homePostcode: 'NE61 1AA', homeLatitude: 55.17, homeLongitude: -1.69,
   homePlaceName: 'Morpeth', driveTimesCalculatedAt: '2026-09-01T10:00:00Z', postcodePromptDue: false,
+  placesHintDue: false,
 };
 const KESWICK = {
   homePostcode: 'CA12 5JR', homeLatitude: 54.6, homeLongitude: -3.13,
   homePlaceName: 'Keswick', driveTimesCalculatedAt: null, postcodePromptDue: false,
+  placesHintDue: false,
 };
 const NO_HOME = {
   homePostcode: null, homeLatitude: null, homeLongitude: null,
   homePlaceName: null, driveTimesCalculatedAt: null, postcodePromptDue: false,
+  placesHintDue: false,
 };
 
 const read = (settings) => ({ type: 'read', settings });
@@ -360,6 +364,76 @@ describe('useReaderSettings — postcodePromptDue (login-registration-plan.md §
 
       expect(result.current.homePlace).toBe('Morpeth');
       expect(result.current.postcodePromptDue).toBe(false);
+    });
+  });
+});
+
+describe('useReaderSettings — placesHintDue (screen-spec.md D8)', () => {
+  const DUE = { ...NO_HOME, placesHintDue: true };
+  const WITHOUT_FLAG = {
+    homePostcode: null, homeLatitude: null, homeLongitude: null,
+    homePlaceName: null, driveTimesCalculatedAt: null, postcodePromptDue: false,
+  };
+
+  it('is read STRICTLY: only a literal true is due', () => {
+    expect(readOf(DUE).settings.placesHintDue).toBe(true);
+    [false, undefined, null, 'true', 1, {}].forEach((value) => {
+      expect(readOf({ ...NO_HOME, placesHintDue: value }).settings.placesHintDue).toBe(false);
+    });
+    expect(readOf(WITHOUT_FLAG).settings.placesHintDue).toBe(false);
+  });
+
+  it('a dismissal or first-save answer lowers the flag and moves NO counter, and is never dropped as "unchanged"', () => {
+    const record = readOf(DUE);
+
+    const after = recordReducer(record, answer(NO_HOME));
+
+    expect(after.settings.placesHintDue).toBe(false);
+    expect(after).not.toBe(record);
+    expect(after.homeSettingsVersion).toBe(0);
+    expect(after.driveTimesVersion).toBe(0);
+  });
+
+  describe('through the hook', () => {
+    beforeEach(() => { vi.resetAllMocks(); });
+
+    it('is false while unknown and after a failed read, true once the read answers due', async () => {
+      getSettings.mockReturnValue(new Promise(() => {}));
+      expect(renderHook(() => useReaderSettings()).result.current.placesHintDue).toBe(false);
+
+      getSettings.mockRejectedValue(new Error('offline'));
+      const failed = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+      expect(failed.result.current.placesHintDue).toBe(false);
+
+      getSettings.mockResolvedValue(DUE);
+      const due = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+      expect(due.result.current.placesHintDue).toBe(true);
+    });
+
+    it('dismissPlacesHint hides it at once and writes the flag once', async () => {
+      getSettings.mockResolvedValue(DUE);
+      markPlacesHintDismissed.mockResolvedValue({ ...NO_HOME, placesHintDue: false });
+      const { result } = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+      expect(result.current.placesHintDue).toBe(true);
+
+      act(() => { result.current.dismissPlacesHint(); });
+
+      expect(result.current.placesHintDue).toBe(false);
+      expect(markPlacesHintDismissed).toHaveBeenCalledTimes(1);
+    });
+
+    it('a failed write leaves it hidden for this session', async () => {
+      getSettings.mockResolvedValue(DUE);
+      markPlacesHintDismissed.mockRejectedValue(new Error('offline'));
+      const { result } = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+
+      await act(async () => { result.current.dismissPlacesHint(); await Promise.resolve(); });
+
+      expect(result.current.placesHintDue).toBe(false);
     });
   });
 });

@@ -260,6 +260,7 @@ describe('buildWindowCards', () => {
         detail: 'Low cloud clears.',
         locationName: 'Malham Cove',
         locationId: 7,
+        rating: null,
       });
     });
 
@@ -288,6 +289,67 @@ describe('buildWindowCards', () => {
       expect(card.pick.detail).toBeNull();
       expect(card.pick.locationName).toBeNull();
       expect(card.pick.locationId).toBeNull();
+    });
+
+    describe('the pick place\'s own rating (screen-spec.md D3)', () => {
+      const slot = (id, name, claudeRating) => ({
+        locationId: id, locationName: name, ...(claudeRating === undefined ? {} : { claudeRating }),
+      });
+      const withSlots = (pick, regions) => {
+        const es = summary('SUNSET', { pick });
+        es.regions = regions;
+        return build({ events: events([TODAY, 'SUNSET']), days: [day(TODAY, [es])] })[0].pick;
+      };
+      const PICK = {
+        kind: 'BEST', regionName: 'North East', headline: 'H', locationName: 'Crimdon Beach', locationId: 7,
+      };
+
+      it('is the claudeRating of the slot in the pick\'s own region with the pick\'s location id', () => {
+        const pick = withSlots(PICK, [
+          { regionName: 'Other', slots: [slot(7, 'Crimdon Beach', 5)] },
+          { regionName: 'North East', slots: [slot(3, 'Elsewhere', 5), slot(7, 'Crimdon Beach', 3)] },
+        ]);
+
+        // Read, never ranked: the region holds a 5 and the pick's own place is the 3.
+        expect(pick.rating).toBe(3);
+      });
+
+      it('falls back to the location name when the pick carries no id', () => {
+        const pick = withSlots({ ...PICK, locationId: undefined }, [
+          { regionName: 'North East', slots: [slot(3, 'Elsewhere', 5), slot(7, 'Crimdon Beach', 4)] },
+        ]);
+
+        expect(pick.rating).toBe(4);
+      });
+
+      it('is null with no slot for the place, no rating on it (a gated slot), or no place named', () => {
+        expect(withSlots(PICK, [{ regionName: 'North East', slots: [slot(3, 'Elsewhere', 5)] }]).rating).toBeNull();
+        expect(withSlots(PICK, [{ regionName: 'North East', slots: [slot(7, 'Crimdon Beach')] }]).rating).toBeNull();
+        expect(withSlots(PICK, [{ regionName: 'Other', slots: [slot(7, 'Crimdon Beach', 4)] }]).rating).toBeNull();
+        expect(withSlots(PICK, undefined).rating).toBeNull();
+        expect(withSlots({ ...PICK, locationName: undefined, locationId: undefined }, [
+          { regionName: 'North East', slots: [slot(7, 'Crimdon Beach', 4)] },
+        ]).rating).toBeNull();
+      });
+
+      it('rides the strip descriptor with the place, never the card\'s own best rating', () => {
+        const es = summary('SUNSET', { pick: PICK, bestRating: 5 });
+        es.regions = [{ regionName: 'North East', slots: [slot(7, 'Crimdon Beach', 3)] }];
+        const cards = build({ events: events([TODAY, 'SUNSET']), days: [day(TODAY, [es])] });
+        const [strip] = buildHeatStripCards(events([TODAY, 'SUNSET']), cards, new Set(), [day(TODAY, [es])], TODAY, TOMORROW);
+
+        expect(strip).toMatchObject({
+          pickKind: 'best', pickRegion: 'North East', pickLocationId: 7, pickLocationName: 'Crimdon Beach',
+          pickRating: 3,
+        });
+      });
+
+      it('is null on the strip descriptor of a window with no pick', () => {
+        const cards = build(oneWindow());
+        const [strip] = buildHeatStripCards(events([TODAY, 'SUNSET']), cards, new Set(), [], TODAY, TOMORROW);
+
+        expect(strip).toMatchObject({ pickLocationId: null, pickLocationName: null, pickRating: null });
+      });
     });
 
     it('is null on the windows that are neither pick, which is most of them', () => {

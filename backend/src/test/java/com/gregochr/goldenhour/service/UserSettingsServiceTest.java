@@ -1411,6 +1411,58 @@ class UserSettingsServiceTest {
     }
 
     @Nested
+    @DisplayName("placesHintDue (screen-spec D8)")
+    class PlacesHint {
+
+        @Test
+        @DisplayName("due while the column is null, whatever the postcode says")
+        void due_whileUnstamped() {
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(buildUser()));
+
+            assertThat(service.getSettings(auth).placesHintDue()).isTrue();
+        }
+
+        @Test
+        @DisplayName("not due once a dismissal or a first save has stamped the column")
+        void notDue_whenStamped() {
+            stubAuth();
+            AppUserEntity user = buildUser();
+            user.setPlacesHintDismissedAt(NOW);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+            assertThat(service.getSettings(auth).placesHintDue()).isFalse();
+        }
+
+        @Test
+        @DisplayName("dismissing stamps the server's clock through the column-scoped update, never save(), "
+                + "and answers a fresh read with the flag false")
+        void dismiss_writesTheClockThroughTheScopedUpdate() {
+            stubAuth();
+            AppUserEntity afterWrite = buildUser();
+            afterWrite.setPlacesHintDismissedAt(NOW);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(afterWrite));
+
+            UserSettingsResponse response = service.markPlacesHintDismissed(auth);
+
+            verify(userRepository).updatePlacesHintDismissedAtByUsernameIfNull(USERNAME, NOW);
+            verify(userRepository, never()).save(any());
+            assertThat(response.placesHintDue()).isFalse();
+            verifyNoInteractions(postcodesIoClient);
+        }
+
+        @Test
+        @DisplayName("dismissing an unknown user is a NoSuchElementException (404)")
+        void dismiss_unknownUser_throws() {
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.markPlacesHintDismissed(auth))
+                    .isInstanceOf(NoSuchElementException.class);
+        }
+    }
+
+    @Nested
     @DisplayName("reverseLookupPostcode")
     class ReverseLookup {
 

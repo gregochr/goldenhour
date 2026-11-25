@@ -3,7 +3,7 @@ import { shiftDateStr } from './mapDates.js';
 import { topicStyle } from './topicPalette.js';
 
 /**
- * The "Next four days" topic tiles' model — now the source of This week's "The days ahead" lanes, which
+ * The "Next four days" topic tiles' model — now the source of This week's day lanes, which
  * {@link buildGlanceLanes} re-buckets and {@code WindowGlanceLanes} draws through {@code WindowFirstHeatStrip}
  * (days-ahead-lanes-plan.md; it began as the stacked day-header pills of glance-topic-strip-plan.md). It began as
  * the Coming up tab's block of the same name (coming-up-glance-plan §3 T1), which that plan moved here, and

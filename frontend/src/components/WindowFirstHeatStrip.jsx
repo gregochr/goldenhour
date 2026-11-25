@@ -1,5 +1,5 @@
 import React, {
-  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import {
@@ -26,6 +26,8 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { daysOut, fieldBloomAllowed, fieldConfidence, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
+import { isQuietDay, topicLaneCount } from '../utils/quietDays.js';
+import StarFigure from './shared/StarFigure.jsx';
 import { buildFourDayTiles, buildGlanceLanes } from '../utils/fourDayTiles.js';
 import {
   buildSpread, formatSpreadCount, noRouteClause, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
@@ -50,9 +52,12 @@ import ProUpsellDoor, {
 } from './shared/ProUpsell.jsx';
 import { prefersReducedMotion } from '../utils/askCamera.js';
 import { picksNoteText } from '../utils/pickGeography.js';
-import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
+import { GuideWhy } from './guide/GuideLink.jsx';
 import { SubRegionActionButton } from './subregions/SubRegionActions.jsx';
 import BookmarkMark from './shared/BookmarkMark.jsx';
+
+/** No quiet day opened yet (a stable default so the prop is not a new Set every render). */
+const NO_QUIET_OPEN = new Set();
 
 /**
  * The thumbnail frame's aspect clamps.
@@ -797,6 +802,9 @@ function areaLabel(regionName, tiny) {
  *                                    of, and the watched entries a lane here shows; Further ahead leaves them out so
  *                                    nothing shows twice (one-screen-plan.md D5, screen-spec.md D2). Called when the
  *                                    set changes
+ * @param {Set<string>} [props.quietOpen] the quiet days (ISO dates) the reader has opened this session; a quiet day not in
+ *                                    it is folded to one line (screen-spec.md D5). The shell owns it, so it survives a remount
+ * @param {Function} [props.onQuietToggle] `(date)` — a quiet day's fold button was pressed
  * @param {Function} [props.onOpenWatched] `({window, focus, from})` — a watched date's lane was pressed: opens the map
  *                                    view on its window and best place. Absent: a watched lane is plain text
  * @param {boolean}  [props.picksLocked] true for a reader without best bets (LITE): the key row carries one
@@ -812,6 +820,7 @@ export default function WindowFirstHeatStrip({
   picksLocked = false, groundSets = null, picks = null,
   comingUpEntries = null, renderedEntryIds = null, openableKeys = null, forecastDates = null,
   onLaneEntryIds = undefined, onShowOnMap = undefined, onOpenLaneOnMap = undefined, onOpenWatched = undefined,
+  quietOpen = NO_QUIET_OPEN, onQuietToggle = undefined,
 }) {
   // Your places (F4): the Glance best-spot line marks a place the reader bookmarked itself, and says so. A mark only.
   const favourites = useFavourites();
@@ -852,7 +861,7 @@ export default function WindowFirstHeatStrip({
   const reserveScope = useMemo(() => cards.some((card) => card.verdictScope != null), [cards]);
   // Indexed once for the whole matrix rather than scanned per card — `buildTopicIndex` records why.
   const topicIndex = useMemo(() => buildTopicIndex(hotTopics), [hotTopics]);
-  // "The days ahead" lanes (days-ahead-lanes-plan.md): the licensed `buildFourDayTiles` model over the SAME
+  // The day lanes (days-ahead-lanes-plan.md): the licensed `buildFourDayTiles` model over the SAME
   // `hotTopics`, re-bucketed by `buildGlanceLanes` into one lane per run of a topic on this matrix's columns.
   // UNSCOPED, as the Coming up block it replaced was, while the cards' own topic rows are scope-filtered — the
   // design's stated source, and intended. No `onShowOnMap` means no Map door and no window route without
@@ -986,6 +995,87 @@ export default function WindowFirstHeatStrip({
       href: servedWarnings.metOfficeUrl,
     };
   };
+  // Quiet days (screen-spec.md D5): a day on which every window it shows is served and at most 2★, and which carries no
+  // warning and no watched date, folds to one line the reader can open in place. A topic lane never decides it (it is
+  // counted in the folded line on a phone, and stays in the shared lanes grid on desktop); a null rating never folds.
+  const foldBase = useId();
+  const quietDates = useMemo(
+    () => new Set(matrix.days
+      .filter((day) => isQuietDay(day, {
+        warningLanes, watchedLanes: watched.added, topicLanes: decoratedLanes,
+      }))
+      .map((day) => day.date)),
+    [matrix, warningLanes, watched, decoratedLanes],
+  );
+  /** The id of a quiet day's body (phone), or of one of its two cells (desktop: `am` / `pm`). */
+  const bodyIdOf = (date, slot = null) => `${foldBase}-${date}${slot ? `-${slot}` : ''}`;
+  /**
+   * The ONE persistent button of a quiet day, the same element folded and open (so focus stays on it): its words say
+   * the day, that nothing is above 2★ and, on a phone, how many topics sit inside; the glyph is decoration and the
+   * state is `aria-expanded`. It controls the day's body, which stays mounted and `hidden` while folded.
+   *
+   * @param {object} day the matrix day
+   * @param {string} controls the id(s) of the body it controls
+   * @param {boolean} phone whether the phone count of topics is drawn
+   */
+  const renderFold = (day, controls, phone) => {
+    const open = quietOpen.has(day.date);
+    const topics = phone ? topicLaneCount(day.date, decoratedLanes) : 0;
+    return (
+      <button
+        key={`${day.date}:fold`}
+        type="button"
+        data-testid="wf-quiet-fold"
+        className={`wf-quiet-fold${day.today ? ' today' : ''}`}
+        aria-expanded={open}
+        aria-controls={controls}
+        onClick={() => onQuietToggle?.(day.date)}
+      >
+        <span className="wf-quiet-day">{`${day.today ? 'Today' : day.dow} ${day.dn}`}</span>
+        <span aria-hidden="true" className="wf-quiet-sep">{' · '}</span>
+        <span className="sr-only">, </span>
+        <span className="wf-quiet-note">
+          nothing above
+          {' '}
+          <StarFigure n={2} />
+        </span>
+        {topics > 0 && (
+          <>
+            <span aria-hidden="true" className="wf-quiet-sep">{' · '}</span>
+            <span className="sr-only">, </span>
+            <span className="wf-quiet-note" data-testid="wf-quiet-topics">
+              {`${topics} ${topics === 1 ? 'topic' : 'topics'}`}
+            </span>
+          </>
+        )}
+        <span aria-hidden="true" className="wf-quiet-caret">{open ? ' ▾' : ' ▸'}</span>
+      </button>
+    );
+  };
+  /**
+   * A quiet day's cell in one of the desktop's two card rows. The column's own header stays; the sunrise row's cell
+   * carries the fold button above the (hidden while folded) card, and the sunset row's cell holds only its card, so it
+   * is an empty, inert space while folded. The card is mounted either way, so the button's `aria-controls` names both
+   * real elements.
+   *
+   * @param {object} day the matrix day
+   * @param {number} column the grid column, 1-based
+   * @param {'am'|'pm'} slot which row
+   * @param {React.ReactElement} node the card or the explained hole
+   */
+  const renderQuietCell = (day, column, slot, node) => (
+    <div
+      key={`${day.date}:${slot}:cell`}
+      className={`wf-quiet-cell wf-quiet-cell-${slot}`}
+      data-testid="wf-quiet-cell"
+      style={{ '--c': column }}
+    >
+      {slot === 'am' && renderFold(day, `${bodyIdOf(day.date, 'am')} ${bodyIdOf(day.date, 'pm')}`, false)}
+      <div id={bodyIdOf(day.date, slot)} className="wf-day-body" hidden={!quietOpen.has(day.date)}>
+        {node}
+      </div>
+    </div>
+  );
   /**
    * The almanac entries the lanes carry the jump of (one-screen-plan.md D5). Further ahead drops exactly these, so a
    * date shows once: here as a lane, or there as an entry. Reported only when the SET changes (a sorted key), so a
@@ -2304,18 +2394,6 @@ export default function WindowFirstHeatStrip({
   // the matrix needs is visual, and the buttons carry the words.
   return (
     <section ref={stripRef} data-testid="wf-heat-strip" className="wf-hstrip-block">
-      <div data-testid="wf-heat-head" className="wf-hstrip-h">
-        {/* ⚠️ A HEADING, not a span. It is a section heading by every visual convention — 9.5px mono,
-            600, letter-spaced, uppercase, beside a full-width hairline — and it was marked up as a
-            `<span>`, which left the whole v2 Plan tab with exactly one heading (the masthead
-            wordmark's `h1`). A browse-mode reader pressing `H` went from the wordmark to the end of
-            the page. Level 2 under that `h1`; `.wf-hstrip-k` carries every visible property and
-            Tailwind's preflight resets heading size and weight to inherited, so nothing moves. */}
-        <h2 className="wf-hstrip-k">The days ahead</h2>
-        <span className="wf-hstrip-rule" aria-hidden="true" />
-        <GuideLink section="fixed" label="What fixed and could still move mean" />
-      </div>
-
       {/* ⚠️ Two structures from one matrix, never both mounted at once (matrix-axis plan D3). A
           desktop reader gets sticky day tiles plus two row-scoped rails, which needs `.wf-dhrow` and
           `.wf-hrow` to contain rail + cards together — a rail can only pin over its own row's cards
@@ -2332,12 +2410,11 @@ export default function WindowFirstHeatStrip({
         >
           {matrix.days.map((day, index) => {
             const column = index + 1;
-            return (
-              <React.Fragment key={day.date}>
-                {renderDayHeader(day, column)}
-                {/* That day's lanes flow straight after its own day's header, spanning the row (the phone grid
-                    has no sticky header to protect, so this is the cleanest place; they are NEVER inside
-                    `renderDayHeader`, which the sticky, measured desktop `.wf-dhrow` shares). */}
+            /* That day's lanes flow straight after its own day's header, spanning the row (the phone grid
+               has no sticky header to protect, so this is the cleanest place; they are NEVER inside
+               `renderDayHeader`, which the sticky, measured desktop `.wf-dhrow` shares). */
+            const body = (
+              <>
                 <WindowGlanceLanes
                   key={`${day.date}:lanes`}
                   lanes={decoratedLanes}
@@ -2356,6 +2433,29 @@ export default function WindowFirstHeatStrip({
                 {day.pm
                   ? renderCard(day.pm, column, MATRIX_ROW.sunset, day.solo)
                   : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`)}
+              </>
+            );
+            if (!quietDates.has(day.date)) {
+              return (
+                <React.Fragment key={day.date}>
+                  {renderDayHeader(day, column)}
+                  {body}
+                </React.Fragment>
+              );
+            }
+            // A quiet day: the fold replaces the day header, and the body (lanes and cards) stays mounted, `hidden`
+            // while folded, so the button's `aria-controls` always names a real element.
+            return (
+              <React.Fragment key={day.date}>
+                {renderFold(day, bodyIdOf(day.date), true)}
+                <div
+                  id={bodyIdOf(day.date)}
+                  className="wf-day-body"
+                  data-testid="wf-quiet-body"
+                  hidden={!quietOpen.has(day.date)}
+                >
+                  {body}
+                </div>
               </React.Fragment>
             );
           })}
@@ -2387,9 +2487,10 @@ export default function WindowFirstHeatStrip({
             <div data-testid="wf-heat-cards" className="wf-hcards">
               {matrix.days.map((day, index) => {
                 const column = index + 1;
-                return day.am
+                const node = day.am
                   ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
                   : renderEmpty(day.amEmpty, column, MATRIX_ROW.sunrise, `${day.date}:am`);
+                return quietDates.has(day.date) ? renderQuietCell(day, column, 'am', node) : node;
               })}
             </div>
           </div>
@@ -2398,9 +2499,10 @@ export default function WindowFirstHeatStrip({
             <div data-testid="wf-heat-cards" className="wf-hcards">
               {matrix.days.map((day, index) => {
                 const column = index + 1;
-                return day.pm
+                const node = day.pm
                   ? renderCard(day.pm, column, MATRIX_ROW.sunset, day.solo)
                   : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`);
+                return quietDates.has(day.date) ? renderQuietCell(day, column, 'pm', node) : node;
               })}
             </div>
           </div>
@@ -2612,6 +2714,10 @@ WindowFirstHeatStrip.propTypes = {
   onLaneEntryIds: PropTypes.func,
   /** `({window, focus, from})` — a watched date's lane: opens the map view on its window and best place. */
   onOpenWatched: PropTypes.func,
+  /** The quiet days (ISO dates) the reader has opened; a quiet day not in it is folded. */
+  quietOpen: PropTypes.instanceOf(Set),
+  /** `(date)` — a quiet day's fold button was pressed. */
+  onQuietToggle: PropTypes.func,
   /** `({kind:'event', date, eventType, topicType})` — the Map door of a weather pill. Absent: no Map door. */
   onShowOnMap: PropTypes.func,
   /** `(windowKey, topicType)` — opens the Map on that window, with the topic selected when one is named. */

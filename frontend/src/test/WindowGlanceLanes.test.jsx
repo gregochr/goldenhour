@@ -5,7 +5,7 @@ import WindowGlanceLanes from '../components/WindowGlanceLanes.jsx';
 import { buildFourDayTiles, buildGlanceLanes } from '../utils/fourDayTiles.js';
 
 /**
- * "The days ahead" lanes (days-ahead-lanes-plan.md). The model has its own suite ({@code fourDayTiles.test.js}), the
+ * The day lanes (days-ahead-lanes-plan.md). The model has its own suite ({@code fourDayTiles.test.js}), the
  * strip's wiring is in {@code WindowFirstHeatStrip.test.jsx}, and the stylesheet's own text is pinned in
  * {@code glanceLanesCss.test.js}; what only the markup can be wrong about is the lanes' structure, their accessible
  * names, the tap hand-off and the phone's per-day copies. jsdom loads no stylesheet, so nothing here asserts a colour

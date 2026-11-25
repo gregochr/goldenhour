@@ -694,6 +694,23 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
             @Param("dismissedAt") Instant dismissedAt);
 
     /**
+     * Records that the caller no longer needs the one-time "Bookmark places and watch dates" hint (V230,
+     * screen-spec D8): they dismissed it, or made their first favourite. Column-scoped, like every write
+     * to this family of columns, and only while the column is still null, so the first instant stands and
+     * a second call writes nothing.
+     *
+     * @param username    the caller's username
+     * @param dismissedAt the instant to record
+     * @return 1 if it was stamped; 0 if it had been stamped already (or there is no such user)
+     */
+    @Modifying(flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.placesHintDismissedAt = :dismissedAt "
+            + "WHERE u.username = :username AND u.placesHintDismissedAt IS NULL")
+    int updatePlacesHintDismissedAtByUsernameIfNull(@Param("username") String username,
+            @Param("dismissedAt") Instant dismissedAt);
+
+    /**
      * Starts a reader's sub-region grace period, but only while none has started (sub-regions-plan §4.3,
      * "sets {@code graceUntil} if it is null"). Column-scoped, like every write to the sub-region columns.
      *

@@ -194,6 +194,22 @@ public class UserSettingsController {
     }
 
     /**
+     * Records that the caller dismissed the one-time "Bookmark places and watch dates" hint (screen-spec
+     * D8) and answers the settings, whose {@code placesHintDue} is then false.
+     *
+     * <p>The {@code /postcode-prompt-dismissed} shape: no request body, idempotent, any authenticated
+     * role (a Lite reader sees the hint too). Personal state, so under the prefix
+     * {@code HttpCachingConfig} never filters.
+     *
+     * @param auth the current authentication context
+     * @return the updated user settings
+     */
+    @PutMapping("/places-hint-dismissed")
+    public UserSettingsResponse markPlacesHintDismissed(Authentication auth) {
+        return settingsService.markPlacesHintDismissed(auth);
+    }
+
+    /**
      * Recalculates drive times from the user's home to all locations.
      * Rate limited: max once per 30 minutes (enforced in service). Pro and Admin only: drive times
      * from home are a Pro feature, so a Lite account gets 403.

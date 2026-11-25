@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /**
- * "The days ahead" lanes, and the slim empty slots and best-location name that ship with them, asserted as TEXT —
+ * The day lanes, and the slim empty slots and best-location name that ship with them, asserted as TEXT —
  * {@code vite.config.js} sets {@code css: false} and jsdom has no layout engine, so nothing here can measure a box
  * ({@code heatTokens.test.js} reads {@code index.css} the same way). What is pinned is the part a later edit could
  * quietly break (days-ahead-lanes-plan.md):
@@ -48,7 +48,7 @@ const mediaBlock = (query, from = 0) => {
   throw new Error('unbalanced');
 };
 
-const lanesStart = css.indexOf('/* "The days ahead" lanes (days-ahead-lanes-plan.md');
+const lanesStart = css.indexOf('/* The day lanes (days-ahead-lanes-plan.md');
 const lanesEnd = css.indexOf('/* An empty cell says why it is empty', lanesStart);
 const lanesCss = css.slice(lanesStart, lanesEnd);
 const phone = mediaBlock('(max-width: 639px)', lanesStart);

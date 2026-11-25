@@ -137,6 +137,12 @@ export function buildHeatStripCards(
       // a false claim about that region. `buildWindowCards` already withholds the whole pick when an
       // away origin has scoped its region out, so this is null in exactly the cases the kind is.
       pickRegion: card?.pick?.regionName ?? null,
+      // The pick's PLACE, folded for the This week bar's "best Fri sunrise, Crimdon Beach 4★" (screen-spec D3): the
+      // served location, and the rating of that place's own slot, never the card's `bestRating` and never a lookup in
+      // the detail index. Null when the pick names no place or its slot carries no rating.
+      pickLocationId: card?.pick?.locationId ?? null,
+      pickLocationName: card?.pick?.locationName ?? null,
+      pickRating: card?.pick?.rating ?? null,
       away,
       // The reach-scoped headline's facts (reach-scoped-card-plan R2), folded like everything else here and present
       // ONLY when the card wears one, so a card without it is the object it always was. `verdictScope` is what the

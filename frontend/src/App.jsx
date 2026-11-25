@@ -411,6 +411,7 @@ function AppInner() {
    */
   const {
     homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate, postcodePromptDue,
+    placesHintDue, dismissPlacesHint,
     homeSettingsVersion, driveTimesVersion, mapColourScale,
     startSettingsRead, homeSaved, driveTimesRecalculated, colourSaved,
     // Threaded to the Map pane on the same route as `mapColourScale` (map-mobile-sheet-plan.md
@@ -990,6 +991,8 @@ function AppInner() {
                 re-indented one level, for the reason the tab row's wrapper in the shell gives.) */}
             <AskWhenLive rewound={Boolean(rewind)}>
             <WindowFirstShell
+              placesHintDue={placesHintDue}
+              onDismissPlacesHint={dismissPlacesHint}
               mapColourScale={mapColourScale}
               onScreenChange={setActiveScreen}
               registerOpenMap={registerOpenMap}

@@ -300,16 +300,6 @@ async function withWellWidths(widths, run) {
 }
 
 describe('WindowFirstHeatStrip — which windows it draws', () => {
-  it('⚠️ heads the matrix with a real level-2 HEADING, not a styled span', async () => {
-    // It looks like a section heading — 9.5px mono, 600, letter-spaced, uppercase, beside a
-    // full-width hairline — and it was a `<span>`, which left the whole v2 Plan tab with exactly one
-    // heading (the masthead wordmark's `h1`): a browse-mode reader pressing `H` went from the
-    // wordmark to the end of the page. SC 1.3.1. Asserted through the ROLE with its level, which is
-    // the only query that can see the difference; axe could not, because nothing was out of order.
-    await renderStrip({ cards: [stripCard()] });
-    expect(screen.getByRole('heading', { level: 2, name: 'The days ahead' })).toBeInTheDocument();
-  });
-
   it('draws one thumbnail per card, in the order it was handed them', async () => {
     // The strip's whole claim is that it is a time axis, so the order is the payload's and nothing
     // here may sort. (Through M1 an Order control could rank the card list below; that control and
@@ -2016,8 +2006,8 @@ describe('WindowFirstHeatStrip — the away window', () => {
     // to, so the cell states its slot and stops there.
     await renderStrip({ cards: [AWAY] });
 
-    // The away cell is no control. G3's ? in the heading is the strip's only button (was: no button at all).
-    expect(screen.getAllByRole('button').map((b) => b.dataset.testid)).toEqual(['guide-link']);
+    // The away cell is no control, and the strip draws no heading ? any more: no button at all.
+    expect(screen.queryAllByRole('button')).toEqual([]);
     expect(screen.getByTestId('wf-heat-card')).toHaveAttribute('data-away', 'true');
   });
 
@@ -2241,7 +2231,8 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
    * "Poor" either way. Reported against a real Saturday sunrise at T+3, where Gate 4 evaluates
    * SETTLED cells only.
    */
-  const SCORED = stripCard({ verdict: 'STAND_DOWN', verdictLabel: 'Poor', bestRating: 2 });
+  // 3, not 2: a day whose every window is at most 2 stars folds (screen-spec.md D5), and this block is about the cards.
+  const SCORED = stripCard({ verdict: 'STAND_DOWN', verdictLabel: 'Poor', bestRating: 3 });
   const UNSCORED = stripCard({
     key: '2026-08-07:SUNRISE',
     date: '2026-08-07',
@@ -2752,14 +2743,9 @@ describe('WindowFirstHeatStrip — the header, footer and beyond line', () => {
       ],
     });
 
-    expect(screen.getByTestId('wf-heat-head')).toHaveTextContent('The days ahead');
-    expect(screen.getByTestId('wf-heat-head').textContent).not.toMatch(/\d/);
+    // The strip draws no heading of its own any more (This week's bar is the heading, screen-spec.md D3).
+    expect(within(screen.getByTestId('wf-heat-strip')).queryByRole('heading')).toBeNull();
     expect(screen.getByTestId('wf-heat-strip').textContent).not.toMatch(/\d+\s+(rated )?locations/i);
-  });
-
-  it('says the same thing for a one-day strip, naming no number to have to agree with', async () => {
-    await renderStrip();
-    expect(screen.getByTestId('wf-heat-head')).toHaveTextContent('The days ahead');
   });
 
   it('decodes the ramp and admits the haze, in the design\'s own words', async () => {
@@ -4755,12 +4741,10 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     expect(screen.queryByTestId('wf-glance-topic-key')).toBeNull();
   });
 
-  it('has no starts/continues key in the section head and no "Dated events in Coming up" door', async () => {
+  it('has no starts/continues key and no "Dated events in Coming up" door', async () => {
     await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)] });
-    const head = screen.getByTestId('wf-heat-head');
-    expect(head).not.toHaveTextContent('starts');
-    expect(head).not.toHaveTextContent('continues');
-    expect(head.lastElementChild).toBe(within(head).getByTestId('guide-link'));
+    expect(within(screen.getByTestId('wf-heat-strip')).queryByTestId('guide-link')).toBeNull();
+    expect(screen.queryByTestId('wf-glance-topic-key')).toBeNull();
     expect(screen.queryByText(/Dated events in Coming up/)).toBeNull();
     expect(screen.queryByTestId('wf-glance-topics-door-row')).toBeNull();
   });
@@ -5778,5 +5762,195 @@ describe('WindowFirstHeatStrip — a watched date is its day\'s lane (screen-spe
     });
     const resolve = value.registerWatchHome.mock.calls.at(-1)[0];
     expect(resolve('spring-tide:2026-08-04')).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — quiet days fold (screen-spec.md D5)', () => {
+  const D4 = '2026-08-04';
+  const D5 = '2026-08-05';
+  const D6 = '2026-08-06';
+  const D7 = '2026-08-07';
+  const win = (date, targetType, dow, bestRating) => stripCard({
+    key: `${date}:${targetType}`, date, targetType, dow, sunrise: targetType === 'SUNRISE', bestRating,
+    label: `${dow} ${targetType.toLowerCase()}`,
+  });
+  /** D4 and D5 are quiet (at most 2 stars both ways); D6 has one window above 2; D7 has an unscored window. */
+  const WEEK = [
+    win(D4, 'SUNRISE', 'Tue', 2), win(D4, 'SUNSET', 'Tue', 1),
+    win(D5, 'SUNRISE', 'Wed', 1), win(D5, 'SUNSET', 'Wed', 2),
+    win(D6, 'SUNRISE', 'Thu', 2), win(D6, 'SUNSET', 'Thu', 4),
+    win(D7, 'SUNRISE', 'Fri', null), win(D7, 'SUNSET', 'Fri', 1),
+  ];
+  const inversion = (date) => ({
+    type: 'INVERSION', label: 'Cloud inversion', date, eventType: 'SUNRISE', regions: [],
+    glance: { weather: true, value: 'dawn · 9/10' },
+  });
+
+  /** Owns the open set the shell owns in production, so a press really re-renders the same button. */
+  function Opener({ children }) {
+    const [open, setOpen] = React.useState(() => new Set());
+    return React.cloneElement(children, {
+      quietOpen: open,
+      onQuietToggle: (date) => setOpen((prev) => {
+        const next = new Set(prev);
+        if (next.has(date)) next.delete(date);
+        else next.add(date);
+        return next;
+      }),
+    });
+  }
+  const strip = (props = {}) => renderStrip({ cards: WEEK, wrap: (node) => <Opener>{node}</Opener>, ...props });
+
+  afterEach(() => { useIsMobile.mockReturnValue(false); });
+
+  describe('on a phone', () => {
+    beforeEach(() => { useIsMobile.mockReturnValue(true); });
+
+    it('folds only the days whose every window is served and at most 2 stars, and never an unscored one', async () => {
+      await strip();
+      const folds = screen.getAllByTestId('wf-quiet-fold');
+      expect(folds.map((f) => f.getAttribute('aria-expanded'))).toEqual(['false', 'false']);
+      expect(folds[0]).toHaveTextContent('Today 4 · , nothing above 2★ stars ▸');
+      expect(folds[1]).toHaveTextContent('Wed 5 · , nothing above 2★ stars ▸');
+      // The mixed day and the day with an unscored window keep their own day header and open cards.
+      expect(screen.getAllByTestId('wf-heat-day').map((d) => d.textContent)).toEqual(['Thu6', 'Fri7']);
+    });
+
+    it('the fold REPLACES the day header (no second header for the day) and names the day in words', async () => {
+      await strip();
+      const fold = screen.getAllByTestId('wf-quiet-fold')[1];
+      expect(fold).toHaveAccessibleName(/^Wed 5,\s*nothing above 2 stars$/);
+      expect(screen.getAllByTestId('wf-heat-day').map((d) => d.textContent)).not.toContain('Wed5');
+    });
+
+    it('keeps the body mounted and hidden while folded, and the button controls exactly it', async () => {
+      await strip();
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      const body = document.getElementById(fold.getAttribute('aria-controls'));
+      expect(body).not.toBeNull();
+      expect(body).toHaveAttribute('hidden');
+      expect(within(body).getAllByTestId('wf-heat-card')).toHaveLength(2);
+      // Folded cards are not in the reading order or the tab order.
+      expect(within(body).queryAllByRole('button')).toEqual([]);
+    });
+
+    it('opens in place: the SAME button stays, keeps focus, flips aria-expanded and shows the cards', async () => {
+      await strip();
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      fold.focus();
+
+      fireEvent.click(fold);
+
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toBe(fold);
+      expect(fold).toHaveFocus();
+      expect(fold).toHaveAttribute('aria-expanded', 'true');
+      expect(fold).toHaveTextContent('Today 4 · , nothing above 2★ stars ▾');
+      expect(document.getElementById(fold.getAttribute('aria-controls'))).not.toHaveAttribute('hidden');
+
+      fireEvent.click(fold);
+      expect(fold).toHaveFocus();
+      expect(fold).toHaveAttribute('aria-expanded', 'false');
+      expect(document.getElementById(fold.getAttribute('aria-controls'))).toHaveAttribute('hidden');
+    });
+
+    it('counts the topic lanes inside the folded line, so nothing is hidden silently', async () => {
+      await strip({ hotTopics: [inversion(D4)] });
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      expect(within(fold).getByTestId('wf-quiet-topics')).toHaveTextContent('1 topic');
+      expect(fold).toHaveTextContent('Today 4 · , nothing above 2★ stars · , 1 topic ▸');
+      expect(fold).toHaveAccessibleName(/^Today 4,\s*nothing above 2 stars,\s*1 topic$/);
+      // The lane itself is inside the hidden body, still mounted.
+      expect(within(document.getElementById(fold.getAttribute('aria-controls'))).getByTestId('wf-glance-lane')).toBeInTheDocument();
+      // The other quiet day has no topic and says no count.
+      expect(within(screen.getAllByTestId('wf-quiet-fold')[1]).queryByTestId('wf-quiet-topics')).toBeNull();
+    });
+
+    it('says "topics" for more than one', async () => {
+      await strip({ hotTopics: [inversion(D4), { ...inversion(D4), type: 'MIST', label: 'Valley mist' }] });
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toHaveTextContent('· , 2 topics ▸');
+    });
+
+    it('stays open with a watched date on the day: the lane is drawn and that day does not fold', async () => {
+      const RUN = {
+        id: 'spring-tide:run', type: 'spring-tide', title: 'Spring tide', metric: '4.6 m', family: 'coastal',
+        startDate: D5, endDate: D5, coincidence: [], dayRanges: [],
+      };
+      await strip({
+        // The tide's plan needs a window on the day: Wednesday's sunrise sits on the tide, with a best place.
+        cards: WEEK.map((card) => (card.key === `${D5}:SUNRISE`
+          ? { ...card, tide: { lightAlignment: 'HW' }, bestReach: { rating: 4, locationId: 7, locationName: 'Crimdon Beach' } }
+          : card)),
+        comingUpEntries: [RUN],
+        renderedEntryIds: new Set([RUN.id]),
+        onOpenWatched: vi.fn(),
+        wrap: (node) => withFavourites(<Opener>{node}</Opener>, { dates: ['spring-tide:2026-08-05'] }),
+      });
+      expect(screen.getAllByTestId('wf-quiet-fold')).toHaveLength(1);
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toHaveTextContent('Today 4');
+      expect(screen.getByTestId('wf-watched-lane')).toBeVisible();
+    });
+
+    it('a Lite reader (every best rating null) never sees a fold', async () => {
+      await strip({ cards: WEEK.map((card) => ({ ...card, bestRating: null })) });
+      expect(screen.queryByTestId('wf-quiet-fold')).toBeNull();
+      expect(screen.getAllByTestId('wf-heat-day')).toHaveLength(4);
+    });
+
+    it('honours the shell-owned open set handed in: an opened day starts open', async () => {
+      await strip({ quietOpen: new Set([D5]), wrap: (node) => node });
+      const folds = screen.getAllByTestId('wf-quiet-fold');
+      expect(folds.map((f) => f.getAttribute('aria-expanded'))).toEqual(['false', 'true']);
+    });
+
+    it('tolerates a fold press with no handler handed in', async () => {
+      await strip({ wrap: (node) => node });
+      fireEvent.click(screen.getAllByTestId('wf-quiet-fold')[0]);
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toHaveAttribute('aria-expanded', 'false');
+    });
+  });
+
+  describe('on desktop and tablet', () => {
+    it('keeps the column header, puts the fold in the sunrise row and a quiet cell in the sunset row', async () => {
+      await strip();
+      expect(screen.getAllByTestId('wf-heat-day')).toHaveLength(4);
+      const cells = screen.getAllByTestId('wf-quiet-cell');
+      expect(cells).toHaveLength(4);
+      // The sunrise row's two folded days first, then the sunset row's.
+      const [amCell, , pmCell] = cells;
+      expect(within(amCell).getByTestId('wf-quiet-fold')).toHaveTextContent('Today 4 · , nothing above 2★ stars ▸');
+      expect(within(pmCell).queryByTestId('wf-quiet-fold')).toBeNull();
+      expect(amCell.style.getPropertyValue('--c')).toBe('1');
+      expect(pmCell.style.getPropertyValue('--c')).toBe('1');
+    });
+
+    it('the fold controls both of the day\'s hidden cells, which stay mounted, and opens them in place', async () => {
+      await strip();
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      const ids = fold.getAttribute('aria-controls').split(' ');
+      expect(ids).toHaveLength(2);
+      ids.forEach((id) => expect(document.getElementById(id)).toHaveAttribute('hidden'));
+
+      fold.focus();
+      fireEvent.click(fold);
+
+      expect(fold).toHaveFocus();
+      expect(fold).toHaveAttribute('aria-expanded', 'true');
+      ids.forEach((id) => expect(document.getElementById(id)).not.toHaveAttribute('hidden'));
+    });
+
+    it('draws no topic count (the topic lanes stay in the shared lanes grid, nothing hidden)', async () => {
+      await strip({ hotTopics: [inversion(D4)] });
+      expect(screen.queryByTestId('wf-quiet-topics')).toBeNull();
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toHaveAccessibleName(/^Today 4,\s*nothing above 2 stars$/);
+      expect(screen.getByTestId('wf-glance-lane')).toBeVisible();
+    });
+
+    it('a day with a single window left (today after its sunrise) can still fold, and its hole is explained', async () => {
+      await strip({ cards: [win(D4, 'SUNSET', 'Tue', 1), win(D5, 'SUNRISE', 'Wed', 4), win(D5, 'SUNSET', 'Wed', 4)] });
+      expect(screen.getAllByTestId('wf-quiet-fold')).toHaveLength(1);
+      expect(screen.getAllByTestId('wf-quiet-cell')).toHaveLength(2);
+      const body = document.getElementById(screen.getByTestId('wf-quiet-fold').getAttribute('aria-controls').split(' ')[0]);
+      expect(body).toHaveTextContent('this morning has gone');
+    });
   });
 });

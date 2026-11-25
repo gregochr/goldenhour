@@ -1,6 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act, cleanup, fireEvent, render, screen, within,
+} from '@testing-library/react';
 
 vi.mock('../api/areasApi.js', () => ({ fetchAreaDirectory: vi.fn(), fetchAreaOutlook: vi.fn() }));
 let mockIsMobile = false;
@@ -412,8 +414,7 @@ describe('Your places, the row at the top of This week', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].dataset.kind).toBe('place');
     expect(screen.queryByRole('button', { name: /stop watching/i })).toBeNull();
-    // Dates alone are not "something bookmarked": the empty line still teaches the next action.
-    expect(screen.queryByTestId('your-places-empty')).toBeNull();
+    expect(screen.queryByTestId('your-places-hint')).toBeNull();
   });
 
   it('a place outside a Lite-style pick list says so and shows no figure', async () => {
@@ -515,51 +516,123 @@ describe('Your places, the row at the top of This week', () => {
     });
   });
 
-  it('⚠️ an area-only reader whose directory has not named the area never sees the empty-state advice', async () => {
+  it('⚠️ an area-only reader whose directory has not named the area never sees the hint', async () => {
     // Served list: one area bookmarked. Directory unresolved: bookmarkedAreas is empty.
-    render(list({ areas: [9], locationIds: [3], bookmarkedAreas: [] }));
-    expect(screen.queryByTestId('your-places-empty')).toBeNull();
+    render(list({ areas: [9], locationIds: [3], bookmarkedAreas: [] }, { hintDue: true }));
+    expect(screen.queryByTestId('your-places-hint')).toBeNull();
     expect(await screen.findByTestId('your-places-areas-pending')).toHaveTextContent('1 bookmarked area is not shown yet.');
     expect(screen.queryByTestId('your-places-offplan')).toBeNull();
   });
 
-  it('a bookmarked place that is not on the plan says so rather than printing the empty-state advice', async () => {
-    render(list({ places: [999] }));
-    expect(screen.queryByTestId('your-places-empty')).toBeNull();
+  it('a bookmarked place that is not on the plan says so rather than printing the hint', async () => {
+    render(list({ places: [999] }, { hintDue: true }));
+    expect(screen.queryByTestId('your-places-hint')).toBeNull();
     expect(await screen.findByTestId('your-places-offplan')).toBeInTheDocument();
   });
 
-  it('Escape on the Lite teaser with the upsell open closes only the panel', () => {
+  it('Escape on the Lite hint with the upsell open closes only the panel', () => {
     const onKey = vi.fn();
     document.addEventListener('keydown', onKey);
-    render(list({ status: 'locked' }));
-    const teaser = screen.getByTestId('your-places-teaser-button');
-    fireEvent.click(teaser);
-    fireEvent.keyDown(teaser, { key: 'Escape' });
+    render(list({ status: 'locked' }, { hintDue: true }));
+    const trigger = screen.getByTestId('your-places-hint-button');
+    fireEvent.click(trigger);
+    fireEvent.keyDown(trigger, { key: 'Escape' });
     expect(screen.queryByTestId('your-places-upsell-panel')).toBeNull();
     expect(onKey).not.toHaveBeenCalled();
     document.removeEventListener('keydown', onKey);
   });
 
-  it('says what to do when nothing is bookmarked, and draws no outlook request without a bookmarked area', async () => {
-    render(list({}));
-    expect(await screen.findByTestId('your-places-empty')).toHaveTextContent('Bookmark a place or an area, and it lands here.');
-    expect(fetchAreaOutlook).not.toHaveBeenCalled();
-  });
+  describe('the one-time hint (screen-spec.md D8)', () => {
+    const HINT = 'Bookmark places and watch dates to build your plan.';
 
-  it('a Lite reader sees a one-line Your places · Pro teaser that opens the upsell, and nothing is fetched', () => {
-    render(list({ status: 'locked' }));
-    const teaser = screen.getByTestId('your-places-teaser-button');
-    expect(teaser).toHaveTextContent('Your places');
-    expect(teaser).toHaveTextContent('Pro');
-    fireEvent.click(teaser);
-    expect(screen.getByTestId('your-places-upsell-panel')).toBeInTheDocument();
-    expect(fetchAreaOutlook).not.toHaveBeenCalled();
-  });
+    it('replaces the row for a Pro reader with nothing saved, while it is due', async () => {
+      render(list({}, { hintDue: true }));
+      const hint = await screen.findByTestId('your-places-hint');
+      expect(hint).toHaveTextContent(HINT);
+      expect(screen.getByTestId('your-places-hint-dismiss')).toHaveAccessibleName('Dismiss');
+      expect(screen.queryByTestId('your-places')).toBeNull();
+      expect(screen.queryByRole('button', { name: /pro/i })).toBeNull();
+      expect(fetchAreaOutlook).not.toHaveBeenCalled();
+    });
 
-  it('draws nothing while the list is loading or has failed', () => {
-    render(list({ status: 'loading' }));
-    expect(screen.queryByTestId('your-places')).toBeNull();
+    it('is absent when it is not due, and the row is absent too (no empty heading)', () => {
+      render(list({}, { hintDue: false }));
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+      expect(screen.queryByTestId('your-places')).toBeNull();
+    });
+
+    it('draws nothing while the list is loading or has failed, even when due', () => {
+      render(list({ status: 'loading' }, { hintDue: true }));
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+    });
+
+    it('is not shown to a reader who has a bookmarked place, an area or a watched date', async () => {
+      render(list({ places: [1] }, { hintDue: true }));
+      await screen.findAllByTestId('your-places-chip');
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+      cleanup();
+      render(list({ dates: ['king-tide:2026-12-03'] }, { hintDue: true }));
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+    });
+
+    it('the Dismiss writes the flag once, hides the hint at once and puts focus on the This week heading', () => {
+      const onDismissHint = vi.fn();
+      render(
+        <>
+          <h2 id="wf-this-week-h" tabIndex={-1}>This week</h2>
+          {list({}, { hintDue: true, onDismissHint })}
+        </>,
+      );
+      fireEvent.click(screen.getByTestId('your-places-hint-dismiss'));
+      expect(onDismissHint).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+      expect(document.getElementById('wf-this-week-h')).toHaveFocus();
+    });
+
+    it('the Dismiss still works with no writer handed in, and a missing heading drops focus nowhere', () => {
+      render(list({}, { hintDue: true }));
+      fireEvent.click(screen.getByTestId('your-places-hint-dismiss'));
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+    });
+
+    it('the first save hides it at once, and removing everything afterwards never brings it back', async () => {
+      const view = render(list({}, { hintDue: true }));
+      expect(screen.getByTestId('your-places-hint')).toBeInTheDocument();
+
+      view.rerender(list({ places: [1] }, { hintDue: true }));
+      await screen.findAllByTestId('your-places-chip');
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+
+      view.rerender(list({}, { hintDue: true }));
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+    });
+
+    it('a Lite reader sees the same line with a Pro pill that opens one upsell for places and dates', () => {
+      render(list({ status: 'locked' }, { hintDue: true }));
+      const trigger = screen.getByTestId('your-places-hint-button');
+      expect(trigger).toHaveTextContent(HINT);
+      expect(trigger).toHaveTextContent('Pro');
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(trigger);
+      const panel = screen.getByTestId('your-places-upsell-panel');
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      expect(panel).toHaveTextContent(/places and areas, and can watch dates/);
+      expect(fetchAreaOutlook).not.toHaveBeenCalled();
+    });
+
+    it('a Lite reader whose hint is not due sees nothing: no teaser any more', () => {
+      render(list({ status: 'locked' }, { hintDue: false }));
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+      expect(screen.queryByTestId('your-places')).toBeNull();
+    });
+
+    it('a Lite reader can dismiss it too', () => {
+      const onDismissHint = vi.fn();
+      render(list({ status: 'locked' }, { hintDue: true, onDismissHint }));
+      fireEvent.click(screen.getByTestId('your-places-hint-dismiss'));
+      expect(onDismissHint).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('your-places-hint')).toBeNull();
+    });
   });
 
   it('an area with only gated members says so, and one with no window says not rated yet', async () => {

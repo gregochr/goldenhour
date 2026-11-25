@@ -9,9 +9,8 @@ export const THIS_WEEK_HEADING_ID = 'wf-this-week-h';
 export const FURTHER_AHEAD_ID = 'wf-further-ahead';
 export const FURTHER_AHEAD_HEADING_ID = 'wf-further-ahead-h';
 
-/** The heading words. This week reads "forecast", Further ahead "dates known in advance". */
+/** The heading word. This week's bar also carries the week's best and the help `?`, as siblings of the heading. */
 export const THIS_WEEK_HEADING = 'This week';
-export const THIS_WEEK_SUBHEADING = 'forecast';
 
 /**
  * Scrolls a section to the top of the screen and puts focus on its heading, the one move every "go to this section"
