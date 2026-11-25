@@ -1,6 +1,6 @@
 # Month rules in Watching (2026-11-25)
 
-Status: **planned, not built; decisions W1 and W2 made.** Queued by the owner. One frontend PR, built by Sonnet per CLAUDE.md's owner rule. It
+Status: **built; decisions W1 and W2 made.** Queued by the owner. One frontend PR, built by Sonnet per CLAUDE.md's owner rule. It
 amends `screen-spec.md` D2 (§6.2).
 
 ## 1. What prompted it

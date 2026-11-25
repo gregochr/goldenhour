@@ -91,8 +91,9 @@ describe('Watching, drawn from the watched entries', () => {
     const group = screen.getByTestId('further-ahead-watching');
     const heading = within(group).getByRole('heading', { level: 3, name: 'Watching' });
     expect(heading.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
-    const list = within(group).getByRole('list', { name: 'Watching' });
+    const list = within(group).getByRole('group', { name: 'Watching' });
     expect(ids(list)).toEqual([SPRING]);
+    expect(within(list).getByRole('list', { name: 'Watching, August 2026' })).toBeInTheDocument();
     // The same card as the month list draws: the panel, the toggle, the state in the words.
     expect(within(list).getByTestId('coming-up-card')).toBeInTheDocument();
     expect(within(list).getByTestId('coming-up-watch-toggle')).toHaveAccessibleName('Watching');
@@ -416,5 +417,94 @@ describe('Watching, focus when a card moves (the real provider)', () => {
     await act(async () => { fireEvent.click(screen.getByTestId('undo-toast-undo')); });
     const back = await screen.findByTestId('watching-unlisted-stop');
     expect(document.activeElement).toBe(back);
+  });
+});
+
+describe('Watching, a month rule above each month of watched rows', () => {
+  const at = (type, family, startDate, endDate = startDate) => wireEntry({
+    id: `${type}:${startDate}:${endDate}`,
+    type,
+    family,
+    title: type,
+    metric: null,
+    startDate,
+    endDate,
+    action: { label: `Show spots for ${startDate} →`, kind: 'coastal-spots', date: startDate },
+  });
+  const DEC = at('supermoon', 'sun-moon', '2026-12-10');
+  const CROSS = at('spring-tide', 'coastal', '2026-12-28', '2027-01-03');
+  const JAN = at('meteor', 'night-sky', '2027-01-04');
+  const FEB = at('supermoon', 'sun-moon', '2027-02-05');
+  const feed = (...entries) => pane({ events: { entries, counts: COUNTS } });
+  const rules = () => screen.getAllByTestId('watching-month').map((rule) => rule.textContent);
+  const lists = () => screen.getAllByTestId('watching-month-list');
+  const unlistedKeys = () => screen.getAllByTestId('watching-unlisted').map((row) => row.getAttribute('data-watch-key'));
+
+  it('draws DEC 2026 and JAN 2027 rules, each above its own entries, with the lists named for the month', () => {
+    render(withFavourites(feed(DEC, JAN), { dates: ['supermoon:2026-12-10', 'meteor:2027-01-04'] }));
+    expect(rules()).toEqual(['Dec2026', 'Jan2027']);
+    expect(lists().map((list) => list.getAttribute('aria-label'))).toEqual([
+      'Watching, December 2026', 'Watching, January 2027',
+    ]);
+    expect(ids(lists()[0])).toEqual([DEC.id]);
+    expect(ids(lists()[1])).toEqual([JAN.id]);
+    const [decRule, janRule] = screen.getAllByTestId('watching-month');
+    expect(decRule.compareDocumentPosition(lists()[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(lists()[0].compareDocumentPosition(janRule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(decRule).toHaveAttribute('data-first', 'true');
+    expect(janRule).not.toHaveAttribute('data-first');
+    expect(screen.getByRole('group', { name: 'Watching' })).toBe(screen.getByTestId('watching-list'));
+  });
+
+  it('still draws its rule when every watched row is in one month', () => {
+    render(withFavourites(feed(DEC, JAN), { dates: ['supermoon:2026-12-10'] }));
+    expect(rules()).toEqual(['Dec2026']);
+    expect(ids(lists()[0])).toEqual([DEC.id]);
+  });
+
+  it('puts a run that crosses a month under the month it starts in', () => {
+    render(withFavourites(feed(CROSS, JAN), { dates: ['spring-tide:2026-12-28'] }));
+    expect(rules()).toEqual(['Dec2026']);
+    expect(ids(lists()[0])).toEqual([CROSS.id]);
+  });
+
+  it('puts a "no longer listed" row in its own date\'s month, after that month\'s cards', () => {
+    render(withFavourites(feed(DEC), { dates: ['supermoon:2026-12-10', 'meteor:2026-12-20'] }));
+    expect(rules()).toEqual(['Dec2026']);
+    const children = [...lists()[0].children].map((node) => node.getAttribute('data-testid'));
+    expect(children).toEqual(['coming-up-entry', 'watching-unlisted']);
+    expect(unlistedKeys()).toEqual(['meteor:2026-12-20']);
+  });
+
+  it('gives an unlisted-only month its rule, even BETWEEN two card months, in order', () => {
+    render(withFavourites(feed(DEC, FEB), {
+      dates: ['supermoon:2026-12-10', 'meteor:2027-01-20', 'supermoon:2027-02-05'],
+    }));
+    expect(rules()).toEqual(['Dec2026', 'Jan2027', 'Feb2027']);
+    expect(ids(lists()[0])).toEqual([DEC.id]);
+    expect(within(lists()[1]).queryAllByTestId('coming-up-entry')).toHaveLength(0);
+    expect(within(lists()[1]).getByTestId('watching-unlisted')).toHaveAttribute('data-watch-key', 'meteor:2027-01-20');
+    expect(ids(lists()[2])).toEqual([FEB.id]);
+  });
+
+  it('leaves the month lists and their test ids alone', () => {
+    render(withFavourites(feed(DEC, JAN, FEB), { dates: ['supermoon:2026-12-10', 'meteor:2027-01-04'] }));
+    expect(monthIds()).toEqual([FEB.id]);
+    expect(screen.getAllByTestId('coming-up-month')).toHaveLength(1);
+    expect(screen.getAllByTestId('coming-up-month')[0]).toHaveAttribute('data-first', 'true');
+    expect(screen.getAllByTestId('coming-up-list')).toHaveLength(1);
+    expect(screen.getAllByTestId('watching-month')).toHaveLength(2);
+  });
+
+  it('Stop watching on an unlisted row in the second month focuses the next unlisted row down the page', () => {
+    const initial = ['meteor:2026-12-20', 'meteor:2027-01-20', 'king-tide:2027-01-25', 'meteor:2027-02-20'];
+    const { rerender } = render(withFavourites(feed(DEC), { dates: initial }));
+    expect(rules()).toEqual(['Dec2026', 'Jan2027', 'Feb2027']);
+    const stop = screen.getAllByTestId('watching-unlisted-stop')[1];
+    stop.focus();
+    fireEvent.click(stop);
+    expect(screen.getAllByTestId('watching-unlisted')[1]).toHaveAttribute('data-watch-key', 'meteor:2027-01-20');
+    rerender(withFavourites(feed(DEC), { dates: initial.filter((key) => key !== 'meteor:2027-01-20') }));
+    expect(document.activeElement.closest('[data-watch-key]')).toHaveAttribute('data-watch-key', 'king-tide:2027-01-25');
   });
 });

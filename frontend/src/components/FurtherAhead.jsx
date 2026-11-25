@@ -6,7 +6,7 @@ import WindowComingUpEntry from './WindowComingUpEntry.jsx';
 import WindowComingUpSinceLine from './WindowComingUpSinceLine.jsx';
 import GuideLink from './guide/GuideLink.jsx';
 import {
-  buildChronology, buildEntryView, chipCounts, chipCountsOf, FOOTER,
+  buildChronology, buildEntryView, chipCounts, chipCountsOf, FOOTER, groupEntriesByMonth,
 } from '../utils/comingUpFeed.js';
 import { unlistedWatches, watchedKeysFor } from '../utils/watchedDates.js';
 import { readFurtherAheadFilter, writeFurtherAheadFilter } from '../utils/furtherAheadFilter.js';
@@ -31,6 +31,40 @@ const MOVE_INTENT_PASSES = 4;
 
 /** No graduated entries: the default, so a caller that passes none lists everything the feed served. */
 const NO_GRADUATED = new Set();
+
+/**
+ * The month rule: {@code DEC 2026 ───}, drawn above each month's run in the month lists and in Watching, so the two
+ * cannot drift (the date rail prints days only; this is what says which month). {@code first} sits it close under
+ * the heading above (11px top padding).
+ */
+function MonthRule({
+  monthLabel, year, first = false, testId,
+}) {
+  return (
+    <div
+      className="wf-cu-month"
+      data-testid={testId}
+      data-first={first ? 'true' : undefined}
+    >
+      <span className="wf-cu-month-name">{monthLabel}</span>
+      <span className="wf-cu-month-year">{year}</span>
+      <span className="wf-cu-month-rule" aria-hidden="true" />
+    </div>
+  );
+}
+
+MonthRule.propTypes = {
+  monthLabel: PropTypes.string.isRequired,
+  year: PropTypes.string.isRequired,
+  first: PropTypes.bool,
+  testId: PropTypes.string.isRequired,
+};
+
+/** `December 2026`, the long form a screen reader is given for a month key `2026-12`. */
+function longMonth(monthKey) {
+  const name = new Date(`${monthKey}-15T12:00:00Z`).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' });
+  return `${name} ${monthKey.slice(0, 4)}`;
+}
 
 /** The heading's words. The screen's own name for "dates known in advance", where the tab used to say "Coming up". */
 export const FURTHER_AHEAD_HEADING = 'Further ahead';
@@ -194,6 +228,23 @@ export default function FurtherAhead({
       ? unlistedWatches({ dates: favourites.dates, entries: events?.entries, todayStr }) : []),
     [watchesReady, status, favourites.dates, events, todayStr],
   );
+  // Watching's month groups: cards first, then the "no longer listed" rows, within each month; keys sorted (an
+  // unlisted-only month can fall between two card months, so consecutive grouping is not enough).
+  const watchingGroups = useMemo(() => {
+    const byMonth = new Map();
+    const slot = (key) => {
+      if (!byMonth.has(key)) {
+        const { monthLabel, year } = groupEntriesByMonth([{ startDate: `${key}-01` }])[0];
+        byMonth.set(key, {
+          key, monthLabel, year, views: [], rows: [],
+        });
+      }
+      return byMonth.get(key);
+    };
+    watchingViews.forEach((view) => slot(view.startDate.slice(0, 7)).views.push(view));
+    unlisted.forEach((row, index) => slot(row.date.slice(0, 7)).rows.push({ row, index }));
+    return [...byMonth.values()].sort((a, b) => a.key.localeCompare(b.key));
+  }, [watchingViews, unlisted]);
   const hasWatching = status === 'ready' && (watchingViews.length > 0 || unlisted.length > 0);
   // The month lists hold everything listed that is not watched, so each entry appears once.
   const monthEntries = useMemo(() => {
@@ -542,37 +593,53 @@ export default function FurtherAhead({
               Watching
             </h3>
             <div
-              role="list"
+              role="group"
               data-testid="watching-list"
               aria-labelledby="further-ahead-watching-h"
             >
-              {watchingViews.map(renderEntry)}
-              {unlisted.map((row, index) => (
-                <div
-                  key={row.key}
-                  role="listitem"
-                  className="wf-cu-unlisted"
-                  data-testid="watching-unlisted"
-                  data-watch-key={row.key}
-                >
-                  <span className="wf-cu-unlisted-text">
-                    <BookmarkMark className="wf-yp-mark" />
-                    {row.title}
-                    <span aria-hidden="true">{' · '}</span>
-                    <span className="sr-only">,</span>
-                    {' '}
-                    no longer listed
-                  </span>
-                  <button
-                    type="button"
-                    className="wf-cu-unlisted-stop"
-                    data-testid="watching-unlisted-stop"
-                    onClick={() => stopUnlisted(row, index)}
+              {watchingGroups.map((group, i) => (
+                <div key={group.key}>
+                  <MonthRule
+                    monthLabel={group.monthLabel}
+                    year={group.year}
+                    first={i === 0}
+                    testId="watching-month"
+                  />
+                  <div
+                    role="list"
+                    data-testid="watching-month-list"
+                    aria-label={`Watching, ${longMonth(group.key)}`}
                   >
-                    Stop watching
-                    {' '}
-                    <span className="sr-only">{row.name}</span>
-                  </button>
+                    {group.views.map(renderEntry)}
+                    {group.rows.map(({ row, index }) => (
+                      <div
+                        key={row.key}
+                        role="listitem"
+                        className="wf-cu-unlisted"
+                        data-testid="watching-unlisted"
+                        data-watch-key={row.key}
+                      >
+                        <span className="wf-cu-unlisted-text">
+                          <BookmarkMark className="wf-yp-mark" />
+                          {row.title}
+                          <span aria-hidden="true">{' · '}</span>
+                          <span className="sr-only">,</span>
+                          {' '}
+                          no longer listed
+                        </span>
+                        <button
+                          type="button"
+                          className="wf-cu-unlisted-stop"
+                          data-testid="watching-unlisted-stop"
+                          onClick={() => stopUnlisted(row, index)}
+                        >
+                          Stop watching
+                          {' '}
+                          <span className="sr-only">{row.name}</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
@@ -618,15 +685,12 @@ export default function FurtherAhead({
 
         {status === 'ready' && monthGroups.map((group, i) => (
           <div key={group.key}>
-            <div
-              className="wf-cu-month"
-              data-testid="coming-up-month"
-              data-first={i === 0 ? 'true' : undefined}
-            >
-              <span className="wf-cu-month-name">{group.monthLabel}</span>
-              <span className="wf-cu-month-year">{group.year}</span>
-              <span className="wf-cu-month-rule" aria-hidden="true" />
-            </div>
+            <MonthRule
+              monthLabel={group.monthLabel}
+              year={group.year}
+              first={i === 0}
+              testId="coming-up-month"
+            />
             {/* One list per month, not one list interrupted by month-rule divs: a `role="list"`
                 may only own `listitem` children, and a heading between two runs of entries would
                 break that contract. Grouped-list-with-a-preceding-heading is the standard pattern
