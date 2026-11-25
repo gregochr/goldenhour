@@ -4,14 +4,12 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SlotSignals;
-import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -50,6 +48,12 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
                     + " as rime. It's densest before dawn and goes as the sun warms the ground, so first"
                     + " light is the window.";
 
+    private static final String FRESH_DETAIL = "Snow lying — white landscapes";
+
+    private static final String MIST_DETAIL = "Snow lying with mist — exceptional conditions";
+
+    private static final String FROST_DETAIL = "Freezing mist and frost over lying snow";
+
     /** Topic priority for plain fresh snow — act-on-it, sorts above the calendar heads-ups. */
     private static final int PRIORITY_FRESH = 2;
 
@@ -69,19 +73,15 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
     private static final String MIST_NOTE = "mist over lying snow — soft, flat light";
 
     private final SlotSignalReader slotSignalReader;
-    private final SolarEventFreshness freshness;
 
     /**
      * Constructs a {@code SnowFreshHotTopicStrategy}.
      *
      * @param slotSignalReader the unified slot read model (snow depth, temperature and valley mist
      *                         band readings)
-     * @param freshness        shared filter dropping sunrise/sunset events already past
      */
-    public SnowFreshHotTopicStrategy(SlotSignalReader slotSignalReader,
-            SolarEventFreshness freshness) {
+    public SnowFreshHotTopicStrategy(SlotSignalReader slotSignalReader) {
         this.slotSignalReader = slotSignalReader;
-        this.freshness = freshness;
     }
 
     /**
@@ -111,13 +111,14 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Splits the snowy rows by the valley mist band. Rows that are {@code LIKELY} on a sunrise
-     * yield a SNOW_MIST topic (higher priority, mist-aware label and description) built only from
-     * those rows; the snowy rows at other places or on other days yield a SNOW_FRESH topic built only
-     * from them (a place and day already covered by SNOW_MIST, including its sunset, adds no second
-     * card). Each is dated
-     * to its own earliest day and lists its own regions, and SNOW_MIST comes first. Returns empty
-     * when no row in the window has snow lying.
+     * <p>Builds from SUNRISE rows only (the first-light shooting hour; a sunset-only snow row never
+     * rings a sunrise topic), and emits <em>one topic per day</em>, each carrying that day's regions
+     * and the exact snowy places in {@code locationNames} so the map rings only them. Snow is an
+     * all-day condition, so there is no dawn cut-off: today's topic stays until midnight. Per day,
+     * the sunrise rows whose valley mist band is {@code LIKELY} yield a SNOW_MIST topic (higher
+     * priority, mist-aware label and description); the remaining snowy places that day stay a
+     * SNOW_FRESH topic (a place and day already covered by SNOW_MIST adds no second card). SNOW_MIST
+     * topics come first. Returns empty when no sunrise row in the window has snow lying.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -129,8 +130,8 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
             HotTopicInputs inputs) {
         List<SlotSignals> snowy = inputs.slotSignals().stream()
+                .filter(s -> s.eventType() == TargetType.SUNRISE)
                 .filter(s -> isFreshSnow(s.readings().snowDepthMetres()))
-                .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .sorted(Comparator.comparing(SlotSignals::date))
                 .toList();
         if (snowy.isEmpty()) {
@@ -148,12 +149,12 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
                 .toList();
         List<HotTopic> topics = new ArrayList<>();
         if (!misty.isEmpty()) {
-            topics.add(buildMistTopic(misty, earliestDay(misty), dayLabel(misty, fromDate),
-                    regionsOf(misty)));
+            topics.addAll(PerDateHotTopicBuilder.perDate(misty, "SNOW_MIST", "Fresh snow with mist",
+                    MIST_DETAIL, PRIORITY_MIST, MIST_DESCRIPTION, this::buildMistTopic));
         }
         if (!plain.isEmpty()) {
-            topics.add(buildFreshTopic(plain, earliestDay(plain), dayLabel(plain, fromDate),
-                    regionsOf(plain)));
+            topics.addAll(PerDateHotTopicBuilder.perDate(plain, "SNOW_FRESH", "Fresh snow",
+                    FRESH_DETAIL, PRIORITY_FRESH, FRESH_DESCRIPTION, this::buildFreshTopic));
         }
         return topics;
     }
@@ -165,42 +166,13 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
         return List.of(Objects.requireNonNullElse(place, "none"), s.date());
     }
 
-    /** The earliest date among the rows (non-empty). */
-    private static LocalDate earliestDay(List<SlotSignals> rows) {
-        return rows.stream().map(SlotSignals::date).min(Comparator.naturalOrder()).orElseThrow();
-    }
-
-    /** The relative day label over the rows' distinct dates. */
-    private static String dayLabel(List<SlotSignals> rows, LocalDate fromDate) {
-        List<LocalDate> days = rows.stream()
-                .map(SlotSignals::date)
-                .distinct()
-                .sorted()
-                .toList();
-        return DayLabels.joinRelative(days, fromDate);
-    }
-
-    /** The distinct region names among the rows, in row order. */
-    private static List<String> regionsOf(List<SlotSignals> rows) {
-        Set<String> regions = new LinkedHashSet<>();
-        for (SlotSignals s : rows) {
-            String region = s.location() != null && s.location().getRegion() != null
-                    ? s.location().getRegion().getName() : null;
-            if (region != null) {
-                regions.add(region);
-            }
-        }
-        return new ArrayList<>(regions);
-    }
-
     /**
-     * Builds the plain fresh-snow topic with a depth + snow-line fact line. The representative is the
-     * deepest-snow row (the most striking lie); the snow line is its freezing-level altitude —
-     * "depth and snow-line height tell you where it will actually stick".
+     * Attaches the depth + snow-line fact line to a day's plain fresh-snow topic. The representative
+     * is that day's deepest-snow row (the most striking lie); the snow line is its freezing-level
+     * altitude — "depth and snow-line height tell you where it will actually stick".
      */
-    private HotTopic buildFreshTopic(List<SlotSignals> snowy, LocalDate date, String dayLabel,
-            List<String> regions) {
-        SlotSignals rep = deepest(snowy);
+    private HotTopic buildFreshTopic(HotTopic base, List<SlotSignals> dayRows) {
+        SlotSignals rep = deepest(dayRows);
         List<HotTopicFact> facts = new ArrayList<>();
         facts.add(HotTopicFact.metric("depth", depthCm(rep) + " cm"));
         Double freezingLevel = rep.readings().freezingLevelMetres();
@@ -208,30 +180,19 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
             facts.add(new HotTopicFact("snow line", "~" + Math.round(freezingLevel) + " m",
                     null, false, true));
         }
-        HotTopic topic = new HotTopic(
-                "SNOW_FRESH",
-                "Fresh snow",
-                "Snow lying — white landscapes " + dayLabel,
-                date,
-                PRIORITY_FRESH,
-                null,
-                regions,
-                FRESH_DESCRIPTION,
-                null);
-        return topic.withScience(facts, FRESH_NOTE);
+        return base.withScience(facts, FRESH_NOTE);
     }
 
     /**
-     * Builds the mist variant from the sunrise rows whose valley mist band is LIKELY. When the
-     * representative row is provably sub-zero the topic becomes the "Snow, mist &amp; frost" case: a
-     * clear, calm, near-saturated night over snow, so hoar frost is near certain and mist likely; the
-     * fact line leads with the sub-zero air. Otherwise it stays a plain "fresh snow with mist" pill.
-     * The representative is the deepest misty row so its depth and temperature are a coherent
-     * single-location snapshot.
+     * Rebuilds a day's mist topic from that day's sunrise rows whose valley mist band is LIKELY. When
+     * the representative row is provably sub-zero the topic becomes the "Snow, mist &amp; frost" case:
+     * a clear, calm, near-saturated night over snow, so hoar frost is near certain and mist likely;
+     * the fact line leads with the sub-zero air. Otherwise it stays a plain "fresh snow with mist"
+     * pill. The representative is the deepest misty row so its depth and temperature are a coherent
+     * single-location snapshot. The base topic's date, regions and exact locations are kept.
      */
-    private HotTopic buildMistTopic(List<SlotSignals> mistyRows, LocalDate date, String dayLabel,
-            List<String> regions) {
-        SlotSignals rep = deepest(mistyRows);
+    private HotTopic buildMistTopic(HotTopic base, List<SlotSignals> dayRows) {
+        SlotSignals rep = deepest(dayRows);
         Double temperature = rep.readings().temperatureCelsius();
         boolean frost = temperature != null && temperature < 0;
 
@@ -248,23 +209,15 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
         facts.add(new HotTopicFact("mist", "mist likely", null, false, true));
 
         String label = frost ? "Snow, mist & frost" : "Fresh snow with mist";
-        String detail = frost
-                ? "Freezing mist and frost over lying snow " + dayLabel
-                : "Snow lying with mist — exceptional conditions " + dayLabel;
+        String detail = frost ? FROST_DETAIL : MIST_DETAIL;
         // The (i) "science" tooltip explains the frost only when the air is provably sub-zero;
         // otherwise it keeps the general snow-mist copy (no over-claiming what forms).
         String description = frost ? FROST_DESCRIPTION : MIST_DESCRIPTION;
-        HotTopic topic = new HotTopic(
-                "SNOW_MIST",
-                label,
-                detail,
-                date,
-                PRIORITY_MIST,
-                null,
-                regions,
-                description,
-                null);
-        return topic.withScience(facts, frost ? FROST_NOTE : MIST_NOTE);
+        // The builder takes one fixed label, so rebuild the topic and re-attach the exact places.
+        return new HotTopic("SNOW_MIST", label, detail, base.date(), PRIORITY_MIST, null,
+                base.regions(), description, null)
+                .withLocations(base.locationNames())
+                .withScience(facts, frost ? FROST_NOTE : MIST_NOTE);
     }
 
     /** The deepest-snow row in a non-empty list (all rows carry a depth by construction). */

@@ -299,6 +299,19 @@ class HotTopicEventEnricherTest {
         assertThat(result.locationNames()).containsExactly("Malham");
     }
 
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0} carrying its snowy places is never widened to the region")
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"SNOW_FRESH", "SNOW_MIST"})
+    @DisplayName("a snow topic that names its places keeps exactly them, whatever else the region holds")
+    void snowTopics_withLocations_neverWidenedByRegionFillIn(String type) {
+        LocationEntity snowy = inRegion(1L, "Malham", 54.06, -2.15, "Yorkshire Dales");
+        LocationEntity bare = inRegion(2L, "Gordale", 54.07, -2.13, "Yorkshire Dales");
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(snowy, bare));
+
+        HotTopic result = enrichOne(topic(type, null).withLocations(List.of("Malham")));
+
+        assertThat(result.locationNames()).containsExactly("Malham");
+    }
+
     @Test
     @DisplayName("KING_TIDE backfills only the coastal locations in its regions")
     void kingTide_backfillsCoastalInRegion() {

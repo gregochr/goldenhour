@@ -150,7 +150,7 @@ class HotTopicInputsEquivalenceTest {
                     new SeaMistHotTopicStrategy(reader, freshness, clock),
                     new DustHotTopicStrategy(reader, freshness, new DustFactsBuilder(solar)),
                     new InversionHotTopicStrategy(reader, freshness),
-                    new SnowFreshHotTopicStrategy(reader, freshness),
+                    new SnowFreshHotTopicStrategy(reader),
                     new SnowTopsHotTopicStrategy(reader),
                     new SupermoonHotTopicStrategy(lunar, locations, mock(LunarCalculator.class),
                             mock(MoonriseMoonsetCalculator.class), solar),
