@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 vi.mock('../api/areasApi.js', () => ({ fetchAreaDirectory: vi.fn(), fetchAreaOutlook: vi.fn() }));
 vi.mock('../api/favouritesApi.js', () => ({ fetchFavourites: vi.fn(), setFavourite: vi.fn() }));
@@ -169,6 +169,37 @@ describe('Watching, one key for one entry', () => {
     expect(monthIds()).toContain(KING);
     expect(toggleOf(KING)).toHaveAccessibleName('Watch this date');
     expect(toggleOf(SPRING)).toHaveAccessibleName('Watching');
+  });
+});
+
+describe('Watching, two overlapping runs each watched by their own key', () => {
+  const EARLY = 'king-tide:2026-08-12:2026-08-16';
+  const LATE = 'king-tide:2026-08-15:2026-08-18';
+  const entries = [
+    wireEntry({
+      id: EARLY, type: 'king-tide', family: 'coastal', title: 'Early run', metric: null, endDate: '2026-08-16',
+      action: { label: 'Show coastal spots for 12 Aug →', kind: 'coastal-spots', date: '2026-08-12' },
+    }),
+    wireEntry({
+      id: LATE, type: 'king-tide', family: 'coastal', title: 'Late run', metric: null, startDate: '2026-08-15',
+      endDate: '2026-08-18', action: { label: 'Show coastal spots for 15 Aug →', kind: 'coastal-spots', date: '2026-08-15' },
+    }),
+  ];
+  const watched = (dates) => {
+    render(withFavourites(pane({ events: { entries, counts: COUNTS } }), { dates }));
+    return screen.queryByTestId('watching-list') ? ids(screen.getByTestId('watching-list')) : [];
+  };
+
+  it('the later run can be watched on its own: its key is its own, not the earlier run\'s', () => {
+    expect(watched(['king-tide:2026-08-15'])).toEqual([LATE]);
+    expect(toggleOf(EARLY)).toHaveAccessibleName('Watch this date');
+    expect(toggleOf(LATE)).toHaveAccessibleName('Watching');
+  });
+
+  it('the earlier run on its own, and then both', () => {
+    expect(watched(['king-tide:2026-08-12'])).toEqual([EARLY]);
+    cleanup();
+    expect(watched(['king-tide:2026-08-12', 'king-tide:2026-08-15'])).toEqual([EARLY, LATE]);
   });
 });
 

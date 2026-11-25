@@ -103,8 +103,8 @@ export function entryMatchesWatch(key, entry) {
 }
 
 /**
- * The served entry a stored watch is: of those that match, the one that starts earliest (two matches can arise when
- * two runs sit within the tide tolerance of one another).
+ * The served entry a stored watch is: the one whose own key it is, else (a drifted tide) of those that match the one
+ * that starts earliest (two matches can arise when two runs sit within the tide tolerance of one another).
  *
  * @param {string} key the stored watch
  * @param {?Array<object>} entries the served almanac entries
@@ -114,6 +114,10 @@ export function matchWatchToEntry(key, entries) {
   if (!Array.isArray(entries)) return null;
   const hits = entries.filter((entry) => entryMatchesWatch(key, entry));
   if (hits.length === 0) return null;
+  // The entry whose OWN key this is comes first, before any drift: otherwise a later run within the tolerance of an
+  // earlier one could never be watched, its key resolving to the earlier entry.
+  const exact = hits.filter((entry) => watchKeyOf(entry) === key);
+  if (exact.length > 0) return exact[0];
   return hits.reduce((first, entry) => (entry.startDate < first.startDate ? entry : first), hits[0]);
 }
 
@@ -277,21 +281,22 @@ export function buildWatchedLanes({ dates, entries, windows, hotTopics, todayStr
 
 /**
  * Each distinct watched entry that is not yet past, with its plan (null when {@code planFor} finds no window).
- * One entry per watch, whichever keys name it.
+ * One entry per watch, whichever keys name it; a key with a plan is preferred to one without.
  */
 function resolveWatches({ dates, entries, windows, hotTopics, todayStr }) {
-  const out = [];
-  const seen = new Set();
+  const byEntry = new Map();
   for (const { key } of dates ?? []) {
     const entry = matchWatchToEntry(key, entries);
     const watch = parseWatchKey(key);
-    if (!entry || !watch || seen.has(entry.id)) continue;
+    if (!entry || !watch) continue;
     const span = spanOf(entry, TIDE_FAMILY.includes(watch.type));
     if (!span || span.last < todayStr) continue;
-    seen.add(entry.id);
-    out.push({ key, entry, span, plan: planFor(entry, watch, windows ?? [], hotTopics) });
+    const plan = planFor(entry, watch, windows ?? [], hotTopics);
+    // One result per entry, whichever keys name it: the first key, unless it has no plan and a later one does.
+    const held = byEntry.get(entry.id);
+    if (!held || (!held.plan && plan)) byEntry.set(entry.id, { key, entry, span, plan });
   }
-  return out;
+  return [...byEntry.values()];
 }
 
 /**

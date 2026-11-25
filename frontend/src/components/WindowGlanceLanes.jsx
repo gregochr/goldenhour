@@ -26,7 +26,13 @@ function longWeekday(dateStr) {
  * Nothing says "Coming up" any more: a lane's almanac entry is shown here and not listed in Further ahead
  * (one-screen-plan.md D5), so there is nowhere further to go.
  */
-function destination(lane) {
+function destination(lane, route = null) {
+  if (route === 'watched') {
+    // The decorated cell opens its watched plan's window, at the best place when there is one.
+    const { plan, date } = lane.watched;
+    const where = plan?.best ? ` at ${plan.best.name}` : '';
+    return `opens the map on ${longWeekday(date)} ${plan?.event.split(' ')[0]}${where}`;
+  }
   if (lane.mapDoor) {
     return `opens the Map that ${lane.mapDoor.eventType === 'SUNSET' ? 'evening' : 'morning'}`;
   }
@@ -43,7 +49,7 @@ function destination(lane) {
  * Tuesday". The phone's per-day copy speaks relative to its own day: "Monday, continues from Sunday, continues to
  * Tuesday".
  */
-function spokenTail(lane, date) {
+function spokenTail(lane, date, route = null, watching = false) {
   const first = lane.dates[0];
   const last = lane.dates[lane.dates.length - 1];
   const multi = lane.dates.length > 1;
@@ -61,7 +67,8 @@ function spokenTail(lane, date) {
     if (date !== last) parts.push(`continues to ${longWeekday(last)}`);
     else if (lane.endsAfter) parts.push(`continues after ${longWeekday(last)}`);
   }
-  const where = destination(lane);
+  if (watching) parts.push('watching');
+  const where = destination(lane, route);
   if (where) parts.push(where);
   return `, ${parts.join(', ')}`;
 }
@@ -160,7 +167,8 @@ function spokenTail(lane, date) {
  * @param {Array}    props.lanes   the lanes from `buildGlanceLanes`, in DOM order
  * @param {?string}  [props.date]  the phone's day, `YYYY-MM-DD`: render that day's cell instead of the whole grid
  * @param {function} props.onTap   called with the pressed lane and its element; the strip owns the routes
- * @param {function} [props.canTap] `(lane)` truthy when the lane has a route; a lane without one is plain text, never
+ * @param {function} [props.canTap] `(lane, cellDate)` truthy when the lane has a route (the strip's answer is the route's
+ *                   name, and the cell's own day on a phone, so a decorated cell names what it really opens); a lane without one is plain text, never
  *                   a button that opens nothing. Absent: every lane is a button
  * @param {Array}    [props.warningLanes] Met Office warning lanes from {@code buildWarningLanes}, each with a
  *                   {@code tappable} flag the strip decided; drawn FIRST in the stack (weather-warnings-plan.md W3)
@@ -235,7 +243,8 @@ export default function WindowGlanceLanes({
         const startsBefore = phone ? (date !== first || lane.startsBefore) : lane.startsBefore;
         const endsAfter = phone ? (date === last && lane.endsAfter) : lane.endsAfter;
         // A lane with no route is text, not a control that opens nothing (D5). The same class draws both.
-        const tappable = Boolean(canTap(lane));
+        const route = canTap(lane, phone ? date : null);
+        const tappable = Boolean(route);
         const Tag = tappable ? 'button' : 'div';
         // A topic lane that carries a watched entry wears its mark and plan (never replaced: the two-question rule).
         const decorated = Boolean(lane.watched) && (!phone || lane.watched.date == null || lane.watched.date === date);
@@ -257,7 +266,7 @@ export default function WindowGlanceLanes({
               data-ends-after={endsAfter ? 'true' : undefined}
               data-testid="wf-glance-lane"
               data-watched={decorated ? 'true' : undefined}
-              onClick={tappable ? (event) => onTap(lane, event.currentTarget) : undefined}
+              onClick={tappable ? (event) => onTap(lane, event.currentTarget, phone ? date : null) : undefined}
             >
               <span className="wf-lane-sw" aria-hidden="true" />
               {decorated && <BookmarkMark className="wf-wt-mark" />}
@@ -279,7 +288,7 @@ export default function WindowGlanceLanes({
                   </span>
                 </>
               )}
-              <span className="sr-only">{`${spokenTail(lane, phone ? date : null)}${decorated ? ', watching' : ''}`}</span>
+              <span className="sr-only">{spokenTail(lane, phone ? date : null, decorated && route === 'watched' ? route : null, decorated)}</span>
             </Tag>
           </li>
         );

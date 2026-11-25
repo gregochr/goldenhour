@@ -360,3 +360,66 @@ describe('binding a watched key to ONE entry', () => {
     expect(watchedStillToCome({ dates: [{ key: 'king-tide:2026-12-04' }], entries, todayStr: TODAY })).toBe(1);
   });
 });
+
+describe('the exact key first, before any drift', () => {
+  const earlier = tide({ id: 'king-tide:2026-12-03:2026-12-07' });
+  const later = tide({ id: 'king-tide:2026-12-06:2026-12-09', startDate: '2026-12-06', endDate: '2026-12-09' });
+  const entries = [earlier, later];
+  const A = 'king-tide:2026-12-03';
+  const B = 'king-tide:2026-12-06';
+
+  it('a later run within the tolerance of an earlier one resolves to itself, and each key to its own entry', () => {
+    expect(entryMatchesWatch(B, earlier)).toBe(true);
+    expect(matchWatchToEntry(B, entries).id).toBe(later.id);
+    expect(matchWatchToEntry(A, entries).id).toBe(earlier.id);
+    expect(matchWatchToEntry(B, [later, earlier]).id).toBe(later.id);
+  });
+
+  it('watching each in turn, then both, binds each key to its own entry', () => {
+    expect(watchedKeysFor([{ key: B }], later, entries)).toEqual([B]);
+    expect(watchedKeysFor([{ key: B }], earlier, entries)).toEqual([]);
+    expect(watchedKeysFor([{ key: A }], earlier, entries)).toEqual([A]);
+    expect(watchedKeysFor([{ key: A }], later, entries)).toEqual([]);
+    const both = [{ key: A }, { key: B }];
+    expect(watchedKeysFor(both, earlier, entries)).toEqual([A]);
+    expect(watchedKeysFor(both, later, entries)).toEqual([B]);
+    expect(watchedStillToCome({ dates: both, entries, todayStr: TODAY })).toBe(2);
+    expect(watchedStillToCome({ dates: [{ key: B }], entries, todayStr: TODAY })).toBe(1);
+  });
+
+  it('the lanes follow: the later run\'s key plans the later run', () => {
+    const windows = [card('2026-12-08', 'SUNRISE', { dow: 'Tue', tide: { lightAlignment: 'HW' } })];
+    const [lane] = buildWatchedLanes({ dates: [{ key: B }], entries, windows, hotTopics: [], todayStr: '2026-12-02' });
+    expect(lane.entryId).toBe(later.id);
+    expect(buildWatchedLanes({ dates: [{ key: A }], entries, windows, hotTopics: [], todayStr: '2026-12-02' })).toEqual([]);
+  });
+
+  it('a drifted key with no entry of its own still falls back to the earliest match', () => {
+    expect(matchWatchToEntry('king-tide:2026-12-05', entries).id).toBe(earlier.id);
+  });
+});
+
+describe('a later key with a plan after an earlier key without one', () => {
+  const merged = {
+    id: 'supermoon:2026-12-04:2026-12-05', type: 'supermoon', family: 'night-sky', title: 'Supermoon',
+    startDate: '2026-12-04', endDate: '2026-12-05', coincidence: [{ type: 'king-tide' }],
+    dayRanges: [{ date: '2026-12-04' }, { date: '2026-12-05' }],
+  };
+  const windows = [card('2026-12-04', 'SUNRISE', { tide: { lightAlignment: 'HW' } })];
+  const args = (keys) => ({
+    dates: keys.map((key) => ({ key })), entries: [merged], windows, hotTopics: [], todayStr: '2026-12-03',
+  });
+
+  it('the plan wins whichever key comes first, and the entry is not called plan-less', () => {
+    for (const keys of [['supermoon:2026-12-04', 'king-tide:2026-12-04'], ['king-tide:2026-12-04', 'supermoon:2026-12-04']]) {
+      const lanes = buildWatchedLanes(args(keys));
+      expect(lanes).toHaveLength(1);
+      expect(lanes[0].plan.tideOnLight).toBe(true);
+      expect(watchedWithoutPlan(args(keys))).toEqual([]);
+    }
+  });
+
+  it('an entry whose every key is plan-less is still named once', () => {
+    expect(watchedWithoutPlan(args(['supermoon:2026-12-04']))).toHaveLength(1);
+  });
+});

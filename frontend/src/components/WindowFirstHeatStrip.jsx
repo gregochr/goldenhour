@@ -884,6 +884,9 @@ export default function WindowFirstHeatStrip({
   // lane that already carries the entry's jump that day is DECORATED with the mark and the plan (a topic or warning lane
   // is never removed, the two-question rule), otherwise a watched lane of its own is added in that day's column. Either
   // way the entry is reported below, so Further ahead and Watching do not list it a second time.
+  // Only lanes that are DRAWN carry an entry: the strip withdraws entirely with no cards or no spots (the early return
+  // below), and then nothing shows the entry, so Further ahead must keep listing it, and no toast may promise a lane.
+  const lanesDrawn = cards.length > 0 && spots.length > 0;
   const watched = useMemo(() => {
     const decorations = new Map();
     const added = [];
@@ -896,7 +899,13 @@ export default function WindowFirstHeatStrip({
     };
     buildWatchedLanes(args).forEach((lane) => {
       const column = columnOf.get(lane.date);
-      if (column === undefined) return;
+      if (column === undefined) {
+        // The plan's day has no column here: the topic lane that graduates the entry still wears the mark (no plan), so
+        // the date keeps its one home; an entry no lane carries is not graduated and stays in Watching.
+        glanceLanes.filter((topic) => topic.jump?.entryId === lane.entryId && !decorations.has(topic.key))
+          .forEach((topic) => decorations.set(topic.key, { date: null, plan: null, window: null, bestSpot: null }));
+        return;
+      }
       entryIds.push(lane.entryId);
       const host = glanceLanes.find((topic) => topic.jump?.entryId === lane.entryId && topic.dates.includes(lane.date));
       if (host) {
@@ -930,13 +939,14 @@ export default function WindowFirstHeatStrip({
   // Where a date about to be watched will live, for the toast: its day's lane when its plan has a window in the strip.
   const { registerWatchHome } = favourites;
   useEffect(() => registerWatchHome?.((key) => {
+    if (!lanesDrawn) return null;
     const [lane] = buildWatchedLanes({
       dates: [{ key }], entries: comingUpEntries, windows: cards, hotTopics, todayStr,
     });
     if (!lane || !matrix.days.some((day) => day.date === lane.date)) return null;
     const dow = lane.plan?.dow ?? cards.find((card) => card.date === lane.date)?.dow;
     return dow ? { dow } : null;
-  }), [registerWatchHome, comingUpEntries, cards, hotTopics, todayStr, matrix]);
+  }), [registerWatchHome, lanesDrawn, comingUpEntries, cards, hotTopics, todayStr, matrix]);
   const tapWatched = (lane, from) => onOpenWatched({
     window: lane.window,
     focus: lane.bestSpot ? { kind: 'location', id: lane.bestSpot.id, name: lane.bestSpot.name } : null,
@@ -983,7 +993,6 @@ export default function WindowFirstHeatStrip({
    */
   // Only lanes that are DRAWN carry an entry: the strip withdraws entirely with no cards or no spots (the early
   // return below), and then nothing shows the entry, so Further ahead must keep listing it. Same guard, same place.
-  const lanesDrawn = cards.length > 0 && spots.length > 0;
   const laneEntryKey = useMemo(
     () => (lanesDrawn
       ? [...new Set([
@@ -1003,16 +1012,20 @@ export default function WindowFirstHeatStrip({
    * lane with neither route is plain text and its spoken name says no destination (D5: "openMap on its window, or
    * nothing when it has none").
    */
-  const laneRoute = (lane) => {
-    // A topic lane wearing a watched date's plan opens that plan's window and best place, like the watched lane would.
-    if (lane.watched?.window && typeof onOpenWatched === 'function') return 'watched';
+  const laneRoute = (lane, cellDate = null) => {
+    // A topic lane wearing a watched date's plan opens that plan's window and best place, like the watched lane would, but
+    // only where it is decorated: the whole lane on the desktop, only the plan's own day on the phone. Other days keep
+    // their own route.
+    if (lane.watched?.window && typeof onOpenWatched === 'function'
+      && (cellDate == null || lane.watched.date === cellDate)) return 'watched';
     if (lane.mapDoor) return 'map';
     return lane.target && onOpenLaneOnMap ? 'window' : null;
   };
-  const tapTopic = (lane, from) => {
-    if (laneRoute(lane) === 'watched') {
+  const tapTopic = (lane, from, cellDate = null) => {
+    const route = laneRoute(lane, cellDate);
+    if (route === 'watched') {
       tapWatched(lane.watched, from);
-    } else if (laneRoute(lane) === 'map') {
+    } else if (route === 'map') {
       onShowOnMap({
         kind: 'event', date: lane.mapDoor.date, eventType: lane.mapDoor.eventType, topicType: lane.type,
       });
