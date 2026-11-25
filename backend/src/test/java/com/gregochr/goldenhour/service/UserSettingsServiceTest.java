@@ -1446,7 +1446,8 @@ class UserSettingsServiceTest {
             UserSettingsResponse response = service.markPlacesHintDismissed(auth);
 
             verify(userRepository).updatePlacesHintDismissedAtByUsernameIfNull(USERNAME, NOW);
-            verify(userRepository, never()).save(any());
+            verify(userRepository).findByUsername(USERNAME);
+            verifyNoMoreInteractions(userRepository);
             assertThat(response.placesHintDue()).isFalse();
             verifyNoInteractions(postcodesIoClient);
         }
