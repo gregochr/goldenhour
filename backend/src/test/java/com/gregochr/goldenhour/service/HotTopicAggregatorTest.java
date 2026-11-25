@@ -158,6 +158,34 @@ class HotTopicAggregatorTest {
     }
 
     @Test
+    @DisplayName("a travel day on day 1 of a snow spell no longer drops day 2's snow topic")
+    void getHotTopics_snowSpell_travelDayOne_dayTwoSurvives() {
+        LocationEntity place = new LocationEntity();
+        place.setName("Rydal Water");
+        com.gregochr.goldenhour.model.SlotSignals.Readings readings =
+                new com.gregochr.goldenhour.model.SlotSignals.Readings(null, null, null, null, 0.05, null,
+                        70, null, null, null, null, null, false, null, true, null);
+        List<com.gregochr.goldenhour.model.SlotSignals> rows = List.of(
+                new com.gregochr.goldenhour.model.SlotSignals(place, FROM, TargetType.SUNRISE,
+                        com.gregochr.goldenhour.model.SlotSignals.Scores.EMPTY, readings),
+                new com.gregochr.goldenhour.model.SlotSignals(place, FROM.plusDays(1), TargetType.SUNRISE,
+                        com.gregochr.goldenhour.model.SlotSignals.Scores.EMPTY, readings));
+        when(slotSignalReader.read(FROM, TO)).thenReturn(rows);
+        when(travelDayService.isTravelDay(FROM)).thenReturn(true);
+        when(travelDayService.isTravelDay(FROM.plusDays(1))).thenReturn(false);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(new SnowFreshHotTopicStrategy(slotSignalReader)),
+                simulationService, travelDayService, eventEnricher, glanceDecorator,
+                slotSignalReader, locationRepository);
+
+        List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::type, HotTopic::date)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("SNOW_FRESH", FROM.plusDays(1)));
+    }
+
+    @Test
     @DisplayName("a NIGHT topic dated a travel day yesterday survives when today — its sunrise half — is not one")
     void getHotTopics_runningNightTopic_travelYesterdayHomeToday_kept() {
         // The aurora strategy dates the pre-dawn alert by the night still running: yesterday.

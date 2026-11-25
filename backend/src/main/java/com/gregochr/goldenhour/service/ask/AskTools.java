@@ -2339,12 +2339,13 @@ public class AskTools {
         HotTopicsArgs a = args == null ? new HotTopicsArgs(null, null) : args;
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_EVENTS);
         Set<String> types = typeKeys(a.types());
-        List<AskSnapshot.Topic> kept = AskSnapshot.onePerKindAndDay(snapshot.hotTopics().stream()
-                .filter(t -> types.isEmpty() || types.contains(AskEventType.key(t.type())))
-                .filter(t -> t.inScope(scope))
-                .toList()).stream()
-                .limit(limit)
-                .toList();
+        // A per-day kind (snow) must not fill every slot: each kind's first day comes first.
+        List<AskSnapshot.Topic> kept = AskSnapshot.roundRobinLimit(
+                AskSnapshot.onePerKindAndDay(snapshot.hotTopics().stream()
+                        .filter(t -> types.isEmpty() || types.contains(AskEventType.key(t.type())))
+                        .filter(t -> t.inScope(scope))
+                        .toList()),
+                t -> AskEventType.key(t.type()), limit);
         List<TopicInfo> infos = kept.stream()
                 .map(t -> new TopicInfo(t.type(), t.label(), cap(t.detail(), DETAIL_CAP),
                         iso(t.date()), t.regions(), t.safetyNote()))
@@ -2374,7 +2375,8 @@ public class AskTools {
         ComingUpArgs a = args == null ? new ComingUpArgs(null, null) : args;
         int days = clamp(a.days(), AskSnapshot.MAX_COMING_UP_DAYS, AskSnapshot.MAX_COMING_UP_DAYS);
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_EVENTS);
-        List<AskSnapshot.ComingUp> kept = snapshot.timeline(scope, days).stream().limit(limit).toList();
+        List<AskSnapshot.ComingUp> kept = AskSnapshot.roundRobinLimit(snapshot.timeline(scope, days),
+                e -> AskEventType.key(e.type()), limit);
         List<ComingUpInfo> infos = kept.stream()
                 .map(e -> new ComingUpInfo(e.type(), e.title(), iso(e.startDate()),
                         iso(e.endDate()), cap(e.detail(), DETAIL_CAP), e.safetyNote()))

@@ -21,8 +21,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.when;
 
 /**
@@ -39,24 +38,11 @@ class SnowFreshHotTopicStrategyTest {
     @Mock
     private SlotSignalReader slotSignalReader;
 
-    @Mock
-    private SolarEventFreshness freshness;
-
     private SnowFreshHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new SnowFreshHotTopicStrategy(slotSignalReader, freshness);
-    }
-
-    /** Keeps each given day's SUNRISE event ahead of the freshness cutoff. Stubbed per-test (only
-     * the tests that emit a topic reach the freshness filter), with the date + SUNRISE event pinned;
-     * the location varies per row and is not the discriminator (the filter is per-day). */
-    private void stubAhead(LocalDate... days) {
-        for (LocalDate day : days) {
-            when(freshness.isAhead(any(LocationEntity.class), eq(day), eq(TargetType.SUNRISE)))
-                    .thenReturn(true);
-        }
+        strategy = new SnowFreshHotTopicStrategy(slotSignalReader);
     }
 
     private static HotTopicFact factWithKey(HotTopic topic, String key) {
@@ -99,6 +85,7 @@ class SnowFreshHotTopicStrategyTest {
         RegionEntity region = new RegionEntity();
         region.setName(regionName);
         LocationEntity location = new LocationEntity();
+        location.setName(regionName + " spot");
         location.setRegion(region);
         SlotSignals.Readings readings = new SlotSignals.Readings(
                 null, null, null, null, snowDepthMetres, freezingLevelMetres, humidity,
@@ -107,12 +94,17 @@ class SnowFreshHotTopicStrategyTest {
         return new SlotSignals(location, date, event, scores, readings);
     }
 
+    /** Renames a row's place (rows default to "<region> spot") and returns it. */
+    private static SlotSignals at(SlotSignals row, String placeName) {
+        row.location().setName(placeName);
+        return row;
+    }
+
     @Test
     @DisplayName("snow lying without mist fires the plain SNOW_FRESH topic at priority 2")
     void detect_snowLyingNoMist_firesFresh() {
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 0.05, 70)));
-        stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -128,7 +120,6 @@ class SnowFreshHotTopicStrategyTest {
     void detect_fresh_factLine() {
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 0.08, 70, 340.0, 1.0)));
-        stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
@@ -143,7 +134,6 @@ class SnowFreshHotTopicStrategyTest {
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
                 signal(FROM, "The Lake District", 0.05, 70),
                 signal(FROM, "The Lake District", 0.12, 70)));
-        stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
@@ -155,7 +145,6 @@ class SnowFreshHotTopicStrategyTest {
     void detect_snowWithLikelyBand_firesMistVariant() {
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(misty(FROM, "The Lake District", 0.10, MistPotential.LIKELY)));
-        stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -174,7 +163,6 @@ class SnowFreshHotTopicStrategyTest {
     void detect_nonLikelyBand_freshOnly(MistPotential band) {
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(misty(FROM, "The Lake District", 0.10, band)));
-        stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -186,7 +174,6 @@ class SnowFreshHotTopicStrategyTest {
     void detect_highHumidityNoBand_freshOnly() {
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 0.10, 99)));
-        stubAhead(FROM);
 
         assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
                 .containsExactly("SNOW_FRESH");
@@ -197,7 +184,6 @@ class SnowFreshHotTopicStrategyTest {
     void detect_lowHumidityLikelyBand_mist() {
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(misty(FROM, "The Lake District", 0.10, MistPotential.LIKELY)));
-        stubAhead(FROM);
 
         assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
                 .containsExactly("SNOW_MIST");
@@ -208,7 +194,6 @@ class SnowFreshHotTopicStrategyTest {
     void detect_unscoredRow_echoHonoured() {
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(signal(FROM, "The Lake District",
                 0.10, 70, null, null, TargetType.SUNRISE, false, null, "LIKELY")));
-        stubAhead(FROM);
 
         assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
                 .containsExactly("SNOW_MIST");
@@ -219,22 +204,56 @@ class SnowFreshHotTopicStrategyTest {
     void detect_scoredNullBand_echoIgnored() {
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(signal(FROM, "The Lake District",
                 0.10, 70, null, null, TargetType.SUNRISE, true, null, "LIKELY")));
-        stubAhead(FROM);
 
         assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
                 .containsExactly("SNOW_FRESH");
     }
 
     @Test
-    @DisplayName("a LIKELY sunset is not SNOW_MIST — the topic is pinned to first light")
-    void detect_likelySunset_freshOnly() {
+    @DisplayName("snow lying only at sunset gives no topic — SNOW_FRESH and SNOW_MIST are sunrise topics")
+    void detect_sunsetOnlySnow_noTopic() {
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(signal(FROM, "The Lake District",
-                0.10, 70, null, null, TargetType.SUNSET, true, MistPotential.LIKELY, null)));
-        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), eq(TargetType.SUNSET)))
-                .thenReturn(true);
+                0.10, 70, null, null, TargetType.SUNSET, true, MistPotential.LIKELY, null),
+                signal(FROM, "The Lake District", 0.10, 70, null, null,
+                        TargetType.SUNSET, true, null, null)));
 
-        assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
-                .containsExactly("SNOW_FRESH");
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a snowy sunset beside a dry sunrise rings nothing: the sunrise row decides")
+    void detect_sunsetSnowSunriseBare_noTopic() {
+        SlotSignals sunrise = signal(FROM, "The Lake District", 0.0, 70);
+        SlotSignals sunset = new SlotSignals(sunrise.location(), FROM, TargetType.SUNSET,
+                SlotSignals.Scores.EMPTY, signal(FROM, "The Lake District", 0.10, 70).readings());
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(sunrise, sunset));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("one snowy place in a region rings exactly that one place, not the whole region")
+    void detect_oneSnowyPlace_ringsOnePlace() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                at(signal(FROM, "The Lake District", 0.05, 70), "Scafell Pike")));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).regions()).containsExactly("The Lake District");
+        assertThat(topics.get(0).locationNames()).containsExactly("Scafell Pike");
+    }
+
+    @Test
+    @DisplayName("every snowy place of the day is listed once, in row order")
+    void detect_severalSnowyPlaces_allListed() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                at(signal(FROM, "The Lake District", 0.05, 70), "Helvellyn"),
+                at(signal(FROM, "The Lake District", 0.07, 70), "Skiddaw"),
+                at(signal(FROM, "The Lake District", 0.06, 70), "Helvellyn")));
+
+        assertThat(strategy.detect(FROM, TO).get(0).locationNames())
+                .containsExactly("Helvellyn", "Skiddaw");
     }
 
     @Test
@@ -243,13 +262,14 @@ class SnowFreshHotTopicStrategyTest {
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
                 misty(FROM, "The Lake District", 0.05, MistPotential.LIKELY),
                 signal(FROM, "The North York Moors", 0.10, 70)));
-        stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
         assertThat(topics).extracting(HotTopic::type).containsExactly("SNOW_MIST", "SNOW_FRESH");
         assertThat(topics.get(0).regions()).containsExactly("The Lake District");
         assertThat(topics.get(1).regions()).containsExactly("The North York Moors");
+        assertThat(topics.get(0).locationNames()).containsExactly("The Lake District spot");
+        assertThat(topics.get(1).locationNames()).containsExactly("The North York Moors spot");
         // Each topic's representative is its own deepest row, not the window's.
         assertThat(factWithKey(topics.get(0), "depth").value()).isEqualTo("5 cm");
         assertThat(factWithKey(topics.get(1), "depth").value()).isEqualTo("10 cm");
@@ -262,46 +282,76 @@ class SnowFreshHotTopicStrategyTest {
         SlotSignals sunset = new SlotSignals(sunrise.location(), FROM, TargetType.SUNSET,
                 SlotSignals.Scores.EMPTY, sunrise.readings());
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(sunrise, sunset));
-        stubAhead(FROM);
-        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), eq(TargetType.SUNSET)))
-                .thenReturn(true);
 
         assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
                 .containsExactly("SNOW_MIST");
     }
 
     @Test
-    @DisplayName("the same place misty on day 0 and snowy only on day 1 gives both topics")
+    @DisplayName("the same place misty on day 0 and snowy only on day 1 gives one topic per day")
     void detect_samePlaceOtherDay_stillFresh() {
         SlotSignals day0 = misty(FROM, "The Lake District", 0.05, MistPotential.LIKELY);
         SlotSignals day1 = new SlotSignals(day0.location(), FROM.plusDays(1), TargetType.SUNRISE,
                 SlotSignals.Scores.EMPTY,
                 signal(FROM.plusDays(1), "The Lake District", 0.05, 70).readings());
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(day0, day1));
-        stubAhead(FROM, FROM.plusDays(1));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
-        assertThat(topics).extracting(HotTopic::type).containsExactly("SNOW_MIST", "SNOW_FRESH");
-        assertThat(topics.get(0).date()).isEqualTo(FROM);
-        assertThat(topics.get(1).date()).isEqualTo(FROM.plusDays(1));
+        assertThat(topics).extracting(HotTopic::type, HotTopic::date)
+                .containsExactly(tuple("SNOW_MIST", FROM), tuple("SNOW_FRESH", FROM.plusDays(1)));
+        assertThat(topics.get(0).locationNames()).containsExactly("The Lake District spot");
+        assertThat(topics.get(1).locationNames()).containsExactly("The Lake District spot");
     }
 
     @Test
-    @DisplayName("each topic is dated to its own earliest day")
+    @DisplayName("each day is its own topic, dated to that day, with no spanning day phrase")
     void detect_split_datesPerTopic() {
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
                 signal(FROM, "The Lake District", 0.05, 70),
                 misty(FROM.plusDays(1), "The Lake District", 0.05, MistPotential.LIKELY)));
-        stubAhead(FROM, FROM.plusDays(1));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
-        assertThat(topics).extracting(HotTopic::type).containsExactly("SNOW_MIST", "SNOW_FRESH");
-        assertThat(topics.get(0).date()).isEqualTo(FROM.plusDays(1));
-        assertThat(topics.get(0).detail()).endsWith("tomorrow");
-        assertThat(topics.get(1).date()).isEqualTo(FROM);
-        assertThat(topics.get(1).detail()).endsWith("today");
+        assertThat(topics).extracting(HotTopic::type, HotTopic::date)
+                .containsExactly(tuple("SNOW_MIST", FROM.plusDays(1)), tuple("SNOW_FRESH", FROM));
+        assertThat(topics).extracting(HotTopic::detail)
+                .noneMatch(d -> d.endsWith("today") || d.endsWith("tomorrow"));
+    }
+
+    @Test
+    @DisplayName("frost and no-frost SNOW_MIST copy is chosen per day from that day's own row")
+    void detect_mist_frostChosenPerDay() {
+        SlotSignals frostDay = signal(FROM, "The Lake District", 0.08, 96, 150.0, -2.0,
+                TargetType.SUNRISE, true, MistPotential.LIKELY, null);
+        SlotSignals mildDay = signal(FROM.plusDays(1), "The Lake District", 0.08, 96, 150.0, 2.0,
+                TargetType.SUNRISE, true, MistPotential.LIKELY, null);
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(frostDay, mildDay));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::label)
+                .containsExactly("Snow, mist & frost", "Fresh snow with mist");
+        assertThat(topics.get(0).detail()).startsWith("Freezing mist and frost");
+        assertThat(topics.get(1).detail()).startsWith("Snow lying with mist");
+        assertThat(topics.get(0).facts()).anyMatch(f -> "air".equals(f.key()));
+        assertThat(topics.get(1).facts()).noneMatch(f -> "air".equals(f.key()));
+        // The rebuilt topic keeps its day's exact places.
+        assertThat(topics).allSatisfy(t ->
+                assertThat(t.locationNames()).containsExactly("The Lake District spot"));
+    }
+
+    @Test
+    @DisplayName("each day's facts come from that day's rows only")
+    void detect_factsPerDay() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "The Lake District", 0.05, 70),
+                signal(FROM.plusDays(1), "The Lake District", 0.12, 70)));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(factWithKey(topics.get(0), "depth").value()).isEqualTo("5 cm");
+        assertThat(factWithKey(topics.get(1), "depth").value()).isEqualTo("12 cm");
     }
 
     @Test
@@ -310,7 +360,6 @@ class SnowFreshHotTopicStrategyTest {
         // Representative is the deepest misty row (0.10 m), air +1 °C → no frost claim.
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(mistyAt(0.10, 1.0)));
-        stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
@@ -329,7 +378,6 @@ class SnowFreshHotTopicStrategyTest {
     void detect_mist_subZero_frost() {
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(mistyAt(0.08, -2.0)));
-        stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
@@ -350,7 +398,6 @@ class SnowFreshHotTopicStrategyTest {
     void detect_mist_zeroCelsius_notFrost() {
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(mistyAt(0.08, 0.0)));
-        stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
@@ -364,7 +411,6 @@ class SnowFreshHotTopicStrategyTest {
         // -0.3 °C is genuinely sub-zero (gate fires) but rounds to 0 — the chip must not read "0 °C".
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(mistyAt(0.08, -0.3)));
-        stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
@@ -390,29 +436,33 @@ class SnowFreshHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("a snow row whose solar event has passed is dropped")
-    void detect_expiredEvent_dropped() {
+    @DisplayName("today's topic is still emitted once dawn has passed — snow is an all-day condition")
+    void detect_todayAfterDawn_stillEmitted() {
+        // No clock or freshness filter is consulted: a sunrise row dated today is a topic until midnight.
         when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 0.05, 70)));
-        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), eq(TargetType.SUNRISE)))
-                .thenReturn(false);
 
-        assertThat(strategy.detect(FROM, TO)).isEmpty();
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::type, HotTopic::date)
+                .containsExactly(tuple("SNOW_FRESH", FROM));
     }
 
     @Test
-    @DisplayName("enumerates every non-expired snow day; dates to the earliest")
+    @DisplayName("a multi-day spell is one topic per day, each with its own regions and places")
     void detect_multipleDays_enumeratesAll() {
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
                 signal(FROM.plusDays(1), "The North York Moors", 0.05, 70),
                 signal(FROM, "The Lake District", 0.05, 70)));
-        stubAhead(FROM, FROM.plusDays(1));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
-        assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(FROM);
-        assertThat(topics.get(0).detail()).endsWith("today and tomorrow");
+        assertThat(topics).extracting(HotTopic::date).containsExactly(FROM, FROM.plusDays(1));
+        assertThat(topics.get(0).regions()).containsExactly("The Lake District");
+        assertThat(topics.get(0).locationNames()).containsExactly("The Lake District spot");
+        assertThat(topics.get(1).regions()).containsExactly("The North York Moors");
+        assertThat(topics.get(1).locationNames()).containsExactly("The North York Moors spot");
+        assertThat(topics).extracting(HotTopic::detail).containsOnly("Snow lying — white landscapes");
     }
 
     // ── isFreshSnow boundary: depth >= 0.02 m ──

@@ -1006,6 +1006,61 @@ class AskToolsTest {
                         tuple("STORM_SURGE", TODAY.plusDays(2).toString()));
     }
 
+    /** Four per-day snow topics (SNOW_FRESH on the days, dates in order) and an aurora after them. */
+    private static AskSnapshot fourSnowDaysAndAuroraSnapshot() {
+        List<com.gregochr.goldenhour.model.HotTopic> topics = new ArrayList<>();
+        for (int day = 0; day < 4; day++) {
+            topics.add(AskFixtures.topic("SNOW_FRESH", "Fresh snow", "snow lying", TODAY.plusDays(day),
+                    List.of()));
+        }
+        topics.add(AskFixtures.topic("AURORA", "Aurora", "Kp 6", TODAY.plusDays(3), List.of()));
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), topics));
+    }
+
+    @Test
+    @DisplayName("get_hot_topics: a four-day snow spell does not push the aurora out of the default limit")
+    void getHotTopics_kindRoundRobin_auroraSurvivesSnowSpell() {
+        HotTopicsResult result = (HotTopicsResult) tools(fourSnowDaysAndAuroraSnapshot())
+                .getHotTopics(new HotTopicsArgs(null, 3)).payload();
+
+        // Each kind's first day beats any kind's second: snow day 1, snow day 2 is cut for the aurora.
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::type, AskTools.TopicInfo::date)
+                .containsExactly(
+                        tuple("SNOW_FRESH", TODAY.toString()),
+                        tuple("SNOW_FRESH", TODAY.plusDays(1).toString()),
+                        tuple("AURORA", TODAY.plusDays(3).toString()));
+    }
+
+    @Test
+    @DisplayName("get_hot_topics: later snow days stay in the answer, with their own dates, while slots remain")
+    void getHotTopics_kindRoundRobin_keepsLaterDays() {
+        HotTopicsResult result = (HotTopicsResult) tools(fourSnowDaysAndAuroraSnapshot())
+                .getHotTopics(null).payload();
+
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::date)
+                .contains(TODAY.plusDays(2).toString(), TODAY.plusDays(3).toString());
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::type).contains("AURORA");
+    }
+
+    @Test
+    @DisplayName("get_coming_up: a four-day snow spell does not push the aurora out of a short limit")
+    void getComingUp_kindRoundRobin_auroraSurvivesSnowSpell() {
+        List<AskTools.ComingUpInfo> served = tools(fourSnowDaysAndAuroraSnapshot())
+                .getComingUp(new ComingUpArgs(30, 2)).payload().entries();
+
+        assertThat(served).extracting(AskTools.ComingUpInfo::type)
+                .containsExactly("SNOW_FRESH", "AURORA");
+    }
+
+    @Test
+    @DisplayName("round-robin: a negative limit keeps nothing and an empty list stays empty")
+    void roundRobinLimit_edges() {
+        assertThat(AskSnapshot.roundRobinLimit(List.of("a", "a", "b"), s -> s, -1)).isEmpty();
+        assertThat(AskSnapshot.roundRobinLimit(List.<String>of(), s -> s, 5)).isEmpty();
+        assertThat(AskSnapshot.roundRobinLimit(List.of("a", "a", "b", "a"), s -> s, 3))
+                .containsExactly("a", "a", "b");
+    }
+
     @Test
     @DisplayName("get_hot_topics limit defaults to 5 and is capped at 10")
     void getHotTopics_limitClamp() {
