@@ -1,3 +1,7 @@
 ### Changed — screen spec P5: the card opens into the map, and the guide swept
 
 Pressing a card now grows its little map picture into the map view, and ✕ or Escape shrinks the view back into the same card, with the browser's View Transitions (230 ms in, 180 ms out; a 110 ms fade for readers who ask for reduced motion). Only a card thumbnail morphs: a lane, a Your places chip, the week's best button, the lens summary, Find and every link open the map as before, Back and the scrim close it at once, and a browser without View Transitions behaves exactly as it did. The live map is hidden with `visibility` (never `display`) while the morph runs, so its size is always measured and the hidden-mount guards are unchanged, and it fades in over 120 ms afterwards; the old `wf-map-screen-in` fade is gone. The planning, map and getting-started guides describe the motion, stale wording is fixed (the Lite one-time line, the phone's `Plan from home again`, the phone top line) and the screenshots that no longer match the screen are retaken.
+
+### Fixed — Your places no longer widens a phone's layout
+
+With three or more bookmarked places a Pro phone's layout grew past the screen (390 became 742, and the fixed Ask bar followed): each chip's spoken text (`.sr-only`, absolutely positioned) sat outside the chip row's scroller, so the row did not clip it. The row is now the positioned ancestor on a phone. A smoke case bookmarks three places through the API at 360, 375 and 390 and asserts no horizontal overflow.
