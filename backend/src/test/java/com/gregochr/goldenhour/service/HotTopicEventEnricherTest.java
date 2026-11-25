@@ -313,6 +313,19 @@ class HotTopicEventEnricherTest {
     }
 
     @Test
+    @DisplayName("a BLUEBELL topic that names its woods keeps exactly them, whatever else the region holds")
+    void bluebellTopic_withLocations_neverWidenedByRegionFillIn() {
+        LocationEntity qualifying = inRegion(1L, "Rannerdale Knotts", 54.55, -3.29, "Lake District");
+        LocationEntity belowThreshold = inRegion(2L, "Gowbarrow", 54.60, -2.93, "Lake District");
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .thenReturn(List.of(qualifying, belowThreshold));
+
+        HotTopic result = enrichOne(topic("BLUEBELL", null).withLocations(List.of("Rannerdale Knotts")));
+
+        assertThat(result.locationNames()).containsExactly("Rannerdale Knotts");
+    }
+
+    @Test
     @DisplayName("KING_TIDE backfills only the coastal locations in its regions")
     void kingTide_backfillsCoastalInRegion() {
         LocationEntity coast = LocationEntity.builder()

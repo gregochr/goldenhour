@@ -616,6 +616,107 @@ class BluebellHotTopicStrategyTest {
                 .id(id).name(name).lat(54.0).lon(-3.0).region(region).enabled(true).build();
     }
 
+    private static LocationEntity wood(long id, String name, String regionName) {
+        RegionEntity region = new RegionEntity();
+        region.setName(regionName);
+        return LocationEntity.builder().id(id).name(name).lat(54.5).lon(-3.0)
+                .locationType(Set.of(LocationType.BLUEBELL)).region(region).enabled(true).build();
+    }
+
+    private static SlotSignals signal(LocationEntity location, LocalDate date, TargetType event, int score) {
+        return new SlotSignals(location, date, event,
+                new SlotSignals.Scores(null, null, score, "summary"), SlotSignals.Readings.EMPTY);
+    }
+
+    private void fresh(LocationEntity location, LocalDate date, TargetType event) {
+        when(freshness.isAhead(location, date, event)).thenReturn(true);
+    }
+
+    @Test
+    @DisplayName("a sub-threshold wood in the same region as a qualifying wood is not ringed")
+    void detect_subThresholdWoodInSameRegion_notListed() {
+        LocalDate day = IN_SEASON;
+        LocationEntity good = wood(1L, "Rannerdale Knotts", "Lake District");
+        LocationEntity weak = wood(2L, "Gowbarrow", "Lake District");
+        fresh(good, day, TargetType.SUNRISE);
+        fresh(weak, day, TargetType.SUNRISE);
+        when(slotSignalReader.read(day, day)).thenReturn(List.of(
+                signal(good, day, TargetType.SUNRISE, 4), signal(weak, day, TargetType.SUNRISE, 2)));
+
+        List<HotTopic> topics = strategy.detect(day, day);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).locationNames()).containsExactly("Rannerdale Knotts");
+        assertThat(topics.get(0).regions()).containsExactly("Lake District");
+    }
+
+    @Test
+    @DisplayName("two qualifying woods are both listed, best first then by name, and a sunset-only wood counts")
+    void detect_qualifyingWoods_listedBestFirstThenName() {
+        LocalDate day = IN_SEASON;
+        LocationEntity sunsetOnly = wood(1L, "Aira", "Lake District");
+        LocationEntity top = wood(2L, "Rannerdale Knotts", "Lake District");
+        LocationEntity tie = wood(3L, "Buttermere", "Lake District");
+        fresh(sunsetOnly, day, TargetType.SUNSET);
+        fresh(top, day, TargetType.SUNRISE);
+        fresh(top, day, TargetType.SUNSET);
+        fresh(tie, day, TargetType.SUNRISE);
+        when(slotSignalReader.read(day, day)).thenReturn(List.of(
+                signal(sunsetOnly, day, TargetType.SUNSET, 3),
+                signal(top, day, TargetType.SUNRISE, 3),
+                signal(top, day, TargetType.SUNSET, 5),
+                signal(tie, day, TargetType.SUNRISE, 3)));
+
+        List<HotTopic> topics = strategy.detect(day, day);
+
+        assertThat(topics.get(0).locationNames())
+                .containsExactly("Rannerdale Knotts", "Aira", "Buttermere");
+    }
+
+    @Test
+    @DisplayName("a wood qualifying on day 1 only is not listed on day 2")
+    void detect_perDay_woodListedOnlyOnItsQualifyingDay() {
+        LocalDate day1 = IN_SEASON;
+        LocalDate day2 = IN_SEASON.plusDays(1);
+        LocationEntity a = wood(1L, "Rannerdale Knotts", "Lake District");
+        LocationEntity b = wood(2L, "Gowbarrow", "Lake District");
+        fresh(a, day1, TargetType.SUNRISE);
+        fresh(b, day1, TargetType.SUNRISE);
+        fresh(a, day2, TargetType.SUNRISE);
+        fresh(b, day2, TargetType.SUNRISE);
+        when(slotSignalReader.read(day1, day2)).thenReturn(List.of(
+                signal(a, day1, TargetType.SUNRISE, 4), signal(b, day1, TargetType.SUNRISE, 3),
+                signal(a, day2, TargetType.SUNRISE, 2), signal(b, day2, TargetType.SUNRISE, 4)));
+
+        List<HotTopic> topics = strategy.detect(day1, day2);
+
+        assertThat(topics).hasSize(2);
+        assertThat(topics.get(0).date()).isEqualTo(day1);
+        assertThat(topics.get(0).locationNames()).containsExactly("Rannerdale Knotts", "Gowbarrow");
+        assertThat(topics.get(1).date()).isEqualTo(day2);
+        assertThat(topics.get(1).locationNames()).containsExactly("Gowbarrow");
+    }
+
+    @Test
+    @DisplayName("when MAX_REGIONS drops a region, its woods are not listed")
+    void detect_regionTruncation_listsOnlyWoodsInKeptRegions() {
+        LocalDate day = IN_SEASON;
+        LocationEntity w1 = wood(1L, "Rannerdale Knotts", "Lake District");
+        LocationEntity w2 = wood(2L, "Hodge Close", "Yorkshire Dales");
+        LocationEntity w3 = wood(3L, "Hamsterley", "North Pennines");
+        fresh(w1, day, TargetType.SUNRISE);
+        fresh(w2, day, TargetType.SUNRISE);
+        fresh(w3, day, TargetType.SUNRISE);
+        when(slotSignalReader.read(day, day)).thenReturn(List.of(
+                signal(w1, day, TargetType.SUNRISE, 5), signal(w2, day, TargetType.SUNRISE, 4),
+                signal(w3, day, TargetType.SUNRISE, 3)));
+
+        HotTopic topic = strategy.detect(day, day).get(0);
+
+        assertThat(topic.regions()).containsExactly("Lake District", "Yorkshire Dales");
+        assertThat(topic.locationNames()).containsExactly("Rannerdale Knotts", "Hodge Close");
+    }
+
     private static SlotSignals bluebellSignal(LocationEntity location, LocalDate date,
             int score, String summary) {
         return new SlotSignals(location, date, TargetType.SUNRISE,
