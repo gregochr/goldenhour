@@ -5,6 +5,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.42.1] - 2026-11-25
+
+### Docs — plan: the card says why a window was not scored
+
+`docs/engineering/unscored-reason-card-plan.md` plans two phases (C1 backend, C2 frontend) so that This week's
+cards print why a blank window has no rating ("too far out", "run failed", "fog", "unsettled"), and so that the drive-tier
+headline words a blank by the same rule as the served briefing (today one stood-down place in reach makes "Poor
+unsettled", and "Not scored at this range" is said even at T+0 to T+2). Not built; queued.
+
+### Changed — screen spec P5: the card opens into the map, and the guide swept
+
+Pressing a card now grows its little map picture into the map view, and ✕ or Escape shrinks the view back into the same card, with the browser's View Transitions (230 ms in, 180 ms out; a 110 ms fade for readers who ask for reduced motion). Only a card thumbnail morphs: a lane, a Your places chip, the week's best button, the lens summary, Find and every link open the map as before, Back and the scrim close it at once, and a browser without View Transitions behaves exactly as it did. The live map is hidden with `visibility` (never `display`) while the morph runs, so its size is always measured and the hidden-mount guards are unchanged, and it fades in over 120 ms afterwards; the old `wf-map-screen-in` fade is gone. The planning, map and getting-started guides describe the motion, stale wording is fixed (the Lite one-time line, the phone's `Plan from home again`, the phone top line) and the screenshots that no longer match the screen are retaken.
+
+### Fixed — Your places no longer widens a phone's layout
+
+With three or more bookmarked places a Pro phone's layout grew past the screen (390 became 742, and the fixed Ask bar followed): each chip's spoken text (`.sr-only`, absolutely positioned) sat outside the chip row's scroller, so the row did not clip it. The row is now the positioned ancestor on a phone. A smoke case bookmarks three places through the API at 360, 375 and 390 and asserts no horizontal overflow.
+
+### Changed — screen spec P4: the light in the map header, a one-line masthead and the collapsing lens
+
+The map view's header now carries the window's blue and golden hour at the place it names (`blue 07:11–07:53 · golden 07:54–08:36`, golden in the golden colour): the selected place's, else the best reachable place's, read from the same served score rows the callout uses (never a calculation, never the masthead's endpoint); nothing for a night or a place with no score row. On a phone the masthead is one line (brand, `⌕ Find`, ☰, about 44px instead of 116px): the `↑ ↓` times are gone (the light lives in the map header and the desktop masthead), the origin chip and its second row are gone (the lens caption names an away origin, the ☰ menu carries `Plan from home again`, and the unset-postcode nudge stays as one slim line only until a postcode is saved). Desktop and tablet keep today's times, now labelled `today`. On a phone the lens collapses to one line, `Drive 45 min · any rating · 6 spots ▾`, once the reader has scrolled past This week; a tap opens it in place until they scroll back to the top, it never collapses under a focused control, and the page does not jump (a spacer keeps the height, and the sticky bars sit right under the one line). The map and planning guides and their screenshots follow.
+
+### Changed — screen spec P3: the best in the heading, quiet days and the hint
+
+This week's bar now carries the week's best: `best Fri sunrise, Crimdon Beach 4★ →` beside the heading, which reads "This week" alone (the "· forecast" suffix and the separate "The days ahead" heading are gone, and the help `?` moved up next to the heading). The button is the served Best bet (the window whose pick is the Best bet, the pick's own place and that place's own served rating, never a ranking); pressing it opens that map view. Lite, an origin scoped away from the pick and a forecast with no Best bet show no button, and Lite's Best-bets upsell stays in the strip foot. A quiet day folds to one line, `Wed 25 · nothing above 2★ ▸`, when every window it shows is served and at most 2★ and it has no warning and no watched date; it opens in place (the same button, `aria-expanded`, focus stays), a phone's folded line counts the day's topics (`· 1 topic`) so nothing is hidden, and an unscored window or a Lite reader never folds. A reader with nothing bookmarked or watched sees, once, `Bookmark places and watch dates to build your plan.` with a ✕ in place of Your places; the first save or the ✕ ends it for good (a new `app_user.places_hint_dismissed_at`, V230, stamped by `PUT /api/user/settings/places-hint-dismissed` or by the first favourite of any kind, served as `placesHintDue`). A Lite reader sees the same line with the Pro pill and one upsell for places and dates; the Lite Your places teaser and the empty line are deleted. The planning guide and its screenshots follow.
+
+### Changed — screen spec P2: places and watched dates separate
+
+Your places now holds places and areas only, best rating first (ties by drive time, then name), with the quiet ones last and muted, and each chip is one line: `Crimdon Beach · Fri sunrise 4★`. A watched date has one home: a lane on its day in This week once it is forecast (a topic lane already carrying that event takes the bookmark mark and the plan instead of a second lane appearing), otherwise **Watching**, a new group of the same entry cards at the top of Further ahead, otherwise a quiet "no longer listed" row with a Stop watching button. Pressing Watch moves the card into Watching and focus goes with it; unwatching moves it back; the undo toast finds its control where it moved to. The `Further ahead ↓` jump shows how many dates you are watching. The date chips, their calendar tile and their ✕ in Your places are deleted, with the watch toasts and the Pro upsell reworded. The planning and your-places guides and their screenshots follow.
+
+Review fixes: a watched date a topic lane carries but that has no plan window still shows (the mark alone on that lane); a watch that becomes a lane says so (`It's on Fri in This week.`) and focus lands on Further ahead's heading, never the body; the move's focus comes from the Watch control's own callback; one key is bound to one entry everywhere; a decorated topic lane opens the watched plan; the Your places heading is visually hidden on a phone.
+
+### Docs — plan: the lens belongs to This week
+
+`docs/engineering/lens-this-week-only-plan.md` plans hiding the Drive · Rated lens once the reader has scrolled past This
+week (instead of P4's one-line collapse), since nothing in Further ahead reads it, and amends `screen-spec.md` D6 to
+match. Not built; queued.
+
+### Changed — a watched date shows its calendar tile, not "in N days"
+
+In Your places, a watched-date chip now leads with the same calendar tile Further ahead draws in its left rail (day of week for a single day, the day or `23–29` range, the month) beside the event name, instead of a date suffix and an "in N days" countdown. A date not yet forecast reads "best spots once it's forecast", and one with windows reads "in this week's forecast". The "Stop watching" label still includes the date. The empty-state copy is now "Tap ☆ on a place, an area or a date, and it lands here."
+
+### Docs — the screen specification and its plan
+
+The owner's single specification for the one screen is now `docs/engineering/screen-spec.md`, linked from CLAUDE.md's reference index, `plan-tab.md` and `map-tab.md`. `docs/engineering/screen-spec-plan.md` plans its five phases (P1–P5).
+
+### Changed — the bookmark mark, and a lens that only counts
+
+Screen spec P1 (`docs/engineering/screen-spec.md` D1 and D7). A bookmarked place or area, and a watched date, are now marked with a lilac ribbon (`BookmarkMark`, an inline SVG) instead of a star, so the star means a rating and nothing else. The toggles read `Bookmark` / `Bookmarked` for a place or area and `Watch this date` / `Watching` for a date; the words carry the state, so `aria-pressed` is gone and the undo toast announces the change. The spoken suffix is `, bookmarked`, the toast says `Bookmarked X.`, and Ask's `rank_spots` schema says "bookmarked places". The lens readout is the count and its windows at every width (`6 spots · 4 windows`, or `6 of 9 spots within reach · 4 windows`; "within reach" only where a drive time was measured): `formatLensReadout` and its tier, default and rating words are deleted. On a phone the lens is about 90 px (it was 130) and the screen's top padding is about 8 px (it was 37). The guides and the landing pricing list and FAQ say "Bookmark places and watch dates".
+
 ## [v2.42.0] - 2026-11-24
 
 ### Changed — the landing page pitches planning a shoot
