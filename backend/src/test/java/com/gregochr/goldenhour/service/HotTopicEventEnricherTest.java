@@ -162,6 +162,18 @@ class HotTopicEventEnricherTest {
     }
 
     @Test
+    @DisplayName("FROST_MIST keeps the SUNRISE its detector stamped and gains the sunrise clock time")
+    void frostMist_detectorStampedEvent_gainsItsTime() {
+        HotTopic stamped = enrichOne(topic("FROST_MIST", null).withEvent("SUNRISE", null));
+        HotTopic unstamped = enrichOne(topic("FROST_MIST", null));
+
+        assertThat(stamped.eventType()).isEqualTo("SUNRISE");
+        assertThat(stamped.eventTime()).isEqualTo("04:43");
+        assertThat(unstamped.eventType()).isEqualTo("SUNRISE");
+        assertThat(unstamped.eventTime()).isEqualTo("04:43");
+    }
+
+    @Test
     @DisplayName("a type whose detector does not stamp its event is not completed: an event set "
             + "with no time stays as it was")
     void otherTypes_eventWithoutTime_unchanged() {
