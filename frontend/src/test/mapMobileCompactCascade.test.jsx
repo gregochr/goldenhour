@@ -105,10 +105,23 @@ describe('the masthead line (README §1)', () => {
     }
   });
 
-  it('draws the golden times in 10.5px mono #E0A542 with 9px arrows at 85%', () => {
-    const css = rules(['.wf-mast-times', '.wf-mast-arrow', '.wf-mast-time'], 'phone');
-    expect(css).toMatch(/\.wf-mast-times \{[^}]*font-size: 10\.5px;[^}]*color: #E0A542/);
-    expect(css).toMatch(/\.wf-mast-arrow \{[^}]*font-size: 9px;[^}]*opacity: 0\.85/);
+  it('has no light-time rules at all: the phone masthead draws no times (screen-spec.md P4)', () => {
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).not.toContain('.wf-mast-times');
+    expect(css).not.toContain('.wf-mast-time ');
+    expect(css).not.toContain('.wf-mast-arrow');
+  });
+
+  it('does not draw the empty banner block above the masthead on a phone, and leaves it alone elsewhere', () => {
+    expect(rules(['.wf-banners'], 'phone')).toMatch(/\.wf-banners:not\(:has\(:not\(:empty\)\)\) \{ display: none; \}/);
+    expect(rules(['.wf-banners'], 'base')).toBe('');
+  });
+
+  it('draws ⌕ Find as a 30px box in the brand row and the nudge as a slim line', () => {
+    const css = rules(['.wf-mast-find', '.wf-tick-phone'], 'phone');
+    expect(css).toMatch(/\.wf-mast-find \{[^}]*height: 30px/);
+    expect(css).toMatch(/\.wf-mast-find:focus-visible \{[^}]*box-shadow: inset/);
+    expect(css).toMatch(/\.wf-tick-phone \{[^}]*padding: 2px 0 6px/);
   });
 
   it('draws the compact origin row at 36px with a 28px group and a 32×28 ⌂', () => {
@@ -118,8 +131,18 @@ describe('the masthead line (README §1)', () => {
     expect(css).toMatch(/\.wf-tick-home \{[^}]*min-width: 32px[^}]*height: 28px/);
   });
 
+  it('draws the collapsed lens as one 36px line: the summary, no vertical padding, a zero-height spacer, phone only', () => {
+    const css = rules(['.wf-lens-summary', '.wf-lens.wf-lens-collapsed', '.wf-lens-spacer', '.wf-lens-body'], 'phone');
+    expect(css).toMatch(/\.wf-lens-summary \{[^}]*min-height: 35px/);
+    expect(css).toMatch(/\.wf-lens\.wf-lens-collapsed \{ padding-top: 0; padding-bottom: 0; \}/);
+    expect(css).toMatch(/\.wf-lens-spacer \{ height: 0; \}/);
+    expect(css).toMatch(/\.wf-lens-body \{ display: contents; \}/);
+    expect(css).toMatch(/\.wf-lens-body\[hidden\],\s*\.wf-lens-summary\[hidden\] \{ display: none; \}/);
+    expect(rules(['.wf-lens-summary', '.wf-lens-spacer', '.wf-lens-body', '.wf-lens-collapsed'], 'base')).toBe('');
+  });
+
   it('⚠️ keeps every phone-only rule out of the base stylesheet, so desktop and tablet cannot see it', () => {
-    const base = rules(['.wf-mast-row', '.wf-mast-times', '.wf-mast-dot', '.wf-tick[data-compact'], 'base');
+    const base = rules(['.wf-mast-row', '.wf-mast-find', '.wf-tick-phone', '.wf-mast-dot', '.wf-tick[data-compact'], 'base');
     expect(base).toBe('');
     // …and the desktop masthead padding is still the base 14px.
     expect(rules(['.wf-mast'], 'base')).toMatch(/\.wf-mast \{\s*padding: 14px var\(--wf-gutter\) 0;/);

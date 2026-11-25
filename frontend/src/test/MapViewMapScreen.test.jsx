@@ -127,6 +127,7 @@ import MapView from '../components/MapView.jsx';
 import MapScreen from '../components/MapScreen.jsx';
 import { MapScreenContext } from '../context/MapScreenContext.jsx';
 import { escapeAnswered } from '../utils/mapEscape.js';
+import { buildScoreIndex, lightWindows, lookupForWindow } from '../utils/locationSheet.js';
 
 const TODAY = '2026-01-15';
 
@@ -243,14 +244,79 @@ describe('MapView inside the map view: what it publishes', () => {
   it('names the window on screen and states its served fields, from the Plan card', async () => {
     await renderTab();
     expect(header).toHaveBeenLastCalledWith({
-      title: expect.stringMatching(/sunset/i), verdictLabel: 'Worth it', bestRating: 5, confidence: 'high',
+      title: expect.stringMatching(/sunset/i), verdictLabel: 'Worth it', bestRating: 5, confidence: 'high', light: null,
     });
   });
 
   it('states nothing about a window the Plan has no card for', async () => {
     await renderTab({ windowCardsByKey: new Map() });
     expect(header).toHaveBeenLastCalledWith({
-      title: expect.stringMatching(/sunset/i), verdictLabel: null, bestRating: null, confidence: null,
+      title: expect.stringMatching(/sunset/i), verdictLabel: null, bestRating: null, confidence: null, light: null,
+    });
+  });
+
+  describe('the light in the header (screen-spec.md D4): served score rows, never a calculation', () => {
+    /** A score row for one place's sunset: the golden and blue hours as the score endpoint serves them. */
+    const row = (id, name, golden, blue) => ({
+      locationId: id, locationName: name, date: TODAY, targetType: 'SUNSET', rating: 4,
+      goldenHourStart: `${TODAY}T${golden[0]}:00`, goldenHourEnd: `${TODAY}T${golden[1]}:00`,
+      blueHourStart: `${TODAY}T${blue[0]}:00`, blueHourEnd: `${TODAY}T${blue[1]}:00`,
+    });
+    const scoreIndex = buildScoreIndex([
+      row(1, 'Near', ['15:30', '16:12'], ['16:12', '16:50']),
+      row(2, 'Other', ['15:40', '16:22'], ['16:22', '17:00']),
+    ]);
+    const expected = (id, name) => lightWindows(lookupForWindow(scoreIndex, id, name, TODAY, 'SUNSET'), 'SUNSET')
+      .map(({ label, range }) => ({ label, range }));
+    const withBestReach = (spot) => new Map([[SUNSET_CARD.key, { ...SUNSET_CARD, bestReach: spot }]]);
+
+    it('is the selected place\'s, when one is selected', async () => {
+      await renderTab({
+        scoreIndex,
+        windowCardsByKey: withBestReach({ locationId: 2, locationName: 'Other' }),
+        planHandoff: door({ locationName: 'Near' }),
+      });
+      const { light } = header.mock.lastCall[0];
+      expect(light).toEqual(expected(1, 'Near'));
+      expect(light.map((w) => w.label)).toEqual(['golden', 'blue']);
+    });
+
+    it('is the header card\'s best reachable place when none is selected', async () => {
+      await renderTab({ scoreIndex, windowCardsByKey: withBestReach({ locationId: 2, locationName: 'Other' }) });
+      expect(header.mock.lastCall[0].light).toEqual(expected(2, 'Other'));
+    });
+
+    it('finds the best reachable place by name when its id is missing', async () => {
+      await renderTab({ scoreIndex, windowCardsByKey: withBestReach({ locationName: 'Other' }) });
+      expect(header.mock.lastCall[0].light).toEqual(expected(2, 'Other'));
+    });
+
+    it('is omitted when neither a selected place nor a best reachable place exists', async () => {
+      await renderTab({ scoreIndex });
+      expect(header.mock.lastCall[0].light).toBeNull();
+    });
+
+    it('is omitted when the place has no score row', async () => {
+      await renderTab({
+        scoreIndex: buildScoreIndex([]),
+        windowCardsByKey: withBestReach({ locationId: 2, locationName: 'Other' }),
+      });
+      expect(header.mock.lastCall[0].light).toBeNull();
+    });
+
+    it('has no light clause for a night window', async () => {
+      await renderTab({
+        scoreIndex,
+        autoEventType: 'ASTRO',
+        windowCardsByKey: withBestReach({ locationId: 1, locationName: 'Near' }),
+        planHandoff: door({ eventType: 'ASTRO', locationName: 'Near' }),
+      });
+      expect(header.mock.lastCall[0].light).toBeNull();
+    });
+
+    it('is omitted with no score index at all', async () => {
+      await renderTab({ windowCardsByKey: withBestReach({ locationId: 2, locationName: 'Other' }) });
+      expect(header.mock.lastCall[0].light).toBeNull();
     });
   });
 

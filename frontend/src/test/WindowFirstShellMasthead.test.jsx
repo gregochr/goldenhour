@@ -304,32 +304,65 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(screen.getByTestId('masthead-menu-button')).toBeInTheDocument();
     });
 
-    it('draws the golden times as ↑/↓ with the event words for assistive tech', () => {
+    it('draws no light times at all: the phone masthead is the brand, ⌕ Find and ☰ (screen-spec.md P4)', () => {
       renderShell({ light: LIGHT });
-      const times = screen.getByTestId('masthead-phone-times');
-      expect(screen.getByTestId('masthead-phone-sunrise')).toHaveTextContent('↑06:04 sunrise');
-      expect(screen.getByTestId('masthead-phone-sunset')).toHaveTextContent('↓19:58 sunset');
-      expect(times).toHaveTextContent('Home · NE66 1NG');
-      // The blue hours stay off the phone, and the tick line draws no times of its own.
-      expect(times).not.toHaveTextContent('05:32');
-      expect(screen.queryByTestId('masthead-light-times')).toBeNull();
-    });
-
-    it('draws no times while the light is unanswered or no home is saved', () => {
-      renderShell({ light: undefined });
       expect(screen.queryByTestId('masthead-phone-times')).toBeNull();
+      expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+      expect(screen.queryByTestId('masthead-light-today')).toBeNull();
+      expect(document.querySelector('.wf-mast-times')).toBeNull();
     });
 
-    it('R7 — always the HOME light: a small ⌂ prefixes the times while away, none at home', () => {
-      const { unmount } = renderShell({ light: LIGHT });
-      expect(screen.getByTestId('masthead-phone-times').querySelector('.wf-mast-times-home')).toBeNull();
-      unmount();
-      renderShell({ light: LIGHT }, { origin: LAKES });
-      const home = screen.getByTestId('masthead-phone-times').querySelector('.wf-mast-times-home');
-      expect(home).toHaveTextContent('⌂');
-      expect(home).toHaveAttribute('aria-hidden', 'true');
-      // …and the label is still there as words.
-      expect(screen.getByTestId('masthead-phone-times')).toHaveTextContent('Home · NE66 1NG');
+    it('is ONE line: no tick line, no origin chip, Find in the brand row beside the menu', () => {
+      renderShell({ light: LIGHT });
+      const row = screen.getByTestId('window-first-mast-row');
+      expect(within(row).getByTestId('window-first-search')).toHaveClass('wf-mast-find');
+      expect(within(row).getByTestId('window-first-search')).toHaveAccessibleName('Find');
+      expect(within(row).getByTestId('masthead-menu-button')).toBeInTheDocument();
+      expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+      expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
+      expect(screen.queryByTestId('window-first-origin-home')).toBeNull();
+    });
+
+    it('draws the unset-postcode nudge as a slim line under the brand row, and only then', () => {
+      renderShell({ light: null }, { homePlace: null });
+      const line = screen.getByTestId('window-first-tickline');
+      expect(line).toHaveClass('wf-tick-phone');
+      expect(within(line).getByTestId('masthead-set-postcode')).toBeInTheDocument();
+      expect(within(line).queryByTestId('window-first-search')).toBeNull();
+      // Find stays one tap away, in the brand row.
+      expect(within(screen.getByTestId('window-first-mast-row')).getByTestId('window-first-search')).toBeInTheDocument();
+    });
+
+    it('takes Find out of the Tab order while the search panel covers the masthead, like the tick line did', () => {
+      renderShell({ light: LIGHT });
+      const find = screen.getByTestId('window-first-search');
+      expect(find).not.toHaveAttribute('tabindex');
+      fireEvent.click(find);
+      expect(screen.getByTestId('window-first-search')).toHaveAttribute('tabindex', '-1');
+    });
+
+    it('offers no Find on Operations, which has no meaning for a pick', () => {
+      renderShell({ light: LIGHT, operationsPane: <div>ops</div>, operationsOpen: true });
+      expect(screen.queryByTestId('window-first-search')).toBeNull();
+    });
+
+    it('names an away origin from the ☰ menu, whose row sends the reader home', () => {
+      const setOrigin = vi.fn();
+      renderShell({ light: LIGHT }, { origin: LAKES, setOrigin });
+      openMenu();
+      const row = screen.getByTestId('masthead-menu-home');
+      expect(row).toHaveTextContent('Plan from home again · from Keswick');
+      fireEvent.click(row);
+      expect(setOrigin).toHaveBeenCalledWith(null);
+      expect(screen.queryByTestId('masthead-menu')).toBeNull();
+      // Focus is on the ☰ button, which outlives the origin it removed.
+      expect(document.activeElement).toBe(screen.getByTestId('masthead-menu-button'));
+    });
+
+    it('has no such row at home', () => {
+      renderShell({ light: LIGHT });
+      openMenu();
+      expect(screen.queryByTestId('masthead-menu-home')).toBeNull();
     });
 
     it('draws the thinner rule', () => {
@@ -424,11 +457,11 @@ describe('WindowFirstShell — the compact phone masthead', () => {
 
     it('the masthead is the same with the map view open: the view\'s own header carries Find and the origin (D12)', () => {
       renderShell({ light: LIGHT, mapPane: MAP }, { });
-      expect(screen.getByTestId('window-first-tickline')).not.toHaveAttribute('data-compact');
+      expect(screen.queryByTestId('window-first-tickline')).toBeNull();
       mapTab();
-      // Inert behind the view, but not rewritten for it: the tick line keeps its Plan form.
-      expect(screen.getByTestId('window-first-tickline')).not.toHaveAttribute('data-compact');
-      expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
+      // Inert behind the view, but not rewritten for it: still the one line, with no tick line and no origin chip.
+      expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+      expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
       expect(screen.getByTestId('map-screen-find')).toBeInTheDocument();
       expect(screen.getByTestId('map-screen-origin')).toHaveTextContent('Home · Newcastle');
     });
@@ -452,6 +485,16 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(screen.getByTestId('window-first-signout')).toBeInTheDocument();
       expect(screen.getByTestId('masthead-light-times')).toHaveTextContent('06:04');
       expect(screen.getByTestId('health-indicator')).toBeInTheDocument();
+    });
+
+    it('labels the desktop and tablet times "today", and offers neither the phone Find nor the away row', () => {
+      renderShell({ light: LIGHT });
+      expect(screen.getByTestId('masthead-light-times')).toHaveTextContent('today');
+      expect(screen.getByTestId('masthead-light-today')).toBeVisible();
+      expect(screen.getByTestId('window-first-search')).toHaveClass('wf-tick-search');
+      expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
+      openMenu();
+      expect(screen.queryByTestId('masthead-menu-home')).toBeNull();
     });
 
     it('renders none of the phone-only chrome (the ☰ menu is every width\'s, but its status line is the phone\'s)', () => {

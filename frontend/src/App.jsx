@@ -948,7 +948,7 @@ function AppInner() {
             made inert by the shell; this block and the footer sit outside it). */}
         <div inert={mapViewOpen} data-testid="app-banner-block">
         {isAdmin && rewind && <RewindPill rewind={rewind} />}
-        <div className="max-w-4xl mx-auto px-4 mt-4">
+        <div className="wf-banners max-w-4xl mx-auto px-4 mt-4">
           {/* The banner's two doors, each WITHHELD when it would lead nowhere (the dead-control ban): the
               Map tab when it is offered at all (a forecast, or a real alert - `auroraTabOn`), and
               Operations for a SIMULATED alert, which has no map (`utils/auroraTab.js`), for an admin. */}

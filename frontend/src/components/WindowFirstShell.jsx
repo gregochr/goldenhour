@@ -5,7 +5,7 @@ import PropTypes from 'prop-types';
 import { ASK_PROMPT } from '../utils/askModel.js';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
-import MastheadTickLine from './MastheadTickLine.jsx';
+import MastheadTickLine, { MastheadFind } from './MastheadTickLine.jsx';
 import MastheadMenu from './MastheadMenu.jsx';
 import OperationsScreen from './OperationsScreen.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -767,6 +767,18 @@ export default function WindowFirstShell({
    * in here, or the shadow arrives a masthead's worth of scroll late.
    */
   const [lensSentinelRef, lensStuck] = useStuckSentinel();
+  /**
+   * Whether This week has scrolled wholly above the viewport (screen-spec.md D6): on a phone the lens then collapses to
+   * one line. `aboveOnly`, because the section is below the lens (not intersecting would otherwise read as passed).
+   *
+   * <p>⚠️ The observed element is the SECTION, not a 1px sentinel at its end, and that is deliberate. An
+   * IntersectionObserver reports only a change of "intersecting", so a 1px marker that starts below the viewport is
+   * missed whenever the page jumps over it in one frame (a fast fling, the Further ahead jump, scroll restoration): below
+   * and above are both "not intersecting". The section is taller than the viewport and intersects at the top of the page,
+   * so every jump from the top to past its end flips the state and is reported. (Measured: the sentinel version never
+   * collapsed after a programmatic jump.) Phone only is enforced where it is read (`pastWeek={isMobile && pastWeek}`).
+   */
+  const [weekRef, pastWeek] = useStuckSentinel(0, { aboveOnly: true });
   /**
    * The drill-down's window, held by KEY rather than by the card object.
    *
@@ -2322,6 +2334,9 @@ export default function WindowFirstShell({
       }}
       onSignOut={onSignOut}
       onWarmSettings={warmSettingsModal}
+      // The phone's masthead has no origin chip, so while away the menu carries the way back home (P4).
+      onGoHome={isMobile && origin ? () => { closeShellLayers(); setOrigin?.(null); } : undefined}
+      awayFrom={isMobile && origin ? (origin.baseName ?? null) : null}
       onGuide={guideScreenPage ? toggleGuide : undefined}
       guideOpen={guide.open}
       guideControls={guideDockShown ? 'wf-guide-dock' : undefined}
@@ -2379,29 +2394,15 @@ export default function WindowFirstShell({
         className="wf-mast border-b border-plex-border"
       >
         {isMobile ? (
-          // The phone's one 34px line (compact-chrome plan §1): the compact wordmark, today's golden
-          // times, an admin-only status dot and the ⋯ menu that now holds Settings, Change home
-          // postcode and Sign out. Every width above 639px takes the arm below, unchanged.
+          // The phone's one line (screen-spec.md section 4, P4): the compact wordmark, then ⌕ Find, the admin's status dot
+          // and the ☰ menu (Settings, Change home postcode, Plan from home again while away, Guide, Sign out). There are no
+          // light times on a phone (the map view's header and the desktop masthead carry them), and the origin chip lives
+          // in the lens caption and the menu. Every width above 639px takes the arm below, unchanged.
           <div className="wf-mast-row" data-testid="window-first-mast-row">
             <BrandLockup variant="compact" />
             <div className="wf-mast-right">
-              {light && (
-                // ⚠️ Always the HOME light (R7): `/light` is keyed on the saved postcode and an away
-                // origin does not move it. Away, a small ⌂ says so, and the label stays as words.
-                <span data-testid="masthead-phone-times" className="wf-mast-times">
-                  {origin && <span aria-hidden="true" className="wf-mast-times-home">⌂</span>}
-                  <span className="sr-only">{light.label}</span>
-                  <span className="wf-mast-time" data-testid="masthead-phone-sunrise">
-                    <span aria-hidden="true" className="wf-mast-arrow">↑</span>
-                    {light.sunrise}
-                    <span className="sr-only"> sunrise</span>
-                  </span>
-                  <span className="wf-mast-time" data-testid="masthead-phone-sunset">
-                    <span aria-hidden="true" className="wf-mast-arrow">↓</span>
-                    {light.sunset}
-                    <span className="sr-only"> sunset</span>
-                  </span>
-                </span>
+              {findOffered && (
+                <MastheadFind onOpen={openFind} searchOpen={searchSeed != null || stackedOverLayer} />
               )}
               {healthDot}
               {mastMenu}
@@ -2471,9 +2472,9 @@ export default function WindowFirstShell({
           // sheet layer makes the search button refuse, so leaving it tabbable
           // would be a control with no visible effect, which plan §3 rule 14 bans outright.
           searchOpen={searchSeed != null || stackedOverLayer}
-          // Phone only (compact-chrome plan D-1, R2): every phone tab moves the times up into the masthead's one line.
-          // Desktop and tablet keep them, so the row is exactly what it was.
-          showTimes={!isMobile}
+          // Phone: the row is only the unset-postcode nudge (nothing otherwise); Find is the brand row's own button.
+          // Desktop and tablet keep the whole row, with today's times labelled "today".
+          phone={isMobile}
         />
       </div>
 
@@ -2529,6 +2530,7 @@ export default function WindowFirstShell({
       {!operationsShown && reachLens && ratingLens && (
         <WindowFirstLensBar
           stuck={lensStuck}
+          pastWeek={isMobile && pastWeek}
           lens={reachLens}
           ratingLens={ratingLens}
           spotCount={windowCards.reduce((total, card) => total + placesOf(card.spots).length, 0)}
@@ -2560,6 +2562,7 @@ export default function WindowFirstShell({
           badge's meaning (the badge span is `aria-hidden`), so the heading's own name stays "This week" (the week's best is a sibling button, never inside it). */}
       <section
         id={THIS_WEEK_ID}
+        ref={weekRef}
         aria-labelledby={THIS_WEEK_HEADING_ID}
         className="wf-sec wf-this-week"
         data-testid="this-week"

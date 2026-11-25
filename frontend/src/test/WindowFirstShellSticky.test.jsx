@@ -114,10 +114,12 @@ const ctx = () => ({
 /** The observers the shell installed, so a test can drive them. */
 let intersections;
 /**
- * The lens bar's sentinel observer, the only one built with a `rootMargin`. Further ahead's heading installs one of
- * its own (the NEW badge's bootstrap), so "the last observer built" is no longer the sentinel's.
+ * The lens bar's sentinel observer, found by what it observes. Further ahead's heading installs one of its own (the NEW
+ * badge's bootstrap) and the This week section another (the phone's lens collapse), and every one of them is built with a
+ * `rootMargin`, so neither "the last observer built" nor "the one with a rootMargin" is the sentinel's.
  */
-const lensObserver = () => [...intersections].reverse().find((observer) => observer.options?.rootMargin);
+const lensObserver = () => [...intersections].reverse()
+  .find((observer) => observer.element?.dataset?.testid === 'window-first-lens-sentinel');
 let resizeCallbacks;
 
 const renderShell = (extraProps = {}) => {
@@ -160,7 +162,7 @@ beforeEach(() => {
       intersections.push(this);
     }
 
-    observe() {}
+    observe(element) { this.element = element; }
 
     disconnect() {}
   });

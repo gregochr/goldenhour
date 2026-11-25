@@ -27,6 +27,8 @@ function Harness({ initialOpen = false, statusLine = null, handlers = {}, onMapE
         onSignOut={handlers.onSignOut ?? vi.fn()}
         onWarmSettings={handlers.onWarmSettings}
         onGuide={handlers.onGuide}
+        onGoHome={handlers.onGoHome}
+        awayFrom={handlers.awayFrom}
         onOperations={handlers.onOperations}
         guideOpen={handlers.guideOpen}
         guideControls={handlers.guideControls}
@@ -307,5 +309,30 @@ describe('MastheadMenu — the Guide row is a toggle', () => {
   it('names no controlled element for a guide that is open as a dialog or sheet', () => {
     render(<Harness initialOpen handlers={{ onGuide: vi.fn(), guideOpen: true }} />);
     expect(screen.getByTestId('masthead-menu-guide')).not.toHaveAttribute('aria-controls');
+  });
+});
+
+describe('MastheadMenu — Plan from home again (the phone has no origin chip)', () => {
+  it('has no such row unless the shell hands a handler over', () => {
+    render(<Harness initialOpen />);
+    expect(screen.queryByTestId('masthead-menu-home')).toBeNull();
+  });
+
+  it('names the away origin and runs its handler after handing focus to the ☰ button', () => {
+    const onGoHome = vi.fn(() => {
+      // The handler runs with focus already on the button that outlives the origin.
+      expect(document.activeElement).toBe(screen.getByTestId('masthead-menu-button'));
+    });
+    render(<Harness initialOpen handlers={{ onGoHome, awayFrom: 'Keswick' }} />);
+    const row = screen.getByTestId('masthead-menu-home');
+    expect(row).toHaveTextContent('Plan from home again · from Keswick');
+    fireEvent.click(row);
+    expect(onGoHome).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('masthead-menu')).toBeNull();
+  });
+
+  it('reads plainly when the origin has no base town to name', () => {
+    render(<Harness initialOpen handlers={{ onGoHome: vi.fn() }} />);
+    expect(screen.getByTestId('masthead-menu-home')).toHaveTextContent(/^Plan from home again$/);
   });
 });

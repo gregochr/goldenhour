@@ -8,7 +8,8 @@ import { createContext, useContext } from 'react';
  * Inside it the value is `{windowSlot, publishHeader, publishRoute, publishEscape}`:
  * <ul>
  *   <li>{@code windowSlot}, the header's DOM node, into which `MapView` portals its ONE `WindowControl`;</li>
- *   <li>{@code publishHeader({title, verdictLabel, bestRating, confidence})}, the served fields the header names;</li>
+ *   <li>{@code publishHeader({title, verdictLabel, bestRating, confidence, light})}, the served fields the header names
+ *       ({@code light} is {@code [{label, range}]}, the window's blue and golden hour at the place on screen, or null);</li>
  *   <li>{@code publishRoute({date, eventType, locationId})}, which the shell turns into the layer's `#map/...` url;</li>
  *   <li>{@code publishEscape(close)}, the pane's Escape ladder: closes its innermost layer and answers whether it
  *       closed one, so an Escape pressed on the view's own header closes the callout before it closes the view.</li>

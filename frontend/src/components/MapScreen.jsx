@@ -147,6 +147,8 @@ export default function MapScreen({
 
   const title = info?.title || DEFAULT_TITLE;
   const confidence = typeof info?.confidence === 'string' && info.confidence ? info.confidence : null;
+  // The window's blue and golden hour at the place the header names (served score row); empty for a night.
+  const light = Array.isArray(info?.light) ? info.light : [];
   return (
     <MapScreenContext.Provider value={value}>
       {/* The region is not itself interactive: the key handler only hears Escape from the controls inside it. */}
@@ -202,6 +204,17 @@ export default function MapScreen({
                   </span>
                 )}
                 {confidence && <span data-testid="map-screen-confidence">{`${confidence.toLowerCase()} confidence`}</span>}
+                {light.map((w) => (
+                  <span
+                    key={w.label}
+                    data-testid={`map-screen-light-${w.label}`}
+                    className={w.label === 'golden' ? 'wf-map-screen-golden' : undefined}
+                  >
+                    {w.label}
+                    {' '}
+                    {w.range}
+                  </span>
+                ))}
               </p>
             </div>
             <div ref={setWindowSlot} className="wf-map-screen-window" data-testid="map-screen-window-slot" />

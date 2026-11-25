@@ -71,6 +71,37 @@ function Pin({ away }) {
 Pin.propTypes = { away: PropTypes.bool.isRequired };
 
 /**
+ * The phone brand row's ⌕ Find button (screen-spec.md section 4: brand, ⌕ Find, ☰), the tick line's Find button in its
+ * compact skin. NO `aria-label`: the accessible name is the visible word (WCAG 2.5.3) and the glyph is decoration.
+ * {@code searchOpen} takes it out of the Tab order while the anchored search panel covers it (WCAG 2.4.11). ⌘K / Ctrl K
+ * is live at every width whether or not this button is drawn.
+ *
+ * @param {object} props
+ * @param {Function} props.onOpen opens Find
+ * @param {boolean} [props.searchOpen] whether the search panel is open over this control
+ */
+export function MastheadFind({ onOpen, searchOpen = false }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-testid="window-first-search"
+      className="wf-mast-find"
+      tabIndex={searchOpen ? -1 : undefined}
+      aria-keyshortcuts="Meta+K Control+K"
+    >
+      <span aria-hidden="true" className="wf-tick-glyph">⌕</span>
+      <span>Find</span>
+    </button>
+  );
+}
+
+MastheadFind.propTypes = {
+  onOpen: PropTypes.func.isRequired,
+  searchOpen: PropTypes.bool,
+};
+
+/**
  * The masthead's tick line — where the plan is computed from, how to change it, and today's light.
  *
  * <p>The bundle calls this "the <b>only</b> statement of where the plan is computed from; there is
@@ -202,8 +233,14 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * nudge is replaced under the dialog, the dialog's recorded opener is detached by the time it
  * closes, and it needs somewhere else to put the reader. See `App`'s settings mount.
  *
- * <p>{@code showTimes} is off on the phone, where the times live in the masthead's own line. The unset state is
- * red on EVERY width ({@code data-unset}). 
+ * <h2>The phone has no tick line (screen-spec.md section 4, P4)</h2>
+ *
+ * <p>With {@code phone} the row is not drawn at all, except in ONE state: the unset-postcode nudge, a slim line that
+ * stays until a postcode is saved (the recorded exception to the one-line masthead; the ☰ menu's "Change home
+ * postcode" row is the other door to the same field). Find is the brand row's own ⌕ button
+ * ({@link MastheadFind}), the away origin is named by the lens caption and undone from the ☰ menu, and there are no
+ * times: they are the desktop and tablet's, labelled "today". The unset state is red on EVERY width
+ * ({@code data-unset}).
  *
  * @param {object}    props
  * @param {object|null|undefined} [props.light] the day's light — see the three states above
@@ -218,7 +255,7 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  */
 export default function MastheadTickLine({
   light, origin, homePlace, onOpenSearch, onGoHome, onSetPostcode, searchOpen = false,
-  showTimes = true,
+  phone = false,
 }) {
   // Whichever of the three elements the origin slot holds now. See the class comment's last
   // section: the handoff below and the nudge's resolver both read it.
@@ -272,6 +309,10 @@ export default function MastheadTickLine({
     ? `${origin.name} · from ${origin.baseName}`
     : (homePlace ? `Home · ${homePlace}` : 'Home');
 
+  // The phone draws this row only as the unset nudge; every other state lives in the brand row and the ☰ menu. All hooks
+  // above have run, so returning here is safe.
+  if (phone && !noHome) return null;
+
   // ⌂ sits LEFT of the group on the compact row (spec §2) and right of it everywhere else; the DOM
   // order follows the visual order so Tab does.
   const homeButton = away && (
@@ -296,7 +337,7 @@ export default function MastheadTickLine({
   return (
     <div
       data-testid="window-first-tickline"
-      className="wf-tick"
+      className={phone ? 'wf-tick wf-tick-phone' : 'wf-tick'}
     >
       {/* ⚠️ The bordered group and the ⌂ beside it are ONE flex item, which is a wrap fix rather
           than a wrapper for its own sake. `.wf-tick` wraps (it must — an away label names two
@@ -387,7 +428,7 @@ export default function MastheadTickLine({
               visual: the two buttons are already separate tab stops with separate names.
               ⚠️ Omitted with the Find button wherever this row offers none (Operations, which has no
               handler), and when Find stands alone on the phone Map at Home. */}
-          {searchable && (
+          {searchable && !phone && (
             <>
               <span aria-hidden="true" className="wf-tick-sep" />
               <button
@@ -425,7 +466,7 @@ export default function MastheadTickLine({
         {homeButton}
       </span>
 
-      {light && showTimes && (
+      {light && !phone && (
         <span data-testid="masthead-light-times" className="wf-tick-times">
           {/* Drawn only when away — see the class comment. `sr-only` rather than absent at home,
               because the rule above is `aria-hidden` and this row is still the entire accessible
@@ -441,6 +482,11 @@ export default function MastheadTickLine({
               boundary is `md` rather than the `lg` this row used before the origin button joined
               it — the bundle asks for all four on iPad (834px) and two on a phone, and 768px is
               the breakpoint that gives exactly that with the widest safety margin at 640–767. */}
+          {/* The label that says these are today's times (screen-spec.md section 6.4). Part of the row's spoken answer at
+              every width, and DRAWN from 810px: measured, the row (origin group, then four times and this word) needs about
+              734px, so below ~810px the label wrapped the times onto a second line (18px taller, at 768 and 800: an iPad in
+              portrait). Where it does not fit it is read, not drawn. */}
+          <span data-testid="masthead-light-today" className="wf-tick-today sr-only min-[810px]:not-sr-only">today</span>
           <LightTime time={light.civilDawn} kind="blue" event="dawn" className="hidden md:inline" />
           <LightTime time={light.sunrise} kind="golden" event="sunrise" />
           <LightTime time={light.sunset} kind="golden" event="sunset" />
@@ -485,8 +531,7 @@ MastheadTickLine.propTypes = {
    */
   searchOpen: PropTypes.bool,
   /**
-   * Whether the clock times are drawn here. The phone moves them into the masthead's one line, so
-   * the shell turns them off; every other width keeps them.
+   * The phone: the row is drawn only as the unset-postcode nudge (nothing otherwise), with no Find button and no times.
    */
-  showTimes: PropTypes.bool,
+  phone: PropTypes.bool,
 };

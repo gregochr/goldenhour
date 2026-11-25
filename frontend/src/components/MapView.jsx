@@ -21,7 +21,7 @@ import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { isTravelDate, formatEventTimeUk, parseUtcInstant } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
-import { lookupForWindow } from '../utils/locationSheet.js';
+import { lightWindows, lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
 import {
   isNightOver, isStillCurrent, resolveAuroraNight, ukDateStr, ukDateStrOffset,
@@ -4185,12 +4185,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const headerVerdict = headerCard?.verdictLabel ?? null;
   const headerBest = headerCard?.bestRating ?? null;
   const headerConfidence = headerCard?.confidence ?? null;
+  /**
+   * The window's blue and golden hour for the header (screen-spec.md D4): {@code lightWindows} over THIS pane's own
+   * {@code scoreIndex} row, for the selected place, else for the header card's best reachable place. Served score rows
+   * only, never a calculation and never the masthead's endpoint (that one is today at home). Null for a night (no
+   * light clause) and when the place has no score row.
+   */
+  const headerLightWho = selectedLoc
+    ? { id: selectedLoc.id, name: selectedLoc.name }
+    : (headerCard?.bestReach ? { id: headerCard.bestReach.locationId ?? null, name: headerCard.bestReach.locationName } : null);
+  const headerLightEvent = activeMapEvent?.kind === EVENT_KIND.SOLAR ? activeMapEvent : null;
+  const headerLightNow = headerLightWho && headerLightEvent
+    ? lightWindows(
+      lookupForWindow(scoreIndex, headerLightWho.id, headerLightWho.name, headerLightEvent.date, headerLightEvent.eventType),
+      headerLightEvent.eventType,
+    )
+    : null;
+  // A new array every render, so the effect below keys on its content (labels and ranges contain no `|`).
+  const headerLightKey = headerLightNow ? headerLightNow.map((w) => `${w.label}|${w.range}`).join('|') : '';
   const publishHeader = mapScreen?.publishHeader;
   useEffect(() => {
+    const parts = headerLightKey ? headerLightKey.split('|') : [];
+    const light = parts.length > 0
+      ? Array.from({ length: parts.length / 2 }, (_, i) => ({ label: parts[2 * i], range: parts[2 * i + 1] }))
+      : null;
     publishHeader?.({
-      title: headerTitle, verdictLabel: headerVerdict, bestRating: headerBest, confidence: headerConfidence,
+      title: headerTitle, verdictLabel: headerVerdict, bestRating: headerBest, confidence: headerConfidence, light,
     });
-  }, [publishHeader, headerTitle, headerVerdict, headerBest, headerConfidence]);
+  }, [publishHeader, headerTitle, headerVerdict, headerBest, headerConfidence, headerLightKey]);
   const routeDate = activeMapEvent?.date ?? null;
   const routeEventType = activeMapEvent?.eventType ?? null;
   const routeLocationId = selectedLocationName == null
