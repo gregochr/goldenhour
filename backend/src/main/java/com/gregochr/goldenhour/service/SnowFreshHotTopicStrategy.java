@@ -36,11 +36,11 @@ import java.util.TreeMap;
 public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
 
     private static final String FRESH_DESCRIPTION =
-            "Overnight snowfall transforms familiar landscapes. Low temperatures mean the snow"
-                    + " holds — fresh white ground is a rare opportunity.";
+            "Snow transforms familiar landscapes. Cold air means it holds — white ground is a"
+                    + " rare opportunity.";
 
     private static final String MIST_DESCRIPTION =
-            "Fresh snow combined with mist creates ethereal conditions. Trees and landmarks"
+            "Snow combined with mist creates ethereal conditions. Trees and landmarks"
                     + " emerge from fog against a white landscape — among the most dramatic"
                     + " photography conditions possible.";
 
