@@ -48,6 +48,7 @@ class TopicDailyLogJobMissingDataTest {
 
     private ForecastEvaluationRepository forecastEvaluationRepository;
     private SlotAtmosphereRepository slotAtmosphereRepository;
+    private com.gregochr.goldenhour.repository.SnowStateRepository snowStateRepository;
     private TideExtremeRepository tideExtremeRepository;
     private TideService tideService;
     private LunarPhaseService lunarPhaseService;
@@ -65,6 +66,7 @@ class TopicDailyLogJobMissingDataTest {
     void setUp() {
         forecastEvaluationRepository = mock(ForecastEvaluationRepository.class);
         slotAtmosphereRepository = mock(SlotAtmosphereRepository.class);
+        snowStateRepository = mock(com.gregochr.goldenhour.repository.SnowStateRepository.class);
         tideExtremeRepository = mock(TideExtremeRepository.class);
         tideService = mock(TideService.class);
         lunarPhaseService = mock(LunarPhaseService.class);
@@ -73,12 +75,15 @@ class TopicDailyLogJobMissingDataTest {
         nlcClarityService = mock(NlcClarityService.class);
         regionService = mock(RegionService.class);
         topicDailyLogRepository = mock(TopicDailyLogRepository.class);
-        job = new TopicDailyLogJob(forecastEvaluationRepository, slotAtmosphereRepository, tideExtremeRepository,
+        job = new TopicDailyLogJob(forecastEvaluationRepository, slotAtmosphereRepository, snowStateRepository,
+                tideExtremeRepository,
                 tideService, lunarPhaseService, locationRepository, auroraForecastResultRepository,
                 nlcClarityService, regionService, topicDailyLogRepository, mock(DynamicSchedulerService.class),
                 CLOCK);
         when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(YESTERDAY, EVENTS)).thenReturn(List.of());
         when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of());
+        when(snowStateRepository.findByEvaluationDateBetween(YESTERDAY, YESTERDAY)).thenReturn(List.of());
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
         when(locationRepository.findCoastalLocations()).thenReturn(List.of());
         when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(YESTERDAY))
                 .thenReturn(List.of());
@@ -94,6 +99,13 @@ class TopicDailyLogJobMissingDataTest {
         ArgumentCaptor<TopicDailyLogEntity> captor = ArgumentCaptor.forClass(TopicDailyLogEntity.class);
         verify(topicDailyLogRepository, atLeast(0)).save(captor.capture());
         return captor.getAllValues().stream().filter(e -> e.getTopicType().equals(topicType)).toList();
+    }
+
+    private static com.gregochr.goldenhour.entity.SnowStateEntity snowRow(long locationId, double waterMm) {
+        return com.gregochr.goldenhour.entity.SnowStateEntity.builder()
+                .pointKey(com.gregochr.goldenhour.entity.SnowStateEntity.locationKey(locationId))
+                .evaluationDate(YESTERDAY).eventType(TargetType.SUNRISE).snowWaterMm(waterMm)
+                .computedAt(java.time.LocalDateTime.of(2027, 3, 5, 4, 0)).build();
     }
 
     private SlotAtmosphereEntity slot(LocationEntity location, TargetType event) {
@@ -159,13 +171,16 @@ class TopicDailyLogJobMissingDataTest {
         mistOk.setMistScore(7.0);
         mistOk.setMistPotential("LIKELY");
 
-        SlotAtmosphereEntity snowOrphan = slot(located(10L, null), TargetType.SUNRISE);
-        snowOrphan.setSnowDepthMetres(0.5);
-        SlotAtmosphereEntity snowNoId = slot(located(19L, noId), TargetType.SUNRISE);
-        snowNoId.setSnowDepthMetres(0.5);
+        LocationEntity snowOrphanPlace = located(10L, null);
+        LocationEntity snowNoIdPlace = located(19L, noId);
+        LocationEntity snowOkPlace = located(31L, real);
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .thenReturn(List.of(snowOrphanPlace, snowNoIdPlace, snowOkPlace));
+        when(snowStateRepository.findByEvaluationDateBetween(YESTERDAY, YESTERDAY)).thenReturn(List.of(
+                snowRow(10L, 5.0), snowRow(19L, 5.0), snowRow(31L, 1.0)));
         when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(
                 inversionOrphan, inversionOk, inversionNoId, inversionUnscored, mistOrphan, mistNoScore,
-                mistNoPotential, mistNoId, mistOk, snowOrphan, snowNoId));
+                mistNoPotential, mistNoId, mistOk));
 
         job.runScheduled();
 
@@ -175,7 +190,7 @@ class TopicDailyLogJobMissingDataTest {
         assertThat(saved(TopicDailyLogJob.TYPE_MIST)).hasSize(1);
         assertThat(saved(TopicDailyLogJob.TYPE_MIST).get(0).getRegionId()).isEqualTo(1L);
         assertThat(saved(TopicDailyLogJob.TYPE_MIST).get(0).isPresent()).isTrue();
-        // Snow takes every row with a region whatever its event type; the two region-less rows add nothing.
+        // Snow takes every place with a region; the two region-less places add nothing.
         assertThat(saved(TopicDailyLogJob.TYPE_SNOW)).hasSize(1);
         assertThat(saved(TopicDailyLogJob.TYPE_SNOW).get(0).getRegionId()).isEqualTo(1L);
         assertThat(saved(TopicDailyLogJob.TYPE_SNOW).get(0).isPresent()).isFalse();

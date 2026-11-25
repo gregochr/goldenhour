@@ -151,7 +151,7 @@ public enum ReadyQuestion {
     },
 
     /**
-     * Snow on the tops. Offered only while a live snow hot topic is in scope
+     * Snow on the tops. Offered only while a live SNOW_TOPS hot topic is in scope
      * ({@link AskSnapshot#hasLiveEvent}); the answer is stored only when it finds something.
      */
     SNOW_TOPS(false, false, Events.SNOW, "plan") {
@@ -179,12 +179,13 @@ public enum ReadyQuestion {
         static final Set<String> AURORA = Set.of("AURORA");
 
         /**
-         * The snow hot-topic types: {@code SnowTopsHotTopicStrategy}'s {@code SNOW_TOPS} and the two
-         * {@code SnowFreshHotTopicStrategy} raises, {@code SNOW_FRESH} and {@code SNOW_MIST}. No
-         * almanac (Coming up) entry type is about snow (its snow readings are conditions, not
-         * entries), so none is listed: a snow almanac type would have to be added here on purpose.
+         * The one snow hot-topic type "Is there snow on the tops?" is about: {@code SNOW_TOPS} (a white summit in
+         * view). {@code SNOW_FRESH} and {@code SNOW_MIST} are snow underfoot, a different photograph, so they
+         * neither offer the question nor stay on its answer (snow-topics-truth-plan §3.6, owner Q5). No almanac
+         * (Coming up) entry type is about snow, so none is listed: a snow almanac type would have to be added
+         * here on purpose.
          */
-        static final Set<String> SNOW = Set.of("SNOW_TOPS", "SNOW_FRESH", "SNOW_MIST");
+        static final Set<String> SNOW = Set.of("SNOW_TOPS");
     }
 
     /**

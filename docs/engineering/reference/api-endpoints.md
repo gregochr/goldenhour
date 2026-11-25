@@ -330,7 +330,9 @@ cache, six read slot signals — ⚠️ since "record conditions for every place
 decision 2026-09-30; cloud inversion moved onto this rule at Phase 2, V158, 2026-09-30) the two
 halves of that read reach different horizons: **six** `slot_atmosphere`-backed strategies
 (dust, fresh snow, snow on the tops, storm surge, cloud inversion and, since valley-mist M1b, valley
-mist — gated on the stored `mist_potential` band, LIKELY only) see a reading for every
+mist — gated on the stored `mist_potential` band, LIKELY only; since snow S3 fresh snow and snow on
+the tops read the `snow_state` point snowpack rather than `slot_atmosphere`, over the same T+0..T+4
+window) see a reading for every
 candidate the batch fetched weather for, out to the full 5-day candidate window (T+0..T+4) — the
 batch never writes readings *past* T+4 only because it never collects a candidate past it, not
 because of any gate on the write itself. **One** `forecast_score`-backed strategy (bluebell) is

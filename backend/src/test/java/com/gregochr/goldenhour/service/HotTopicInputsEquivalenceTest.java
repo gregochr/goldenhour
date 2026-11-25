@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SnowStateEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.CurrentNight;
@@ -16,6 +17,7 @@ import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SnowStateRepository;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.util.LunarEclipseCalculator;
@@ -80,6 +82,8 @@ class HotTopicInputsEquivalenceTest {
         final ForecastScoreRepository scores = mock(ForecastScoreRepository.class);
         final SlotAtmosphereRepository atmosphere = mock(SlotAtmosphereRepository.class);
         final LocationRepository locations = mock(LocationRepository.class);
+        final SnowStateRepository snowRepository = mock(SnowStateRepository.class);
+        final SnowStateReader snowReader;
         final TravelDayService travelDays = mock(TravelDayService.class);
         final SlotSignalReader reader = new SlotSignalReader(scores, atmosphere);
         final HotTopicSimulationService simulation = new HotTopicSimulationService();
@@ -114,6 +118,14 @@ class HotTopicInputsEquivalenceTest {
             when(atmosphere.findInDateRange(from, to)).thenReturn(rows);
 
             Clock clock = Clock.fixed(Instant.parse("2026-08-10T05:00:00Z"), ZoneOffset.UTC);
+            // Great Gable: its own snow lying, a clear sunrise, and Scafell Pike white about 5 km away.
+            List<SnowStateEntity> snow = new ArrayList<>();
+            for (LocalDate day = from; !day.isAfter(to); day = day.plusDays(1)) {
+                snow.add(snowRow(SnowStateEntity.locationKey(2L), day, 12.0, 30));
+                snow.add(snowRow("summit:scafell-pike", day, 40.0, null));
+            }
+            when(snowRepository.findByEvaluationDateBetween(from, to)).thenReturn(snow);
+            snowReader = new SnowStateReader(snowRepository, clock);
             SolarService solar = new SolarService();
             SolarEventFreshness freshness = new SolarEventFreshness(solar, clock);
 
@@ -150,8 +162,8 @@ class HotTopicInputsEquivalenceTest {
                     new SeaMistHotTopicStrategy(reader, freshness, clock),
                     new DustHotTopicStrategy(reader, freshness, new DustFactsBuilder(solar)),
                     new InversionHotTopicStrategy(reader, freshness),
-                    new SnowFreshHotTopicStrategy(reader),
-                    new SnowTopsHotTopicStrategy(reader),
+                    new SnowFreshHotTopicStrategy(reader, locations, snowReader),
+                    new SnowTopsHotTopicStrategy(locations, snowReader),
                     new SupermoonHotTopicStrategy(lunar, locations, mock(LunarCalculator.class),
                             mock(MoonriseMoonsetCalculator.class), solar),
                     new SpringTideHotTopicStrategy(briefing, locations, freshness,
@@ -172,7 +184,7 @@ class HotTopicInputsEquivalenceTest {
                             locations, meteorClarity, MeteorPeakCalendars.empty()));
             enricher = new HotTopicEventEnricher(solar, locations, freshness);
             aggregator = new HotTopicAggregator(strategies, simulation, travelDays, enricher,
-                    new HotTopicGlanceDecorator(), reader, locations);
+                    new HotTopicGlanceDecorator(), reader, locations, snowReader);
         }
 
         /** The aggregator as it was before the change: every strategy and the enricher load alone. */
@@ -227,6 +239,12 @@ class HotTopicInputsEquivalenceTest {
         }
     }
 
+    private static SnowStateEntity snowRow(String key, LocalDate day, double snowWaterMm, Integer lowCloudPct) {
+        return SnowStateEntity.builder().pointKey(key).evaluationDate(day).eventType(TargetType.SUNRISE)
+                .snowWaterMm(snowWaterMm).snowfall24hCm(0.0).lowCloudPct(lowCloudPct)
+                .computedAt(LocalDateTime.of(2026, 8, 10, 4, 0)).build();
+    }
+
     private static LocationEntity location(String name, double lat, double lon, String region, long id) {
         LocationEntity entity = new LocationEntity();
         entity.setId(id);
@@ -265,7 +283,8 @@ class HotTopicInputsEquivalenceTest {
 
         assertThat(after).isNotEmpty().isEqualTo(before);
         assertThat(after).extracting(HotTopic::type)
-                .contains("ECLIPSE", "AURORA", "INVERSION", "DUST", "STORM_SURGE");
+                .contains("ECLIPSE", "AURORA", "INVERSION", "DUST", "STORM_SURGE", "SNOW_FRESH", "SNOW_TOPS");
+        assertThat(newWorld.calls(newWorld.snowRepository, "findByEvaluationDateBetween")).isEqualTo(1);
         assertThat(oldWorld.slotStatements()).isGreaterThan(newWorld.slotStatements());
         assertThat(newWorld.slotStatements()).isEqualTo(4);
         newWorld.verifySlotReadsOnce(AUGUST_FROM, AUGUST_TO);
