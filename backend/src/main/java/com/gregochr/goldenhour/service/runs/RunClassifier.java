@@ -79,7 +79,7 @@ public final class RunClassifier {
             case BRIEFING -> RunGroup.BRIEFING;
             // Never written today: BATCH_NEAR_TERM, BATCH_FAR_TERM, BRIEFING_GLOSS, BRIEFING_BEST_BET,
             // AURORA_GLOSS, BLUEBELL_GLOSS are model_selection keys only. They sit in OTHER for completeness.
-            case WEATHER, LIGHT_POLLUTION, ASK, ASK_READY, BATCH_NEAR_TERM, BATCH_FAR_TERM,
+            case WEATHER, LIGHT_POLLUTION, ASK, ASK_READY, SNOW_STATE, BATCH_NEAR_TERM, BATCH_FAR_TERM,
                  BRIEFING_GLOSS, BRIEFING_BEST_BET, AURORA_GLOSS, BLUEBELL_GLOSS -> RunGroup.OTHER;
         };
     }
@@ -109,6 +109,7 @@ public final class RunClassifier {
             case LIGHT_POLLUTION -> "Light pollution";
             case ASK -> "Ask PhotoCast";
             case ASK_READY -> "Ask ready answers";
+            case SNOW_STATE -> "Snow state";
         };
     }
 

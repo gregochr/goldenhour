@@ -111,10 +111,10 @@ class SchedulerJobCatalogueTest {
     }
 
     @Test
-    @DisplayName("the catalogue describes the 30 jobs, every one with copy and none naming an editable schedule")
+    @DisplayName("the catalogue describes the 31 jobs, every one with copy and none naming an editable schedule")
     void realCatalogue_everyEntryHasCopyAndNoEditableSchedule() {
-        assertThat(SchedulerJobCatalogue.keys()).hasSize(30)
-                .contains("scheduler_fire_log_cleanup", "weather_warning_poll");
+        assertThat(SchedulerJobCatalogue.keys()).hasSize(31)
+                .contains("scheduler_fire_log_cleanup", "weather_warning_poll", "snow_state_refresh");
         for (String key : SchedulerJobCatalogue.keys()) {
             Entry entry = SchedulerJobCatalogue.find(key).orElseThrow();
             assertThat(entry.alias()).as(key).isNotBlank();
@@ -146,6 +146,18 @@ class SchedulerJobCatalogueTest {
                         "evening_sunrise_refresh");
         assertThat(SchedulerJobCatalogue.find("near_term_batch_evaluation").orElseThrow().watchedBy())
                 .containsExactly("forecast_cycle_watchdog");
+    }
+
+    @Test
+    @DisplayName("the snow state refresh runs half an hour after the afternoon refresh, Open-Meteo only, no Claude")
+    void realCatalogue_snowStateStagger() {
+        Entry snow = SchedulerJobCatalogue.find("snow_state_refresh").orElseThrow();
+
+        assertThat(snow.staggeredAfter()).containsExactly("intraday_forecast_refresh");
+        assertThat(SchedulerJobCatalogue.find("intraday_forecast_refresh").orElseThrow().staggeredBefore())
+                .containsExactly("snow_state_refresh");
+        assertThat(snow.services()).containsExactly("Open-Meteo");
+        assertThat(snow.usesClaude()).isFalse();
     }
 
     @Test
