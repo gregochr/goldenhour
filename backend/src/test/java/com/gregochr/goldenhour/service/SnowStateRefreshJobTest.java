@@ -31,13 +31,13 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.longThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -360,7 +360,7 @@ class SnowStateRefreshJobTest {
 
         Report report = SchedulerFireOutcome.capture(() -> job.run(false));
 
-        verify(writer, never()).write(any(), any(), any());
+        verifyNoInteractions(writer);
         verify(servedEpoch, never()).bump();
         verify(jobRunService).completeRun(eq(jobRun), eq(0), eq(SUMMITS + 1), eq(DATES));
         verify(jobRunService).logApiCall(eq(RUN_ID), eq(ServiceName.OPEN_METEO_FORECAST), eq("GET"),
