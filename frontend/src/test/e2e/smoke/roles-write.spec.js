@@ -118,6 +118,10 @@ test.describe('Pro reader watches a date', () => {
 
       // The same card moved: in Watching, no longer in its month, never in Your places, and focus went with it.
       await expect(inWatching).toHaveCount(1);
+      // Under a month rule of its own: the watched card sits in a Watching month list, a `watching-month` rule before it.
+      await expect(page.locator(
+        `[data-testid="watching-month"] + [data-testid="watching-month-list"] [data-entry-id="${entryId}"]`,
+      )).toHaveCount(1);
       await expect(inMonth).toHaveCount(0);
       await expect(page.getByRole('heading', { level: 3, name: 'Watching' })).toBeVisible();
       await expect(inWatching.getByTestId('coming-up-title')).toHaveText(title);
