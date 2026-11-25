@@ -203,11 +203,6 @@ describe('isWholeSkyTopic — the exemption is by TYPE', () => {
     expect(REGION_SCOPED_TOPIC_TYPES.has('SEA_MIST')).toBe(true);
   });
 
-  it('scopes FROST_MIST: its regions are the ringed places\' regions, like valley mist\'s', () => {
-    expect(isWholeSkyTopic('FROST_MIST')).toBe(false);
-    expect(REGION_SCOPED_TOPIC_TYPES.has('FROST_MIST')).toBe(true);
-  });
-
   it('scopes SNOW_TOPS, which an eight-name set had lost', () => {
     // Named on its own rather than left to the union test, because it is the miss that happened:
     // `SnowTopsHotTopicStrategy` builds through `PerDateHotTopicBuilder`, whose every day's topic
