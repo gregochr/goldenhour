@@ -45,12 +45,9 @@ import { useCallback, useEffect, useState } from 'react';
  * node's arrival a dependency, so mounting the bar is itself what attaches the observer.
  *
  * @param {number} offset the line the sticky element rests at, in CSS pixels from the viewport top
- * @param {object} [options]
- * @param {boolean} [options.aboveOnly] for an element that starts BELOW the line (a section under the lens), where "not
- *        intersecting" is also true before it is reached: report true only once it has passed wholly ABOVE the line
  * @returns {[Function, boolean]} a ref callback for the 1px sentinel, and whether it has passed
  */
-export default function useStuckSentinel(offset = 0, { aboveOnly = false } = {}) {
+export default function useStuckSentinel(offset = 0) {
   const [node, setNode] = useState(null);
   const [stuck, setStuck] = useState(false);
   // Identity-stable, so React does not detach and re-attach on every render.
@@ -60,10 +57,7 @@ export default function useStuckSentinel(offset = 0, { aboveOnly = false } = {})
     if (!node || typeof IntersectionObserver === 'undefined') return undefined;
 
     const observer = new IntersectionObserver(
-      ([entry]) => setStuck(
-        !entry.isIntersecting
-        && (!aboveOnly || (entry.boundingClientRect?.bottom ?? Infinity) <= (entry.rootBounds?.top ?? 0)),
-      ),
+      ([entry]) => setStuck(!entry.isIntersecting),
       // `threshold: 0` with the top inset: the sentinel counts as visible only while some of it is
       // below the line. `Math.max(0, …)` because a negative offset would INFLATE the root and
       // report stuck a screen too early — the value arrives from a measurement, and a measurement
@@ -77,7 +71,7 @@ export default function useStuckSentinel(offset = 0, { aboveOnly = false } = {})
     // render (the arm's lint rule refuses it); observing re-fires immediately, so the reset costs at
     // most one frame of resting treatment when the offset changes.
     return () => { observer.disconnect(); setStuck(false); };
-  }, [node, offset, aboveOnly]);
+  }, [node, offset]);
 
   return [sentinelRef, stuck];
 }

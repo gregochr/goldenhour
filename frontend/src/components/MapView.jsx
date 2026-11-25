@@ -4201,18 +4201,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       headerLightEvent.eventType,
     )
     : null;
-  // A new array every render, so the effect below keys on its content (labels and ranges contain no `|`).
-  const headerLightKey = headerLightNow ? headerLightNow.map((w) => `${w.label}|${w.range}`).join('|') : '';
+  // `lightWindows` builds a new array every render, so the published object is memoised on a stable primitive key of its
+  // content (two windows at most; labels and ranges are plain words and times).
+  const [firstWindow, secondWindow] = headerLightNow ?? [];
+  const headerLightKey = `${firstWindow?.label}|${firstWindow?.range}|${secondWindow?.label}|${secondWindow?.range}`;
+  const headerLightPlace = headerLightNow ? headerLightWho?.name ?? null : null;
+  const headerLight = useMemo(
+    () => (headerLightNow ? { place: headerLightPlace, windows: headerLightNow.map(({ label, range }) => ({ label, range })) } : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the content (`headerLightKey`), not the fresh array
+    [headerLightKey, headerLightPlace],
+  );
   const publishHeader = mapScreen?.publishHeader;
   useEffect(() => {
-    const parts = headerLightKey ? headerLightKey.split('|') : [];
-    const light = parts.length > 0
-      ? Array.from({ length: parts.length / 2 }, (_, i) => ({ label: parts[2 * i], range: parts[2 * i + 1] }))
-      : null;
     publishHeader?.({
-      title: headerTitle, verdictLabel: headerVerdict, bestRating: headerBest, confidence: headerConfidence, light,
+      title: headerTitle, verdictLabel: headerVerdict, bestRating: headerBest, confidence: headerConfidence, light: headerLight,
     });
-  }, [publishHeader, headerTitle, headerVerdict, headerBest, headerConfidence, headerLightKey]);
+  }, [publishHeader, headerTitle, headerVerdict, headerBest, headerConfidence, headerLight]);
   const routeDate = activeMapEvent?.date ?? null;
   const routeEventType = activeMapEvent?.eventType ?? null;
   const routeLocationId = selectedLocationName == null

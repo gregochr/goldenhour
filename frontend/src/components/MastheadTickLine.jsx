@@ -255,7 +255,7 @@ MastheadFind.propTypes = {
  */
 export default function MastheadTickLine({
   light, origin, homePlace, onOpenSearch, onGoHome, onSetPostcode, searchOpen = false,
-  phone = false,
+  phone = false, fallbackFocus = undefined,
 }) {
   // Whichever of the three elements the origin slot holds now. See the class comment's last
   // section: the handoff below and the nudge's resolver both read it.
@@ -285,9 +285,11 @@ export default function MastheadTickLine({
     departed.current = null;
     const focused = document.activeElement;
     const nowhere = !focused || focused === document.body || focused === document.documentElement;
-    if (nowhere) originSlot.current?.focus();
+    if (nowhere) (originSlot.current ?? fallbackFocus?.())?.focus();
   });
-  const originSlotNow = () => originSlot.current;
+  // ⚠️ On a phone the whole row leaves once a postcode is saved, so the slot can be EMPTY: the fallback (the masthead's ☰
+  // button, handed over by the shell) is where the settings dialog and the focus handoff land instead of `<body>`.
+  const originSlotNow = () => originSlot.current ?? fallbackFocus?.() ?? null;
 
   const away = Boolean(origin);
   // See the class comment: either positive answer, never an absent one, and never while away —
@@ -534,4 +536,6 @@ MastheadTickLine.propTypes = {
    * The phone: the row is drawn only as the unset-postcode nudge (nothing otherwise), with no Find button and no times.
    */
   phone: PropTypes.bool,
+  /** Resolves the element focus lands on when the origin slot is empty (the phone, once the nudge is gone). */
+  fallbackFocus: PropTypes.func,
 };

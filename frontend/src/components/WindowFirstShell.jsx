@@ -768,17 +768,18 @@ export default function WindowFirstShell({
    */
   const [lensSentinelRef, lensStuck] = useStuckSentinel();
   /**
-   * Whether This week has scrolled wholly above the viewport (screen-spec.md D6): on a phone the lens then collapses to
-   * one line. `aboveOnly`, because the section is below the lens (not intersecting would otherwise read as passed).
+   * The This week section, handed to the lens bar (screen-spec.md D6), which watches it to collapse to one line on a
+   * phone once the section has scrolled past the lens (`useCollapsingLens`).
    *
-   * <p>⚠️ The observed element is the SECTION, not a 1px sentinel at its end, and that is deliberate. An
-   * IntersectionObserver reports only a change of "intersecting", so a 1px marker that starts below the viewport is
-   * missed whenever the page jumps over it in one frame (a fast fling, the Further ahead jump, scroll restoration): below
-   * and above are both "not intersecting". The section is taller than the viewport and intersects at the top of the page,
-   * so every jump from the top to past its end flips the state and is reported. (Measured: the sentinel version never
-   * collapsed after a programmatic jump.) Phone only is enforced where it is read (`pastWeek={isMobile && pastWeek}`).
+   * <p>⚠️ The watched element is the SECTION, not a 1px sentinel at its end, and that is deliberate. An IntersectionObserver
+   * reports only a change of "intersecting", so a 1px marker that starts below the viewport is missed whenever the page jumps
+   * over it in one frame (a fast fling, the Further ahead jump, scroll restoration): below and above are both "not
+   * intersecting". The section is taller than the viewport and intersects at the top of the page, so every jump from the top
+   * to past its end flips the state and is reported. The line it is measured against is the lens's own bottom edge (plus a
+   * little), not the viewport top: the Further ahead jump parks the next heading just under the lens, which is the case the
+   * viewport-top line missed. A state, not a ref: the bar's observer is built when the node arrives.
    */
-  const [weekRef, pastWeek] = useStuckSentinel(0, { aboveOnly: true });
+  const [weekNode, setWeekNode] = useState(null);
   /**
    * The drill-down's window, held by KEY rather than by the card object.
    *
@@ -2475,6 +2476,8 @@ export default function WindowFirstShell({
           // Phone: the row is only the unset-postcode nudge (nothing otherwise); Find is the brand row's own button.
           // Desktop and tablet keep the whole row, with today's times labelled "today".
           phone={isMobile}
+          // Once a postcode is saved the phone's row is gone, and the nudge with it: focus lands on ☰, never <body>.
+          fallbackFocus={isMobile ? () => menuBtnRef.current : undefined}
         />
       </div>
 
@@ -2530,7 +2533,7 @@ export default function WindowFirstShell({
       {!operationsShown && reachLens && ratingLens && (
         <WindowFirstLensBar
           stuck={lensStuck}
-          pastWeek={isMobile && pastWeek}
+          weekNode={weekNode}
           lens={reachLens}
           ratingLens={ratingLens}
           spotCount={windowCards.reduce((total, card) => total + placesOf(card.spots).length, 0)}
@@ -2562,7 +2565,7 @@ export default function WindowFirstShell({
           badge's meaning (the badge span is `aria-hidden`), so the heading's own name stays "This week" (the week's best is a sibling button, never inside it). */}
       <section
         id={THIS_WEEK_ID}
-        ref={weekRef}
+        ref={setWeekNode}
         aria-labelledby={THIS_WEEK_HEADING_ID}
         className="wf-sec wf-this-week"
         data-testid="this-week"

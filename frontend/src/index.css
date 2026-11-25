@@ -782,6 +782,8 @@
    empty state, supplies more). Putting it back here double-spaces the band under whichever row is
    showing, which is the failure mode the design's own `16px 28px 0` is written to avoid. */
 .wf-mast {
+  /* The masthead's control edge: the ☰ box and the phone's ⌕ Find box share it. */
+  --wf-mast-edge: #3A2C23;
   padding: 14px var(--wf-gutter) 0;
   background: linear-gradient(180deg, #241B16 0%, #1B1411 100%);
   /* ⚠️ NOT STICKY, AND IT NEVER ACTUALLY WAS. M3 added `position: sticky; top: 0; z-index: 45` here
@@ -1100,14 +1102,14 @@
   text-transform: uppercase;
   color: var(--color-plex-text-secondary);
 }
-/* Drawn only when the origin is away — see `MastheadTickLine`'s note on whose light this is. */
-/* The visible "today" that labels the times (screen-spec.md section 6.4); desktop and tablet only, the phone draws no times. */
+/* The visible "today" that labels the times (screen-spec.md section 6.4). Drawn from 810px, screen-reader-only below
+   (`MastheadTickLine`: the row wrapped without room for it); the phone draws no times at all. */
 .wf-tick-today {
   white-space: nowrap;
   letter-spacing: 0.1em;
   color: var(--color-plex-text-secondary);
 }
-.wf-mast-menu-sub { color: var(--color-plex-text-secondary); font-size: 12px; }
+/* Drawn only when the origin is away — see `MastheadTickLine`'s note on whose light this is. */
 .wf-tick-lbl {
   white-space: nowrap;
   letter-spacing: 0.1em;
@@ -1224,7 +1226,7 @@
     gap: 5px;
     height: 30px;
     padding: 0 10px;
-    border: 1px solid #3A2C23;
+    border: 1px solid var(--wf-mast-edge);
     border-radius: 8px;
     background: transparent;
     color: var(--color-plex-text-secondary);
@@ -1323,7 +1325,7 @@
   justify-content: center;
   width: 30px;
   height: 30px;
-  border: 1px solid #3A2C23;
+  border: 1px solid var(--wf-mast-edge);
   border-radius: 8px;
   color: var(--color-plex-text-secondary);
   font-size: 15px;
@@ -1364,6 +1366,7 @@
   color: var(--color-plex-text);
 }
 .wf-mast-menu-row { font-size: 14px; }
+.wf-mast-menu-sub { color: var(--color-plex-text-secondary); font-size: 12px; }
 .wf-mast-menu-row:hover,
 .wf-mast-menu-row:focus-visible { background: var(--color-plex-surface-light); }
 .wf-mast-menu-status-wrap { border-bottom: 1px solid var(--color-plex-border); margin-bottom: 4px; }
@@ -3592,12 +3595,14 @@ div.wf-hc:where([data-control]).also:hover {
   margin-bottom: -1px;
   overflow: hidden;
 }
+/* The lens's body wrapper, at EVERY width, so the chips are never remounted when the viewport crosses 639px (focus survives).
+   `display: contents` keeps the chips and the count the flex items of `.wf-lens` they always were, so desktop and tablet
+   lay out exactly as before; only a phone ever hides it (`hidden`, below). */
+.wf-lens-body { display: contents; }
+.wf-lens-body[hidden] { display: none; }
 /* The phone lens that collapses to one line past This week (screen-spec.md D6, `useCollapsingLens`). Desktop and tablet
-   never draw any of it: the component renders no summary, body wrapper or spacer there. The body is `display: contents`
-   so the chips and the count stay the flex items of `.wf-lens` they always were; `hidden` removes them all at once. */
+   never draw the summary or the spacer. */
 @media (max-width: 639px) {
-  .wf-lens-body { display: contents; }
-  .wf-lens-body[hidden],
   .wf-lens-summary[hidden] { display: none; }
   .wf-lens-summary {
     flex: 1 1 100%;
@@ -14989,7 +14994,7 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
 }
 .wf-map-screen-facts:empty { display: none; }
 /* The window's golden hour in the golden colour (screen-spec.md D4); the blue hour stays in the facts' own ink. */
-.wf-map-screen-golden { color: #E0A542; }
+.wf-map-screen-golden { color: var(--color-verdict-marginal); }
 .wf-map-screen-window { flex: 0 1 504px; min-width: 0; }
 .wf-map-screen-window:empty { display: none; }
 .wf-map-screen-tools {

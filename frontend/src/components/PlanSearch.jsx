@@ -72,7 +72,10 @@ function useTickLineBox() {
     // working, centred, with nothing failing — `null` is a legitimate return here, so the degrade
     // path would swallow the breakage. `.wf-tick` is a layout hook the responsive suite already
     // pins, which is the nearest thing this arm has to a structural selector.
-    const node = document.querySelector('.wf-tick');
+    // ⚠️ On a phone the tick line is drawn only while no postcode is saved (screen-spec.md P4), so the anchor there is the
+    // masthead's brand row (`.wf-mast-row`), which is always present: the panel's place never depends on postcode state.
+    const phone = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 639px)').matches;
+    const node = (phone ? document.querySelector('.wf-mast-row') : null) ?? document.querySelector('.wf-tick');
     const rect = node?.getBoundingClientRect?.();
     if (!rect || rect.width <= 0) { cache.current = null; return null; }
     // The tick line is not sticky, so a reader scrolled far down (Further ahead is the bottom of the screen) has it

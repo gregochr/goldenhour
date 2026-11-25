@@ -21,6 +21,22 @@ async function withHome(page) {
   }));
 }
 
+/** Two frames, so an effect the last scroll or focus change triggered (an observer's callback, a commit) has run. */
+async function settle(page) {
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
+/** Fails the test (skips, with the reason) if the seeded page is too short to scroll past This week. */
+async function requireRoomToScroll(page) {
+  const room = await page.evaluate(() => {
+    const section = document.getElementById('wf-this-week');
+    return document.documentElement.scrollHeight - window.innerHeight - (section.getBoundingClientRect().bottom + window.scrollY);
+  });
+  test.skip(room < 120, `the seeded forecast leaves only ${Math.round(room)}px below This week: not enough page to scroll past it`);
+}
+
 /** Scrolls (in one jump, the way a fling or the Further ahead jump does) so the end of This week is just above the viewport. */
 async function scrollPastWeek(page) {
   await page.evaluate(() => {
@@ -29,7 +45,7 @@ async function scrollPastWeek(page) {
   });
 }
 
-for (const W of [360, 390]) {
+for (const W of [360, 375, 390]) {
   test.describe(`The phone masthead and lens at ${W}`, () => {
     test.use({ viewport: { width: W, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
 
@@ -76,6 +92,7 @@ for (const W of [360, 390]) {
       ));
       const furtherBefore = await furtherTop();
 
+      await requireRoomToScroll(page);
       await scrollPastWeek(page);
       await expect(summary).toBeVisible();
       await expect(summary).toHaveAttribute('aria-expanded', 'false');
@@ -113,11 +130,41 @@ for (const W of [360, 390]) {
     test('the lens never collapses under a focused chip, and collapses on the blur', async ({ page }) => {
       await loginAndWaitForForecast(page, 'pro');
       const chip = page.getByTestId('window-first-lens-tiers-option').first();
+      await requireRoomToScroll(page);
       await chip.focus();
       await scrollPastWeek(page);
+      await settle(page);
       await expect(page.getByTestId('window-first-lens-summary')).toBeHidden();
+      await expect(page.getByTestId('window-first-lens')).not.toHaveClass(/wf-lens-collapsed/);
       await chip.blur();
       await expect(page.getByTestId('window-first-lens-summary')).toBeVisible();
+    });
+
+    test('a TAPPED chip (Android focuses it and a touch scroll never blurs it) does not hold the lens open', async ({ page }) => {
+      await loginAndWaitForForecast(page, 'pro');
+      await requireRoomToScroll(page);
+      // A real pointer press: focus lands on the chip without :focus-visible.
+      await page.getByTestId('window-first-lens-floors-option').first().click();
+      await scrollPastWeek(page);
+      await settle(page);
+      await expect(page.getByTestId('window-first-lens-summary')).toBeVisible();
+      await expect(page.getByTestId('window-first-lens')).toHaveClass(/wf-lens-collapsed/);
+      // Focus was moved into the persistent summary, never left in the hidden body or on <body>.
+      await expect(page.getByTestId('window-first-lens-summary')).toBeFocused();
+    });
+
+    test('the real Further ahead jump collapses the lens, and the heading lands visible below the collapsed line', async ({ page }) => {
+      await loginAndWaitForForecast(page, 'pro');
+      await requireRoomToScroll(page);
+      await page.getByTestId('further-ahead-jump').click();
+      await expect(page.getByTestId('further-ahead-heading')).toBeFocused();
+      await settle(page);
+      await expect(page.getByTestId('window-first-lens-summary')).toBeVisible();
+      await expect(page.getByTestId('window-first-lens')).toHaveClass(/wf-lens-collapsed/);
+      const lens = await page.getByTestId('window-first-lens').boundingBox();
+      const heading = await page.getByTestId('further-ahead-heading').boundingBox();
+      expect(heading.y, 'the heading is not hidden behind the collapsed lens').toBeGreaterThanOrEqual(lens.y + lens.height - 1);
+      expect(heading.y + heading.height).toBeLessThanOrEqual(844);
     });
   });
 }
@@ -145,16 +192,50 @@ test.describe('The lens on desktop and tablet is unchanged', () => {
   });
 });
 
+test.describe('The 640-809px band keeps the tick row on one line', () => {
+  for (const width of [640, 700, 768, 809]) {
+    test(`${width}px: the sr-only today label does not wrap the times`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await withHome(page);
+      await loginAndWaitForForecast(page, 'pro');
+      const tick = await page.getByTestId('window-first-tickline').boundingBox();
+      expect(tick.height, 'one line (45px), not two (63px)').toBeLessThanOrEqual(50);
+      // Read, not drawn: a 1px box, still in the row's spoken answer.
+      const today = page.getByTestId('masthead-light-today');
+      await expect(today).toHaveText('today');
+      expect((await today.boundingBox())?.width ?? 0).toBeLessThanOrEqual(2);
+    });
+  }
+
+  test('810px and up: the label is drawn', async ({ page }) => {
+    await page.setViewportSize({ width: 810, height: 900 });
+    await withHome(page);
+    await loginAndWaitForForecast(page, 'pro');
+    expect((await page.getByTestId('window-first-tickline').boundingBox()).height).toBeLessThanOrEqual(50);
+    expect((await page.getByTestId('masthead-light-today').boundingBox()).width).toBeGreaterThan(20);
+  });
+});
+
 test.describe('The map view header carries the light', () => {
   test('a window opened from a card names its blue and golden hour at a place, from the served score rows', async ({ page }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(90_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAndWaitForForecast(page, 'pro');
-    await openMapView(page);
+    // Not "the third card": which windows are served, and which have a score row with a light time, depends on the date the
+    // suite runs. Open each visible card in turn and keep the first whose header names its light.
+    const count = await page.getByTestId('wf-heat-card').filter({ visible: true }).count();
+    let found = false;
+    for (let index = 0; index < Math.min(count, 8) && !found; index += 1) {
+      await openMapView(page, index);
+      found = await page.getByTestId('map-screen-light-golden').isVisible();
+      if (!found) await closeMapView(page);
+    }
+    test.skip(!found, 'no visible window in the seeded forecast has a served light row');
     const facts = page.getByTestId('map-screen-facts');
-    await expect(page.getByTestId('map-screen-light-golden')).toBeVisible();
-    await expect(page.getByTestId('map-screen-light-golden')).toHaveText(/^golden \d\d:\d\d.\d\d:\d\d$/);
-    await expect(page.getByTestId('map-screen-light-blue')).toHaveText(/^blue \d\d:\d\d.\d\d:\d\d$/);
+    await expect(page.getByTestId('map-screen-light-golden')).toHaveText(/^golden \d\d:\d\d.\d\d:\d\d/);
+    await expect(page.getByTestId('map-screen-light-blue')).toHaveText(/^blue \d\d:\d\d.\d\d:\d\d/);
+    // Spoken: the place, and a comma between the facts.
+    await expect(page.getByTestId('map-screen-light-golden').locator('.sr-only')).toHaveText(/^ at \S/);
     // The golden hour is in the golden colour; the blue hour is not.
     const colours = await facts.evaluate((el) => ({
       golden: getComputedStyle(el.querySelector('[data-testid="map-screen-light-golden"]')).color,

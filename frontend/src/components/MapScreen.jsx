@@ -148,7 +148,35 @@ export default function MapScreen({
   const title = info?.title || DEFAULT_TITLE;
   const confidence = typeof info?.confidence === 'string' && info.confidence ? info.confidence : null;
   // The window's blue and golden hour at the place the header names (served score row); empty for a night.
-  const light = Array.isArray(info?.light) ? info.light : [];
+  const lightWindows = Array.isArray(info?.light?.windows) ? info.light.windows : [];
+  const lightPlace = info?.light?.place ?? null;
+  const facts = [
+    info?.verdictLabel && {
+      key: 'verdict', testId: 'map-screen-verdict', content: info.verdictLabel,
+    },
+    info?.bestRating != null && {
+      key: 'best',
+      testId: 'map-screen-best',
+      content: (
+        <>
+          <span aria-hidden="true">{`${info.bestRating}★`}</span>
+          <span className="sr-only">{`best ${info.bestRating} stars`}</span>
+        </>
+      ),
+    },
+    confidence && { key: 'confidence', testId: 'map-screen-confidence', content: `${confidence.toLowerCase()} confidence` },
+    ...lightWindows.map((w) => ({
+      key: w.label,
+      testId: `map-screen-light-${w.label}`,
+      className: w.label === 'golden' ? 'wf-map-screen-golden' : undefined,
+      content: (
+        <>
+          {`${w.label} ${w.range}`}
+          {lightPlace && <span className="sr-only">{` at ${lightPlace}`}</span>}
+        </>
+      ),
+    })),
+  ].filter(Boolean);
   return (
     <MapScreenContext.Provider value={value}>
       {/* The region is not itself interactive: the key handler only hears Escape from the controls inside it. */}
@@ -196,23 +224,11 @@ export default function MapScreen({
                 {title}
               </h2>
               <p className="wf-map-screen-facts font-mono" data-testid="map-screen-facts">
-                {info?.verdictLabel && <span data-testid="map-screen-verdict">{info.verdictLabel}</span>}
-                {info?.bestRating != null && (
-                  <span data-testid="map-screen-best">
-                    <span aria-hidden="true">{`${info.bestRating}★`}</span>
-                    <span className="sr-only">{`best ${info.bestRating} stars`}</span>
-                  </span>
-                )}
-                {confidence && <span data-testid="map-screen-confidence">{`${confidence.toLowerCase()} confidence`}</span>}
-                {light.map((w) => (
-                  <span
-                    key={w.label}
-                    data-testid={`map-screen-light-${w.label}`}
-                    className={w.label === 'golden' ? 'wf-map-screen-golden' : undefined}
-                  >
-                    {w.label}
-                    {' '}
-                    {w.range}
+                {facts.map((fact, index) => (
+                  <span key={fact.key} data-testid={fact.testId} className={fact.className}>
+                    {fact.content}
+                    {/* Spoken separator: the facts are separated by a gap on screen, which a screen reader does not hear. */}
+                    {index < facts.length - 1 && <span className="sr-only">, </span>}
                   </span>
                 ))}
               </p>

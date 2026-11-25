@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   describe, it, expect, vi, afterEach,
 } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import MastheadTickLine, { MastheadFind } from '../components/MastheadTickLine.jsx';
 import { SET_POSTCODE_LONG } from '../utils/postcodeNudge.js';
 
@@ -1011,6 +1011,56 @@ describe('MastheadTickLine — the phone (screen-spec.md P4: the masthead is one
   it('draws no times on the phone even for a saved home with a light', () => {
     renderTick({ phone: true, homePlace: null, light: null });
     expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+  });
+});
+
+describe('MastheadTickLine — phone focus when the saved postcode takes the nudge away', () => {
+  function Host({ homePlace, light, onSetPostcode }) {
+    return (
+      <>
+        <button type="button" data-testid="menu">menu</button>
+        <MastheadTickLine
+          phone
+          light={light}
+          origin={null}
+          homePlace={homePlace}
+          onOpenSearch={vi.fn()}
+          onGoHome={vi.fn()}
+          onSetPostcode={onSetPostcode}
+          fallbackFocus={() => screen.getByTestId('menu')}
+        />
+      </>
+    );
+  }
+
+  it('resolves the settings dialog\'s return target to the fallback once the slot is gone', () => {
+    const onSetPostcode = vi.fn();
+    const { rerender } = render(<Host homePlace={null} light={null} onSetPostcode={onSetPostcode} />);
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    const resolve = onSetPostcode.mock.calls[0][0];
+    expect(resolve()).toBe(screen.getByTestId('masthead-set-postcode'));
+    rerender(<Host homePlace="Durham" light={LIGHT} onSetPostcode={onSetPostcode} />);
+    expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
+    expect(resolve()).toBe(screen.getByTestId('menu'));
+  });
+
+  it('hands focus to the fallback when the nudge that held it leaves, never to <body>', () => {
+    const { rerender } = render(<Host homePlace={null} light={null} onSetPostcode={vi.fn()} />);
+    act(() => screen.getByTestId('masthead-set-postcode').focus());
+    rerender(<Host homePlace="Durham" light={LIGHT} onSetPostcode={vi.fn()} />);
+    expect(document.activeElement).toBe(screen.getByTestId('menu'));
+  });
+
+  it('resolves to null (not a throw) with no fallback and no slot', () => {
+    const onSetPostcode = vi.fn();
+    const { rerender } = render(
+      <MastheadTickLine phone light={null} origin={null} homePlace={null} onGoHome={vi.fn()} onSetPostcode={onSetPostcode} />,
+    );
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    rerender(
+      <MastheadTickLine phone light={LIGHT} origin={null} homePlace="Durham" onGoHome={vi.fn()} onSetPostcode={onSetPostcode} />,
+    );
+    expect(onSetPostcode.mock.calls[0][0]()).toBeNull();
   });
 });
 

@@ -6,8 +6,8 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { registerMapDoor } from './shellMapDoor.js';
 
 /**
- * The shell's half of the collapsing lens (screen-spec.md D6): the This week section, watched by `useStuckSentinel` in its
- * `aboveOnly` mode, tells the lens it has been scrolled past. The lens's own state machine
+ * The shell's half of the collapsing lens (screen-spec.md D6): the shell hands the This week section to the lens bar, whose
+ * `useCollapsingLens` watches it to know it has been scrolled past. The lens's own state machine
  * is `WindowFirstLensBarCollapse.test.jsx`; this file pins the wiring, and that desktop and tablet draw none of it.
  */
 const TODAY = '2026-08-08';
@@ -94,7 +94,7 @@ const renderShell = () => render(
   />,
 );
 
-const observerOf = (testId) => observers.find((o) => o.element?.dataset?.testid === testId);
+const observerOf = (testId) => observers.findLast((o) => o.element?.dataset?.testid === testId);
 const report = (testId, entry) => act(() => { observerOf(testId).callback([entry]); });
 
 describe('WindowFirstShell — the This week section as the collapse trigger', () => {
@@ -127,12 +127,10 @@ describe('WindowFirstShell — the This week section as the collapse trigger', (
     expect(screen.getByTestId('window-first-lens')).not.toHaveClass('wf-lens-collapsed');
   });
 
-  it('desktop and tablet draw no summary and no spacer, and never collapse even if the section is reported passed', () => {
+  it('desktop and tablet draw no summary and no spacer, do not even watch the section, and never collapse', () => {
     renderShell();
     report('window-first-lens-sentinel', { isIntersecting: false });
-    report('this-week', {
-      isIntersecting: false, boundingClientRect: { top: -1500, bottom: -4 }, rootBounds: { top: 0 },
-    });
+    expect(observerOf('this-week')).toBeUndefined();
     expect(screen.queryByTestId('window-first-lens-summary')).toBeNull();
     expect(screen.queryByTestId('window-first-lens-spacer')).toBeNull();
     expect(screen.getByTestId('window-first-lens')).not.toHaveClass('wf-lens-collapsed');

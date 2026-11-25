@@ -306,8 +306,10 @@ describe('MapScreen on its own', () => {
     expect(screen.queryByTestId('map-screen-light-golden')).toBeNull();
     rerender(<MapScreen open {...base()}><Publisher light={null} /></MapScreen>);
     expect(screen.queryByTestId('map-screen-light-blue')).toBeNull();
-    rerender(<MapScreen open {...base()}><Publisher light={[{ label: 'golden', range: '05:00–05:40' }]} /></MapScreen>);
+    rerender(<MapScreen open {...base()}><Publisher light={{ place: null, windows: [{ label: 'golden', range: '05:00–05:40' }] }} /></MapScreen>);
     expect(screen.getByTestId('map-screen-light-golden')).toHaveTextContent('golden 05:00–05:40');
+    // No place, no "at" clause.
+    expect(screen.getByTestId('map-screen-light-golden').querySelector('.sr-only')).toBeNull();
     expect(screen.queryByTestId('map-screen-light-blue')).toBeNull();
   });
 

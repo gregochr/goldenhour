@@ -266,8 +266,11 @@ describe('MapView inside the map view: what it publishes', () => {
       row(1, 'Near', ['15:30', '16:12'], ['16:12', '16:50']),
       row(2, 'Other', ['15:40', '16:22'], ['16:22', '17:00']),
     ]);
-    const expected = (id, name) => lightWindows(lookupForWindow(scoreIndex, id, name, TODAY, 'SUNSET'), 'SUNSET')
-      .map(({ label, range }) => ({ label, range }));
+    const expected = (id, name) => ({
+      place: name,
+      windows: lightWindows(lookupForWindow(scoreIndex, id, name, TODAY, 'SUNSET'), 'SUNSET')
+        .map(({ label, range }) => ({ label, range })),
+    });
     const withBestReach = (spot) => new Map([[SUNSET_CARD.key, { ...SUNSET_CARD, bestReach: spot }]]);
 
     it('is the selected place\'s, when one is selected', async () => {
@@ -278,7 +281,8 @@ describe('MapView inside the map view: what it publishes', () => {
       });
       const { light } = header.mock.lastCall[0];
       expect(light).toEqual(expected(1, 'Near'));
-      expect(light.map((w) => w.label)).toEqual(['golden', 'blue']);
+      expect(light.windows.map((w) => w.label)).toEqual(['golden', 'blue']);
+      expect(light.place).toBe('Near');
     });
 
     it('is the header card\'s best reachable place when none is selected', async () => {
