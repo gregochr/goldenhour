@@ -1784,6 +1784,7 @@
 .wf-quiet-day { flex: none; font-weight: 700; color: var(--color-plex-text); }
 .wf-quiet-fold.today .wf-quiet-day { color: var(--color-close-to-home); }
 .wf-quiet-sep { flex: none; white-space: pre; }
+.wf-quiet-fold, .wf-quiet-note { position: relative; }
 .wf-quiet-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wf-quiet-caret { margin-left: auto; padding-left: 8px; }
 /* Desktop and tablet: the fold sits in the sunrise row's cell above its (hidden while folded) card; the sunset row's cell
@@ -1818,6 +1819,10 @@
   cursor: pointer;
 }
 .wf-sec-best-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The button AND its clipped text are positioned. The spoken parts (`.sr-only`, absolutely positioned) sit at their static
+   position at the END of the text; with no positioned ancestor of their own they escape this clip, and when a wider font
+   pushes that point past the viewport they widen the page (a phone's layout viewport grew to 379px in CI). */
+.wf-sec-best, .wf-sec-best-t { position: relative; }
 .wf-sec-best > [aria-hidden='true']:last-child { flex: none; white-space: pre; }
 .wf-sec-best:hover .wf-sec-best-t { text-decoration: underline; }
 .wf-sec-best:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; border-radius: 4px; }
