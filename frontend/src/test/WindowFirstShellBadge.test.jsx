@@ -281,7 +281,7 @@ describe('WindowFirstShell — the NEW badge on the jump and the heading', () =>
 
     expect(screen.getByTestId('further-ahead-heading')).toHaveAccessibleName('Further ahead · dates known in advance');
     expect(screen.getByTestId('further-ahead-heading-badge')).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getByTestId('this-week-heading')).toHaveAccessibleName('This week · forecast');
+    expect(screen.getByTestId('this-week-heading')).toHaveAccessibleName('This week');
   });
 
   it('falls back to the plain jump name with no aria-label override when there is no badge', async () => {

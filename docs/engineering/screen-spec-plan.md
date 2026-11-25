@@ -164,7 +164,7 @@ Paths are under `frontend/src` unless they say otherwise.
 
 **D3.**
 - **The bar:** `h2#wf-this-week-h` "This week" (still the focus fallback), the `GuideLink section="fixed"` (moved here), and a sibling button.
-- **The button** reads `best Fri sunrise, Crimdon Beach 4★ →`. Its name is spoken in words: "Best this week: Friday sunrise, Crimdon Beach, 4 stars. Open on the map."
+- **The button** reads `best Fri sunrise, Crimdon Beach 4★ →`. Its accessible name starts with those visible words, the stars spoken as words (`StarFigure`), and ends with a screen-reader-only tail: "best Fri sunrise, Crimdon Beach 4 stars, the week's best, opens the map". No `aria-label` (§9.14).
 - **The window** is the card whose served `pick.kind` is `best`, within the four days.
 - **The stars** are the `claudeRating` of the served slot in `pick.regionName` whose `locationId` is `pick.locationId` (falling back to `locationName`).
   - This is the slot the projector named the pick from. It can be below the card's `bestRating`, because the pick is the best place in the top-ranked region, not the best spot overall; §9 records this.
@@ -343,6 +343,8 @@ Paths are under `frontend/src` unless they say otherwise.
 11. **The phone keeps the 2 px `MastheadLight` colour rule.** It shows no times.
 12. **D3's button truncates on a phone**, as the spec's prototype does, with the full text in its accessible name.
 13. **The lens count keeps '· W windows' and 'within reach'** (owner, 2026-11-24, amending D7 for honesty).
+14. **The week's best button follows §1's label-in-name rule, not the earlier spoken-sentence wording** (WCAG 2.5.3): its name begins with its visible words and carries a sr-only tail; no `aria-label`.
+15. **The Lite hint's whole line is one control**: pressing it opens the worded upsell (a Pro pill inside it, no link), and its ✕ is a separate button.
 
 ## 10. Review findings → where answered
 

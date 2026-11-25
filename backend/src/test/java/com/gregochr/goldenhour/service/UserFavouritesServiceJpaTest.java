@@ -744,4 +744,76 @@ class UserFavouritesServiceJpaTest {
         assertThat(late.get(PRO).dates()).extracting(FavouritesResponse.Date::key)
                 .containsExactly("king-tide:2019-06-19");
     }
+
+    // ---- the one-time hint's stamp (screen-spec D8, V230) ----
+
+    private Instant hintStamp() {
+        java.time.OffsetDateTime value = jdbc.queryForObject(
+                "SELECT places_hint_dismissed_at FROM app_user WHERE username = ?",
+                java.time.OffsetDateTime.class, PRO);
+        return value == null ? null : value.toInstant();
+    }
+
+    @Test
+    @DisplayName("a reader who has saved nothing has no hint stamp, and reading or removing stamps nothing")
+    void placesHint_unstampedUntilTheFirstSave() {
+        Long place = location("Bamburgh", true);
+
+        service.get(PRO);
+        service.removePlace(PRO, place);
+
+        assertThat(hintStamp()).isNull();
+    }
+
+    @Test
+    @DisplayName("the first place bookmarked stamps the hint from the clock")
+    void placesHint_stampedByAPlace() {
+        service.addPlace(PRO, location("Bamburgh", true));
+
+        assertThat(hintStamp()).isEqualTo(STARRED_AT);
+    }
+
+    @Test
+    @DisplayName("the first area bookmarked stamps the hint")
+    void placesHint_stampedByAnArea() {
+        Long member = location("Bamburgh", true);
+
+        service.addArea(PRO, named("Northumberland", member));
+
+        assertThat(hintStamp()).isEqualTo(STARRED_AT);
+    }
+
+    @Test
+    @DisplayName("the first date watched stamps the hint")
+    void placesHint_stampedByADate() {
+        service.addDate(PRO, KEPT);
+
+        assertThat(hintStamp()).isEqualTo(STARRED_AT);
+    }
+
+    @Test
+    @DisplayName("a replace that holds places stamps the hint, and an empty replace does not")
+    void placesHint_stampedByAReplace() {
+        service.replace(PRO, request(List.of(), List.of()));
+        assertThat(hintStamp()).isNull();
+
+        service.replace(PRO, request(List.of(location("Bamburgh", true)), List.of()));
+
+        assertThat(hintStamp()).isEqualTo(STARRED_AT);
+    }
+
+    @Test
+    @DisplayName("the stamp is first-write-wins and survives the reader removing every favourite")
+    void placesHint_neverClears() {
+        Long place = location("Bamburgh", true);
+        service.addPlace(PRO, place);
+        jdbc.update("UPDATE app_user SET places_hint_dismissed_at = ? WHERE username = ?",
+                java.sql.Timestamp.from(Instant.parse("2018-01-02T03:04:05Z")), PRO);
+
+        service.removePlace(PRO, place);
+        service.addPlace(PRO, place);
+
+        assertThat(hintStamp()).isEqualTo(Instant.parse("2018-01-02T03:04:05Z"));
+        assertThat(service.get(PRO).places()).hasSize(1);
+    }
 }

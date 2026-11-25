@@ -200,6 +200,9 @@ public class UserFavouritesService {
         LocalDateTime now = LocalDateTime.now(clock);
         minus(places, heldPlaces).forEach(id -> insertPlace(userId, id, now));
         minus(areas, heldAreas).forEach(id -> insertArea(userId, id, now));
+        if (!places.isEmpty() || !areas.isEmpty()) {
+            stampPlacesHint(username);
+        }
         LOG.info("Favourites for user id={} are now {} place(s) and {} area(s)", userId, places.size(),
                 areas.size());
         return build(userId);
@@ -222,6 +225,7 @@ public class UserFavouritesService {
         if (held.stream().noneMatch(row -> locationId.equals(row.locationId()))) {
             requireRoom(held.size());
             insertPlace(userId, locationId, LocalDateTime.now(clock));
+            stampPlacesHint(username);
         }
         return build(userId);
     }
@@ -243,6 +247,7 @@ public class UserFavouritesService {
         if (held.stream().noneMatch(row -> areaId.equals(row.areaId()))) {
             requireRoom(held.size());
             insertArea(userId, areaId, LocalDateTime.now(clock));
+            stampPlacesHint(username);
         }
         return build(userId);
     }
@@ -267,6 +272,7 @@ public class UserFavouritesService {
         if (held.stream().noneMatch(row -> key.equals(row.almanacKey()))) {
             requireRoom(held.size());
             favouriteRepository.insertDate(userId, key, LocalDateTime.now(clock));
+            stampPlacesHint(username);
         }
         return build(userId);
     }
@@ -341,6 +347,15 @@ public class UserFavouritesService {
         } catch (DataIntegrityViolationException e) {
             throw new NoSuchElementException("No area with id " + areaId);
         }
+    }
+
+    /**
+     * The first favourite of any kind ends the one-time "Bookmark places and watch dates" hint for good
+     * (screen-spec D8): stamps the reader's {@code places_hint_dismissed_at} if it is still null. Called
+     * on every write that adds a star, so removing every favourite later never brings the hint back.
+     */
+    private void stampPlacesHint(String username) {
+        userRepository.updatePlacesHintDismissedAtByUsernameIfNull(username, clock.instant());
     }
 
     private static void requireRoom(int held) {

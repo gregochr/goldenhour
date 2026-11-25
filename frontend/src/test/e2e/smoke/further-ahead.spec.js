@@ -31,7 +31,7 @@ test.describe('Further ahead', () => {
 
   test('both sections are labelled regions with their own headings, This week above Further ahead', async ({ page }) => {
     await expect(page.getByRole('region', { name: /This week/ })).toBeVisible();
-    await expect(page.getByRole('heading', { level: 2, name: 'This week · forecast' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'This week' })).toBeVisible();
     await expect(page.getByRole('heading', { level: 2, name: 'Further ahead · dates known in advance' })).toHaveCount(1);
     const week = await page.getByTestId('this-week').boundingBox();
     const ahead = await page.getByTestId('further-ahead').boundingBox();

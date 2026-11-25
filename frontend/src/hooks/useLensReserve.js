@@ -48,7 +48,7 @@ const RING_ALLOWANCE = 6;
  *
  * <h2>The section headings (one-screen-plan.md O2)</h2>
  *
- * <p>The screen has a second sticky element under the lens bar, the "This week · forecast" heading bar
+ * <p>The screen has a second sticky element under the lens bar, the "This week" heading bar
  * ({@code .wf-sec-bar-week}). The day tiles, the rails and every focused card sit below it, so its measured height is
  * added to {@code --wf-lens-h} and to {@code --wf-lens-reserve}: the existing {@code calc()}s in the stylesheet need no
  * new term, and they stay right while the bar is absent (it adds zero). Further ahead's heading replaces it once the

@@ -321,7 +321,7 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
         when(settingsService.saveHome(argThat(auth -> auth != null && "user".equals(auth.getName())),
                 eq(expected)))
                 .thenReturn(new UserSettingsResponse("user", "test@example.com", "PRO_USER",
-                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, false, false));
+                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, false, true, false));
 
         mockMvc.perform(put("/api/user/settings/home").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"postcode\":\"DH1 3LE\",\"latitude\":54.7761,\"longitude\":-1.5733}"))

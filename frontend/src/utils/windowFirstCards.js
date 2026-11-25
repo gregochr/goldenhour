@@ -707,12 +707,33 @@ function servedConfidenceOf(scopedRegion, win) {
 }
 
 /**
+ * The served rating of the place a pick names (screen-spec D3): the {@code claudeRating} of the slot in the pick's own
+ * region whose {@code locationId} is the pick's (falling back to the location name when the pick carries no id). This
+ * is the slot the projector named the pick from, read, never ranked: it can sit below the window's best, because the
+ * pick is the best place of the top-ranked region. Null when the pick names no place, the slot is not there, or it
+ * carries no rating (a place outside a Lite reader's picks has its rating stripped at the edge).
+ *
+ * @param {?object} es   the window's served event summary
+ * @param {object}  pick the served {@code BriefingWindow.Pick}
+ * @returns {?number} the slot's whole-star rating, or null
+ */
+function pickSlotRating(es, pick) {
+  if (!pick.locationName && pick.locationId == null) return null;
+  const region = (es?.regions || []).find((r) => r?.regionName === pick.regionName);
+  const slot = (region?.slots || []).find((s) => (pick.locationId != null
+    ? s?.locationId === pick.locationId
+    : s?.locationName === pick.locationName));
+  return typeof slot?.claudeRating === 'number' ? slot.claudeRating : null;
+}
+
+/**
  * A served pick in the shape a card carries it.
  *
  * @param {?object} pick the served {@code BriefingWindow.Pick}
+ * @param {?object} es   the window's served event summary, for the pick place's own slot rating
  * @returns {?object} the card's pick, or null
  */
-function cardPick(pick) {
+function cardPick(pick, es) {
   return pick
     ? {
       kind: pick.kind === 'BEST' ? 'best' : 'also',
@@ -721,6 +742,7 @@ function cardPick(pick) {
       detail: pick.detail || null,
       locationName: pick.locationName || null,
       locationId: pick.locationId ?? null,
+      rating: pickSlotRating(es, pick),
     }
     : null;
 }
@@ -890,7 +912,7 @@ export function buildWindowCards(
       : (topRegion(es)?.regionName ?? null);
     const servedVerdictMean = verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es));
     const servedPick = !picksLocked && win?.pick && (!origin || win.pick.regionName === origin.name)
-      ? cardPick(win.pick)
+      ? cardPick(win.pick, es)
       : null;
 
     return {
@@ -1120,7 +1142,7 @@ export function buildWindowCards(
       // Scoped (R2): the server's pick among the windows within reach, which for an away origin it has already
       // withheld unless it names the origin's region. Still withheld for a locked reader.
       pick: scoped
-        ? (picksLocked ? null : cardPick(scoped.pick))
+        ? (picksLocked ? null : cardPick(scoped.pick, es))
         : servedPick,
       // The tier's scope and the SERVED figures it replaced, present only when a scoped headline is worn. The scope
       // line, the spoken sentence and the dialog badge print `verdictScope`; H2's "beyond the tier" line needs the

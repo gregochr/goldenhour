@@ -138,16 +138,6 @@ describe('WindowFirstHeatStrip — the Best bets door', () => {
 describe('WindowFirstHeatStrip — guide doors (G3)', () => {
   beforeEach(() => mockOpenGuide.mockClear());
 
-  it('draws a ? at the end of the days-ahead heading that opens reading-the-forecast#fixed', async () => {
-    await renderStrip();
-    const head = screen.getByTestId('wf-heat-head');
-    const link = within(head).getByTestId('guide-link');
-    expect(link).toHaveAccessibleName('What fixed and could still move mean');
-    expect(head.lastElementChild).toBe(link);
-    fireEvent.click(link);
-    expect(mockOpenGuide).toHaveBeenCalledWith('reading-the-forecast', 'fixed', expect.any(Object));
-  });
-
   it('puts "What does this do?" in the Best bets popover only for a locked reader, opening planning#bestbet', async () => {
     await renderStrip({ picksLocked: true });
     const trigger = screen.getByTestId('wf-heat-bestbets-upsell-trigger');

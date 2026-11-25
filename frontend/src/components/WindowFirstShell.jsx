@@ -13,7 +13,7 @@ import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import FurtherAhead from './FurtherAhead.jsx';
 import {
   FURTHER_AHEAD_HEADING_ID, FURTHER_AHEAD_ID, THIS_WEEK_HEADING, THIS_WEEK_HEADING_ID, THIS_WEEK_ID,
-  THIS_WEEK_SUBHEADING, focusSectionHeading,
+  focusSectionHeading,
 } from '../utils/screenSections.js';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
 import { MapListContext } from '../context/MapListContext.jsx';
@@ -57,7 +57,11 @@ import useAskSurface from '../hooks/useAskSurface.js';
 import useAreaFind from '../hooks/useAreaFind.js';
 import { useFavourites } from '../context/FavouritesContext.jsx';
 import YourPlacesRow from './YourPlacesRow.jsx';
+import GuideLink from './guide/GuideLink.jsx';
+import { weekBestOf } from '../utils/weekBest.js';
+import { NO_QUIET_OPEN } from '../utils/quietDays.js';
 import BookmarkMark from './shared/BookmarkMark.jsx';
+import StarFigure from './shared/StarFigure.jsx';
 import { watchedStillToCome } from '../utils/watchedDates.js';
 import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
@@ -377,6 +381,7 @@ export default function WindowFirstShell({
   locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false,
   forecastDates = null, registerCloseDialogs = null, onFindOnMap = null, onFindOpenChange = null,
   registerOpenMap = null, loadMapRoute = null, onLoadMapRouteHandled = null,
+  placesHintDue = false, onDismissPlacesHint = null, onSettlePlacesHint = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets,
@@ -558,6 +563,20 @@ export default function WindowFirstShell({
   // ahead lists everything else. The strip reports only when the SET changes (it keys on the sorted ids), so a
   // re-render that draws the same lanes writes nothing; the setter is stable, so it never re-fires the strip's effect.
   const [graduatedIds, setGraduatedIds] = useState(NO_ENTRY_IDS);
+  /**
+   * The quiet days the reader has opened this session (screen-spec.md D5), by ISO date. The shell's own state, not the
+   * strip's: the strip is a lazy pane that remounts on a viewport flip, and an opened day stays opened for the session.
+   * A fold is a presentation choice, never persisted.
+   */
+  const [openQuietDays, setOpenQuietDays] = useState(NO_QUIET_OPEN);
+  const toggleQuietDay = useCallback((date) => {
+    setOpenQuietDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
+  }, []);
   // The ids Coming up lists under its All filter — every served entry, which is what the pills' jump may target
   // (glance-topic-strip-plan.md R1/R4). Empty unless the feed is READY: a stale `events` while a retry loads, or
   // after a failure, names rows that are not on screen.
@@ -2067,6 +2086,27 @@ export default function WindowFirstShell({
     }
     openMap({ window: win, focus, from, frame: HOME_AND_PLACE });
   };
+  /**
+   * The week's best, named in This week's bar (screen-spec.md D3): the card whose served pick is the Best bet, within
+   * the days this screen shows. Withheld with no map door (the press goes to the map) and, by the card's own pick,
+   * for a Lite reader or an origin that has scoped the pick away. Never ranked here (`utils/weekBest.js`).
+   */
+  const weekBest = useMemo(
+    () => (showOnMap ? weekBestOf(heatStripCards, forecastDates) : null),
+    [showOnMap, heatStripCards, forecastDates],
+  );
+  /** The bar's best button: the map view on that window, framing home and the pick's place, focus returning to it. */
+  const openWeekBest = (event) => {
+    if (!weekBest) return;
+    openMap({
+      window: { date: weekBest.date, eventType: weekBest.eventType },
+      focus: weekBest.locationId != null
+        ? { kind: 'location', id: weekBest.locationId, name: weekBest.place }
+        : null,
+      from: event.currentTarget,
+      frame: HOME_AND_PLACE,
+    });
+  };
   /** The area sheet's foot: the Map on the area's best window, with the area's spots as the named-spot lens. */
   const showAreaOnMap = (area) => {
     const target = areaMapWindow(heatStripCards, areaFind.outlook?.get(area.id));
@@ -2517,7 +2557,7 @@ export default function WindowFirstShell({
       {/* THIS WEEK (one-screen-plan.md O2): the forecast, under a sticky heading that carries the "Further ahead ↓" jump
           and its NEW badge. Its own `<section>` so the heading sticks for exactly as long as the section is on screen and
           is then replaced by Further ahead's, which is a sibling section below. The jump's accessible name carries the
-          badge's meaning (the badge span is `aria-hidden`), so the heading's own name stays "This week · forecast". */}
+          badge's meaning (the badge span is `aria-hidden`), so the heading's own name stays "This week" (the week's best is a sibling button, never inside it). */}
       <section
         id={THIS_WEEK_ID}
         aria-labelledby={THIS_WEEK_HEADING_ID}
@@ -2531,10 +2571,35 @@ export default function WindowFirstShell({
             className="wf-sec-h"
             data-testid="this-week-heading"
           >
-            <span>{THIS_WEEK_HEADING}</span>
-            {' '}
-            <span className="wf-sec-h-sub">{`· ${THIS_WEEK_SUBHEADING}`}</span>
+            {THIS_WEEK_HEADING}
           </h2>
+          {/* The help `?` for the fixed/could-still-move words, moved here from the strip's retired heading. */}
+          <GuideLink section="fixed" label="What fixed and could still move mean" />
+          {/* The week's best (screen-spec.md D3): the served Best bet, a sibling button (never inside the heading, so the
+              heading's name stays "This week"). Absent for a Lite reader, an away-scoped origin and a forecast with no
+              Best bet. The glyphs are decoration; the name says it in words. */}
+          {weekBest && (
+            <button
+              type="button"
+              className="wf-sec-best"
+              data-testid="this-week-best"
+              onClick={openWeekBest}
+            >
+              {/* No aria-label: the accessible name STARTS with the visible words (WCAG 2.5.3), the stars spoken as
+                  words by StarFigure, then a screen-reader-only tail naming what the button is and does. */}
+              <span className="wf-sec-best-t">
+                {`best ${weekBest.dow} ${weekBest.event}, ${weekBest.place}`}
+                {weekBest.rating != null && (
+                  <>
+                    {' '}
+                    <StarFigure n={weekBest.rating} />
+                  </>
+                )}
+              </span>
+              <span aria-hidden="true">{' →'}</span>
+              <span className="sr-only">, the week&apos;s best, opens the map</span>
+            </button>
+          )}
           <button
             type="button"
             className="wf-sec-jump"
@@ -2563,8 +2628,12 @@ export default function WindowFirstShell({
         </div>
 
         {/* Your places (F4, D15): the reader's own bookmarked places and areas as one row of chips at the top of the
-            forecast, or a Lite reader's one-line Pro teaser. Renders nothing for anyone else. */}
+            forecast, or the one-time hint that teaches bookmarking (a Lite reader's carries the Pro pill). Renders nothing for
+            anyone else. */}
         <YourPlacesRow
+          hintDue={placesHintDue}
+          onDismissHint={onDismissPlacesHint}
+          onSettleHint={onSettlePlacesHint}
           spots={heatSpots}
           windows={heatStripCards}
           scoreIndex={detailScoreIndex}
@@ -2619,6 +2688,8 @@ export default function WindowFirstShell({
             openableKeys={planWindowKeys}
             forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
             onLaneEntryIds={setGraduatedIds}
+            quietOpen={openQuietDays}
+            onQuietToggle={toggleQuietDay}
             onShowOnMap={showOnMap ?? NO_MAP_DOOR}
             onOpenLaneOnMap={openWindowOnMap}
             onOpenWatched={openYourPlace}
@@ -3206,6 +3277,15 @@ WindowFirstShell.propTypes = {
    * the shell and asks it to show the map view after handing the map its own handoff.
    */
   registerOpenMap: PropTypes.func,
+  /**
+   * Whether the one-time "Bookmark places and watch dates" hint is still due (screen-spec.md D8): the server's own
+   * {@code placesHintDue}, read with the reader's settings. False while unknown. Handed to Your places.
+   */
+  placesHintDue: PropTypes.bool,
+  /** Records the hint's dismissal (hides it at once and writes the flag). Absent in tests that do not render the hint. */
+  onDismissPlacesHint: PropTypes.func,
+  /** Told once the reader has saved a favourite while the hint was due, so the page's own flag drops with no write. */
+  onSettlePlacesHint: PropTypes.func,
   /**
    * The map view to open at load (one-screen-plan.md D4): `{date, eventType, locationId}` from the page's own `#map/...`
    * address. Null means open nothing: every device opens on This week.

@@ -1369,31 +1369,6 @@
   border-bottom: 1px solid var(--color-plex-border);
   padding-bottom: 12px;
 }
-.wf-hstrip-h {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  margin-bottom: 8px;
-}
-/* Secondary, not muted, and this is the seventh time this file has made the correction. Measured:
-   at this size on --color-plex-panel muted is 3.55:1 and fails AA, secondary is 6.88:1 (7.06:1 on
-   --color-plex-bg). The lens bar's own `.wf-lens-k` is still muted — pre-existing and out of this
-   phase's scope — but a NEW element must not add an eighth instance. */
-.wf-hstrip-k {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-plex-text-secondary);
-  white-space: nowrap;
-}
-.wf-hstrip-rule {
-  flex: 1;
-  min-width: 10px;
-  height: 1px;
-  background: var(--color-plex-border);
-}
 /* ── The matrix (plan-matrix §6 M1) ────────────────────────────────────────────────────────────
    A column per day, the day topics on row 2, sunrise on row 3 and sunset on row 4, so the shape of the week is in the
    layout itself. Cells are PLACED (`--c`/`--r` from the component) rather than flowed, which is
@@ -1618,7 +1593,7 @@
 .wf-hday.today .wf-hday-dn {
   color: var(--color-close-to-home);
 }
-/* "The days ahead" lanes (days-ahead-lanes-plan.md; design handoff "This week — The days ahead as lanes"): one
+/* The day lanes (days-ahead-lanes-plan.md; design handoff "This week as lanes"): one
    compact row per RUN of a topic, under its day and spanning the columns it covers. Desktop and tablet draw them in
    `.wf-lanes`, a NON-sticky grid between `.wf-dhrow` and the first card row, with the same `--dc` tracks and column gap as
    both (see the shared rule above), so a day stays one column. ⚠️ It must stay outside `.wf-dhrow`: that row is sticky
@@ -1772,6 +1747,7 @@
    row (no spanning). Desktop and tablet are untouched. */
 @media (max-width: 639px) {
   .wf-hstrip > .wf-lanecell { grid-column: 1 / -1; }
+  .wf-hstrip > .wf-day-body > .wf-lanecell { grid-column: 1 / -1; }
   .wf-lanecell { min-width: 0; }
   .wf-lanecell .wf-lanes {
     display: flex;
@@ -1779,6 +1755,124 @@
     gap: 5px;
   }
 }
+/* Quiet days (screen-spec.md D5): a day with nothing above 2 stars folds to ONE persistent button, `Wed 25 · nothing
+   above 2★ ▸`. The body (lanes and cards) is always mounted and `hidden` while folded; `display: contents` keeps the
+   cards the grid items they were (the phone grid, and the desktop's flex column of two card rows). `[hidden]` must beat
+   that, so it is restated. */
+.wf-day-body { display: contents; }
+.wf-day-body[hidden] { display: none; }
+.wf-quiet-fold {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  min-height: 34px;
+  width: 100%;
+  padding: 4px 11px;
+  border: 1px dashed var(--color-plex-border);
+  border-radius: 9px;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-quiet-fold:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
+.wf-quiet-fold:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+.wf-quiet-day { flex: none; font-weight: 700; color: var(--color-plex-text); }
+.wf-quiet-fold.today .wf-quiet-day { color: var(--color-close-to-home); }
+.wf-quiet-sep { flex: none; white-space: pre; }
+.wf-quiet-fold, .wf-quiet-note { position: relative; }
+.wf-quiet-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-quiet-caret { margin-left: auto; padding-left: 8px; }
+/* Desktop and tablet: the fold sits in the sunrise row's cell above its (hidden while folded) card; the sunset row's cell
+   is an inert space while folded. The cell is the grid item, so it carries the column the cards would. */
+.wf-hstrip.wf-hstrip-rows .wf-hcards > .wf-day-cell { grid-column: var(--c); }
+/* A day that is not quiet has a transparent cell: its card is the grid item it always was, placed by its own `--c`. */
+.wf-hstrip.wf-hstrip-rows .wf-hcards > .wf-day-cell:not([data-quiet]) { display: contents; }
+.wf-hstrip.wf-hstrip-rows .wf-hcards > .wf-day-cell:not([data-quiet]) > .wf-day-body > * { grid-column: var(--c); }
+/* A quiet day's cell stacks the fold above its card. */
+.wf-hstrip.wf-hstrip-rows .wf-hcards > .wf-day-cell[data-quiet] { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+@media (forced-colors: active) {
+  .wf-quiet-fold { border-color: CanvasText; }
+  .wf-quiet-fold:focus-visible { outline: 2px solid Highlight; }
+}
+
+/* The week's best, a sibling of the This week heading (screen-spec.md D3): `best Fri sunrise, Crimdon Beach 4★ →`. It
+   gives way before the Further ahead jump does (an ellipsis on the words, the arrow stays), and its accessible name
+   carries the full text. */
+.wf-sec-bar-week > .wf-guide-link { margin: 0 2px 0 -4px; }
+.wf-sec-best {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text);
+  cursor: pointer;
+}
+.wf-sec-best-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The button AND its clipped text are positioned. The spoken parts (`.sr-only`, absolutely positioned) sit at their static
+   position at the END of the text; with no positioned ancestor of their own they escape this clip, and when a wider font
+   pushes that point past the viewport they widen the page (a phone's layout viewport grew to 379px in CI). */
+.wf-sec-best, .wf-sec-best-t { position: relative; }
+.wf-sec-best > [aria-hidden='true']:last-child { flex: none; white-space: pre; }
+.wf-sec-best:hover .wf-sec-best-t { text-decoration: underline; }
+.wf-sec-best:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; border-radius: 4px; }
+.wf-sec-bar-week > .wf-sec-jump { margin-left: auto; }
+
+/* The one-time hint that stands in for Your places (screen-spec.md D8): one dashed line, about 34px, with a Dismiss. */
+.wf-yp-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 4px 0 11px;
+  border: 1px dashed var(--color-plex-border);
+  border-radius: 9px;
+}
+.wf-yp-hint-t {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.25;
+  color: var(--color-plex-text-secondary);
+}
+.wf-yp-hint-lite {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wf-yp-hint-lite:hover { color: var(--color-plex-text); }
+.wf-yp-hint-lite:focus-visible,
+.wf-yp-hint-x:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+.wf-yp-hint-lite .wf-lens-pro { margin-left: 6px; flex: none; }
+.wf-yp-hint-x {
+  flex: none;
+  width: 30px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font-size: 12px;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-yp-hint-x:hover { color: var(--color-plex-text); }
+.wf-yp-hint-wrap { margin-bottom: 6px; }
+
 /* An empty cell says why it is empty — the gap is information, not a hole. Two of them are empty
    by definition on an ordinary week (this morning has gone; the last evening is past the end of
    the forecast) and `windowFirstMatrix.js` will make no other claim, so a cell with no copy
@@ -2017,6 +2111,18 @@ div.wf-hc:where([data-control]).vp:hover {
 .wf-hstrip-rows .wf-hcards > .wf-hc-away .wf-hc-pls {
   column-gap: 8px;
 }
+/* The same slim hole and away-card rules for a card inside its day's cell (`.wf-day-cell > .wf-day-body`, drawn for every
+   day so cards never re-parent): the transparent cell of a day that is not quiet keeps the originals' alignment, and a
+   quiet day's flex cell takes the sizing alone (a column flex has no row to stretch or top-align in). */
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hgap { min-height: 0; padding: 12px 10px; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell:not([data-quiet]) > .wf-day-body > .wf-hgap { align-self: start; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hgap span { font-size: 11px; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hc-away { min-height: 0; padding: 9px 10px; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell:not([data-quiet]) > .wf-day-body > .wf-hc-away { align-self: start; }
+.wf-hstrip-rows .wf-hcards:has(> .wf-day-cell:not([data-quiet]) > .wf-day-body > .wf-hc:not(.wf-hc-away))
+  > .wf-day-cell:not([data-quiet]) > .wf-day-body > .wf-hc-away { align-self: stretch; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hc-away .wf-hc-top { display: none; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hc-away .wf-hc-pls { column-gap: 8px; }
 /* Met Office warning lanes (weather-warnings-plan.md W3), first in the stack: text in the official level colour from
    `utils/warnings.js` (Tailwind classes on the element), the level word always printed, no icon or triangle (style guide
    v1.4). Not a `.wf-lane`: that class paints its fill on a `::before` layer. */
@@ -3235,11 +3341,13 @@ div.wf-hc:where([data-control]).also:hover {
   .wf-hstrip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 8px; }
   .wf-hstrip > * { grid-column: auto; grid-row: auto; }
   .wf-hstrip > .wf-hday { grid-column: 1 / -1; margin-top: 4px; }
+  .wf-hstrip > .wf-quiet-fold { grid-column: 1 / -1; margin-top: 4px; }
   /* The empty slot ("this morning has gone") no longer sets its row's height: the base `.wf-hgap` carries a 110px
      minimum, which beside a short "Not forecast" card forced the whole row to 110px. It still stretches (the grid
      default, no `align-self: start`) to its neighbour, so it is that card's height beside a short one and matches a
      full card beside a full one. (0,2,0) beats the base (0,1,0). */
   .wf-hstrip > .wf-hgap { min-height: 0; }
+  .wf-hstrip > .wf-day-body > .wf-hgap { min-height: 0; }
   /* Chip compaction (matrix-axis plan D13) — keeps the sunrise/sunset chip's min-content width
      inside its 2-column track; without it the chip's desktop padding/letter-spacing can push a
      narrow card wider than its column. ⚠️ (0,2,0), the same specificity as `.wf-hc-sun.am`/`.pm`
@@ -11396,6 +11504,11 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   /* A heading reached by a jump lands under the lens bar, never behind it. */
   scroll-margin-top: calc(var(--safe-t) + var(--wf-bar-h, 54px) + 2px);
 }
+.wf-sec-bar-week > .wf-sec-h {
+  /* This week's heading never shrinks or wraps: the week's best beside it is the one that gives way. */
+  flex: none;
+  white-space: nowrap;
+}
 .wf-sec-h:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
@@ -11435,6 +11548,13 @@ div.wf-lane { cursor: default; }
   .wf-sec-bar { padding: 5px 0 4px; }
   .wf-sec-h { font-size: 12.5px; }
   .wf-sec-jump { min-height: 32px; }
+  /* The bar is one thin line (screen-spec.md section 4, about 28 px): a smaller help ? and a tighter best button, so the
+     week's best keeps as many words as the line allows before its ellipsis. */
+  .wf-sec-bar-week { padding: 0; gap: 4px; }
+  .wf-sec-bar-week > .wf-sec-jump { min-height: 28px; padding: 2px 6px; }
+  .wf-sec-bar-week > .wf-guide-link { width: 20px; height: 20px; margin: 0 0 0 -2px; font-size: 10px; }
+  .wf-sec-bar-week > .wf-guide-link::after { inset: -4px -6px; }
+  .wf-sec-best { flex: 1 1 0; justify-content: flex-start; padding: 2px 2px; font-size: 10.5px; }
 }
 
 /* Your places (D15): ONE row of compact chips at the top of This week, scrolling sideways, snapping on a phone. */
@@ -11648,7 +11768,7 @@ div.wf-lane { cursor: default; }
   border-bottom: 1px solid var(--color-plex-border);
 }
 /* Secondary, not muted — the eighth time this file has had to make the correction, and the reason
-   is recorded at `.wf-hstrip-k`: muted composites to 3.53:1 on this panel's own surface and fails
+   is recorded at `.wf-hday-dow`: muted composites to 3.53:1 on this panel's own surface and fails
    AA, where secondary is 6.75:1. It applies to the glyph, the placeholder, the group headings and
    the keyboard footer alike; the footer especially, since it carries the whole keyboard model. */
 .wf-search-glyph {
@@ -14643,8 +14763,7 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
    sit at least 10px away or the two boxes overlap. These hosts' gaps are smaller, so the ? adds the difference. */
 .wf-cu-chips .wf-guide-link { margin-left: 4px; }
 .wf-tl-collapsed .wf-guide-link,
-.wf-tide-strip-header .wf-guide-link,
-.wf-hstrip-h .wf-guide-link { margin: 0 4px; }
+.wf-tide-strip-header .wf-guide-link { margin: 0 4px; }
 .wf-tl-head-row,
 .wf-ask-guide-row { gap: 12px; }
 /* The ? that ends a Met Office warning source line (WarningFooter): inline with the 10px text, 14px clear of the Met

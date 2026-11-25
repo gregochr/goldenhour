@@ -364,7 +364,8 @@ export function visibleChips(page) {
  *        button opened it: no card's reach tier or rating floor carried over (a few specs assert on the whole roster)
  */
 export async function openMapView(page, index = 2, { plain = false } = {}) {
-  await page.getByTestId('wf-heat-card').nth(index).click();
+  // Visible cards only: a card inside a folded quiet day is mounted but hidden, and is not a card the reader can press.
+  await page.getByTestId('wf-heat-card').filter({ visible: true }).nth(index).click();
   await expect(page.getByTestId('map-screen')).toBeVisible();
   await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
   if (plain) {

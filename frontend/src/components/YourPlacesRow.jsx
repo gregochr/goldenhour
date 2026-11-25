@@ -1,5 +1,5 @@
 import React, {
-  useEffect, useLayoutEffect, useMemo, useRef,
+  useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { useFavourites } from '../context/FavouritesContext.jsx';
@@ -9,13 +9,19 @@ import { areaFigure, topWindowFor } from '../utils/planSearch.js';
 import { areaMapWindow } from '../utils/areaFind.js';
 import { isOutsidePicks } from '../utils/pickScope.js';
 import { YOUR_PLACES } from '../utils/favourites.js';
+import { THIS_WEEK_HEADING_ID } from '../utils/screenSections.js';
 import BookmarkMark from './shared/BookmarkMark.jsx';
 import StarFigure from './shared/StarFigure.jsx';
 import { FavouriteUpsell, upsellEscape, useFavouriteUpsell } from './shared/FavouriteToggle.jsx';
 
 /** Below this the line reads quietly: the reader's own place has nothing worth a trip in the days we have scored. */
 const QUIET_BELOW = 3;
-const YOUR_PLACES_EMPTY = 'Bookmark a place or an area, and it lands here.';
+
+/** The one-time hint (screen-spec.md D8): it teaches the next action for a reader with nothing saved. */
+const PLACES_HINT = 'Bookmark places and watch dates to build your plan.';
+/** The Lite reader's upsell, one body covering places and dates (it replaces the two per-toggle teasers' separate words). */
+const PLACES_HINT_UPSELL_HEADING = 'Build your plan';
+const PLACES_HINT_UPSELL_BODY = 'Pro keeps your own list of bookmarked places and areas, and can watch dates known in advance. Places get a row of their own at the top of This week; a watched date moves to the top of Further ahead and, once it is forecast, becomes a lane on its day.';
 
 /**
  * The row's order once its figures are in (screen-spec.md D2): best served rating first, then drive minutes (an area
@@ -84,8 +90,12 @@ function lineOf(row) {
  * <p><b>Fetching.</b> {@code useAreaOutlook} fetches only once the row has been on screen, so a reader who never
  * scrolls to a bookmarked area never pays for it.
  *
- * <p>A Lite reader gets one line, {@code Your places · PRO}, opening the worded upsell. Anyone else (no provider, the
- * list not yet landed) gets nothing.
+ * <p><b>The one-time hint</b> (screen-spec.md D8). A reader with nothing saved, while the server says it is still due
+ * ({@code hintDue}, {@code placesHintDue}), sees one dashed line in this row's place: {@code Bookmark places and watch
+ * dates to build your plan.} with a ✕ ("Dismiss"). A Lite reader sees the same line with the Pro pill, which opens a
+ * worded upsell beneath it (one body for places and dates). The ✕ hides it at once, writes the flag and puts focus on
+ * the This week heading; the first save, or a dismissal, ends it for good. With the hint gone, a reader with nothing
+ * bookmarked sees no row at all (no empty heading, no teaser): a Lite reader meets the upsell on the locked toggles.
  *
  * @param {object} props
  * @param {Array} props.spots the heat spots
@@ -97,9 +107,12 @@ function lineOf(row) {
  *        {@code {window: {date, eventType}, focus, from}}
  * @param {function(object): void} props.onOpenPlace opens a place's next-days sheet, given the heat spot
  * @param {function(object): void} props.onOpenArea opens an area's sheet, given the directory entry
+ * @param {boolean} [props.hintDue] whether the one-time hint is still due
+ * @param {?function(): void} [props.onDismissHint] records the hint's dismissal
  */
 export default function YourPlacesRow({
   spots, windows, scoreIndex, reachById, allowedLocationIds, onOpenWindow, onOpenPlace, onOpenArea,
+  hintDue = false, onDismissHint = null, onSettleHint = null,
 }) {
   const favourites = useFavourites();
   const upsell = useFavouriteUpsell();
@@ -109,6 +122,24 @@ export default function YourPlacesRow({
   // Empty only when the SERVED list holds nothing: places and areas both zero, whatever has or has not resolved yet.
   const nothingStarred = favourites.placeIds.size === 0 && favourites.areaIds.size === 0;
   const outlook = useAreaOutlook(inView && ready && favourites.areaIds.size > 0);
+  // The hint's own session state: hidden at once by its ✕, and latched off by the first save made while it was due, so
+  // removing every bookmark afterwards does not bring it back (the server stamps the same flag on that first save).
+  const [hintGone, setHintGone] = useState(false);
+  const [everSaved, setEverSaved] = useState(false);
+  const savedNow = ready && (!nothingStarred || (favourites.dates?.length ?? 0) > 0);
+  // Latched while rendering (React's own "adjust state when a prop changes" pattern), so the very commit that shows the
+  // first save already has the hint gone.
+  if (savedNow && !everSaved) setEverSaved(true);
+  // The first save while the hint was due: tell the page, so its own flag drops (the server stamped it too).
+  useEffect(() => {
+    if (everSaved && hintDue) onSettleHint?.();
+  }, [everSaved, hintDue, onSettleHint]);
+  /** ✕: hides the hint at once, writes the flag, and puts focus on the This week heading (the button unmounts). */
+  const dismissHint = () => {
+    setHintGone(true);
+    onDismissHint?.();
+    document.getElementById(THIS_WEEK_HEADING_ID)?.focus({ preventScroll: true });
+  };
 
   const rows = useMemo(() => {
     if (!ready) return [];
@@ -156,29 +187,63 @@ export default function YourPlacesRow({
     return () => gestures.forEach((gesture) => list.removeEventListener(gesture, note));
   }, [hasRow]);
 
-  if (favourites.status === 'locked') {
+  // The one-time hint (screen-spec.md D8) takes this row's place for a reader with nothing saved, and only while the
+  // server says it is still due. A Lite reader (the list is `locked`) sees the same line with the Pro pill; a Pro
+  // reader sees it only once the list has landed empty, never while it loads or after it failed. Dismissed, or the
+  // first save made in this session, it never comes back, even if the reader later removes everything.
+  const locked = favourites.status === 'locked';
+  const nothingSaved = nothingStarred && (favourites.dates?.length ?? 0) === 0;
+  const hintShown = hintDue && !hintGone && !everSaved && (locked || (ready && nothingSaved));
+  if (hintShown) {
     return (
-      <div className="wf-fav-section wf-yp" data-testid="your-places-teaser">
-        <button
-          type="button"
-          ref={setTrigger}
-          className="wf-fav wf-fav-locked"
-          data-testid="your-places-teaser-button"
-          aria-expanded={upsell.open}
-          aria-controls={upsell.open ? upsell.id : undefined}
-          onClick={upsell.toggle}
-          onKeyDown={upsellEscape(upsell)}
-        >
-          <span className="wf-fav-g"><BookmarkMark outline /></span>
-          <span>{YOUR_PLACES}</span>
-          {' '}
-          <span className="wf-lens-pro">Pro</span>
-        </button>
-        <FavouriteUpsell upsell={upsell} testIdPrefix="your-places-upsell" />
+      <div className="wf-fav-section wf-yp wf-yp-hint-wrap" data-testid="your-places-hint">
+        <div className="wf-yp-hint">
+          {locked ? (
+            <button
+              type="button"
+              ref={setTrigger}
+              className="wf-yp-hint-t wf-yp-hint-lite"
+              data-testid="your-places-hint-button"
+              aria-expanded={upsell.open}
+              aria-controls={upsell.open ? upsell.id : undefined}
+              onClick={upsell.toggle}
+              onKeyDown={upsellEscape(upsell)}
+            >
+              <BookmarkMark outline className="wf-yp-mark" />
+              <span>{PLACES_HINT}</span>
+              {' '}
+              <span className="wf-lens-pro">Pro</span>
+            </button>
+          ) : (
+            <p className="wf-yp-hint-t m-0" data-testid="your-places-hint-text">
+              <BookmarkMark className="wf-yp-mark" />
+              <span>{PLACES_HINT}</span>
+            </p>
+          )}
+          <button
+            type="button"
+            className="wf-yp-hint-x"
+            data-testid="your-places-hint-dismiss"
+            aria-label="Dismiss"
+            onClick={dismissHint}
+          >
+            <span aria-hidden="true">✕</span>
+          </button>
+        </div>
+        {locked && (
+          <FavouriteUpsell
+            upsell={upsell}
+            testIdPrefix="your-places-upsell"
+            heading={PLACES_HINT_UPSELL_HEADING}
+            body={PLACES_HINT_UPSELL_BODY}
+          />
+        )}
       </div>
     );
   }
-  if (!ready) return null;
+  // Nothing bookmarked: the row is absent (no empty heading, no teaser). A Lite reader meets the upsell on the locked
+  // toggles only, once the hint is gone.
+  if (locked || !ready || nothingStarred) return null;
 
   /** The window a chip opens the map on, or null when it opens its sheet instead (quiet, gated or unrated). */
   const windowOf = (row) => {
@@ -218,58 +283,58 @@ export default function YourPlacesRow({
         <BookmarkMark className="wf-yp-mark" />
         {YOUR_PLACES}
       </h3>
-      {nothingStarred ? (
-        <p className="wf-cu-note" data-testid="your-places-empty">{YOUR_PLACES_EMPTY}</p>
-      ) : (
-        <>
-          {rows.length > 0 && (
-            <ul
-              ref={listRef}
-              className="wf-yp-row m-0 list-none p-0"
-              data-testid="your-places-row"
-            >
-              {rows.map((row) => {
-                const line = lineOf(row);
-                return (
-                  <li key={row.key} className="wf-yp-item">
-                    <button
-                      type="button"
-                      data-testid="your-places-chip"
-                      data-kind={row.kind}
-                      data-quiet={line.quiet ? 'true' : undefined}
-                      className={`wf-yp-chip text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold${line.quiet ? ' wf-yp-quiet' : ''}`}
-                      onClick={(event) => press(row, event)}
-                    >
-                      <BookmarkMark className="wf-yp-mark" />
-                      <span className="wf-yp-name">{row.name}</span>
-                      <span className="sr-only">,</span>
-                      {' '}
-                      <span aria-hidden="true" className="wf-yp-sep">{' · '}</span>
-                      <span className="wf-yp-detail" data-testid="your-places-detail">{line.node}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {/* A bookmarked area the directory has not named yet is said, never silently left out. */}
-          {favourites.areasUnresolved > 0 && (
-            <p className="wf-cu-note" data-testid="your-places-areas-pending">
-              {`${favourites.areasUnresolved} bookmarked ${favourites.areasUnresolved === 1 ? 'area is' : 'areas are'} not shown yet.`}
-            </p>
-          )}
-          {rows.length === 0 && favourites.areasUnresolved === 0 && (
-            <p className="wf-cu-note" data-testid="your-places-offplan">
-              Your bookmarked places are not on the plan right now.
-            </p>
-          )}
-        </>
+      {rows.length > 0 && (
+        <ul
+          ref={listRef}
+          className="wf-yp-row m-0 list-none p-0"
+          data-testid="your-places-row"
+        >
+          {rows.map((row) => {
+            const line = lineOf(row);
+            return (
+              <li key={row.key} className="wf-yp-item">
+                <button
+                  type="button"
+                  data-testid="your-places-chip"
+                  data-kind={row.kind}
+                  data-quiet={line.quiet ? 'true' : undefined}
+                  className={`wf-yp-chip text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-plex-gold${line.quiet ? ' wf-yp-quiet' : ''}`}
+                  onClick={(event) => press(row, event)}
+                >
+                  <BookmarkMark className="wf-yp-mark" />
+                  <span className="wf-yp-name">{row.name}</span>
+                  <span className="sr-only">,</span>
+                  {' '}
+                  <span aria-hidden="true" className="wf-yp-sep">{' · '}</span>
+                  <span className="wf-yp-detail" data-testid="your-places-detail">{line.node}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {/* A bookmarked area the directory has not named yet is said, never silently left out. */}
+      {favourites.areasUnresolved > 0 && (
+        <p className="wf-cu-note" data-testid="your-places-areas-pending">
+          {`${favourites.areasUnresolved} bookmarked ${favourites.areasUnresolved === 1 ? 'area is' : 'areas are'} not shown yet.`}
+        </p>
+      )}
+      {rows.length === 0 && favourites.areasUnresolved === 0 && (
+        <p className="wf-cu-note" data-testid="your-places-offplan">
+          Your bookmarked places are not on the plan right now.
+        </p>
       )}
     </section>
   );
 }
 
 YourPlacesRow.propTypes = {
+  /** Whether the one-time hint is still due (the server's `placesHintDue`). */
+  hintDue: PropTypes.bool,
+  /** Records the hint's dismissal; called once from the ✕. */
+  onDismissHint: PropTypes.func,
+  /** Called once after the first save while the hint was due. */
+  onSettleHint: PropTypes.func,
   spots: PropTypes.arrayOf(PropTypes.object),
   windows: PropTypes.arrayOf(PropTypes.object),
   scoreIndex: PropTypes.shape({ byId: PropTypes.instanceOf(Map), byName: PropTypes.instanceOf(Map) }),

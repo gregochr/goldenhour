@@ -74,8 +74,8 @@ function spokenTail(lane, date, route = null, watching = false) {
 }
 
 /**
- * The This week "The days ahead" lanes (days-ahead-lanes-plan.md; design handoff "This week — The days ahead
- * as lanes") — one compact row per RUN of a topic, placed under its day and spanning the columns it covers. It
+ * The This week day lanes (days-ahead-lanes-plan.md; design handoff "This week as
+ * lanes") — one compact row per RUN of a topic, placed under its day and spanning the columns it covers. It
  * replaced the stacked per-day pills (glance-topic-strip-plan.md) and keeps their accessible-name construction
  * and tap routes.
  *

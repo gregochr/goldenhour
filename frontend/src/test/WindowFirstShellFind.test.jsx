@@ -932,12 +932,12 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
     expect(await screen.findByTestId('area-sheet')).toBeInTheDocument();
   });
 
-  it('a Lite reader sees the Your places teaser and no Find group, and Find still opens', async () => {
+  it('a Lite reader sees no Your places row (the hint is not due) and no Find group, and Find still opens', async () => {
     favouritesCtx = favouritesValue({ status: 'locked', places: [WHITBY] });
     mount({ ctx: favCtx() });
     await ready();
-    expect(screen.getByTestId('your-places-teaser')).toHaveTextContent('Your places');
-    expect(screen.getByTestId('this-week')).toContainElement(screen.getByTestId('your-places-teaser'));
+    expect(screen.queryByTestId('your-places')).toBeNull();
+    expect(screen.queryByTestId('your-places-hint')).toBeNull();
     fireEvent.click(findButton());
     await screen.findByTestId('plan-search-panel');
     expect(screen.queryByRole('group', { name: 'Your places' })).toBeNull();
@@ -954,10 +954,10 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
     expect(screen.getByTestId('location-sheet-favourite')).toHaveAttribute('data-starred', 'true');
   });
 
-  it('no provider: the screen has no Your places row and no teaser', async () => {
+  it('no provider: the screen has no Your places row and no hint', async () => {
     mount({ ctx: favCtx() });
     await ready();
     expect(screen.queryByTestId('your-places')).toBeNull();
-    expect(screen.queryByTestId('your-places-teaser')).toBeNull();
+    expect(screen.queryByTestId('your-places-hint')).toBeNull();
   });
 });

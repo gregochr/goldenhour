@@ -124,6 +124,8 @@ class HttpCachingConfigTest {
         // write and the reverse lookup. Both POST/PUT today, pinned so a future GET under either
         // path cannot be missed — the reverse body is derived from the caller's own location.
         "/api/user/settings/postcode-prompt-dismissed",
+        // The one-time Bookmark-places hint dismissal (screen-spec D8): a PUT, but pinned with its sibling.
+        "/api/user/settings/places-hint-dismissed",
         "/api/user/settings/home/reverse",
         // The caller's sub-region picks (sub-regions-plan S2). A GET, so it is the one that WOULD be
         // filtered if the whitelist ever matched by prefix; the body is the reader's own picks.
