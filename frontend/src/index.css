@@ -11657,7 +11657,8 @@ div.wf-lane { cursor: default; }
   /* `position: relative` so the chips' absolutely positioned spoken text (`.sr-only`) is clipped by the scroller: with
      the default (static) its containing block is outside the scroller, the text sits past the viewport edge for a
      chip that has scrolled away, and a phone's layout viewport widens to fit it (three bookmarks: 390 became 742). */
-  .wf-yp-row { position: relative; scroll-snap-type: x mandatory; padding: 0 1px 6px; }
+  .wf-yp-row { position: relative; }
+  .wf-yp-row { scroll-snap-type: x mandatory; padding: 0 1px 6px; }
   /* The heading stays a real heading for assistive tech, but the mark on every chip carries the meaning on a phone
      (spec section 4: Your places is one 34px line). The same box as Tailwind's `sr-only`. */
   .wf-yp > .wf-fav-section-h {

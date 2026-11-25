@@ -36,4 +36,8 @@ describe('Your places heading on a phone', () => {
     expect(phoneRule('.wf-yp-row { scroll-snap-type: x mandatory;').length).toBeGreaterThan(0);
     expect(css).toContain('.wf-yp-row { scroll-snap-type: x mandatory; padding: 0 1px 6px; }');
   });
+
+  it('makes the row the positioned ancestor of its chips on a phone, so their spoken text cannot widen the page', () => {
+    expect(phoneRule('.wf-yp-row { position: relative; }').length).toBeGreaterThan(0);
+  });
 });
