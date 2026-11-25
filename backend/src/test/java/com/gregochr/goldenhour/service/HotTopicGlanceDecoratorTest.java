@@ -317,6 +317,7 @@ class HotTopicGlanceDecoratorTest {
         assertThat(glanceOf(topic("INVERSION", D1))).isEqualTo(new GlanceLine(null, null, true));
         assertThat(glanceOf(topic("MIST", D1))).isEqualTo(new GlanceLine(null, null, true));
         assertThat(glanceOf(topic("SEA_MIST", D1))).isEqualTo(new GlanceLine(null, null, true));
+        assertThat(glanceOf(topic("FROST_MIST", D1))).isEqualTo(new GlanceLine(null, null, true));
     }
 
     @Test
@@ -350,10 +351,10 @@ class HotTopicGlanceDecoratorTest {
     }
 
     @Test
-    @DisplayName("the weather set is exactly the eleven plan types")
+    @DisplayName("the weather set is exactly the twelve plan types")
     void weatherSet_isThePlanSet() {
         assertThat(HotTopicGlanceDecorator.WEATHER_TYPES).containsExactlyInAnyOrder(
-                "STORM_SURGE", "MIST", "SEA_MIST", "INVERSION", "DUST", "CLEARANCE",
+                "STORM_SURGE", "MIST", "SEA_MIST", "FROST_MIST", "INVERSION", "DUST", "CLEARANCE",
                 "SNOW_TOPS", "SNOW_MIST", "SNOW_FRESH", "AURORA", "NLC");
     }
 }

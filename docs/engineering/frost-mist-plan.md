@@ -1,6 +1,6 @@
 # Frost & mist — plan
 
-**Status:** revision 2 (2026-11-25), after an adversarial review against the code (findings folded in below).
+**Status:** built (2026-11-25; revision 2 of the plan), after an adversarial review against the code (findings folded in below).
 The owner asked for it on 2026-11-25 ("implement Frost and Mist as follow ups").
 **Sequencing:** built after snow S3 (`snow-topics-truth-plan.md`) and the bluebell rings fix have merged, one
 phase, never alongside another build.

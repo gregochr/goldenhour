@@ -79,7 +79,7 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
     private static final String FRESH_NOTE = "clean at first light, before wind and footprints";
 
     /** The italic cue when the mist sits over sub-zero snow (frost likely). */
-    private static final String FROST_NOTE = "densest before dawn — frost on every branch";
+    static final String FROST_NOTE = "densest before dawn — frost on every branch";
 
     /** The italic cue when mist sits over snow but the air is not (provably) sub-zero. */
     private static final String MIST_NOTE = "mist over lying snow — soft, flat light";
@@ -211,11 +211,7 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
         List<HotTopicFact> facts = new ArrayList<>();
         facts.add(snowFact(freshCm));
         if (frost) {
-            // The gate is a strict temperature < 0, so the displayed integer must never read "0 °C"
-            // (the freezing point) beside a "frost likely" claim — a reading in [-0.5, 0) rounds
-            // to 0, so clamp the shown value to at most -1 °C. It stays genuinely sub-zero and honest.
-            long airCelsius = Math.min(-1L, Math.round(temperature));
-            facts.add(new HotTopicFact("air", airCelsius + " °C · frost likely", null, false, false));
+            facts.add(FrostAir.fact(temperature));
         }
         facts.add(new HotTopicFact("mist", "mist likely", null, false, true));
 

@@ -450,6 +450,14 @@ public class HotTopicSimulationService {
                     3, null,
                     List.of("Northumberland"), 1, null),
             new SimulationTemplate(
+                    "FROST_MIST", "Frost & mist",
+                    "Hoar frost and valley mist at first light",
+                    "On a cold, still, misty night, hoar frost can feather twigs and grass, and mist pools"
+                            + " on the valley floor. Where the mist thickens it may freeze as rime. Both go"
+                            + " as the sun warms the ground, so first light is the window.",
+                    1, null,
+                    List.of("The Lake District"), 1, null),
+            new SimulationTemplate(
                     "SUPERMOON", "Supermoon",
                     "Full moon at perigee — moonrise over the coast",
                     "A supermoon occurs when the full moon coincides with its closest approach"

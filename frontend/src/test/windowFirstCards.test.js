@@ -1066,6 +1066,7 @@ describe('badgeChannel', () => {
     ['SNOW_FRESH', 'snow'],
     ['SNOW_TOPS', 'snow'],
     ['FROST', 'snow'],
+    ['FROST_MIST', 'snow'],
     ['SEA_MIST', 'plain'],
     ['MIST', 'plain'],
   ])('routes %s to the %s channel', (type, channel) => {

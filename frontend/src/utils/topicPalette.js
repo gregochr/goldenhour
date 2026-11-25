@@ -26,6 +26,9 @@ export const SWATCH_COLOR = {
   INVERSION: TIDE_TEAL,
   MIST: '#8FA3B8',
   SEA_MIST: '#D5DCD6',
+  // Frost and mist: an icy sky blue, kept at least 10 deltaE76 from every other swatch under normal vision,
+  // deuteranopia and protanopia (the map's rings are colour-only; pinned by topicPalette.test.js).
+  FROST_MIST: '#38bdf8',
   STORM_SURGE: '#f59e0b',
   AURORA: NIGHTGLOW_VIOLET,
   NLC: NIGHTGLOW_VIOLET,
@@ -43,7 +46,7 @@ export const SWATCH_COLOR = {
 };
 
 /**
- * Glyph and full name for each of the backend's nineteen types
+ * Glyph and full name for each of the backend's twenty types
  * ({@code TopicRarity.RANK_BY_TYPE}). {@code placeNoun} marks the types that live on the coast.
  */
 const TOPIC_META = {
@@ -55,6 +58,8 @@ const TOPIC_META = {
   // Sea mist (coastal-mist-plan Phase 2). No placeNoun: 'coastal' is reserved for the tide types (a test pins
   // it), and the topic's own copy already says "sea".
   SEA_MIST: { glyph: '🌁', name: 'Sea mist' },
+  // Frost and mist (frost-mist-plan). Not 🌫️, which is MIST's.
+  FROST_MIST: { glyph: '🧊', name: 'Frost and mist' },
   DUST: { glyph: '🏜️', name: 'Dust' },
   SNOW_TOPS: { glyph: '🏔️', name: 'Snow on the tops' },
   SNOW_MIST: { glyph: '❄️', name: 'Snow and mist' },

@@ -54,6 +54,9 @@ import java.util.List;
  * {@code HotTopicEventEnricher} completes with the clock time. {@link SolarEventFreshness} drops an
  * event that has already passed, so a morning's mist retires the instant its sunrise has.
  *
+ * <p>A SUNRISE row whose air is also sub-zero belongs to {@link FrostMistHotTopicStrategy} instead and is
+ * dropped here, so one place-day never draws two rings; the mild-mist places and every sunset stay.
+ *
  * <p>Regions are the regions of the contributing slots (a regional topic, like the inversion's);
  * a day with two qualifying slots in one region is one topic naming that region once.
  *
@@ -118,6 +121,8 @@ public class MistHotTopicStrategy implements HotTopicStrategy {
         List<SlotSignals> likely = inputs.slotSignals().stream()
                 .filter(s -> EVENTS.contains(s.eventType()))
                 .filter(MistHotTopicStrategy::isLikely)
+                // Frost & mist owns the sub-zero sunrise place-days (frost-mist-plan D2); sunsets are unchanged.
+                .filter(s -> !FrostMistHotTopicStrategy.isFrostMist(s))
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .toList();
         if (likely.isEmpty()) {

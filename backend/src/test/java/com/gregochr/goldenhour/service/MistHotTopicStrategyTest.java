@@ -248,6 +248,66 @@ class MistHotTopicStrategyTest {
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
 
+    // ── Frost & mist owns the sub-zero sunrise place-days (frost-mist-plan D2) ──
+
+    private static SlotSignals withTemperature(LocationEntity location, LocalDate date, TargetType event,
+            Double temperature) {
+        SlotSignals.Readings readings = new SlotSignals.Readings(
+                null, null, null, null, null, null, null, null, null, null, temperature,
+                null, false, 7.0, true, MistPotential.LIKELY);
+        return new SlotSignals(location, date, event, SlotSignals.Scores.EMPTY, readings);
+    }
+
+    @Test
+    @DisplayName("a sub-zero sunrise place drops out of Valley mist; a mild misty place stays")
+    void detect_frostySunrise_dropsOut_mildStays() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                withTemperature(location(1, "The Lake District"), FROM, TargetType.SUNRISE, -2.0),
+                withTemperature(location(2, "Durham"), FROM, TargetType.SUNRISE, 3.0)));
+        stubAhead(FROM, TargetType.SUNRISE);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.getFirst().regions()).containsExactly("Durham");
+        assertThat(topics.getFirst().facts().getFirst().value()).isEqualTo("likely at 1 site");
+    }
+
+    @Test
+    @DisplayName("a place at exactly 0 °C or with no temperature stays in Valley mist")
+    void detect_zeroOrNullTemperature_stays() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                withTemperature(location(1, "The Lake District"), FROM, TargetType.SUNRISE, 0.0),
+                withTemperature(location(2, "Durham"), FROM, TargetType.SUNRISE, null)));
+        stubAhead(FROM, TargetType.SUNRISE);
+
+        assertThat(strategy.detect(FROM, TO).getFirst().facts().getFirst().value())
+                .isEqualTo("likely at 2 sites");
+    }
+
+    @Test
+    @DisplayName("a SUNSET row is unaffected by the frost filter, however cold")
+    void detect_frostySunset_stays() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                withTemperature(location(1, "The Lake District"), FROM, TargetType.SUNSET, -5.0)));
+        stubAhead(FROM, TargetType.SUNSET);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.getFirst().eventType()).isEqualTo("SUNSET");
+    }
+
+    @Test
+    @DisplayName("a day whose only misty sunrise places are frosty emits no sunrise Valley mist topic")
+    void detect_onlyFrostyPlaces_noSunriseTopic() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                withTemperature(location(1, "The Lake District"), FROM, TargetType.SUNRISE, -2.0),
+                withTemperature(location(2, "Durham"), FROM, TargetType.SUNRISE, -0.1)));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
     // ── Claude's echo as the fallback (valley-mist-plan M2) ──────────────
 
     /** A row with the readings given and Claude's echo band on the score half. */
