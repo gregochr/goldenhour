@@ -1,6 +1,6 @@
 # Month rules in Watching (2026-11-25)
 
-Status: **planned, not built.** Queued by the owner. One frontend PR, built by Sonnet per CLAUDE.md's owner rule. It
+Status: **planned, not built; decisions W1 and W2 made.** Queued by the owner. One frontend PR, built by Sonnet per CLAUDE.md's owner rule. It
 amends `screen-spec.md` D2 (§6.2).
 
 ## 1. What prompted it
@@ -48,6 +48,8 @@ about 72px; one month by about 32px. Watching sits below This week, so nothing i
 displaces nothing; Further ahead's month lists start that much lower.
 
 ## 3. Owner decisions
+
+Both decided by the owner on 2026-11-25: **W1 yes** (a rule even over a single month) and **W2 yes** (the year always printed).
 
 - **W1, a rule over a single month.** *Recommended: yes, always.* The month is the missing fact even with one row.
   Alternative: only when Watching spans two or more months, which saves ~32px but leaves a lone `9–12` unexplained.
