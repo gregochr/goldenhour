@@ -7,6 +7,7 @@ import { fetchAreaDirectory } from '../api/areasApi.js';
 import useUndoToast from '../hooks/useUndoToast.js';
 import UndoToast from '../components/shared/UndoToast.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
+import { lazyReturnTo } from '../utils/focusReturn.js';
 import {
   applyStar, favouriteSets, FAVOURITE_FAILED, NO_FAVOURITES, starToastText,
 } from '../utils/favourites.js';
@@ -29,6 +30,7 @@ export const OFF_FAVOURITES = Object.freeze({
   isPlaceStarred: () => false,
   isAreaStarred: () => false,
   isDateWatched: () => false,
+  registerWatchHome: () => () => {},
   setStar: () => Promise.resolve(false),
   toggle: () => Promise.resolve(false),
 });
@@ -75,6 +77,13 @@ export function FavouritesProvider({ pro, children }) {
   const epoch = useRef(0);
   // The newest setStar, so an Undo press made later calls the current one (a callback cannot name itself).
   const setStarRef = useRef(null);
+  // Where a date about to be watched will live: registered by the This week strip, which owns the one-home rule (a lane
+  // on its day, or Watching), so the toast can say where the date went. Read at press time.
+  const watchHomeRef = useRef(null);
+  const registerWatchHome = useCallback((resolve) => {
+    watchHomeRef.current = resolve;
+    return () => { if (watchHomeRef.current === resolve) watchHomeRef.current = null; };
+  }, []);
   // One number per reader session: bumped when the provider unmounts or `pro` changes, so a queued write, a retry or a
   // re-read that outlives the session finds it stale and does nothing (no request, no state, no toast).
   const session = useRef(0);
@@ -149,12 +158,16 @@ export function FavouritesProvider({ pro, children }) {
    * @param {boolean} [undo] true for an Undo press: the toast then says "Undone." and offers no second Undo
    * @param {?Array<number|string>} [group] every id one press changes together (un-watching several matched dates), so the
    *        one Undo on the last answer's toast puts them ALL back; omitted, the Undo restores just {@code id}
+   * @param {?function(): ?Element} [focusBack] an Undo press only: the original press's lazy focus target, so "Undone."
+   *        returns focus to where the reader was and not to the toast's own (unmounting) Undo button
    * @returns {Promise<boolean>} whether the server took it
    */
-  const setStar = useCallback((kind, id, name, on, undo = false, group = null) => {
+  const setStar = useCallback((kind, id, name, on, undo = false, group = null, focusBack = null) => {
     if (bodyRef.current == null) return Promise.resolve(false);
-    // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands.
-    const returnTo = document.activeElement;
+    // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands. A function
+    // resolved at Undo time, because the control may have MOVED by then (a watched date's card changes lists).
+    const returnTo = focusBack ?? lazyReturnTo(document.activeElement);
+    const home = kind === 'date' && on && !undo ? (watchHomeRef.current?.(id) ?? null) : null;
     setBody(applyStar(bodyRef.current, kind, id, on));
     epoch.current += 1;
     pending.current += 1;
@@ -180,11 +193,13 @@ export function FavouritesProvider({ pro, children }) {
           show(undo
             ? { message: 'Undone.', returnTo }
             : {
-              message: starToastText(kind, name, on),
+              message: starToastText(kind, name, on, home),
               returnTo,
               // Void: Undo is a press handler, nothing waits on the second request.
               onUndo: () => {
-                (group ?? [id]).forEach((each) => { void setStarRef.current(kind, each, name, !on, true); });
+                (group ?? [id]).forEach((each) => {
+                  void setStarRef.current(kind, each, name, !on, true, null, returnTo);
+                });
               },
             });
         }
@@ -219,12 +234,13 @@ export function FavouritesProvider({ pro, children }) {
       isPlaceStarred: (id) => sets.placeIds.has(id),
       isAreaStarred: (id) => sets.areaIds.has(id),
       isDateWatched: (key) => sets.dateKeys.has(key),
+      registerWatchHome,
       setStar,
       toggle: (kind, id, name) => setStar(
         kind, id, name, !({ area: sets.areaIds, date: sets.dateKeys }[kind] ?? sets.placeIds).has(id),
       ),
     };
-  }, [pro, body, failed, sets, bookmarkedAreas, setStar]);
+  }, [pro, body, failed, sets, bookmarkedAreas, setStar, registerWatchHome]);
 
   return (
     <FavouritesContext.Provider value={value}>

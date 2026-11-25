@@ -431,133 +431,43 @@ describe('FurtherAhead — the "Next four days" block has moved to This week (gl
   });
 });
 
-describe('FurtherAhead — a focus request from This week (glance-topic-strip-plan.md R4)', () => {
-  const PERSEIDS = ENTRIES[0].id;
-  const SPRING = ENTRIES[1].id;
-
-  const chipFor = (label) => screen.getAllByTestId('coming-up-chip')
-    .find((c) => within(c).queryByText(label));
-  const cardOf = (id) => document.querySelector(`[data-entry-id="${id}"]`);
-
-  beforeEach(() => {
-    // jsdom has no layout: a no-op scrollIntoView lets `scrollToEntry` run and is what the assertions watch.
-    Element.prototype.scrollIntoView = vi.fn();
-  });
-
-  afterEach(() => {
-    delete Element.prototype.scrollIntoView;
-  });
-
-  it('scrolls to, rings and focuses a rendered entry, then reports it handled exactly once', () => {
+describe('FurtherAhead — the jump\'s focus request', () => {
+  it('answers a request once, even across re-renders, so the shell can focus the heading', () => {
     const onFocusHandled = vi.fn();
-    renderPane({ focusRequest: { entryId: SPRING, seq: 1 }, onFocusHandled });
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
-    expect(cardOf(SPRING)).toHaveClass('wf-cu-ent-highlight');
+    const { rerender } = renderPane({ focusRequest: { seq: 1 }, onFocusHandled });
     expect(onFocusHandled).toHaveBeenCalledTimes(1);
-    expect(onFocusHandled).toHaveBeenCalledWith(true);
-  });
-
-  it('resets a filter that hides the entry to All, then scrolls', () => {
-    const onFocusHandled = vi.fn();
-    const props = { events: { entries: ENTRIES, counts: COUNTS }, onFocusHandled };
-    const { rerender } = renderPane(props);
-    // Night sky hides the spring tide (coastal).
-    fireEvent.click(chipFor('Night sky'));
-    expect(cardOf(SPRING)).toBeNull();
-    rerender(
+    expect(onFocusHandled).toHaveBeenCalledWith();
+    const again = (seq) => rerender(
       <FurtherAhead
         id="further-ahead-section"
         headingId="further-ahead-h"
         status="ready"
-        events={props.events}
+        events={{ entries: ENTRIES, counts: COUNTS }}
         todayStr={TODAY}
         onRetry={vi.fn()}
         onGoToPlan={vi.fn()}
         onShowOnMap={vi.fn()}
-        focusRequest={{ entryId: SPRING, seq: 1 }}
+        focusRequest={{ seq }}
         onFocusHandled={onFocusHandled}
       />,
     );
-    expect(chipFor('All')).toHaveAttribute('aria-pressed', 'true');
-    expect(cardOf(SPRING)).not.toBeNull();
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+    again(1);
     expect(onFocusHandled).toHaveBeenCalledTimes(1);
-    expect(onFocusHandled).toHaveBeenCalledWith(true);
+    again(2);
+    expect(onFocusHandled).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps the reader\'s filter when the entry is already rendered under it', () => {
+  it('answers even when the feed is not ready, and never touches the filter or any entry', () => {
+    localStorage.setItem('furtherAheadFilter', 'night-sky');
     const onFocusHandled = vi.fn();
-    const props = { events: { entries: ENTRIES, counts: COUNTS }, onFocusHandled };
-    const { rerender } = renderPane(props);
-    fireEvent.click(chipFor('Coastal'));
-    rerender(
-      <FurtherAhead
-        id="further-ahead-section"
-        headingId="further-ahead-h"
-        status="ready"
-        events={props.events}
-        todayStr={TODAY}
-        onRetry={vi.fn()}
-        onGoToPlan={vi.fn()}
-        onShowOnMap={vi.fn()}
-        focusRequest={{ entryId: SPRING, seq: 1 }}
-        onFocusHandled={onFocusHandled}
-      />,
-    );
-    expect(chipFor('Coastal')).toHaveAttribute('aria-pressed', 'true');
-    expect(onFocusHandled).toHaveBeenCalledWith(true);
+    renderPane({ status: 'loading', events: null, focusRequest: { seq: 1 }, onFocusHandled });
+    expect(onFocusHandled).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('furtherAheadFilter')).toBe('night-sky');
   });
 
-  it('a null entry (the door) clears without scrolling', () => {
-    const onFocusHandled = vi.fn();
-    renderPane({ focusRequest: { entryId: null, seq: 1 }, onFocusHandled });
-    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
-    expect(onFocusHandled).toHaveBeenCalledTimes(1);
-    expect(onFocusHandled).toHaveBeenCalledWith(false);
-  });
-
-  it('an entry the feed does not hold falls back, without throwing or looping', () => {
-    const onFocusHandled = vi.fn();
-    renderPane({ focusRequest: { entryId: 'no-such-entry', seq: 1 }, onFocusHandled });
-    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
-    expect(onFocusHandled).toHaveBeenCalledTimes(1);
-    expect(onFocusHandled).toHaveBeenCalledWith(false);
-  });
-
-  it('a feed that is not ready falls back', () => {
-    const onFocusHandled = vi.fn();
-    renderPane({ status: 'error', events: null, focusRequest: { entryId: SPRING, seq: 1 }, onFocusHandled });
-    expect(onFocusHandled).toHaveBeenCalledTimes(1);
-    expect(onFocusHandled).toHaveBeenCalledWith(false);
-  });
-
-  it('answers a request that arrives after the section has mounted, once', () => {
-    const onFocusHandled = vi.fn();
-    const props = {
-      id: 'further-ahead-section',
-      headingId: 'further-ahead-h',
-      status: 'ready',
-      events: { entries: ENTRIES, counts: COUNTS },
-      todayStr: TODAY,
-      onRetry: vi.fn(),
-      onGoToPlan: vi.fn(),
-      onShowOnMap: vi.fn(),
-      onFocusHandled,
-    };
-    const { rerender } = render(<FurtherAhead {...props} />);
-    expect(onFocusHandled).not.toHaveBeenCalled();
-    rerender(<FurtherAhead {...props} focusRequest={{ entryId: PERSEIDS, seq: 1 }} />);
-    expect(onFocusHandled).toHaveBeenCalledTimes(1);
-    expect(onFocusHandled).toHaveBeenCalledWith(true);
-    rerender(<FurtherAhead {...props} focusRequest={{ entryId: PERSEIDS, seq: 1 }} />);
-    expect(onFocusHandled).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not list an entry This week already draws as a lane, so a request for it falls back', () => {
-    const onFocusHandled = vi.fn();
-    renderPane({ graduatedIds: new Set([SPRING]), focusRequest: { entryId: SPRING, seq: 1 }, onFocusHandled });
-    expect(cardOf(SPRING)).toBeNull();
-    expect(onFocusHandled).toHaveBeenCalledWith(false);
+  it('marks the heading as the place focus falls back to when a control\'s row has gone', () => {
+    renderPane();
+    expect(screen.getByTestId('further-ahead-heading')).toHaveAttribute('data-focus-fallback');
   });
 });
 
@@ -941,28 +851,6 @@ describe('FurtherAhead — the remembered filter (D7)', () => {
     expect(chip('coastal')).toHaveAttribute('aria-pressed', 'true');
     get.mockRestore();
     set.mockRestore();
-  });
-
-  it('does not overwrite the remembered chip when a topic jump resets the view to All', () => {
-    localStorage.setItem('furtherAheadFilter', 'night-sky');
-    const props = { events: { entries: ENTRIES, counts: COUNTS }, onFocusHandled: vi.fn() };
-    const { rerender } = renderPane(props);
-    rerender(
-      <FurtherAhead
-        id="further-ahead-section"
-        headingId="further-ahead-h"
-        status="ready"
-        events={props.events}
-        todayStr={TODAY}
-        onRetry={vi.fn()}
-        onGoToPlan={vi.fn()}
-        onShowOnMap={vi.fn()}
-        focusRequest={{ entryId: ENTRIES[1].id, seq: 1 }}
-        onFocusHandled={props.onFocusHandled}
-      />,
-    );
-    expect(chip('all')).toHaveAttribute('aria-pressed', 'true');
-    expect(localStorage.getItem('furtherAheadFilter')).toBe('night-sky');
   });
 });
 

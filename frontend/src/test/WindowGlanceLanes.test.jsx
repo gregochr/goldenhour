@@ -155,7 +155,7 @@ describe('WindowGlanceLanes — a lane with no route is text, not a control that
     );
     expect(lane('SPRING_TIDE').tagName).toBe('DIV');
     fireEvent.click(lane('DUST'));
-    expect(onTap).toHaveBeenCalledWith(expect.objectContaining({ type: 'DUST' }));
+    expect(onTap).toHaveBeenCalledWith(expect.objectContaining({ type: 'DUST' }), expect.any(HTMLElement), null);
   });
 });
 
@@ -229,7 +229,7 @@ describe('WindowGlanceLanes — a press hands the lane to onTap', () => {
     expect(onTap).toHaveBeenCalledTimes(1);
     expect(onTap).toHaveBeenCalledWith(expect.objectContaining({
       type: 'DUST', key: `DUST:${MON}@${MON}`, startCol: 3, endCol: 3,
-    }));
+    }), expect.any(HTMLElement), null);
   });
 });
 
@@ -299,6 +299,6 @@ describe('WindowGlanceLanes — the phone\'s per-day cells', () => {
     const onTap = vi.fn();
     renderLanes(RUN, { date: TUE, away: [TODAY], onTap });
     fireEvent.click(lane('SPRING_TIDE'));
-    expect(onTap).toHaveBeenCalledWith(expect.objectContaining({ type: 'SPRING_TIDE', startCol: 2, endCol: 4 }));
+    expect(onTap).toHaveBeenCalledWith(expect.objectContaining({ type: 'SPRING_TIDE', startCol: 2, endCol: 4 }), expect.any(HTMLElement), TUE);
   });
 });

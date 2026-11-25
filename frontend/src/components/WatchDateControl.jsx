@@ -19,8 +19,12 @@ import { watchKeyOf, watchKeysMatching } from '../utils/watchedDates.js';
  *
  * @param {object} props
  * @param {object} props.entry a view entry from {@code buildEntryView}
+ * @param {string[]} [props.watchedKeys] the stored watches bound to this entry by the host's one-home rule
+ *        ({@code watchedKeysFor}); absent, the entry's own matches ({@code watchKeysMatching})
+ * @param {function(): void} [props.onWatchChange] called once, synchronously, when a press actually changed the
+ *        reader's dates (a ready Pro or Admin reader; never a Lite door)
  */
-export default function WatchDateControl({ entry }) {
+export default function WatchDateControl({ entry, watchedKeys = undefined, onWatchChange = undefined }) {
   const favourites = useFavourites();
   const upsell = useFavouriteUpsell();
   const key = watchKeyOf(entry);
@@ -33,7 +37,8 @@ export default function WatchDateControl({ entry }) {
         name={`${entry.title} · ${formatArrivalDate(entry.startDate)}`}
         upsell={upsell}
         testId="coming-up-watch-toggle"
-        matchedKeys={watchKeysMatching(favourites.dates, entry)}
+        matchedKeys={watchedKeys ?? watchKeysMatching(favourites.dates, entry)}
+        onChange={onWatchChange}
       />
       <FavouriteUpsell
         upsell={upsell}
@@ -51,4 +56,6 @@ WatchDateControl.propTypes = {
     type: PropTypes.string,
     startDate: PropTypes.string,
   }).isRequired,
+  watchedKeys: PropTypes.arrayOf(PropTypes.string),
+  onWatchChange: PropTypes.func,
 };

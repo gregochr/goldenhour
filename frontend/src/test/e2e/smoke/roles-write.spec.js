@@ -70,16 +70,18 @@ test.describe('Pro reader rates a past window', () => {
 });
 
 /**
- * The Pro reader watches a date (docs/engineering/one-screen-plan.md O2b, D16): "Watch this date" in an open Further
- * ahead entry writes one favourite row (`POST /api/user/settings/favourites/dates/{key}`), and the date joins Your places
- * at the top of This week as a chip carrying the entry's title.
+ * The Pro reader watches a date (docs/engineering/one-screen-plan.md O2b, D16; screen-spec.md D2): "Watch this date" in
+ * an open Further ahead entry writes one favourite row (`POST /api/user/settings/favourites/dates/{key}`), and the entry
+ * MOVES into Watching at the top of Further ahead (the same card, never a chip in Your places), taking focus with it.
+ * Un-watching moves it back to its month.
  *
  * <p>Like the rating above it WRITES shared state (the `pro` reader's own list), so it lives in this serial project and
  * takes the watch straight back, even when an assertion fails, so a re-run (`--repeat-each`) finds the list as it began.
- * It does not depend on which dates the seeded almanac holds: it takes the first open entry that offers the toggle.
+ * It does not depend on which dates the seeded almanac holds: it takes the LAST open entry that offers the toggle, the
+ * one furthest beyond the forecast, so it has no lane in This week to graduate to.
  */
 test.describe('Pro reader watches a date', () => {
-  test('the watch joins Your places as a chip, and un-watching takes it away', async ({ page }) => {
+  test('the watch moves into Watching, and un-watching moves it back', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page, 'pro');
     await openFurtherAhead(page);
@@ -89,14 +91,20 @@ test.describe('Pro reader watches a date', () => {
 
     // By accessible name, never `aria-pressed` (screen-spec.md D1): an unwatched toggle is named "Watch this date", a
     // watched one "Watching".
-    const toggle = page.getByTestId('coming-up-watch-toggle').and(page.getByRole('button', { name: 'Watch this date', exact: true })).first();
-    await expect(toggle, 'an open entry offers Watch this date to a Pro reader').toBeVisible();
-    // Fixed by id now: once the toggle is pressed the locator above (which asks for an unwatched one) matches nothing.
-    const entryId = await page.getByTestId('coming-up-entry').filter({ has: toggle }).first().getAttribute('data-entry-id');
+    const unwatched = page.getByTestId('coming-up-watch-toggle').and(page.getByRole('button', { name: 'Watch this date', exact: true }));
+    // The LAST entry that offers it: the furthest beyond the forecast. Fixed by id: once the toggle is pressed the
+    // locator above (which asks for an unwatched one) matches nothing.
+    const furthest = page.getByTestId('coming-up-entry').filter({ has: unwatched }).last();
+    await expect(furthest.getByTestId('coming-up-watch-toggle'), 'an open entry offers Watch this date to a Pro reader').toBeVisible();
+    const entryId = await furthest.getAttribute('data-entry-id');
     const entry = page.locator(`[data-testid="coming-up-entry"][data-entry-id="${entryId}"]`);
+    const toggle = entry.getByTestId('coming-up-watch-toggle');
+    const inWatching = page.getByTestId('watching-list').locator(`[data-entry-id="${entryId}"]`);
+    const inMonth = page.locator(`[data-testid="coming-up-list"] [data-entry-id="${entryId}"]`);
     const title = (await entry.getByTestId('coming-up-title').textContent()).trim();
-    const watchedChips = page.locator('[data-testid="your-places-chip"][data-kind="date"]');
-    const before = await watchedChips.count();
+    const dateChips = page.locator('[data-testid="your-places-chip"][data-kind="date"]');
+    await expect(inMonth).toHaveCount(1);
+    await expect(inWatching).toHaveCount(0);
 
     try {
       const saved = page.waitForResponse((r) => r.url().includes('/api/user/settings/favourites/dates/')
@@ -108,14 +116,27 @@ test.describe('Pro reader watches a date', () => {
       expect(key).toMatch(/^[a-z-]+:\d{4}-\d{2}-\d{2}$/);
       expect((await response.json()).dates.map((d) => d.key)).toContain(key);
 
-      await expect(entry.getByTestId('coming-up-watch-toggle')).toHaveAccessibleName('Watching');
-      await expect(watchedChips).toHaveCount(before + 1);
-      await expect(watchedChips.filter({ hasText: title })).toHaveCount(1);
+      // The same card moved: in Watching, no longer in its month, never in Your places, and focus went with it.
+      await expect(inWatching).toHaveCount(1);
+      await expect(inMonth).toHaveCount(0);
+      await expect(page.getByRole('heading', { level: 3, name: 'Watching' })).toBeVisible();
+      await expect(inWatching.getByTestId('coming-up-title')).toHaveText(title);
+      const moved = inWatching.getByTestId('coming-up-watch-toggle');
+      await expect(moved).toHaveAccessibleName('Watching');
+      await expect(moved).toBeFocused();
+      await expect(dateChips).toHaveCount(0);
 
       // The list reads back from the reader's own endpoint.
       const own = await apiGet(page, '/api/user/settings/favourites');
       expect(own.status()).toBe(200);
       expect((await own.json()).dates.map((d) => d.key)).toContain(key);
+
+      // And back: un-watching returns it to its month with focus on its toggle there.
+      await moved.click();
+      await expect(inMonth).toHaveCount(1);
+      await expect(inWatching).toHaveCount(0);
+      await expect(inMonth.getByTestId('coming-up-watch-toggle')).toHaveAccessibleName('Watch this date');
+      await expect(inMonth.getByTestId('coming-up-watch-toggle')).toBeFocused();
     } finally {
       const pressed = entry.getByTestId('coming-up-watch-toggle');
       if ((await pressed.getAttribute('data-starred')) === 'true') {
@@ -123,6 +144,6 @@ test.describe('Pro reader watches a date', () => {
         await expect(pressed).toHaveAccessibleName('Watch this date');
       }
     }
-    await expect(watchedChips).toHaveCount(before);
+    await expect(inWatching).toHaveCount(0);
   });
 });

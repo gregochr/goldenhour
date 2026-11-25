@@ -44,6 +44,7 @@ import WindowGlanceLanes from './WindowGlanceLanes.jsx';
 import { WarningCardMarker } from './WarningChip.jsx';
 import { useWarnings } from '../context/WarningsContext.jsx';
 import { buildWarningLanes, warningName, warningsForCard } from '../utils/warnings.js';
+import { buildWatchedLanes, watchedWithoutPlan } from '../utils/watchedDates.js';
 import ProUpsellDoor, {
   BEST_BETS_UPSELL_BODY, BEST_BETS_UPSELL_HEADING, BEST_BETS_UPSELL_LABEL,
 } from './shared/ProUpsell.jsx';
@@ -793,8 +794,11 @@ function areaLabel(regionName, tiny) {
  * @param {Function} [props.onSearchRegion] opens search pre-filled with a region name
  * @param {Array}    [props.comingUpEntries] the served almanac entries, for a topic pill's jump
  * @param {Function} [props.onLaneEntryIds] `(Set<string>)` — the almanac entries the lanes drawn here carry the jump
- *                                    of; Further ahead leaves them out so nothing shows twice
- *                                    (one-screen-plan.md D5). Called when the set changes
+ *                                    of, and the watched entries a lane here shows; Further ahead leaves them out so
+ *                                    nothing shows twice (one-screen-plan.md D5, screen-spec.md D2). Called when the
+ *                                    set changes
+ * @param {Function} [props.onOpenWatched] `({window, focus, from})` — a watched date's lane was pressed: opens the map
+ *                                    view on its window and best place. Absent: a watched lane is plain text
  * @param {boolean}  [props.picksLocked] true for a reader without best bets (LITE): the key row carries one
  *                                    Pro upsell door. The picks themselves are already absent from {@code cards}
  *                                    (the context nulls them), so nothing here hides a chip.
@@ -807,7 +811,7 @@ export default function WindowFirstHeatStrip({
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
   picksLocked = false, groundSets = null, picks = null,
   comingUpEntries = null, renderedEntryIds = null, openableKeys = null, forecastDates = null,
-  onLaneEntryIds = undefined, onShowOnMap = undefined, onOpenLaneOnMap = undefined,
+  onLaneEntryIds = undefined, onShowOnMap = undefined, onOpenLaneOnMap = undefined, onOpenWatched = undefined,
 }) {
   // Your places (F4): the Glance best-spot line marks a place the reader bookmarked itself, and says so. A mark only.
   const favourites = useFavourites();
@@ -876,6 +880,78 @@ export default function WindowFirstHeatStrip({
     todayStr, hotTopics, comingUpEntries, renderedEntryIds, openableKeys, forecastDates, hasMapDoor,
     onOpenLaneOnMap, matrix,
   ]);
+  // The reader's watched dates that have reached the forecast (screen-spec.md D2). Each is its day's lane here: a topic
+  // lane that already carries the entry's jump that day is DECORATED with the mark and the plan (a topic or warning lane
+  // is never removed, the two-question rule), otherwise a watched lane of its own is added in that day's column. Either
+  // way the entry is reported below, so Further ahead and Watching do not list it a second time.
+  // Only lanes that are DRAWN carry an entry: the strip withdraws entirely with no cards or no spots (the early return
+  // below), and then nothing shows the entry, so Further ahead must keep listing it, and no toast may promise a lane.
+  const lanesDrawn = cards.length > 0 && spots.length > 0;
+  const watched = useMemo(() => {
+    const decorations = new Map();
+    const added = [];
+    if (favourites.status !== 'ready') return { decorations, added, entryIds: [] };
+    const columnOf = new Map(matrix.days.map((day, index) => [day.date, index + 1]));
+    const rowsInColumn = new Map();
+    const entryIds = [];
+    const args = {
+      dates: favourites.dates, entries: comingUpEntries, windows: cards, hotTopics, todayStr,
+    };
+    buildWatchedLanes(args).forEach((lane) => {
+      const column = columnOf.get(lane.date);
+      if (column === undefined) {
+        // The plan's day has no column here: the topic lane that graduates the entry still wears the mark (no plan), so
+        // the date keeps its one home; an entry no lane carries is not graduated and stays in Watching.
+        glanceLanes.filter((topic) => topic.jump?.entryId === lane.entryId && !decorations.has(topic.key))
+          .forEach((topic) => decorations.set(topic.key, { date: null, plan: null, window: null, bestSpot: null }));
+        return;
+      }
+      entryIds.push(lane.entryId);
+      const host = glanceLanes.find((topic) => topic.jump?.entryId === lane.entryId && topic.dates.includes(lane.date));
+      if (host) {
+        decorations.set(host.key, {
+          date: lane.date, plan: lane.plan, window: lane.window, bestSpot: lane.bestSpot,
+        });
+        return;
+      }
+      const row = (rowsInColumn.get(column) ?? 0) + 1;
+      rowsInColumn.set(column, row);
+      added.push({
+        ...lane, startCol: column, endCol: column, row, dates: [lane.date],
+        tappable: lane.kind === 'window' && typeof onOpenWatched === 'function',
+      });
+    });
+    // A watched entry with no plan window that a topic lane carries still shows: the mark on that lane, no plan, so the date
+    // keeps its one home (an entry no lane carries stays in Watching).
+    watchedWithoutPlan(args).forEach(({ entryId }) => {
+      glanceLanes.filter((topic) => topic.jump?.entryId === entryId && !decorations.has(topic.key))
+        .forEach((topic) => decorations.set(topic.key, { date: null, plan: null, window: null, bestSpot: null }));
+    });
+    return { decorations, added, entryIds };
+  }, [favourites.status, favourites.dates, comingUpEntries, cards, hotTopics, todayStr, matrix, glanceLanes, onOpenWatched]);
+  const decoratedLanes = useMemo(
+    () => (watched.decorations.size === 0
+      ? glanceLanes
+      : glanceLanes.map((lane) => (watched.decorations.has(lane.key)
+        ? { ...lane, watched: watched.decorations.get(lane.key) } : lane))),
+    [glanceLanes, watched],
+  );
+  // Where a date about to be watched will live, for the toast: its day's lane when its plan has a window in the strip.
+  const { registerWatchHome } = favourites;
+  useEffect(() => registerWatchHome?.((key) => {
+    if (!lanesDrawn) return null;
+    const [lane] = buildWatchedLanes({
+      dates: [{ key }], entries: comingUpEntries, windows: cards, hotTopics, todayStr,
+    });
+    if (!lane || !matrix.days.some((day) => day.date === lane.date)) return null;
+    const dow = lane.plan?.dow ?? cards.find((card) => card.date === lane.date)?.dow;
+    return dow ? { dow } : null;
+  }), [registerWatchHome, lanesDrawn, comingUpEntries, cards, hotTopics, todayStr, matrix]);
+  const tapWatched = (lane, from) => onOpenWatched({
+    window: lane.window,
+    focus: lane.bestSpot ? { kind: 'location', id: lane.bestSpot.id, name: lane.bestSpot.name } : null,
+    from,
+  });
   // Met Office weather warnings (weather-warnings-plan.md W3): per window card, matched against the polled served list
   // (never a stored row), so a withdrawn or changed warning changes within the poll. Display only: a warning never
   // reads or changes a rating, verdict or count. Empty while the feature is off, so every surface below is today's.
@@ -917,12 +993,13 @@ export default function WindowFirstHeatStrip({
    */
   // Only lanes that are DRAWN carry an entry: the strip withdraws entirely with no cards or no spots (the early
   // return below), and then nothing shows the entry, so Further ahead must keep listing it. Same guard, same place.
-  const lanesDrawn = cards.length > 0 && spots.length > 0;
   const laneEntryKey = useMemo(
     () => (lanesDrawn
-      ? [...new Set(glanceLanes.filter((lane) => lane.jump).map((lane) => lane.jump.entryId))].sort((a, b) => a.localeCompare(b)).join('\n')
+      ? [...new Set([
+        ...glanceLanes.filter((lane) => lane.jump).map((lane) => lane.jump.entryId), ...watched.entryIds,
+      ])].sort((a, b) => a.localeCompare(b)).join('\n')
       : ''),
-    [glanceLanes, lanesDrawn],
+    [glanceLanes, watched, lanesDrawn],
   );
   useEffect(() => {
     onLaneEntryIds?.(new Set(laneEntryKey === '' ? [] : laneEntryKey.split('\n')));
@@ -935,12 +1012,20 @@ export default function WindowFirstHeatStrip({
    * lane with neither route is plain text and its spoken name says no destination (D5: "openMap on its window, or
    * nothing when it has none").
    */
-  const laneRoute = (lane) => {
+  const laneRoute = (lane, cellDate = null) => {
+    // A topic lane wearing a watched date's plan opens that plan's window and best place, like the watched lane would, but
+    // only where it is decorated: the whole lane on the desktop, only the plan's own day on the phone. Other days keep
+    // their own route.
+    if (lane.watched?.window && typeof onOpenWatched === 'function'
+      && (cellDate == null || lane.watched.date === cellDate)) return 'watched';
     if (lane.mapDoor) return 'map';
     return lane.target && onOpenLaneOnMap ? 'window' : null;
   };
-  const tapTopic = (lane) => {
-    if (laneRoute(lane) === 'map') {
+  const tapTopic = (lane, from, cellDate = null) => {
+    const route = laneRoute(lane, cellDate);
+    if (route === 'watched') {
+      tapWatched(lane.watched, from);
+    } else if (route === 'map') {
       onShowOnMap({
         kind: 'event', date: lane.mapDoor.date, eventType: lane.mapDoor.eventType, topicType: lane.type,
       });
@@ -2255,13 +2340,15 @@ export default function WindowFirstHeatStrip({
                     `renderDayHeader`, which the sticky, measured desktop `.wf-dhrow` shares). */}
                 <WindowGlanceLanes
                   key={`${day.date}:lanes`}
-                  lanes={glanceLanes}
+                  lanes={decoratedLanes}
                   date={day.date}
                   onTap={tapTopic}
                   canTap={laneRoute}
                   warningLanes={warningLanes}
                   onWarningTap={tapWarning}
                   warningFooter={warningFooterFor(day.date)}
+                  watchedLanes={watched.added}
+                  onWatchedTap={tapWatched}
                 />
                 {day.am
                   ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
@@ -2286,12 +2373,14 @@ export default function WindowFirstHeatStrip({
           {/* A NON-sticky grid between the pinned date chips and the cards: inside `.wf-dhrow` the lanes would
               pin a taller band over the cards (see `.wf-lanes`). One track per matrix column, away ones included. */}
           <WindowGlanceLanes
-            lanes={glanceLanes}
+            lanes={decoratedLanes}
             onTap={tapTopic}
             canTap={laneRoute}
             warningLanes={warningLanes}
             onWarningTap={tapWarning}
             warningFooter={warningFooterFor(null)}
+            watchedLanes={watched.added}
+            onWatchedTap={tapWatched}
           />
           <div className="wf-hrow">
             {renderRail(true)}
@@ -2521,6 +2610,8 @@ WindowFirstHeatStrip.propTypes = {
   forecastDates: PropTypes.arrayOf(PropTypes.string),
   /** `(Set<string>)` — the entries the drawn lanes carry the jump of; see the prop's doc above. */
   onLaneEntryIds: PropTypes.func,
+  /** `({window, focus, from})` — a watched date's lane: opens the map view on its window and best place. */
+  onOpenWatched: PropTypes.func,
   /** `({kind:'event', date, eventType, topicType})` — the Map door of a weather pill. Absent: no Map door. */
   onShowOnMap: PropTypes.func,
   /** `(windowKey, topicType)` — opens the Map on that window, with the topic selected when one is named. */

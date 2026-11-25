@@ -10569,13 +10569,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border-left-color: var(--wf-cu-accent, var(--color-plex-border-light));
 }
 .wf-cu-card:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
-/* Momentary highlight after a lane's jump button scrolls a card into
-   view (scrollToEntry.js) — a transition rather than an instant ring, so the eye can
-   follow which card the click landed on rather than needing to notice a ring that was just there. */
-.wf-cu-ent-highlight .wf-cu-card {
-  box-shadow: 0 0 0 2px var(--color-plex-gold);
-  transition: box-shadow 0.2s ease-out;
-}
 /* Dashed rather than solid marks a FORECAST entry that can still move — must always be paired
    with the legend above (design README §5: "without it the dashed border is undecodable"). */
 .wf-cu-card-fc { border-left-style: dashed; }
@@ -11456,51 +11449,102 @@ div.wf-lane { cursor: default; }
 .wf-yp-item { flex: none; scroll-snap-align: start; }
 .wf-yp-chip {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-height: 44px;
-  max-width: 260px;
-  padding: 6px 11px;
+  align-items: center;
+  min-height: 34px;
+  max-width: 300px;
+  padding: 4px 11px;
   border: 1px solid var(--color-plex-border);
   border-radius: 9px;
   background: var(--color-plex-panel);
   font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
   color: var(--color-plex-text);
   cursor: pointer;
 }
 .wf-yp-chip:hover { border-color: var(--color-plex-border-light); }
-/* A watched date leads with the calendar tile (the Further ahead rail's `.wf-cu-dbox`), then a text column. */
-.wf-yp-chip-date { flex-direction: row; align-items: center; gap: 9px; }
-.wf-yp-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.wf-yp-dbox { flex: none; width: 46px; padding: 3px 0 4px; }
-.wf-yp-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wf-yp-detail { font-size: 11.5px; color: var(--color-plex-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* A watched date that opens nothing (a meteor peak has no window of its own): the same chip, drawn as text, not a control. */
-.wf-yp-chip-static { cursor: default; border-style: dashed; }
-.wf-yp-chip-static:hover { border-color: var(--color-plex-border); }
-.wf-yp-item-date { display: flex; align-items: stretch; gap: 2px; }
-.wf-yp-stop {
-  min-width: 32px;
-  border: 1px solid var(--color-plex-border);
-  border-radius: 9px;
-  background: var(--color-plex-panel);
-  color: var(--color-plex-text-secondary);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-.wf-yp-stop:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
+/* One line: the mark, the name (it gives way with an ellipsis), then the served figure and its window, which never shrinks. */
+.wf-yp-chip .wf-yp-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wf-yp-chip .wf-yp-sep { flex: none; white-space: pre; color: var(--color-plex-text-secondary); }
+.wf-yp-detail { flex: none; font-size: 11.5px; color: var(--color-plex-text-secondary); }
+/* A row that reads quiet (nothing above 2 stars, not rated yet, outside the reader's picks) is last and muted. */
+.wf-yp-chip.wf-yp-quiet { border-style: dashed; }
+.wf-yp-chip.wf-yp-quiet .wf-yp-name { font-weight: 500; color: var(--color-plex-text-secondary); }
 @media (max-width: 639px) {
-  .wf-yp-stop { min-width: 44px; }
-}
-@media (max-width: 639px) {
-  .wf-yp-row { scroll-snap-type: x mandatory; }
+  .wf-yp-row { scroll-snap-type: x mandatory; padding: 0 1px 6px; }
+  /* The heading stays a real heading for assistive tech, but the mark on every chip carries the meaning on a phone
+     (spec section 4: Your places is one 34px line). The same box as Tailwind's `sr-only`. */
+  .wf-yp > .wf-fav-section-h {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
 /* Watch this date (D16): under an open entry's card, in the card's own column of the entry grid, never inside the card
    (a single-action card is itself a button) or the Open / Close button. */
 .wf-cu-watch { grid-column: 2; justify-self: start; min-width: 0; max-width: 100%; margin: -2px 0 2px; }
 .wf-cu-watch .wf-pro-upsell-door { margin-top: 6px; }
+
+/* Watching (screen-spec.md D2): the reader's watched dates, pinned at the top of Further ahead as the same entry cards.
+   The unlisted row is quiet: a watch the served feed no longer names, with a real Stop watching button. */
+.wf-cu-watching { margin: 0 0 12px; }
+.wf-cu-watching-h { display: flex; align-items: center; }
+.wf-cu-unlisted {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 0 0 6px;
+  padding: 6px 11px;
+  border: 1px dashed var(--color-plex-border);
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-unlisted-stop {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 7px;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-cu-unlisted-stop:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
+.wf-cu-unlisted-stop:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+@media (max-width: 639px) {
+  .wf-cu-unlisted-stop { min-height: 44px; }
+}
+/* The watched count beside the NEW badge on the "Further ahead" jump: the mark and a number, decoration (the jump's name says it). */
+.wf-jump-watching {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text);
+}
+.wf-jump-watching .wf-yp-mark { margin-right: 3px; }
+/* A watched date in This week (screen-spec.md D2): the mark before the lane's name, and the plan clause after it. A
+   watched lane of its own is two lines in its date column (the name, then the plan), edged in the "yours" lilac. */
+.wf-wt-mark { margin-right: 5px; }
+.wf-wtlane { flex-direction: column; align-items: flex-start; gap: 1px; padding: 4px 10px; }
+.wf-wtlane::before { border-color: color-mix(in srgb, var(--wf-yours) 60%, var(--color-plex-border-light)); }
+.wf-wtlane-name { display: flex; align-items: center; min-width: 0; }
+.wf-wt-plan { overflow-wrap: anywhere; }
+@media (forced-colors: active) {
+  .wf-wtlane::before { border-color: CanvasText; }
+}
 
 /* ── Beyond-line link and search (heat-field plan §4.8, P7; the origin chip moved into the
    masthead's tick line at M3 and its rules went with it) ─────────────────────────────────── */

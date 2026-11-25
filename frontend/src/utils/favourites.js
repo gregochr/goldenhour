@@ -116,10 +116,15 @@ export function pickerEntries(sets, bookmarkedAreas) {
  * @param {'place'|'area'|'date'} kind
  * @param {string} name
  * @param {boolean} on
+ * @param {?{dow: string}} [home] a watched date only: the day it becomes a lane on in This week, when it does (the
+ *        strip's own answer, so the toast names where the date really went)
  * @returns {string}
  */
-export function starToastText(kind, name, on) {
-  if (kind === 'date') return on ? `Watching ${name}. It joins Your places.` : `Stopped watching ${name}.`;
+export function starToastText(kind, name, on, home = null) {
+  if (kind === 'date') {
+    if (!on) return `Stopped watching ${name}.`;
+    return home ? `Watching ${name}. It's on ${home.dow} in This week.` : `Watching ${name}. It's at the top of Further ahead.`;
+  }
   const what = kind === 'area' ? `${name} (area)` : name;
   return on ? `Bookmarked ${what}.` : `Removed the bookmark from ${what}.`;
 }

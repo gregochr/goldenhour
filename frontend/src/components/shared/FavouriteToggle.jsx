@@ -14,7 +14,7 @@ export const FAVOURITES_UPSELL_BODY = 'Pro keeps your own list of bookmarked pla
 
 /** The upsell a Lite reader's "Watch this date" opens (one-screen-plan.md D16), in its own words. */
 export const WATCH_UPSELL_HEADING = 'Watch a date';
-export const WATCH_UPSELL_BODY = 'Pro can watch a date known in advance. It joins Your places at the top of This week, and once it is forecast it names the morning to go and the best spot.';
+export const WATCH_UPSELL_BODY = 'Pro can watch a date known in advance. It moves to the top of Further ahead, and once it is forecast it becomes a lane on its day in This week, naming the morning to go and the best spot.';
 
 /** The date toggle's two labels: the words carry the state (there is no {@code aria-pressed}). */
 export const WATCH_LABEL = 'Watch this date';
@@ -166,9 +166,11 @@ FavouriteUpsell.propTypes = {
  * @param {ReturnType<typeof useFavouriteUpsell>} props.upsell the host's upsell state, for the Lite reader
  * @param {string} [props.testId]
  * @param {string[]} [props.matchedKeys] {@code kind="date"} only: the stored watches that are this entry
+ * @param {function(): void} [props.onChange] called synchronously after a press that changed the reader's list (the
+ *        ready branch only: a Lite door never calls it)
  */
 export default function FavouriteToggle({
-  kind, id, name, upsell, testId = 'favourite-toggle', matchedKeys = NO_KEYS,
+  kind, id, name, upsell, testId = 'favourite-toggle', matchedKeys = NO_KEYS, onChange = undefined,
 }) {
   const favourites = useFavourites();
   const isMobile = useIsMobile();
@@ -213,9 +215,11 @@ export default function FavouriteToggle({
       // One press, one Undo: each request carries the whole group, so the toast that survives restores all of them.
       const group = matchedKeys.filter((key) => favourites.isDateWatched(key));
       group.forEach((key) => { void favourites.setStar('date', key, name, false, false, group); });
+      onChange?.();
       return;
     }
     void favourites.toggle(kind, id, name);
+    onChange?.();
   };
   return (
     <span className="wf-fav-wrap">
@@ -246,6 +250,7 @@ FavouriteToggle.propTypes = {
   }).isRequired,
   testId: PropTypes.string,
   matchedKeys: PropTypes.arrayOf(PropTypes.string),
+  onChange: PropTypes.func,
 };
 
 /**

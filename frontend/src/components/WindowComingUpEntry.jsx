@@ -434,13 +434,16 @@ DayChips.propTypes = {
  *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
  * @param {boolean}  [props.open]      whether the card shows its body (default true). Closed, only the title
  *                                     line and the date's day are drawn (collapse-and-topic-pips-plan.md §5)
+ * @param {?string[]} [props.watchedKeys] the stored watches bound to THIS entry (the pane's one-home rule), for the
+ *        Watch control; absent, the control matches the entry alone
+ * @param {?function} [props.onWatchChange] called when the Watch control actually changed the reader's dates
  * @param {?function} [props.onToggleOpen] the Open / Close button's press; the pane owns the state. The button
  *                                     is a sibling of the card, never inside it: the card is itself a button
  *                                     when it has a single action
  */
 export default function WindowComingUpEntry({
   entry, onGoToPlan, onShowOnMap, outsideLine = null, outsideDoor = null, open = true,
-  onToggleOpen = undefined,
+  onToggleOpen = undefined, watchedKeys = undefined, onWatchChange = undefined,
 }) {
   const { rail } = entry;
   const glyph = entryGlyph(entry);
@@ -751,7 +754,7 @@ export default function WindowComingUpEntry({
       )}
       {/* Watch this date (one-screen-plan.md D16): an open entry's own control, a sibling of the card and of the Open /
           Close button below, never inside either. Renders nothing for a warning, and until favourites are known. */}
-      {open && <WatchDateControl entry={entry} />}
+      {open && <WatchDateControl entry={entry} watchedKeys={watchedKeys} onWatchChange={onWatchChange} />}
       {/* The Open / Close button (collapse-and-topic-pips-plan.md §5), drawn over the card's top right corner by
           CSS (absolute). A sibling of the card, because a single-action card is itself a button, and last in the
           DOM so the sub-regions door stays right after the card. Named plainly (Close / Open): a name carrying
@@ -848,6 +851,8 @@ WindowComingUpEntry.propTypes = {
   open: PropTypes.bool,
   /** The Open / Close button's press. Without it no button is drawn (the card cannot be closed). */
   onToggleOpen: PropTypes.func,
+  watchedKeys: PropTypes.arrayOf(PropTypes.string),
+  onWatchChange: PropTypes.func,
   /** The S5b-2 sub-regions door this entry carries, or null. */
   outsideDoor: PropTypes.shape({
     subject: PropTypes.oneOf(['coastal', 'darkSky']).isRequired,

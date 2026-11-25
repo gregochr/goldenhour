@@ -181,29 +181,3 @@ describe('Coming up — Open all / Close all', () => {
     expect(screen.queryByTestId('coming-up-toggle-all')).toBeNull();
   });
 });
-
-describe('Coming up — a deep link opens a closed target first', () => {
-  const originalScroll = Element.prototype.scrollIntoView;
-  beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });
-  afterEach(() => { Element.prototype.scrollIntoView = originalScroll; });
-
-  it('opens the closed entry before the scroll and reports it handled', () => {
-    const onFocusHandled = vi.fn();
-    renderPane({ focusRequest: { entryId: 'far', seq: 1 }, onFocusHandled });
-    expect(entryEl('far')).toHaveAttribute('data-open', 'true');
-    expect(entryEl('far')).toHaveTextContent('Far prose.');
-    expect(onFocusHandled).toHaveBeenCalledWith(true);
-    expect(entryEl('far').scrollIntoView).toBeDefined();
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
-  });
-
-  it('leaves other closed entries closed', () => {
-    renderPane({ focusRequest: { entryId: 'far', seq: 1 }, onFocusHandled: vi.fn() });
-    expect(entryEl('later')).toHaveAttribute('data-open', 'false');
-  });
-
-  it('keeps an already-open target open', () => {
-    renderPane({ focusRequest: { entryId: 'near', seq: 1 }, onFocusHandled: vi.fn() });
-    expect(entryEl('near')).toHaveAttribute('data-open', 'true');
-  });
-});

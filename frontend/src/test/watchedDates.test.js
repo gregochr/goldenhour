@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildWatchedChips, entryMatchesWatch, matchWatchToEntry, parseWatchKey, TIDE_DRIFT_DAYS, watchKeyOf,
-  watchKeysMatching, WATCH_NO_WINDOW_LINE, WATCHABLE_TYPES,
+  buildWatchedLanes, entryMatchesWatch, matchWatchToEntry, parseWatchKey, TIDE_DRIFT_DAYS, unlistedWatches, watchedStillToCome,
+  watchKeyOf, watchKeysMatching, watchedKeysFor, watchedWithoutPlan, WATCH_NO_WINDOW_LINE, WATCHABLE_TYPES,
 } from '../utils/watchedDates.js';
 
-/** The watch match and the watched chips (one-screen-plan.md D16): joins over served fields, no new fact. */
+/** The watch match and the watched lanes (one-screen-plan.md D16): joins over served fields, no new fact. */
 
 const TODAY = '2026-11-24';
 
@@ -119,80 +119,57 @@ describe('matching a watch to a served entry', () => {
   });
 });
 
-describe('the chips for watched dates', () => {
+describe('the lanes for watched dates', () => {
   const dates = [{ key: 'king-tide:2026-12-03' }];
-
-  it('beyond the forecast: title, tile and no countdown, opening its entry', () => {
-    const [chip] = buildWatchedChips({ dates, entries: [tide()], windows: [card('2026-11-24', 'SUNRISE')], hotTopics: [], todayStr: TODAY });
-    expect(chip).toMatchObject({
-      kind: 'beyond', entryId: 'king-tide:2026-12-03:2026-12-07', title: 'King tide', name: 'King tide · 3 Dec', glyph: '🌊',
-      label: 'King tide', rail: { dow: null, day: '3–7', month: 'Dec', isRange: true },
-      detail: "best spots once it's forecast", window: null,
-    });
-    expect(chip.detail).not.toMatch(/in \d+ days/);
+  const lanes = (over) => buildWatchedLanes({
+    dates, entries: [tide()], windows: [], hotTopics: [], todayStr: '2026-12-02', ...over,
   });
 
-  it('a tile is drawn for a date that starts tomorrow or is under way, with no countdown in the detail', () => {
-    const entry = tide({ startDate: '2026-11-25', endDate: '2026-11-29', id: 'x' });
-    const [soon] = buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-25' }], entries: [entry], windows: [], hotTopics: [], todayStr: TODAY });
-    expect(soon.rail).toEqual({ dow: null, day: '25–29', month: 'Nov', isRange: true });
-    expect(soon.detail).toBe("best spots once it's forecast");
-    const under = tide({ startDate: '2026-11-22', endDate: '2026-11-26', id: 'y' });
-    const [now] = buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-22' }], entries: [under], windows: [], hotTopics: [], todayStr: TODAY });
-    expect(now.rail).toEqual({ dow: null, day: '22–26', month: 'Nov', isRange: true });
-    expect(now.detail).toBe("best spots once it's forecast");
-  });
-
-  it('a month-crossing run has the month-crossing tile', () => {
-    const run = tide({ id: 'z', startDate: '2026-11-29', endDate: '2026-12-02' });
-    const [chip] = buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-29' }], entries: [run], windows: [], hotTopics: [], todayStr: TODAY });
-    expect(chip.rail).toEqual({ dow: null, day: '29 Nov', month: '–2 Dec', isRange: true });
-  });
-
-  it('inside the forecast, a tide chip names the window marked on the light, the best spot and its stars', () => {
+  it('inside the forecast, a tide lane names the window marked on the light, the best spot and its stars', () => {
     const windows = [
       card('2026-12-03', 'SUNRISE', { tide: { lightAlignment: 'NONE' } }),
       card('2026-12-03', 'SUNSET', { dow: 'Thu', time: '15:40', tide: { lightAlignment: 'LW' }, bestReach: { rating: 3, locationId: 5, locationName: 'Seaton' } }),
       card('2026-12-04', 'SUNRISE', { dow: 'Fri', tide: { lightAlignment: 'HW' }, bestReach: { rating: 4, locationId: 7, locationName: 'Crimdon Beach' } }),
     ];
-    const [chip] = buildWatchedChips({ dates, entries: [tide()], windows, hotTopics: [], todayStr: '2026-12-02' });
-    expect(chip).toMatchObject({
+    const [lane] = lanes({ windows, entries: [tide({ metric: '4.6 m' })] });
+    expect(lane).toEqual({
+      key: 'king-tide:2026-12-03',
+      entryId: 'king-tide:2026-12-03:2026-12-07',
       kind: 'window',
-      name: 'King tide · Fri',
-      label: 'King tide · Fri',
-      rail: { dow: null, day: '3–7', month: 'Dec', isRange: true },
-      detail: 'sunrise 07:48 · best Crimdon Beach 4★ · tide on the light',
+      date: '2026-12-04',
+      title: 'King tide',
+      name: 'King tide · 4.6 m',
+      plan: { dow: 'Fri', event: 'sunrise 07:48', best: { id: 7, name: 'Crimdon Beach', rating: 4 }, tideOnLight: true },
       window: { date: '2026-12-04', eventType: 'SUNRISE' },
       bestSpot: { id: 7, name: 'Crimdon Beach' },
     });
+  });
+
+  it('beyond the forecast, or in it with no window on the light, draws no lane: the date stays in Watching', () => {
+    expect(lanes({ windows: [card('2026-11-24', 'SUNRISE')], todayStr: TODAY })).toEqual([]);
+    const windows = [card('2026-12-03', 'SUNRISE', { tide: { lightAlignment: 'NONE' } }), card('2026-12-04', 'SUNRISE')];
+    expect(lanes({ windows })).toEqual([]);
   });
 
   it('two windows on the light: the better served rating wins, the earlier on a tie', () => {
     const a = card('2026-12-03', 'SUNRISE', { tide: { lightAlignment: 'HW' }, bestReach: { rating: 3, locationId: 1, locationName: 'A' } });
     const b = card('2026-12-04', 'SUNRISE', { tide: { lightAlignment: 'HW' }, bestReach: { rating: 5, locationId: 2, locationName: 'B' } });
     const c = card('2026-12-05', 'SUNRISE', { tide: { lightAlignment: 'HW' }, bestReach: { rating: 5, locationId: 3, locationName: 'C' } });
-    const pick = (windows) => buildWatchedChips({ dates, entries: [tide()], windows, hotTopics: [], todayStr: '2026-12-02' })[0];
-    expect(pick([a, b]).window.date).toBe('2026-12-04');
-    expect(pick([a, b, c]).window.date).toBe('2026-12-04');
+    const pick = (windows) => lanes({ windows })[0];
+    expect(pick([a, b]).date).toBe('2026-12-04');
+    expect(pick([a, b, c]).date).toBe('2026-12-04');
     // With no reach pick the window's own served best is the rating, and an unrated window ranks last.
     const rated = card('2026-12-05', 'SUNSET', { tide: { lightAlignment: 'LW' }, bestRating: 4 });
     const unrated = card('2026-12-03', 'SUNSET', { tide: { lightAlignment: 'LW' } });
-    expect(pick([unrated, rated]).window.date).toBe('2026-12-05');
-    expect(pick([unrated, rated]).detail).toBe('sunset 15:40 · tide on the light');
-    expect(pick([unrated]).window.date).toBe('2026-12-03');
+    expect(pick([unrated, rated]).date).toBe('2026-12-05');
+    expect(pick([unrated, rated]).plan).toEqual({ dow: 'Wed', event: 'sunset 15:40', best: null, tideOnLight: true });
+    expect(pick([unrated]).date).toBe('2026-12-03');
   });
 
   it('an away window is never chosen, and a window outside the run is ignored', () => {
     const away = card('2026-12-03', 'SUNRISE', { away: true, tide: { lightAlignment: 'HW' } });
     const outside = card('2026-12-09', 'SUNRISE', { tide: { lightAlignment: 'HW' } });
-    const [chip] = buildWatchedChips({ dates, entries: [tide()], windows: [away, outside], hotTopics: [], todayStr: '2026-12-02' });
-    expect(chip.kind).toBe('beyond');
-  });
-
-  it('in the forecast but with no window on the light falls back to the beyond chip, saying it is in the forecast', () => {
-    const windows = [card('2026-12-03', 'SUNRISE', { tide: { lightAlignment: 'NONE' } }), card('2026-12-04', 'SUNRISE')];
-    const [chip] = buildWatchedChips({ dates, entries: [tide()], windows, hotTopics: [], todayStr: '2026-12-02' });
-    expect(chip).toMatchObject({ kind: 'beyond', detail: "in this week's forecast" });
+    expect(lanes({ windows: [away, outside] })).toEqual([]);
   });
 
   it('a supermoon opens its served topic window: a night topic is that evening\'s sunset', () => {
@@ -203,9 +180,12 @@ describe('the chips for watched dates', () => {
       card('2026-12-05', 'SUNSET', { dow: 'Sat' }),
     ];
     const hotTopics = [{ type: 'SUPERMOON', date: '2026-12-04', eventType: 'NIGHT' }, { type: 'AURORA', date: '2026-12-04', eventType: 'NIGHT' }];
-    const [chip] = buildWatchedChips({ dates: [{ key: 'supermoon:2026-12-04' }], entries: [moon], windows, hotTopics, todayStr: '2026-12-03' });
-    expect(chip).toMatchObject({
-      kind: 'window', glyph: '🌙', name: 'Supermoon · Fri', detail: 'sunset 15:39 · best Bamburgh 4★',
+    const [lane] = buildWatchedLanes({
+      dates: [{ key: 'supermoon:2026-12-04' }], entries: [moon], windows, hotTopics, todayStr: '2026-12-03',
+    });
+    expect(lane).toMatchObject({
+      kind: 'window', name: 'Supermoon', date: '2026-12-04',
+      plan: { dow: 'Fri', event: 'sunset 15:39', best: { name: 'Bamburgh', rating: 4 }, tideOnLight: false },
       window: { date: '2026-12-04', eventType: 'SUNSET' },
     });
   });
@@ -214,54 +194,53 @@ describe('the chips for watched dates', () => {
     const eclipse = { id: 'eclipse:2026-12-04', type: 'eclipse', family: 'eclipse', title: 'Solar eclipse', startDate: '2026-12-04', endDate: '2026-12-04' };
     const windows = [card('2026-12-04', 'SUNRISE'), card('2026-12-04', 'SUNSET')];
     const hotTopics = [{ type: 'ECLIPSE', date: '2026-12-04', eventType: 'SUNRISE' }];
-    const [chip] = buildWatchedChips({ dates: [{ key: 'eclipse:2026-12-04' }], entries: [eclipse], windows, hotTopics, todayStr: '2026-12-03' });
-    expect(chip.window).toEqual({ date: '2026-12-04', eventType: 'SUNRISE' });
+    const [lane] = buildWatchedLanes({
+      dates: [{ key: 'eclipse:2026-12-04' }], entries: [eclipse], windows, hotTopics, todayStr: '2026-12-03',
+    });
+    expect(lane.window).toEqual({ date: '2026-12-04', eventType: 'SUNRISE' });
   });
 
-  it('a meteor peak has no window: a static chip that says so and opens nothing', () => {
-    const meteor = { id: 'meteor:2026-12-14', type: 'meteor', family: 'night-sky', title: 'Geminids', startDate: '2026-12-14', endDate: '2026-12-14' };
-    const [chip] = buildWatchedChips({
-      dates: [{ key: 'meteor:2026-12-14' }], entries: [meteor], windows: [card('2026-12-14', 'SUNSET')],
+  it('a meteor peak has no window: a static lane that says so, on the first forecast day it covers', () => {
+    const meteor = { id: 'meteor:2026-12-12:2026-12-14', type: 'meteor', family: 'night-sky', title: 'Geminids', startDate: '2026-12-12', endDate: '2026-12-14' };
+    const [lane] = buildWatchedLanes({
+      dates: [{ key: 'meteor:2026-12-12' }], entries: [meteor],
+      windows: [card('2026-12-13', 'SUNSET'), card('2026-12-14', 'SUNSET')],
       hotTopics: [{ type: 'METEOR', date: '2026-12-14', eventType: 'NIGHT' }], todayStr: '2026-12-13',
     });
-    expect(chip).toMatchObject({ kind: 'static', name: 'Geminids · 14 Dec', label: 'Geminids', detail: WATCH_NO_WINDOW_LINE, window: null,
-      rail: { dow: 'Mon', day: '14', month: 'Dec', isRange: false },
-    });
-    // Beyond the forecast the same meteor is the ordinary beyond chip, which opens its entry.
-    expect(buildWatchedChips({ dates: [{ key: 'meteor:2026-12-14' }], entries: [meteor], windows: [], hotTopics: [], todayStr: '2026-12-01' })[0].kind)
-      .toBe('beyond');
+    expect(lane).toMatchObject({ kind: 'static', date: '2026-12-13', plan: null, window: null, bestSpot: null, name: 'Geminids' });
+    expect(WATCH_NO_WINDOW_LINE).toBe('clear-sky check on the night');
+    // Beyond the forecast the same meteor draws no lane.
+    expect(buildWatchedLanes({ dates: [{ key: 'meteor:2026-12-12' }], entries: [meteor], windows: [], hotTopics: [], todayStr: '2026-12-01' }))
+      .toEqual([]);
   });
 
-  it('a topic the served topics do not name falls back to the beyond chip', () => {
+  it('a topic the served topics do not name draws no lane', () => {
     const solstice = { id: 'solstice:2026-12-21', type: 'solstice', family: 'sun-moon', title: 'Winter solstice', startDate: '2026-12-21', endDate: '2026-12-21' };
-    const [chip] = buildWatchedChips({
+    expect(buildWatchedLanes({
       dates: [{ key: 'solstice:2026-12-21' }], entries: [solstice], windows: [card('2026-12-21', 'SUNRISE')], hotTopics: null, todayStr: '2026-12-20',
-    });
-    expect(chip.kind).toBe('beyond');
+    })).toEqual([]);
   });
 
-  it('a watch whose dates have passed draws nothing, one the feed no longer lists is an unlisted chip, earliest first', () => {
+  it('a watch whose dates have passed, or the feed does not list, draws no lane; two keys of one entry draw one; earliest first', () => {
     const passed = tide({ id: 'p', startDate: '2026-11-18', endDate: '2026-11-22' });
-    const meteor = { id: 'meteor:2026-12-14', type: 'meteor', title: 'Geminids', startDate: '2026-12-14', endDate: '2026-12-14' };
-    const chips = buildWatchedChips({
-      dates: [{ key: 'meteor:2026-12-14' }, { key: 'king-tide:2026-11-18' }, { key: 'king-tide:2026-12-03' }, { key: 'supermoon:2027-01-01' }],
-      entries: [passed, meteor, tide()],
-      windows: [],
-      hotTopics: [],
-      todayStr: TODAY,
+    const moon = { id: 'supermoon:2026-12-01', type: 'supermoon', title: 'Supermoon', startDate: '2026-12-01', endDate: '2026-12-01' };
+    const windows = [
+      card('2026-12-01', 'SUNSET', { dow: 'Tue' }),
+      card('2026-12-04', 'SUNRISE', { tide: { lightAlignment: 'HW' } }),
+    ];
+    const hotTopics = [{ type: 'SUPERMOON', date: '2026-12-01', eventType: 'NIGHT' }];
+    const result = buildWatchedLanes({
+      dates: [
+        { key: 'king-tide:2026-12-03' }, { key: 'spring-tide:2026-12-04' }, { key: 'king-tide:2026-11-18' },
+        { key: 'supermoon:2026-12-01' }, { key: 'meteor:2027-01-01' },
+      ],
+      entries: [passed, tide(), moon],
+      windows,
+      hotTopics,
+      todayStr: '2026-11-30',
     });
-    // The supermoon watch has no entry in the feed: it stays, as an unlisted chip, so it can be taken away.
-    expect(chips.map((chip) => chip.title)).toEqual(['King tide', 'Geminids', 'Supermoon']);
-    expect(chips[2].kind).toBe('unlisted');
-    expect(buildWatchedChips({ dates: null, entries: null, windows: [], hotTopics: [], todayStr: TODAY })).toEqual([]);
-  });
-
-  it('a tide still running today is shown until its last day has gone', () => {
-    const running = tide({ startDate: '2026-11-20', endDate: '2026-11-24' });
-    expect(buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-20' }], entries: [running], windows: [], hotTopics: [], todayStr: '2026-11-24' }))
-      .toHaveLength(1);
-    expect(buildWatchedChips({ dates: [{ key: 'king-tide:2026-11-20' }], entries: [running], windows: [], hotTopics: [], todayStr: '2026-11-25' }))
-      .toHaveLength(0);
+    expect(result.map((lane) => lane.title)).toEqual(['Supermoon', 'King tide']);
+    expect(buildWatchedLanes({ dates: null, entries: null, windows: [], hotTopics: [], todayStr: TODAY })).toEqual([]);
   });
 
   it('the event word falls back to the strip\'s sunrise flag, and a window without a clock still reads', () => {
@@ -269,36 +248,178 @@ describe('the chips for watched dates', () => {
       key: '2026-12-03:DUSK', date: '2026-12-03', targetType: 'DUSK', dow: 'Thu', sunrise: false, time: '', away: false,
       tide: { lightAlignment: 'HW' }, bestReach: null,
     }];
-    const [chip] = buildWatchedChips({ dates, entries: [tide()], windows, hotTopics: [], todayStr: '2026-12-02' });
-    expect(chip.detail).toBe('sunset · tide on the light');
-    expect(chip.bestSpot).toBeNull();
+    const [lane] = lanes({ windows });
+    expect(lane.plan).toEqual({ dow: 'Thu', event: 'sunset', best: null, tideOnLight: true });
+    expect(lane.bestSpot).toBeNull();
+    expect(lane.name).toBe('King tide');
   });
 
-  it('a watch the feed no longer lists is a chip of its own, named from its key, so it can be taken away', () => {
-    const chips = buildWatchedChips({
-      dates: [{ key: 'king-tide:2027-01-05' }, { key: 'king-tide:2026-11-01' }, { key: 'meteor:2026-12-14' }],
-      entries: [], windows: [], hotTopics: [], todayStr: TODAY,
+  it('a best spot with no id still names the lane, but gives no place to focus', () => {
+    const windows = [card('2026-12-03', 'SUNRISE', { tide: { lightAlignment: 'HW' }, bestReach: { rating: 3, locationId: null, locationName: 'Somewhere' } })];
+    expect(lanes({ windows })[0].bestSpot).toBeNull();
+  });
+});
+
+describe('the watches the feed no longer lists', () => {
+  it('are named from their key, earliest first; a passed date, a bad key and a listed entry are not', () => {
+    const rows = unlistedWatches({
+      dates: [
+        { key: 'king-tide:2027-01-05' }, { key: 'king-tide:2026-11-01' }, { key: 'meteor:2026-12-14' },
+        { key: 'nlc-season:2026-12-14' }, { key: 'king-tide:2026-12-03' },
+      ],
+      entries: [tide()],
+      todayStr: TODAY,
     });
-    expect(chips.map((chip) => [chip.kind, chip.name, chip.detail])).toEqual([
-      ['unlisted', 'Meteor shower · 14 Dec', 'no longer listed'],
-      ['unlisted', 'King tide · 5 Jan', 'no longer listed'],
+    expect(rows).toEqual([
+      { key: 'meteor:2026-12-14', title: 'Meteor shower', name: 'Meteor shower · 14 Dec', date: '2026-12-14' },
+      { key: 'king-tide:2027-01-05', title: 'King tide', name: 'King tide · 5 Jan', date: '2027-01-05' },
     ]);
-    expect(chips[0]).toMatchObject({
-      key: 'meteor:2026-12-14', entryId: null, window: null, label: 'Meteor shower',
-      rail: { dow: 'Mon', day: '14', month: 'Dec', isRange: false },
-    });
-    expect(chips[1]).toMatchObject({ label: 'King tide', rail: { dow: 'Tue', day: '5', month: 'Jan', isRange: false } });
-    // Until the feed has arrived nothing is said about it, and a key that does not parse says nothing either.
-    expect(buildWatchedChips({ dates, entries: null, windows: [], hotTopics: [], todayStr: TODAY })).toEqual([]);
-    expect(buildWatchedChips({ dates: [{ key: 'nlc-season:2026-12-14' }], entries: [], windows: [], hotTopics: [], todayStr: TODAY }))
-      .toEqual([]);
   });
 
-  it('a beyond chip names the first window the date has reached, for an entry that is a lane now', () => {
-    const windows = [card('2026-12-03', 'SUNSET', { tide: { lightAlignment: 'NONE' } }), card('2026-12-04', 'SUNRISE')];
-    const [chip] = buildWatchedChips({ dates, entries: [tide()], windows, hotTopics: [], todayStr: '2026-12-02' });
-    expect(chip).toMatchObject({ kind: 'beyond', firstWindow: { date: '2026-12-03', eventType: 'SUNSET' } });
-    expect(buildWatchedChips({ dates, entries: [tide()], windows: [], hotTopics: [], todayStr: '2026-11-24' })[0].firstWindow)
-      .toBeNull();
+  it('say nothing until the feed has arrived', () => {
+    expect(unlistedWatches({ dates: [{ key: 'king-tide:2026-12-03' }], entries: null, todayStr: TODAY })).toEqual([]);
+    expect(unlistedWatches({ dates: null, entries: [], todayStr: TODAY })).toEqual([]);
+  });
+
+  it('count a served entry as listed whatever This week does with it (a lane is served, not unlisted)', () => {
+    expect(unlistedWatches({ dates: [{ key: 'king-tide:2026-12-03' }], entries: [tide()], todayStr: '2026-12-02' })).toEqual([]);
+  });
+});
+
+describe('how many watched dates are still to come', () => {
+  it('counts an entry still running, an unmatched watch by its own date, and one entry once', () => {
+    const running = tide({ startDate: '2026-11-20', endDate: '2026-11-24' });
+    expect(watchedStillToCome({ dates: [{ key: 'king-tide:2026-11-20' }], entries: [running], todayStr: '2026-11-24' })).toBe(1);
+    expect(watchedStillToCome({ dates: [{ key: 'king-tide:2026-11-20' }], entries: [running], todayStr: '2026-11-25' })).toBe(0);
+    expect(watchedStillToCome({
+      dates: [{ key: 'king-tide:2026-12-03' }, { key: 'spring-tide:2026-12-04' }, { key: 'meteor:2026-12-14' }, { key: 'meteor:2026-11-01' }],
+      entries: [tide()],
+      todayStr: TODAY,
+    })).toBe(2);
+  });
+
+  it('still counts by date before the feed has arrived, and ignores a key that does not parse', () => {
+    expect(watchedStillToCome({ dates: [{ key: 'king-tide:2026-12-03' }, { key: 'nonsense' }], entries: null, todayStr: TODAY })).toBe(1);
+    expect(watchedStillToCome({ dates: null, entries: null, todayStr: TODAY })).toBe(0);
+  });
+});
+
+describe('a watched entry with no plan window (the topic lane still wears its mark)', () => {
+  const dates = [{ key: 'king-tide:2026-12-03' }];
+  const args = (over) => ({
+    dates, entries: [tide()], windows: [], hotTopics: [], todayStr: '2026-12-02', ...over,
+  });
+
+  it('is named when the run is inside the forecast but no window is on the light, and not when it has a plan', () => {
+    const noLight = [card('2026-12-03', 'SUNRISE', { tide: { lightAlignment: 'NONE' } })];
+    expect(watchedWithoutPlan(args({ windows: noLight }))).toEqual([
+      { key: 'king-tide:2026-12-03', entryId: 'king-tide:2026-12-03:2026-12-07' },
+    ]);
+    const onLight = [card('2026-12-03', 'SUNRISE', { tide: { lightAlignment: 'HW' } })];
+    expect(watchedWithoutPlan(args({ windows: onLight }))).toEqual([]);
+  });
+
+  it('is named for a topic the served topics do not name, and is empty beyond the forecast, once past, or with no feed', () => {
+    const solstice = { id: 'solstice:2026-12-21', type: 'solstice', title: 'Winter solstice', startDate: '2026-12-21', endDate: '2026-12-21' };
+    const solsticeArgs = {
+      dates: [{ key: 'solstice:2026-12-21' }], entries: [solstice], windows: [card('2026-12-21', 'SUNRISE')],
+      hotTopics: null, todayStr: '2026-12-20',
+    };
+    expect(watchedWithoutPlan(solsticeArgs)).toHaveLength(1);
+    // Beyond the forecast, planFor has no window to look at either: the entry has no plan and is not past, so it is named
+    // (a lane that carries it, if any, wears the mark; with none it stays in Watching).
+    expect(watchedWithoutPlan(args({ windows: [card('2026-11-24', 'SUNRISE')], todayStr: TODAY }))).toHaveLength(1);
+    expect(watchedWithoutPlan(args({ todayStr: '2026-12-08' }))).toEqual([]);
+    expect(watchedWithoutPlan(args({ entries: null }))).toEqual([]);
+  });
+
+  it('names one entry once however many keys point at it', () => {
+    expect(watchedWithoutPlan(args({ dates: [{ key: 'king-tide:2026-12-03' }, { key: 'spring-tide:2026-12-04' }] }))).toHaveLength(1);
+  });
+});
+
+describe('binding a watched key to ONE entry', () => {
+  const run = tide();
+  const sibling = tide({ id: 'king-tide:2026-12-06:2026-12-08', startDate: '2026-12-06', endDate: '2026-12-08' });
+  const entries = [sibling, run];
+
+  it('a key belongs to the earliest entry it matches, and to no other', () => {
+    expect(watchedKeysFor([{ key: 'king-tide:2026-12-04' }], run, entries)).toEqual(['king-tide:2026-12-04']);
+    // Both entries overlap the key's drift window, but only the earlier one is its entry.
+    expect(watchedKeysFor([{ key: 'king-tide:2026-12-04' }], sibling, entries)).toEqual([]);
+  });
+
+  it('takes strings or served rows, and answers nothing for a missing entry or feed', () => {
+    expect(watchedKeysFor(['king-tide:2026-12-03'], run, entries)).toEqual(['king-tide:2026-12-03']);
+    expect(watchedKeysFor(null, run, entries)).toEqual([]);
+    expect(watchedKeysFor(['king-tide:2026-12-03'], null, entries)).toEqual([]);
+    expect(watchedKeysFor(['king-tide:2026-12-03'], run, null)).toEqual([]);
+  });
+
+  it('is what the count counts: two overlapping entries and one key are one watched date', () => {
+    expect(watchedStillToCome({ dates: [{ key: 'king-tide:2026-12-04' }], entries, todayStr: TODAY })).toBe(1);
+  });
+});
+
+describe('the exact key first, before any drift', () => {
+  const earlier = tide({ id: 'king-tide:2026-12-03:2026-12-07' });
+  const later = tide({ id: 'king-tide:2026-12-06:2026-12-09', startDate: '2026-12-06', endDate: '2026-12-09' });
+  const entries = [earlier, later];
+  const A = 'king-tide:2026-12-03';
+  const B = 'king-tide:2026-12-06';
+
+  it('a later run within the tolerance of an earlier one resolves to itself, and each key to its own entry', () => {
+    expect(entryMatchesWatch(B, earlier)).toBe(true);
+    expect(matchWatchToEntry(B, entries).id).toBe(later.id);
+    expect(matchWatchToEntry(A, entries).id).toBe(earlier.id);
+    expect(matchWatchToEntry(B, [later, earlier]).id).toBe(later.id);
+  });
+
+  it('watching each in turn, then both, binds each key to its own entry', () => {
+    expect(watchedKeysFor([{ key: B }], later, entries)).toEqual([B]);
+    expect(watchedKeysFor([{ key: B }], earlier, entries)).toEqual([]);
+    expect(watchedKeysFor([{ key: A }], earlier, entries)).toEqual([A]);
+    expect(watchedKeysFor([{ key: A }], later, entries)).toEqual([]);
+    const both = [{ key: A }, { key: B }];
+    expect(watchedKeysFor(both, earlier, entries)).toEqual([A]);
+    expect(watchedKeysFor(both, later, entries)).toEqual([B]);
+    expect(watchedStillToCome({ dates: both, entries, todayStr: TODAY })).toBe(2);
+    expect(watchedStillToCome({ dates: [{ key: B }], entries, todayStr: TODAY })).toBe(1);
+  });
+
+  it('the lanes follow: the later run\'s key plans the later run', () => {
+    const windows = [card('2026-12-08', 'SUNRISE', { dow: 'Tue', tide: { lightAlignment: 'HW' } })];
+    const [lane] = buildWatchedLanes({ dates: [{ key: B }], entries, windows, hotTopics: [], todayStr: '2026-12-02' });
+    expect(lane.entryId).toBe(later.id);
+    expect(buildWatchedLanes({ dates: [{ key: A }], entries, windows, hotTopics: [], todayStr: '2026-12-02' })).toEqual([]);
+  });
+
+  it('a drifted key with no entry of its own still falls back to the earliest match', () => {
+    expect(matchWatchToEntry('king-tide:2026-12-05', entries).id).toBe(earlier.id);
+  });
+});
+
+describe('a later key with a plan after an earlier key without one', () => {
+  const merged = {
+    id: 'supermoon:2026-12-04:2026-12-05', type: 'supermoon', family: 'night-sky', title: 'Supermoon',
+    startDate: '2026-12-04', endDate: '2026-12-05', coincidence: [{ type: 'king-tide' }],
+    dayRanges: [{ date: '2026-12-04' }, { date: '2026-12-05' }],
+  };
+  const windows = [card('2026-12-04', 'SUNRISE', { tide: { lightAlignment: 'HW' } })];
+  const args = (keys) => ({
+    dates: keys.map((key) => ({ key })), entries: [merged], windows, hotTopics: [], todayStr: '2026-12-03',
+  });
+
+  it('the plan wins whichever key comes first, and the entry is not called plan-less', () => {
+    for (const keys of [['supermoon:2026-12-04', 'king-tide:2026-12-04'], ['king-tide:2026-12-04', 'supermoon:2026-12-04']]) {
+      const lanes = buildWatchedLanes(args(keys));
+      expect(lanes).toHaveLength(1);
+      expect(lanes[0].plan.tideOnLight).toBe(true);
+      expect(watchedWithoutPlan(args(keys))).toEqual([]);
+    }
+  });
+
+  it('an entry whose every key is plan-less is still named once', () => {
+    expect(watchedWithoutPlan(args(['supermoon:2026-12-04']))).toHaveLength(1);
   });
 });

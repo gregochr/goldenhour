@@ -57,6 +57,8 @@ import useAskSurface from '../hooks/useAskSurface.js';
 import useAreaFind from '../hooks/useAreaFind.js';
 import { useFavourites } from '../context/FavouritesContext.jsx';
 import YourPlacesRow from './YourPlacesRow.jsx';
+import BookmarkMark from './shared/BookmarkMark.jsx';
+import { watchedStillToCome } from '../utils/watchedDates.js';
 import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
@@ -549,7 +551,7 @@ export default function WindowFirstShell({
   const polledWarnings = useWarnings();
   const warningSetKey = useMemo(() => warningsKey(polledWarnings), [polledWarnings]);
   const comingUp = useComingUpFeed(true, todayStr, warningSetKey);
-  // A pending "open Further ahead at this entry" request (see `openFurtherAhead`).
+  // A pending "focus Further ahead's heading" request (see `openFurtherAhead`).
   const [comingUpFocus, setComingUpFocus] = useState(null);
   const comingUpSeq = useRef(0);
   // The almanac entries This week already draws as lanes, reported by the heat strip (one-screen-plan.md D5). Further
@@ -578,10 +580,20 @@ export default function WindowFirstShell({
    * ({@code interrupt}, {@code announce}) are the surprise model's, not the reader's, so a screen-reader user hears
    * only the difference they encode: one exceptional arrival versus several ordinary ones.
    */
-  const furtherAheadJumpLabel = comingUpBadge
-    ? `Further ahead, ${comingUpBadge.band === 'interrupt'
-      ? 'one rare date added'
-      : `${comingUpBadge.count} new date${comingUpBadge.count === 1 ? '' : 's'}`}`
+  const favouritesState = useFavourites();
+  // The watched dates not yet past (screen-spec.md D2), drawn beside the jump. Only for a reader whose list has landed,
+  // and only above zero: a Lite reader or the error state never shows a "0".
+  const watchingCount = favouritesState.status === 'ready'
+    ? watchedStillToCome({ dates: favouritesState.dates, entries: comingUp.events?.entries, todayStr })
+    : 0;
+  const furtherAheadJumpLabel = (comingUpBadge || watchingCount > 0)
+    ? [
+      'Further ahead',
+      comingUpBadge && (comingUpBadge.band === 'interrupt'
+        ? 'one rare date added'
+        : `${comingUpBadge.count} new date${comingUpBadge.count === 1 ? '' : 's'}`),
+      watchingCount > 0 && `${watchingCount} watching`,
+    ].filter(Boolean).join(', ')
     : undefined;
   /**
    * Marks the feed seen — both `Mark seen`'s own press and the quiet bootstrap write below share
@@ -690,31 +702,23 @@ export default function WindowFirstShell({
     focusSectionHeading(THIS_WEEK_HEADING_ID);
   };
   /**
-   * Opens Further ahead (one-screen-plan.md O2), at one entry when one is named: the "Further ahead ↓" jump and any
-   * producer that names an entry. A lane no longer calls it (a lane's entry is not listed there, D5).
-   *
-   * <p>Stores a request {@code {entryId, seq}} and takes the dialogs down. The request lives in this shell's state, so it
-   * survives the commit that closes them; {@code FurtherAhead} answers it (resetting its filter if the entry is hidden,
-   * scrolling to the card) and reports back through {@link handleComingUpFocusHandled}. {@code seq} makes a second press
-   * on the same entry a new request.
-   *
-   * @param {?string} entryId the almanac entry to open at, or null for the section's heading
+   * Opens Further ahead (one-screen-plan.md O2): the "Further ahead ↓" jump. Stores a request {@code {seq}} and takes
+   * the dialogs down. The request lives in this shell's state, so it survives the commit that closes them;
+   * {@code FurtherAhead} answers it through {@link handleComingUpFocusHandled}. {@code seq} makes a second press a new
+   * request. (It once named an entry to open; nothing does any more, since a lane's entry is not listed and Your
+   * places lost its date chips, screen-spec.md D2.)
    */
-  const openFurtherAhead = (entryId) => {
+  const openFurtherAhead = () => {
     comingUpSeq.current += 1;
-    setComingUpFocus({ entryId: entryId ?? null, seq: comingUpSeq.current });
+    setComingUpFocus({ seq: comingUpSeq.current });
     closeShellLayers();
   };
   /**
-   * Further ahead has answered the request. Found: the section already scrolled to and focused the card. Not found
-   * (no entry named, or one that is not listed, or a feed that has not loaded): focus goes to the section's heading,
-   * scrolled into view, so it never falls to {@code <body>}.
-   *
-   * @param {boolean} found whether an entry was scrolled to
+   * Further ahead has answered the request: focus goes to the section's heading, scrolled into view, so it never falls
+   * to {@code <body>}.
    */
-  const handleComingUpFocusHandled = (found) => {
+  const handleComingUpFocusHandled = () => {
     setComingUpFocus(null);
-    if (found) return;
     focusSectionHeading(FURTHER_AHEAD_HEADING_ID);
   };
   /**
@@ -1791,7 +1795,6 @@ export default function WindowFirstShell({
    */
   // Your places (F4): whether the row at the top of This week holds anything to rate (a Pro reader's list has landed
   // and is not empty; a Lite reader's teaser needs no scores).
-  const favouritesState = useFavourites();
   const watchlistShown = favouritesState.status === 'ready'
     && (favouritesState.placeIds.size > 0 || favouritesState.areaIds.size > 0);
   const detailScoreIndex = useMemo(
@@ -2537,10 +2540,16 @@ export default function WindowFirstShell({
             className="wf-sec-jump"
             data-testid="further-ahead-jump"
             aria-label={furtherAheadJumpLabel}
-            onClick={() => openFurtherAhead(null)}
+            onClick={openFurtherAhead}
           >
             Further ahead
             <span aria-hidden="true">{' ↓'}</span>
+            {watchingCount > 0 && (
+              <span aria-hidden="true" data-testid="further-ahead-jump-watching" className="wf-jump-watching">
+                <BookmarkMark className="wf-yp-mark" />
+                {watchingCount}
+              </span>
+            )}
             {comingUpBadge && (
               <span
                 aria-hidden="true"
@@ -2562,11 +2571,6 @@ export default function WindowFirstShell({
           reachById={effectiveReachById}
           allowedLocationIds={allowedLocationIds}
           onOpenWindow={openYourPlace}
-          entries={comingUp.events?.entries}
-          hotTopics={briefing?.hotTopics}
-          todayStr={todayStr}
-          onOpenEntry={openFurtherAhead}
-          graduatedIds={graduatedIds}
           onOpenPlace={(spot) => {
             warmStackedChunks();
             openSheetLayer({ spot });
@@ -2617,6 +2621,7 @@ export default function WindowFirstShell({
             onLaneEntryIds={setGraduatedIds}
             onShowOnMap={showOnMap ?? NO_MAP_DOOR}
             onOpenLaneOnMap={openWindowOnMap}
+            onOpenWatched={openYourPlace}
             highlightKeys={askHighlight}
             todayStr={todayStr}
             runAge={age}

@@ -293,33 +293,133 @@ describe('Your places, the row at the top of This week', () => {
     }]);
   });
 
-  it('prints served figures with their window: areas first, a place, the quiet line below 3★, and not rated', async () => {
+  /** The chip's accessible name: the words a reader hears (the glyphs are hidden, stars are spoken). */
+  const names = (chips) => chips.map((chip) => chip.getAttribute('data-testid') && chip.textContent
+    && within(chip).getByTestId('your-places-detail').textContent);
+
+  it('prints served figures on ONE line, best rating first: an area, a place, the quiet line below 3★, and not rated', async () => {
     render(list({ places: [1, 2, 4], areas: [9], bookmarkedAreas: [AREA] }));
+    await screen.findByText(/Mon sunrise/);
     const rows = await screen.findAllByTestId('your-places-chip');
     expect(rows.map((r) => r.dataset.kind)).toEqual(['area', 'place', 'place', 'place']);
-    const text = rows.map((r) => within(r).getByTestId('your-places-detail').textContent);
-    await screen.findByText(/best Steel Rigg/);
-    expect(rows[0]).toHaveTextContent("Hadrian's Wall");
-    expect(rows[0].querySelector('[data-testid="your-places-detail"]').textContent).toBe('best Steel Rigg · 5★ · Mon sunrise · 1 rated');
-    expect(text[1]).toBe('4★ · Mon sunset · 22 min');
-    expect(text[2]).toBe('nothing above 2★ in the next days');
-    expect(text[3]).toBe('not rated yet');
+    expect(rows[0]).toHaveAccessibleName("Hadrian's Wall, Mon sunrise 5 stars");
+    expect(rows[1]).toHaveAccessibleName('Bamburgh, Mon sunset 4 stars');
+    expect(rows[2]).toHaveAccessibleName('Craster, nothing above 2 stars');
+    expect(rows[3]).toHaveAccessibleName('Unrated, not rated yet');
+    // One line: the mark, the name and the figure are siblings in one button, and the glyphs are hidden.
+    expect(rows[1].querySelector('[data-testid="bookmark-mark"]')).toBeInTheDocument();
+    expect(rows[1].textContent).toMatch(/^Bamburgh.* Mon sunset 4★ stars$/);
+    expect(rows[1].querySelector('[aria-hidden="true"]:not(svg)')).not.toHaveTextContent('4');
   });
 
-  it('⚠️ honesty: a bookmarked 3★ is never listed above a bookmarked 4★ by rating; the order is the reader\'s own sections', async () => {
+  it('the quiet rows (under 3★, not rated, outside the picks) are last and muted; the rest are not', async () => {
+    render(list({ places: [1, 2, 4], areas: [9], bookmarkedAreas: [AREA] }));
+    await screen.findByText(/Mon sunrise/);
+    const rows = await screen.findAllByTestId('your-places-chip');
+    expect(rows.map((r) => r.classList.contains('wf-yp-quiet'))).toEqual([false, false, true, true]);
+    expect(names(rows).slice(2)).toEqual(['nothing above 2★ stars', 'not rated yet']);
+  });
+
+  it('⚠️ honesty: the order is a sort of the reader\'s own rows by the figure each chip prints, never a re-rating', async () => {
     const index = buildScoreIndex([
       { locationId: 1, locationName: 'Bamburgh', date: '2026-10-05', targetType: 'SUNSET', rating: 3 },
       { locationId: 2, locationName: 'Craster', date: '2026-10-05', targetType: 'SUNRISE', rating: 5 },
     ]);
     render(list({ places: [1, 2] }, { scoreIndex: index }));
     const rows = await screen.findAllByTestId('your-places-chip');
-    // Held order (ids 1 then 2), not rating order; nothing here re-ranks.
-    expect(rows.map((r) => r.firstChild.textContent)).toEqual(['Bamburgh', 'Craster']);
+    expect(rows.map((r) => r.querySelector('.wf-yp-name').textContent)).toEqual(['Craster', 'Bamburgh']);
+    expect(rows[0]).toHaveAccessibleName('Craster, Mon sunrise 5 stars');
+    expect(rows[1]).toHaveAccessibleName('Bamburgh, Mon sunset 3 stars');
+  });
+
+  it('ties go by drive minutes, then by name; an area (no drive) ties like a place with an unknown drive', async () => {
+    const spots = [
+      { id: 1, name: 'Bamburgh' }, { id: 2, name: 'Craster' }, { id: 3, name: 'Alnmouth' }, { id: 5, name: 'Seahouses' },
+    ];
+    const index = buildScoreIndex([1, 2, 3, 5].map((id) => ({
+      locationId: id, locationName: spots.find((spot) => spot.id === id).name, date: '2026-10-05', targetType: 'SUNRISE', rating: 4,
+    })));
+    const reach = new Map([[1, { driveMinutes: 40 }], [2, { driveMinutes: 20 }], [3, { driveMinutes: 20 }]]);
+    const four = { id: 8, name: 'Zebra coast', kind: 'NAMED', locationIds: [1] };
+    const alsoFour = { id: 7, name: 'Alpha coast', kind: 'NAMED', locationIds: [2] };
+    fetchAreaOutlook.mockResolvedValue([8, 7].map((areaId) => ({
+      areaId,
+      windows: [{ date: '2026-10-05', targetType: 'SUNRISE', ratedMembers: 1, totalMembers: 1, gatedMembers: 0, topRating: 4, topLocationId: 1 }],
+    })));
+    render(list(
+      { places: [1, 2, 3, 5], areas: [8, 7], bookmarkedAreas: [four, alsoFour] },
+      { spots, scoreIndex: index, reachById: reach },
+    ));
+    await screen.findByText('Alpha coast');
+    await screen.findAllByText(/Mon sunrise/);
+    const rows = await screen.findAllByTestId('your-places-chip');
+    // 20 min (Alnmouth, Craster by name), 40 min (Bamburgh), then those with no drive (Seahouses, the areas) by name.
+    expect(rows.map((r) => r.querySelector('.wf-yp-name').textContent))
+      .toEqual(['Alnmouth', 'Craster', 'Bamburgh', 'Alpha coast', 'Seahouses', 'Zebra coast']);
+  });
+
+  it('⚠️ it sorts only once its figures are in: until the area outlook lands, areas then places in the order held', async () => {
+    let resolveOutlook;
+    fetchAreaOutlook.mockReturnValue(new Promise((resolve) => { resolveOutlook = resolve; }));
+    // Craster (2★, quiet) is held before Bamburgh (4★) and the area (5★ once it lands).
+    render(list({ places: [2, 1], areas: [9], bookmarkedAreas: [AREA] }));
+    let rows = await screen.findAllByTestId('your-places-chip');
+    expect(rows.map((r) => r.querySelector('.wf-yp-name').textContent)).toEqual(["Hadrian's Wall", 'Craster', 'Bamburgh']);
+    await act(async () => {
+      resolveOutlook([{
+        areaId: 9,
+        windows: [{ date: '2026-10-05', targetType: 'SUNRISE', ratedMembers: 1, totalMembers: 1, gatedMembers: 0, topRating: 5, topLocationId: 3 }],
+      }]);
+    });
+    rows = await screen.findAllByTestId('your-places-chip');
+    expect(rows.map((r) => r.querySelector('.wf-yp-name').textContent)).toEqual(["Hadrian's Wall", 'Bamburgh', 'Craster']);
+  });
+
+  it('with no score index yet the places keep the order held, and sort when it arrives', async () => {
+    const { rerender } = render(list({ places: [2, 1] }, { scoreIndex: null }));
+    let rows = await screen.findAllByTestId('your-places-chip');
+    expect(rows.map((r) => r.querySelector('.wf-yp-name').textContent)).toEqual(['Craster', 'Bamburgh']);
+    rerender(list({ places: [2, 1] }));
+    rows = await screen.findAllByTestId('your-places-chip');
+    expect(rows.map((r) => r.querySelector('.wf-yp-name').textContent)).toEqual(['Bamburgh', 'Craster']);
+  });
+
+  it('⚠️ a reorder puts an untouched row back at its start (a browser re-snaps to the old chip otherwise)', async () => {
+    const { rerender } = render(list({ places: [2, 1] }, { scoreIndex: null }));
+    const row = await screen.findByTestId('your-places-row');
+    row.scrollLeft = 200; // what scroll-snap does to keep the chip it had snapped to
+    rerender(list({ places: [2, 1] }));
+    await screen.findAllByTestId('your-places-chip');
+    expect(screen.getByTestId('your-places-row').scrollLeft).toBe(0);
+  });
+
+  it('a row the reader has already reached for is never moved by the sort', async () => {
+    for (const gesture of ['pointerDown', 'touchStart', 'wheel', 'keyDown', 'focusIn']) {
+      const { rerender, unmount } = render(list({ places: [2, 1] }, { scoreIndex: null }));
+      const row = await screen.findByTestId('your-places-row');
+      fireEvent[gesture](row);
+      row.scrollLeft = 200;
+      rerender(list({ places: [2, 1] }));
+      await screen.findAllByTestId('your-places-chip');
+      expect(screen.getByTestId('your-places-row').scrollLeft, gesture).toBe(200);
+      unmount();
+    }
+  });
+
+  it('a watched date is never a chip here: the row holds places and areas only', async () => {
+    render(list({ places: [1], dates: ['king-tide:2026-12-03'] }));
+    const rows = await screen.findAllByTestId('your-places-chip');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].dataset.kind).toBe('place');
+    expect(screen.queryByRole('button', { name: /stop watching/i })).toBeNull();
+    // Dates alone are not "something bookmarked": the empty line still teaches the next action.
+    expect(screen.queryByTestId('your-places-empty')).toBeNull();
   });
 
   it('a place outside a Lite-style pick list says so and shows no figure', async () => {
     render(list({ places: [1] }, { allowedLocationIds: [2] }));
     expect((await screen.findByTestId('your-places-detail')).textContent).toBe('outside your picks');
+    expect(screen.getByTestId('your-places-chip')).toHaveClass('wf-yp-quiet');
   });
 
   it('a chip with a worthwhile window opens the map view on it: a place on its best window, an area on its spots', async () => {
@@ -327,7 +427,7 @@ describe('Your places, the row at the top of This week', () => {
     const onOpenPlace = vi.fn();
     const onOpenArea = vi.fn();
     render(list({ places: [1], areas: [9], bookmarkedAreas: [AREA] }, { onOpenWindow, onOpenPlace, onOpenArea }));
-    await screen.findByText(/best Steel Rigg/);
+    await screen.findByText(/Mon sunrise/);
     const chips = await screen.findAllByTestId('your-places-chip');
     fireEvent.click(chips[0]);
     fireEvent.click(chips[1]);
@@ -346,7 +446,7 @@ describe('Your places, the row at the top of This week', () => {
   it('an area chip opens the same window the area sheet\'s "Show on map" foot would (areaMapWindow)', async () => {
     const onOpenWindow = vi.fn();
     render(list({ areas: [9], bookmarkedAreas: [AREA] }, { onOpenWindow }));
-    await screen.findByText(/best Steel Rigg/);
+    await screen.findByText(/Mon sunrise/);
     fireEvent.click(await screen.findByTestId('your-places-chip'));
     const foot = areaMapWindow(WINDOWS, [{
       date: '2026-10-05', targetType: 'SUNRISE', ratedMembers: 1, totalMembers: 1, gatedMembers: 0, topRating: 5, topLocationId: 3,
@@ -410,7 +510,7 @@ describe('Your places, the row at the top of This week', () => {
       expect(fetchAreaOutlook).not.toHaveBeenCalled();
 
       act(() => { observers.at(-1).callback([{ isIntersecting: true }]); });
-      await screen.findByText(/best Steel Rigg/);
+      await screen.findByText(/Mon sunrise/);
       expect(fetchAreaOutlook).toHaveBeenCalledTimes(1);
     });
   });
@@ -443,7 +543,7 @@ describe('Your places, the row at the top of This week', () => {
 
   it('says what to do when nothing is bookmarked, and draws no outlook request without a bookmarked area', async () => {
     render(list({}));
-    expect(await screen.findByTestId('your-places-empty')).toHaveTextContent('Bookmark a place or an area, or watch a date, and it lands here.');
+    expect(await screen.findByTestId('your-places-empty')).toHaveTextContent('Bookmark a place or an area, and it lands here.');
     expect(fetchAreaOutlook).not.toHaveBeenCalled();
   });
 

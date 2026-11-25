@@ -105,6 +105,27 @@ describe('UndoToast', () => {
     origin.remove();
   });
 
+  it('⚠️ a lazy returnTo is resolved AFTER the undo has been applied, so it can name the control where it moved to', () => {
+    const before = document.createElement('button');
+    const after = document.createElement('button');
+    document.body.appendChild(before);
+    // The undo moves the control: the old node goes, a new one arrives, and the lazy target finds the new one.
+    const onUndo = vi.fn(() => { before.remove(); document.body.appendChild(after); });
+    const returnTo = vi.fn(() => (before.isConnected ? before : after));
+    setup({ id: 6, message: 'Watching.', onUndo, returnTo });
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(returnTo).toHaveBeenCalledTimes(1);
+    expect(onUndo.mock.invocationCallOrder[0]).toBeLessThan(returnTo.mock.invocationCallOrder[0]);
+    expect(after).toHaveFocus();
+    after.remove();
+  });
+
+  it('a lazy returnTo that finds nothing leaves focus where it is, and never throws', () => {
+    const { onDismiss } = setup({ id: 7, message: 'Watching.', onUndo: vi.fn(), returnTo: () => null });
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   it('Dismiss closes without undoing', () => {
     const onUndo = vi.fn();
     const { onDismiss } = setup({ id: 4, message: 'Added.', onUndo });
