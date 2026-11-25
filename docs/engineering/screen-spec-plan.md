@@ -226,11 +226,15 @@ Paths are under `frontend/src` unless they say otherwise.
 
 **Masthead.**
 - **Phone:** the `↑ ↓` times (`wf-mast-times`, `masthead-phone-*` testids, the ⌂ `wf-mast-times-home`) and their CSS are deleted, along with any E2E that reads them (`smoke/phone.spec.js`). The 2 px `MastheadLight` rule stays: it is a colour cue, not a time (§9).
+- **Phone, one line (added at P4, 2026-11-25; §9 items 16-18).** The phone masthead measured 116px (the brand row plus a second row: origin chip, Find, "Set a postcode"). It becomes ONE line, brand · `⌕ Find` · admin dot · ☰, about 44px with the rule (spec §4 allows 52).
+  - `MastheadTickLine` gets a `phone` prop and draws nothing on a phone except the unset-postcode nudge. `MastheadFind` is the brand row's Find (same `window-first-search` testid, ⌘K unchanged).
+  - The origin chip's jobs move to what already owns origin: the lens caption names an away origin (`From Keswick`), and the ☰ menu gets `Plan from home again · from Keswick` (`masthead-menu-home`, away on a phone only). Setting a postcode is the menu's existing Change home postcode row.
+  - The unset-postcode nudge stays as a recorded exception: a slim line (`wf-tick-phone`) shown only while no postcode is saved.
 - **Desktop and tablet:** today's times stay, followed by a visible `today` label.
 
 **D6 (phone only).**
-- **Trigger:** a sentinel at the end of `#wf-this-week`, reusing `useStuckSentinel`. When it has scrolled above the viewport, the lens is **collapsed**.
-- **Collapsed:** one button, `Drive 45 min · any rating · 6 spots ▾`, with `aria-expanded="false"` and `aria-controls` naming the lens body. The body stays mounted and `hidden` while collapsed.
+- **Trigger:** an IntersectionObserver in `hooks/useCollapsingLens.js` watching `#wf-this-week` itself (handed down as `weekNode`), not a 1px marker at its end (§9 item 21), against a line just below the lens's full bottom edge, with hysteresis. When the section has scrolled past that line, the lens is **collapsed**.
+- **Collapsed:** one button, `Drive 45 min · any rating · 6 spots ▾`, with `aria-expanded="false"` and `aria-controls` naming the lens body. The body stays mounted and `hidden` while collapsed. It is one persistent element: hidden at rest, kept shown at rest while it holds focus (so a reset cannot drop focus to `<body>`), and it toggles: collapsed it opens, open it re-collapses.
 - **Opening:** tapping shows the full lens in place, and it stays open until the reader scrolls back to the top, as the spec says (the lens un-sticks). That resets it.
 - **Focus:**
   - The lens never collapses while focus is within it (`:focus-within`).
@@ -240,6 +244,7 @@ Paths are under `frontend/src` unless they say otherwise.
   - A spacer right after the lens takes `full − collapsed` while collapsed, so the document height never changes.
   - `--wf-bar-h` and `--wf-lens-h` publish the collapsed height, so the This week and Further ahead bars stick right under it. The spacer is excluded from measurement.
 - No animation.
+- **Not while a plan-conflict verdict shows** (§9 item 19): it is a warning with an action.
 - **Desktop and tablet are unchanged**, tested at ≥ 640 px.
 - WCAG 2.4.11: when the lens is re-expanded over content, tabbing through cards scrolls each one clear of it. `scroll-margin-top` reads `--wf-lens-h`.
 
@@ -323,7 +328,8 @@ Paths are under `frontend/src` unless they say otherwise.
   - the Lite `your-places-teaser`;
   - `YOUR_PLACES_EMPTY`.
 - **P4:**
-  - the phone masthead times (`wf-mast-times*`, `masthead-phone-*`) and the E2E that reads them.
+  - the phone masthead times (`wf-mast-times*`, `masthead-phone-*`) and the E2E that reads them (none was left in `smoke/phone.spec.js`);
+  - the phone origin chip row (`MastheadTickLine`'s phone arms, `showTimes`) and the empty banner margin.
 - **P5:**
   - the `wf-map-screen-in` keyframe.
 - **After each:** the orphan check and the greps, until clean.
@@ -345,7 +351,19 @@ Paths are under `frontend/src` unless they say otherwise.
 13. **The lens count keeps '· W windows' and 'within reach'** (owner, 2026-11-24, amending D7 for honesty).
 14. **The week's best button follows §1's label-in-name rule, not the earlier spoken-sentence wording** (WCAG 2.5.3): its name begins with its visible words and carries a sr-only tail; no `aria-label`.
 15. **The Lite hint's whole line is one control**: pressing it opens the worded upsell (a Pro pill inside it, no link), and its ✕ is a separate button.
-
+16. **The phone masthead is one line (P4).** Brand · `⌕ Find` · ☰, 44px with the rule. The second row (origin chip, Find, "Set a postcode") is not drawn on a phone. The brand row's Find keeps the `window-first-search` testid and the name `Find`; ⌘K is unchanged.
+17. **Where the origin chip went.** The surfaces that already own origin take it: the lens caption (`From Keswick`, it already switches on the phone) says where the plan is measured from, and the ☰ menu (which already owns Change home postcode) gets a `Plan from home again · from Keswick` row, shown only while away on a phone. Choosing an away origin is Find's job, as it was. The map view header already carries its own origin chip and ⌂. Chosen over the lens because the lens is the 90px band the spec budgets, and over a new surface because the menu is the existing one.
+18. **The unset-postcode nudge stays as a recorded exception.** A slim line (about 36px, `wf-tick-phone`) under the brand row, only while no postcode is saved: the red nudge is a conversion surface for the one input that makes drive times and leave-by work, and the ☰ row alone would hide it. It disappears the moment a postcode is saved, so the one-line masthead is the steady state.
+19. **The lens does not collapse behind the plan-conflict verdict.** The verdict replaces the count and carries an action; putting a warning behind a button would silence it. The one-line summary is `Drive <tier> · <rating floor> · <count lead and rest>` (`6 spots`, or `3 of 9 spots within reach`): the count's windows clause stays in the open lens, where there is room for it.
+20. **Phone best button (from P3): left truncating, no phone-only label.** Measured on the seeded stack with the one-line masthead: the bar's best button has 125px of text room at 390px (95px at 360px) against 233px of text (`best Wed sunrise, Coniston Old Man 5★ stars`), so it still cuts to `best Wed sunrise, …` and the place is not visible. The masthead cannot help: the bar's room is horizontal, set by the heading, the `?` and the `Further ahead ↓` jump. The spec's own prototype truncates the same way, and the full text is the accessible name. Not implemented, and not simple: every shorter label drops either the day and event (`Coniston Old Man 5★ →` reads as a bare place with no "best") or the word `best`, and a place name of normal length (about 15 characters) still does not fit 125px beside the star figure. If the owner wants the place visible, the cheap honest option is to give the button its own row on a phone (the bar grows from about 29px to about 58px), which is a space-budget decision, not a P4 one.
+21. **The collapse is triggered by the This week section, not a 1px sentinel at its end, and measured against the lens's bottom edge, not the viewport top.** An IntersectionObserver reports only a change of "intersecting", so a 1px marker that starts below the viewport is never reported when one frame jumps over it (a fast fling, scroll restoration): below and above are both "not intersecting". Measured: the sentinel version did not collapse after a programmatic jump. The section is taller than the viewport and intersects at the top, so a jump from the top to past its end flips the state. The line is the lens's FULL height (cached, never the collapsed one, so the shrinking lens cannot move it) plus 16px, because the Further ahead jump parks the next heading about 2px under the lens and a viewport-top line never called that "past". Hysteresis: collapse 8px past the line, expand only back on it (the observer is rebuilt at each flip), so a one-pixel difference between the heights or a fractional device scale cannot flip it every frame. Heights are unrounded.
+25. **Only keyboard focus holds the lens open.** Chrome on Android focuses a tapped button and a touch scroll never blurs it, so a plain `:focus-within` guard held the lens open for good after a chip tap. The guard reads `:focus-visible` (assumed true where it cannot be asked); a pointer focus left in the body moves to the summary button, with `preventScroll`, in the commit that collapses.
+26. **The summary is never a dead control, and opening adds no height.** Expanded, a press collapses the lens wherever the reader is (a forced collapse, ended by the next return to the top). Opened, the spacer pulls the content up by the summary row's height (negative margin), so opening adds no document height.
+27. **One body wrapper at every width.** `wf-lens-body` is always drawn (`display: contents` on desktop and tablet, hidden only by the phone's collapse) so crossing 639px never remounts a chip and drops focus; a summary that held focus when it leaves hands it to the first chip. A width change while collapsed or opened invalidates the cached full height: the lens expands for one commit, is measured at rest, then collapses again.
+28. **Away, the collapsed line names the origin** (`From Keswick · 45 min · any rating · 6 spots ▾`), because the caption that names it is hidden with the body. The masthead's focus fallback: with no origin slot (the phone, once a postcode is saved and the nudge is gone) the settings dialog and the focus hand-off land on ☰. PlanSearch anchors to the brand row on a phone.
+22. **The empty banner block above the masthead is not drawn on a phone.** `App.jsx`'s banner wrapper is `mt-4` plus an empty `mt-2` row: 16px of nothing above the masthead on every phone whenever no banner shows (the plan's §0 table missed it). `.wf-banners:not(:has(:not(:empty))) { display: none }` on a phone; a banner that renders brings it back. Without `:has` support the old margin stays.
+23. **`today` is drawn from 810px, and read at every width.** Measured: the tick row (origin group, four times and the word) needs about 734px, and with the word it wrapped the times onto a second line (18px taller) at 640 to 809px, an iPad in portrait. Below 810px the label is screen-reader-only.
+24. **The phone map header gains two lines when it carries the light** (the facts column is narrow beside Find, the origin chip and ✕: `blue 07:15–07:57` and `golden 07:57–09:00` each take a line), about 26px of the map's height. Accepted: the light is the point of D4, and the map header already wrapped its verdict and confidence there.
 ## 10. Review findings → where answered
 
 | Finding | Answer |

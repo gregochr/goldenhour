@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useCallback, useId, useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { watchDeparture } from '../utils/watchDeparture.js';
+import useCollapsingLens from '../hooks/useCollapsingLens.js';
 import { REACH_TIERS, formatLensCount } from '../utils/reachLens.js';
 import { LENS_RATING_FLOORS } from '../utils/ratingLens.js';
 import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
@@ -288,12 +290,32 @@ VerdictAction.propTypes = {
  */
 export default function WindowFirstLensBar({
   lens, ratingLens, spotCount, reachedCount = spotCount, windowCount, reachMeasured = true,
-  originBase = null, stuck = false, verdict = null, onVerdictAction,
+  originBase = null, stuck = false, weekNode = null, verdict = null, onVerdictAction,
 }) {
   const {
     tierId, defaultTier, overridden, locked, selectTier, resetToDefault,
   } = lens;
   const isMobile = useIsMobile();
+  // The phone collapses to one line past This week (screen-spec.md D6). Not while the plan-conflict verdict shows: a
+  // warning with an action is not to be put behind a button.
+  const {
+    attachLens, attachSpacer, attachSummary, ...collapse
+  } = useCollapsingLens({ enabled: isMobile && !verdict, stuck, weekNode });
+  const bodyId = useId();
+  // The summary leaves when the viewport crosses 639px; if it held focus, the first chip takes it (never <body>).
+  const departed = useRef(null);
+  const summaryRef = useCallback((node) => {
+    attachSummary(node);
+    return node ? watchDeparture(departed, node) : undefined;
+  }, [attachSummary]);
+  useLayoutEffect(() => {
+    if (!departed.current) return;
+    departed.current = null;
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) {
+      document.getElementById(bodyId)?.querySelector('button:not([disabled])')?.focus({ preventScroll: true });
+    }
+  });
   const count = formatLensCount({ spotCount, reachedCount, windowCount, reachMeasured });
   // The override's marks and the Lite upsell. On a desktop they sit between the two controls, as they always have; on a
   // phone they follow the count so they fold into ITS row instead of taking a row of their own (screen-spec.md section 4:
@@ -320,14 +342,72 @@ export default function WindowFirstLensBar({
     </>
   );
 
+  // The collapsed line's words: the drive tier, the rating floor and the count, as the chips and the count line say them.
+  const tier = REACH_TIERS.find((candidate) => candidate.id === tierId);
+  const floorWords = LENS_RATING_FLOORS.find((floor) => floor.id === ratingLens.floorId)?.label ?? '';
+  const reachWords = tier == null || tier.limitMinutes == null ? 'any distance' : tier.label;
+
   return (
+    <>
     <div
+      ref={isMobile ? attachLens : undefined}
       data-testid="window-first-lens"
       // The stuck treatment is a class rather than a `data-` attribute so it can be written as one
       // more rule in the `.wf-lens` block beside the geometry it modifies, which is where every
       // other state on this bar lives.
-      className={`wf-lens${stuck ? ' wf-lens-stuck' : ''}`}
+      className={`wf-lens${stuck ? ' wf-lens-stuck' : ''}${collapse.collapsed ? ' wf-lens-collapsed' : ''}`}
     >
+      {isMobile && (
+        // The ONE persistent summary button (screen-spec.md D6): the same element collapsed, opened, or (while it holds
+        // focus) at rest. The glyph is decoration; the stars in the floor are spoken as words (`MarkedText`).
+        <button
+          type="button"
+          className="wf-lens-summary"
+          data-testid="window-first-lens-summary"
+          hidden={!collapse.summaryShown}
+          aria-expanded={!collapse.collapsed}
+          aria-controls={bodyId}
+          onClick={collapse.toggle}
+          {...collapse.summaryFocusProps}
+          ref={summaryRef}
+        >
+          <span className="wf-lens-summary-t">
+            {/* Away, the origin is named: the chips below it are hidden and the lens caption is too. The dots are
+                decoration; the spaces around them are real, so the accessible name does not run the words together. */}
+            {originBase ? (
+              <>
+                {`From ${originBase} `}
+                <span aria-hidden="true">·</span>
+                {' '}
+              </>
+            ) : 'Drive '}
+            {reachWords}
+            {' '}
+            <span aria-hidden="true">·</span>
+            {' '}
+            <MarkedText text={floorWords.toLowerCase()} />
+            {count && (
+              <>
+                {' '}
+                <span aria-hidden="true">·</span>
+                {' '}
+                <b>{count.lead}</b>
+                {` ${count.rest}`}
+              </>
+            )}
+          </span>
+          <span aria-hidden="true">{collapse.collapsed ? ' ▾' : ' ▴'}</span>
+        </button>
+      )}
+      {/* ONE wrapper at every width, so the chips are never remounted (and focus never lost) when the viewport crosses 639px.
+          `display: contents` keeps the layout exactly what it was; only the phone ever hides it. */}
+      <div
+        id={bodyId}
+        className="wf-lens-body"
+        hidden={collapse.collapsed}
+        data-testid="window-first-lens-body"
+        {...collapse.bodyFocusProps}
+      >
       {/* The greying stops HERE, and the upsell below is deliberately outside it. WCAG 1.4.3
           exempts an inactive control from the contrast floor, which is what lets the tiers sit
           at 0.45 — but the "Pro" pill is not inactive, it is the call to action, and inside the
@@ -420,6 +500,7 @@ export default function WindowFirstLensBar({
       </span>
       {isMobile && marks}
       {!isMobile && <GuideLink section="lens" label="How the drive and rating bar works" />}
+      </div>
       {/* ⚠️ Always mounted, and a direct child of the bar: a `role` added to a node that mounts with
           its content is not announced, and the verdict appears in response to a chip press right
           above it. Outside the `isMobile` branch so a resize does not remount it, and never inside
@@ -434,6 +515,12 @@ export default function WindowFirstLensBar({
         {verdict?.announce ?? ''}
       </span>
     </div>
+    {isMobile && (
+      // Takes what the collapse gives back, so the document is exactly as tall as it was: a sibling of the bar, outside
+      // what the bar measures, and zero except while collapsed (`useCollapsingLens` writes its height).
+      <div ref={attachSpacer} aria-hidden="true" data-testid="window-first-lens-spacer" className="wf-lens-spacer" />
+    )}
+    </>
   );
 }
 
@@ -464,6 +551,8 @@ WindowFirstLensBar.propTypes = {
   reachMeasured: PropTypes.bool,
   /** Whether the bar has left its resting place — the shell's sentinel answers it (M3). */
   stuck: PropTypes.bool,
+  /** The This week section, which the phone's lens watches to know it has been scrolled past (D6); null until it mounts. */
+  weekNode: PropTypes.instanceOf(Element),
   /** The plan-level verdict line, or null. See the component's own note. */
   verdict: PropTypes.shape({
     lead: PropTypes.string.isRequired,

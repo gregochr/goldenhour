@@ -782,6 +782,8 @@
    empty state, supplies more). Putting it back here double-spaces the band under whichever row is
    showing, which is the failure mode the design's own `16px 28px 0` is written to avoid. */
 .wf-mast {
+  /* The masthead's control edge: the ☰ box and the phone's ⌕ Find box share it. */
+  --wf-mast-edge: #3A2C23;
   padding: 14px var(--wf-gutter) 0;
   background: linear-gradient(180deg, #241B16 0%, #1B1411 100%);
   /* ⚠️ NOT STICKY, AND IT NEVER ACTUALLY WAS. M3 added `position: sticky; top: 0; z-index: 45` here
@@ -1100,6 +1102,13 @@
   text-transform: uppercase;
   color: var(--color-plex-text-secondary);
 }
+/* The visible "today" that labels the times (screen-spec.md section 6.4). Drawn from 810px, screen-reader-only below
+   (`MastheadTickLine`: the row wrapped without room for it); the phone draws no times at all. */
+.wf-tick-today {
+  white-space: nowrap;
+  letter-spacing: 0.1em;
+  color: var(--color-plex-text-secondary);
+}
 /* Drawn only when the origin is away — see `MastheadTickLine`'s note on whose light this is. */
 .wf-tick-lbl {
   white-space: nowrap;
@@ -1210,19 +1219,31 @@
     gap: 9px;
     min-width: 0;
   }
-  .wf-mast-times {
-    display: flex;
+  /* ⌕ Find in the brand row (screen-spec.md section 4, P4): a 30px box like the ☰ button beside it, in a 34px line. */
+  .wf-mast-find {
+    display: inline-flex;
     align-items: center;
-    gap: 9px;
+    gap: 5px;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--wf-mast-edge);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--color-plex-text-secondary);
     font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: #E0A542;
+    font-size: 11px;
+    letter-spacing: 0.06em;
     white-space: nowrap;
   }
-  .wf-mast-time { display: inline-flex; align-items: center; gap: 3px; }
-  .wf-mast-arrow { font-size: 9px; opacity: 0.85; }
-  /* Away only: the times are still the HOME light, and the small house says so. */
-  .wf-mast-times-home { font-size: 10px; opacity: 0.85; }
+  .wf-mast-find:hover { color: var(--color-plex-text); border-color: var(--color-plex-border-light); }
+  .wf-mast-find:focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+    box-shadow: inset 0 0 0 2px var(--color-plex-gold);
+  }
+  /* The unset-postcode nudge, the phone's one slim line under the brand row (and only until a postcode is saved). */
+  .wf-tick-phone { padding: 2px 0 6px; }
+  .wf-tick-phone .wf-tick-origin { min-height: 28px; }
   /* The status dot: 8px with glow inside a 24px hit area (WCAG 2.5.8). */
   .wf-mast-dot {
     display: inline-flex;
@@ -1288,6 +1309,10 @@
   .wf-tick-origin-set { gap: 6px; }
   /* 8px on a phone (screen-spec.md section 4); `<main>` gives no top padding there either (App.jsx). */
   .wf-body { padding: 8px var(--wf-gutter) 18px; }
+  /* The banner block above the masthead (App.jsx) is `mt-4` plus an empty `mt-2` row, which is 16px of nothing at the top
+     of a phone whenever no banner is showing (screen-spec.md P4 measured it). With no non-empty descendant it is not drawn;
+     the moment a banner (aurora, a sighting) renders, it is. Without `:has` support the old margin simply stays. */
+  .wf-banners:not(:has(:not(:empty))) { display: none; }
 }
 
 /* The ☰ menu, at every width (one-screen-plan.md D9, D14): a 30px box (1px #3A2C23, radius 8) in a 40px hit area, the extra ten pixels coming
@@ -1300,7 +1325,7 @@
   justify-content: center;
   width: 30px;
   height: 30px;
-  border: 1px solid #3A2C23;
+  border: 1px solid var(--wf-mast-edge);
   border-radius: 8px;
   color: var(--color-plex-text-secondary);
   font-size: 15px;
@@ -1341,6 +1366,7 @@
   color: var(--color-plex-text);
 }
 .wf-mast-menu-row { font-size: 14px; }
+.wf-mast-menu-sub { color: var(--color-plex-text-secondary); font-size: 12px; }
 .wf-mast-menu-row:hover,
 .wf-mast-menu-row:focus-visible { background: var(--color-plex-surface-light); }
 .wf-mast-menu-status-wrap { border-bottom: 1px solid var(--color-plex-border); margin-bottom: 4px; }
@@ -3568,6 +3594,43 @@ div.wf-hc:where([data-control]).also:hover {
   height: 1px;
   margin-bottom: -1px;
   overflow: hidden;
+}
+/* The lens's body wrapper, at EVERY width, so the chips are never remounted when the viewport crosses 639px (focus survives).
+   `display: contents` keeps the chips and the count the flex items of `.wf-lens` they always were, so desktop and tablet
+   lay out exactly as before; only a phone ever hides it (`hidden`, below). */
+.wf-lens-body { display: contents; }
+.wf-lens-body[hidden] { display: none; }
+/* The phone lens that collapses to one line past This week (screen-spec.md D6, `useCollapsingLens`). Desktop and tablet
+   never draw the summary or the spacer. */
+@media (max-width: 639px) {
+  .wf-lens-summary[hidden] { display: none; }
+  .wf-lens-summary {
+    flex: 1 1 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-height: 35px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-plex-text-secondary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-align: left;
+  }
+  .wf-lens-summary-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wf-lens-summary-t b { color: var(--color-plex-text); font-weight: 600; }
+  .wf-lens-summary:focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+    box-shadow: inset 0 0 0 2px var(--color-plex-gold);
+  }
+  /* One line: no vertical padding, so the bar is the button and its 1px rule (36px). */
+  .wf-lens.wf-lens-collapsed { padding-top: 0; padding-bottom: 0; }
+  /* Its height is written by the hook (full minus collapsed); zero otherwise. */
+  .wf-lens-spacer { height: 0; }
 }
 /* A caption and its chips, always together. The handoff's rule and the reason for it: a wrap that
    puts "Rated" at the end of one row and its three chips at the start of the next leaves two
@@ -14930,6 +14993,8 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
   color: var(--color-plex-text-secondary);
 }
 .wf-map-screen-facts:empty { display: none; }
+/* The window's golden hour in the golden colour (screen-spec.md D4); the blue hour stays in the facts' own ink. */
+.wf-map-screen-golden { color: var(--color-verdict-marginal); }
 .wf-map-screen-window { flex: 0 1 504px; min-width: 0; }
 .wf-map-screen-window:empty { display: none; }
 .wf-map-screen-tools {

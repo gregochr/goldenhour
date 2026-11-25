@@ -43,6 +43,8 @@ import PropTypes from 'prop-types';
  * @param {Function} props.onChangePostcode the Change home postcode row's handler
  * @param {Function} props.onSignOut the Sign out row's handler
  * @param {Function} [props.onWarmSettings] warms the settings chunk on hover and focus of its row
+ * @param {Function} [props.onGoHome] the phone's away origin undo ("Plan from home again"); no row when omitted
+ * @param {?string} [props.awayFrom] the away origin's base town, named on that row
  * @param {Function} [props.onGuide] the Guide row's handler (G2); no row when omitted
  * @param {boolean} [props.guideOpen] whether the guide is showing: the row then reads "Close guide" and says expanded
  * @param {string} [props.guideControls] the docked guide column's id, named by `aria-controls` while it is open
@@ -50,7 +52,7 @@ import PropTypes from 'prop-types';
  */
 export default function MastheadMenu({
   open, onOpenChange, buttonRef, statusLine = null, onSettings, onChangePostcode, onSignOut,
-  onWarmSettings, onGuide = undefined, onOperations = undefined, guideOpen = false, guideControls = undefined,
+  onWarmSettings, onGuide = undefined, onGoHome = undefined, awayFrom = null, onOperations = undefined, guideOpen = false, guideControls = undefined,
 }) {
   const wrapRef = useRef(null);
 
@@ -142,6 +144,20 @@ export default function MastheadMenu({
             >
               Change home postcode
             </button>
+            {onGoHome && (
+              // The phone's masthead has no origin chip (screen-spec.md P4), so an away origin is undone from here. The lens
+              // caption ("From Keswick") says where the plan is measured from. The press focuses the ☰ button first like
+              // every row, and that button outlives the origin it removes, so focus never falls to <body>.
+              <button
+                type="button"
+                className="wf-mast-menu-row"
+                data-testid="masthead-menu-home"
+                onClick={() => press(onGoHome)}
+              >
+                Plan from home again
+                {awayFrom && <span className="wf-mast-menu-sub">{` · from ${awayFrom}`}</span>}
+              </button>
+            )}
             {onGuide && (
               // The guide's door (G2). Absent when the shell passes none (Operations has no guide page).
               <button
@@ -193,6 +209,8 @@ MastheadMenu.propTypes = {
   onSignOut: PropTypes.func.isRequired,
   onWarmSettings: PropTypes.func,
   onGuide: PropTypes.func,
+  onGoHome: PropTypes.func,
+  awayFrom: PropTypes.string,
   onOperations: PropTypes.func,
   guideOpen: PropTypes.bool,
   guideControls: PropTypes.string,

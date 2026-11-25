@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import React from 'react';
 import PlanSearch from '../components/PlanSearch.jsx';
 
@@ -485,6 +485,32 @@ describe('PlanSearch', () => {
         // home-indicator zone.
         expect(panel.style.maxHeight).toBe('calc(100dvh - 112px - var(--safe-b))');
       } finally {
+        tick.remove();
+      }
+    });
+
+    it('on a phone anchors to the masthead\'s brand row, whether or not a tick line is drawn', () => {
+      const realMatchMedia = window.matchMedia;
+      window.matchMedia = (query) => ({
+        matches: query === '(max-width: 639px)', media: query, addEventListener() {}, removeEventListener() {},
+      });
+      const row = document.createElement('div');
+      row.className = 'wf-mast-row';
+      row.getBoundingClientRect = () => ({ top: 8, bottom: 42, left: 14, width: 362, height: 34 });
+      const tick = document.createElement('div');
+      tick.className = 'wf-tick';
+      tick.getBoundingClientRect = () => ({ top: 80, bottom: 110, left: 14, width: 362, height: 30 });
+      document.body.append(row, tick);
+      try {
+        setup();
+        expect(screen.getByTestId('plan-search-panel').style.top).toBe('8px');
+        tick.remove();
+        cleanup();
+        setup();
+        expect(screen.getByTestId('plan-search-panel').style.top).toBe('8px');
+      } finally {
+        window.matchMedia = realMatchMedia;
+        row.remove();
         tick.remove();
       }
     });

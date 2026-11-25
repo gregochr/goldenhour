@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import {
   describe, it, expect, vi, afterEach,
 } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
-import MastheadTickLine from '../components/MastheadTickLine.jsx';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
+import MastheadTickLine, { MastheadFind } from '../components/MastheadTickLine.jsx';
+import { SET_POSTCODE_LONG } from '../utils/postcodeNudge.js';
 
 /**
  * The masthead's tick line — the design's "ONLY statement of where the plan is computed from".
@@ -986,13 +987,112 @@ describe('MastheadTickLine — the unset hook (README §6, every width)', () => 
   });
 });
 
-describe('MastheadTickLine — showTimes (the phone moves them into the masthead)', () => {
-  it('draws the times by default and withholds them when told', () => {
-    const { unmount } = renderTick();
-    expect(screen.getByTestId('masthead-light-times')).toBeInTheDocument();
-    unmount();
-    renderTick({ showTimes: false });
+describe('MastheadTickLine — the phone (screen-spec.md P4: the masthead is one line)', () => {
+  it('draws nothing at all once a home is saved: Find is the brand row\'s, the origin is the lens\'s and the menu\'s', () => {
+    const { container } = renderTick({ phone: true });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('draws nothing while away either (the menu carries the way home)', () => {
+    const { container } = renderTick({ phone: true, origin: { name: 'The Lake District', baseName: 'Keswick' } });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('draws only the unset-postcode nudge when no home is saved: no Find, no separator, no times', () => {
+    renderTick({ phone: true, homePlace: null, light: null });
+    const line = screen.getByTestId('window-first-tickline');
+    expect(line).toHaveClass('wf-tick-phone');
+    expect(screen.getByTestId('masthead-set-postcode')).toHaveAttribute('aria-label', SET_POSTCODE_LONG);
+    expect(screen.queryByTestId('window-first-search')).toBeNull();
     expect(screen.queryByTestId('masthead-light-times')).toBeNull();
-    expect(screen.getByTestId('window-first-tickline')).toBeInTheDocument();
+    expect(line.querySelector('.wf-tick-sep')).toBeNull();
+  });
+
+  it('draws no times on the phone even for a saved home with a light', () => {
+    renderTick({ phone: true, homePlace: null, light: null });
+    expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+  });
+});
+
+describe('MastheadTickLine — phone focus when the saved postcode takes the nudge away', () => {
+  function Host({ homePlace, light, onSetPostcode }) {
+    return (
+      <>
+        <button type="button" data-testid="menu">menu</button>
+        <MastheadTickLine
+          phone
+          light={light}
+          origin={null}
+          homePlace={homePlace}
+          onOpenSearch={vi.fn()}
+          onGoHome={vi.fn()}
+          onSetPostcode={onSetPostcode}
+          fallbackFocus={() => screen.getByTestId('menu')}
+        />
+      </>
+    );
+  }
+
+  it('resolves the settings dialog\'s return target to the fallback once the slot is gone', () => {
+    const onSetPostcode = vi.fn();
+    const { rerender } = render(<Host homePlace={null} light={null} onSetPostcode={onSetPostcode} />);
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    const resolve = onSetPostcode.mock.calls[0][0];
+    expect(resolve()).toBe(screen.getByTestId('masthead-set-postcode'));
+    rerender(<Host homePlace="Durham" light={LIGHT} onSetPostcode={onSetPostcode} />);
+    expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
+    expect(resolve()).toBe(screen.getByTestId('menu'));
+  });
+
+  it('hands focus to the fallback when the nudge that held it leaves, never to <body>', () => {
+    const { rerender } = render(<Host homePlace={null} light={null} onSetPostcode={vi.fn()} />);
+    act(() => screen.getByTestId('masthead-set-postcode').focus());
+    rerender(<Host homePlace="Durham" light={LIGHT} onSetPostcode={vi.fn()} />);
+    expect(document.activeElement).toBe(screen.getByTestId('menu'));
+  });
+
+  it('resolves to null (not a throw) with no fallback and no slot', () => {
+    const onSetPostcode = vi.fn();
+    const { rerender } = render(
+      <MastheadTickLine phone light={null} origin={null} homePlace={null} onGoHome={vi.fn()} onSetPostcode={onSetPostcode} />,
+    );
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    rerender(
+      <MastheadTickLine phone light={LIGHT} origin={null} homePlace="Durham" onGoHome={vi.fn()} onSetPostcode={onSetPostcode} />,
+    );
+    expect(onSetPostcode.mock.calls[0][0]()).toBeNull();
+  });
+});
+
+describe('MastheadTickLine — the desktop and tablet times are labelled "today"', () => {
+  it('draws a visible today label inside the times, ahead of the clock times', () => {
+    renderTick();
+    const times = screen.getByTestId('masthead-light-times');
+    const today = screen.getByTestId('masthead-light-today');
+    expect(times).toContainElement(today);
+    expect(today).toHaveTextContent('today');
+    expect(today).not.toHaveAttribute('aria-hidden');
+    expect(today.compareDocumentPosition(screen.getAllByTestId('masthead-light-golden')[0]))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+});
+
+describe('MastheadFind — the phone brand row\'s Find button', () => {
+  it('names itself by its visible word, takes the press, and carries the shortcut hint', () => {
+    const onOpen = vi.fn();
+    render(<MastheadFind onOpen={onOpen} />);
+    const button = screen.getByRole('button', { name: 'Find' });
+    expect(button).toHaveAttribute('aria-keyshortcuts', 'Meta+K Control+K');
+    expect(button).not.toHaveAttribute('aria-label');
+    expect(button.querySelector('[aria-hidden="true"]')).toHaveTextContent('⌕');
+    fireEvent.click(button);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the Tab order while the search panel covers it', () => {
+    const { rerender } = render(<MastheadFind onOpen={() => {}} />);
+    expect(screen.getByTestId('window-first-search')).not.toHaveAttribute('tabindex');
+    rerender(<MastheadFind onOpen={() => {}} searchOpen />);
+    expect(screen.getByTestId('window-first-search')).toHaveAttribute('tabindex', '-1');
   });
 });

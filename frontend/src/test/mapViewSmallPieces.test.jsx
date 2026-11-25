@@ -296,6 +296,23 @@ describe('MapScreen on its own', () => {
     expect(screen.getByTestId('map-screen-facts')).toBeEmptyDOMElement();
   });
 
+  it('draws no light clause for a header published without one, or with an empty one', () => {
+    function Publisher({ light }) {
+      const screenCtx = useMapScreen();
+      React.useEffect(() => { screenCtx.publishHeader({ title: 'Fri sunrise', light }); }, [screenCtx, light]);
+      return null;
+    }
+    const { rerender } = render(<MapScreen open {...base()}><Publisher light={undefined} /></MapScreen>);
+    expect(screen.queryByTestId('map-screen-light-golden')).toBeNull();
+    rerender(<MapScreen open {...base()}><Publisher light={null} /></MapScreen>);
+    expect(screen.queryByTestId('map-screen-light-blue')).toBeNull();
+    rerender(<MapScreen open {...base()}><Publisher light={{ place: null, windows: [{ label: 'golden', range: '05:00–05:40' }] }} /></MapScreen>);
+    expect(screen.getByTestId('map-screen-light-golden')).toHaveTextContent('golden 05:00–05:40');
+    // No place, no "at" clause.
+    expect(screen.getByTestId('map-screen-light-golden').querySelector('.sr-only')).toBeNull();
+    expect(screen.queryByTestId('map-screen-light-blue')).toBeNull();
+  });
+
   it('sets the dock inset as a custom property only when there is one', () => {
     const { rerender } = render(<MapScreen open {...base()} right={380}><Child /></MapScreen>);
     expect(screen.getByTestId('map-screen').style.getPropertyValue('--wf-map-right')).toBe('380px');

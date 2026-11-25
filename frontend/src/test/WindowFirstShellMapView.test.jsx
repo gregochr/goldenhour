@@ -70,7 +70,11 @@ function StubPane() {
   }, []);
   useEffect(() => {
     mapScreen?.publishHeader({
-      title: 'Tonight Sunset', verdictLabel: 'Worth it', bestRating: 5, confidence: 'HIGH',
+      title: 'Tonight Sunset',
+      verdictLabel: 'Worth it',
+      bestRating: 5,
+      confidence: 'HIGH',
+      light: { place: 'Haweswater', windows: [{ label: 'blue', range: '07:11–07:53' }, { label: 'golden', range: '07:54–08:36' }] },
     });
     mapScreen?.publishRoute({ date: TODAY, eventType: 'SUNSET', locationId: 5 });
   }, [mapScreen]);
@@ -233,6 +237,15 @@ describe('opening the view', () => {
     expect(screen.getByTestId('map-screen-verdict')).toHaveTextContent('Worth it');
     expect(screen.getByTestId('map-screen-best')).toHaveTextContent('5★');
     expect(screen.getByTestId('map-screen-confidence')).toHaveTextContent('high confidence');
+    // The window's light, from the served score row: golden in the golden colour's class, blue in the facts' own ink.
+    expect(screen.getByTestId('map-screen-light-blue')).toHaveTextContent('blue 07:11–07:53');
+    expect(screen.getByTestId('map-screen-light-golden')).toHaveTextContent('golden 07:54–08:36');
+    expect(screen.getByTestId('map-screen-light-golden')).toHaveClass('wf-map-screen-golden');
+    // Spoken: each light fact names the place, and the facts are separated by a spoken comma (the gap is not heard).
+    expect(screen.getByTestId('map-screen-light-blue').querySelector('.sr-only')).toHaveTextContent('at Haweswater');
+    expect(screen.getByTestId('map-screen-verdict').querySelector('.sr-only')).toHaveTextContent(',');
+    expect(screen.getByTestId('map-screen-light-golden').textContent).not.toMatch(/,\s*$/);
+    expect(screen.getByTestId('map-screen-light-blue')).not.toHaveClass('wf-map-screen-golden');
     const slot = screen.getByTestId('map-screen-window-slot');
     expect(slot.contains(screen.getByTestId('stub-window-control'))).toBe(true);
     expect(screen.getAllByTestId('stub-window-control')).toHaveLength(1);
