@@ -148,6 +148,9 @@ describe('FavouritesProvider', () => {
     setFavourite.mockResolvedValue({ places: [], areas: [], locationIds: [] });
     render(<FavouritesProvider pro><Spy /></FavouritesProvider>);
     await waitFor(() => expect(screen.getByTestId('spy-status')).toHaveTextContent('ready'));
+    // `spy.current` is written in a passive effect, which can land a tick after the status text is in the DOM (seen
+    // under a loaded full run: the toggle then read the empty pre-load list and bookmarked instead of removing).
+    await waitFor(() => expect(spy.current.isAreaStarred(4)).toBe(true));
     await act(async () => { await spy.current.toggle('area', 4, "Hadrian's Wall"); });
     expect(setFavourite).toHaveBeenCalledWith('area', 4, false);
     expect(screen.getByTestId('undo-toast-status')).toHaveTextContent("Removed the bookmark from Hadrian's Wall (area).");

@@ -218,6 +218,8 @@ A Glance card, a lane's tap-through (`tapTopic`'s window route and `tapWarning`)
 
 **Superseded by the map view (one-screen-plan.md O1, 2026-11-24).** `mapArrival` and its Back layer are deleted. A card, lane or Find window pick opens the map view through the shell's `openMap`; the view is itself the base Back layer (it carries the `#map/...` url), Back, Escape and ✕ close it and return focus to the card, and the Plan tab is never left, so there is no tab to return to. `MAX_LAYER_DEPTH` is 3 = the view plus two. See `map-tab.md`, "The map view". Tests: `WindowFirstShellMapView.test.jsx`, `smoke/map-view.spec.js`, `smoke/back.spec.js`.
 
+**The card's thumbnail morphs (screen-spec.md P5, 2026-11-25).** `openMap` resolves the pressed element once (`resolveFrom`), then hands the whole body to `utils/mapMotion.js` `openWithMotion`: a card's `.wf-hc-cv` thumbnail (found from the card's `.wf-hc-hit` button) opens through `document.startViewTransition`, everything else (lanes, chips, the best button, the lens summary, Find) plainly. ✕ and Escape morph back into the card (`closeMapAnimated`), Back and the scrim do not. See `map-tab.md`, "The card opens into the map".
+
 ## The Plan window door and topic emphasis (hot-topics-by-day C1, 2026-10-23) — deleted
 
 C1's lane tap-through (`goToPlanWindow`, the `emphasis` state, `WindowSheetDialog`'s `emphasisTopic` and the `wf-trow-emphasis`

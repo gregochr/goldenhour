@@ -44,6 +44,7 @@ import {
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
+import { closeWithMotion, openWithMotion, thumbnailOf } from '../utils/mapMotion.js';
 import MapScreen from './MapScreen.jsx';
 import useDockEdge from '../hooks/useDockEdge.js';
 import { formatMapRoute, routeWindowStatus } from '../utils/mapRoute.js';
@@ -890,6 +891,17 @@ export default function WindowFirstShell({
       ? active : null;
   };
   /**
+   * After a morph, focus is never on `<body>`: the pane was hidden while it ran, so a focus move into it (a door that
+   * focuses inside the callout) could not land. The view's title is the one target outside the pane.
+   */
+  const keepFocusInView = () => {
+    if (!mapOpenRef.current) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) {
+      mapTitleRef.current?.focus({ preventScroll: true });
+    }
+  };
+  /**
    * Opens the map view, or re-targets it when it is already open: the ONE function behind every door onto the map
    * (`docs/engineering/one-screen-plan.md` D2) — a Glance card or lane, a Coming up card or chip, a Find pick, a spot
    * sheet row, the location sheet's footer, the area sheet's foot, Ask's "Show on map", the aurora banner, the
@@ -916,10 +928,26 @@ export default function WindowFirstShell({
    * @param {?string} [request.frame] `'home-and-place'` for a window door: the camera frames home and its best place
    */
   const openMap = (request = {}) => {
+    // The element the open was pressed on, read NOW: the body below may run a frame later, inside a view transition.
+    const pressed = resolveFrom(request.from ?? null);
+    const body = () => openMapBody({ ...request, from: pressed });
+    // A card thumbnail morphs into the view (screen-spec.md D4); every other door, and every browser without View
+    // Transitions, runs the body plainly. `inPlace` is decided again inside the body, at the moment it runs.
+    openWithMotion({
+      source: thumbnailOf(pressed),
+      update: body,
+      inPlace: mapOpen || mapOpenRef.current,
+      loadTime: request.loadTime === true,
+      onDone: keepFocusInView,
+    });
+  };
+  /** The whole open: the layers, the door, the route and the note. */
+  const openMapBody = (request) => {
     const {
       window: win = null, focus = null, from = null, trigger = null, loadTime = false, note = null, frame = null,
     } = request;
-    const inPlace = mapOpen;
+    // Read at the moment the body runs (a morph defers it): a press that finds the view already open re-targets it.
+    const inPlace = mapOpen || mapOpenRef.current;
     let door = trigger;
     if (!door && win?.date) {
       const place = focus?.kind === 'location'
@@ -994,6 +1022,18 @@ export default function WindowFirstShell({
     mapFocusReturnRef.current = restoreFocus ? 'restore' : 'skip';
     setMapView(null);
     setMapNote(null);
+  };
+  /**
+   * ✕ and Escape: the view morphs back into the card it was opened from when that card is still on screen. Back, the
+   * scrim and every other close call {@link closeMap} and stay instant. Focus returns to the card through
+   * {@link closeMap}'s own layout effect, in the commit that closes the view.
+   */
+  const closeMapAnimated = () => {
+    closeWithMotion({
+      source: thumbnailOf(mapFromRef.current),
+      frame: document.querySelector('[data-map-screen]'),
+      update: () => closeMap(),
+    });
   };
   /** The latest {@link openMap} and {@link closeMap}, for the registration made once on mount. */
   const mapDoorsRef = useRef(null);
@@ -1896,7 +1936,6 @@ export default function WindowFirstShell({
     let focus = place ? { kind: 'location', id: place.id, name: place.name } : null;
     if (win?.eventType === 'AURORA') focus = { kind: 'aurora' };
     else if (win?.eventType === 'ASTRO') focus = { kind: 'astro' };
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     openMap({
       window: win,
       focus,
@@ -2793,7 +2832,7 @@ export default function WindowFirstShell({
       {mapPane != null && mapMounted && (
         <MapScreen
           open={mapOpen}
-          onClose={() => closeMap()}
+          onClose={closeMapAnimated}
           // The scrim closes the view only when nothing is stacked over it: a press that lands there while a sheet or
           // Find stands belongs to that layer's own backdrop.
           onScrimPress={() => {
