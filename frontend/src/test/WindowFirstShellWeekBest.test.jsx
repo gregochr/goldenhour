@@ -122,8 +122,11 @@ describe('This week\'s bar: the week\'s best (screen-spec.md D3)', () => {
   it('shows the served Best bet in words, decoration aside, and names it fully', async () => {
     await renderShell([stripCard(), BEST]);
     const best = screen.getByTestId('this-week-best');
-    expect(best).toHaveTextContent('best Mon sunrise, Crimdon Beach 4★ →');
-    expect(best).toHaveAccessibleName('Best this week: Monday sunrise, Crimdon Beach, 4 stars. Open on the map.');
+    expect(best).toHaveTextContent('best Mon sunrise, Crimdon Beach 4★ stars →, the week\'s best, opens the map');
+    // The accessible name STARTS with the visible words (WCAG 2.5.3), the stars spoken, and says what the button does.
+    expect(best).not.toHaveAttribute('aria-label');
+    expect(best.getAttribute('data-testid')).toBe('this-week-best');
+    expect(best).toHaveAccessibleName(/^best Mon sunrise, Crimdon Beach 4 stars,? the week's best, opens the map$/);
     // A sibling of the heading, never inside it.
     expect(screen.getByTestId('this-week-heading')).not.toContainElement(best);
     expect(screen.getByTestId('this-week-heading')).toHaveAccessibleName('This week');
@@ -132,6 +135,7 @@ describe('This week\'s bar: the week\'s best (screen-spec.md D3)', () => {
   it('shows no stars when the pick place has no served slot rating', async () => {
     await renderShell([{ ...BEST, pickRating: null }]);
     expect(screen.getByTestId('this-week-best')).toHaveTextContent('best Mon sunrise, Crimdon Beach →');
+    expect(screen.getByTestId('this-week-best')).toHaveAccessibleName(/^best Mon sunrise, Crimdon Beach,? the week's best/);
   });
 
   it('opens the map view on that window, framing home and the place, from the button', async () => {

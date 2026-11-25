@@ -6,8 +6,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Map;
 
@@ -57,6 +60,37 @@ class PlacesHintDismissedMigrationTest extends IntegrationTestBase {
         AppUserEntity user = users.findByUsername("v230-legacy").orElseThrow();
 
         assertThat(user.getPlacesHintDismissedAt()).isNull();
+    }
+
+    /** The migration's backfill statement, read from the migration file itself so the test cannot drift from it. */
+    private String backfillSql() throws IOException {
+        String file = new ClassPathResource("db/migration/V230__app_user_places_hint_dismissed.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+        int start = file.indexOf("UPDATE app_user");
+        assertThat(start).as("V230 carries the backfill").isGreaterThanOrEqualTo(0);
+        return file.substring(start, file.indexOf(';', start));
+    }
+
+    @Test
+    @DisplayName("the backfill stamps every reader holding a favourite row (a date here) and leaves the others null")
+    void backfillStampsOnlyReadersWithAFavourite() throws IOException {
+        jdbc.update("INSERT INTO app_user (username, password, role, enabled, created_at, "
+                + "password_change_required, marketing_email_opt_in) "
+                + "VALUES ('v230-saved', 'hash', 'PRO_USER', TRUE, now(), FALSE, TRUE)");
+        jdbc.update("INSERT INTO app_user (username, password, role, enabled, created_at, "
+                + "password_change_required, marketing_email_opt_in) "
+                + "VALUES ('v230-never', 'hash', 'PRO_USER', TRUE, now(), FALSE, TRUE)");
+        Long saved = jdbc.queryForObject("SELECT id FROM app_user WHERE username = 'v230-saved'", Long.class);
+        jdbc.update("INSERT INTO user_favourite (user_id, almanac_key, created_at) "
+                + "VALUES (?, 'king-tide:2026-12-03', now())", saved);
+
+        // Run on rows as they stood before the migration (the column empty), exactly as Flyway ran it.
+        jdbc.update("UPDATE app_user SET places_hint_dismissed_at = NULL WHERE username LIKE 'v230-%'");
+        jdbc.update(backfillSql());
+
+        assertThat(users.findByUsername("v230-saved").orElseThrow().getPlacesHintDismissedAt()).isNotNull();
+        assertThat(users.findByUsername("v230-never").orElseThrow().getPlacesHintDismissedAt()).isNull();
+        jdbc.update("DELETE FROM user_favourite WHERE user_id = ?", saved);
     }
 
     @Test

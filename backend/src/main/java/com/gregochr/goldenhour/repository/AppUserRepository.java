@@ -697,13 +697,15 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
      * Records that the caller no longer needs the one-time "Bookmark places and watch dates" hint (V230,
      * screen-spec D8): they dismissed it, or made their first favourite. Column-scoped, like every write
      * to this family of columns, and only while the column is still null, so the first instant stands and
-     * a second call writes nothing.
+     * a second call writes nothing. {@code clearAutomatically} evicts the persistence context, as the postcode
+     * sibling does, so a read after it sees the stamp. In {@code UserFavouritesService} that is harmless: the only
+     * managed entity is the reader row locked by {@code findByIdForUpdate}, which no write method touches again.
      *
      * @param username    the caller's username
      * @param dismissedAt the instant to record
      * @return 1 if it was stamped; 0 if it had been stamped already (or there is no such user)
      */
-    @Modifying(flushAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query("UPDATE AppUserEntity u SET u.placesHintDismissedAt = :dismissedAt "
             + "WHERE u.username = :username AND u.placesHintDismissedAt IS NULL")

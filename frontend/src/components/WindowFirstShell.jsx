@@ -59,7 +59,9 @@ import { useFavourites } from '../context/FavouritesContext.jsx';
 import YourPlacesRow from './YourPlacesRow.jsx';
 import GuideLink from './guide/GuideLink.jsx';
 import { weekBestOf } from '../utils/weekBest.js';
+import { NO_QUIET_OPEN } from '../utils/quietDays.js';
 import BookmarkMark from './shared/BookmarkMark.jsx';
+import StarFigure from './shared/StarFigure.jsx';
 import { watchedStillToCome } from '../utils/watchedDates.js';
 import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
@@ -207,7 +209,6 @@ const WRAP_MAX_WIDTH = '1080px';
 
 /** No lane carries an almanac entry: the starting value of the graduated set, shared so it costs no allocation. */
 const NO_ENTRY_IDS = new Set();
-const NO_QUIET_OPEN = new Set();
 
 /**
  * What the view chip says, and what the question is sent with, by tab. Map reads "all regions" here
@@ -380,7 +381,7 @@ export default function WindowFirstShell({
   locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false,
   forecastDates = null, registerCloseDialogs = null, onFindOnMap = null, onFindOpenChange = null,
   registerOpenMap = null, loadMapRoute = null, onLoadMapRouteHandled = null,
-  placesHintDue = false, onDismissPlacesHint = null,
+  placesHintDue = false, onDismissPlacesHint = null, onSettlePlacesHint = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets,
@@ -2582,14 +2583,21 @@ export default function WindowFirstShell({
               type="button"
               className="wf-sec-best"
               data-testid="this-week-best"
-              aria-label={weekBest.spoken}
               onClick={openWeekBest}
             >
-              <span className="wf-sec-best-t" aria-hidden="true">
+              {/* No aria-label: the accessible name STARTS with the visible words (WCAG 2.5.3), the stars spoken as
+                  words by StarFigure, then a screen-reader-only tail naming what the button is and does. */}
+              <span className="wf-sec-best-t">
                 {`best ${weekBest.dow} ${weekBest.event}, ${weekBest.place}`}
-                {weekBest.rating != null && ` ${weekBest.rating}★`}
+                {weekBest.rating != null && (
+                  <>
+                    {' '}
+                    <StarFigure n={weekBest.rating} />
+                  </>
+                )}
               </span>
               <span aria-hidden="true">{' →'}</span>
+              <span className="sr-only">, the week&apos;s best, opens the map</span>
             </button>
           )}
           <button
@@ -2625,6 +2633,7 @@ export default function WindowFirstShell({
         <YourPlacesRow
           hintDue={placesHintDue}
           onDismissHint={onDismissPlacesHint}
+          onSettleHint={onSettlePlacesHint}
           spots={heatSpots}
           windows={heatStripCards}
           scoreIndex={detailScoreIndex}
@@ -3275,6 +3284,8 @@ WindowFirstShell.propTypes = {
   placesHintDue: PropTypes.bool,
   /** Records the hint's dismissal (hides it at once and writes the flag). Absent in tests that do not render the hint. */
   onDismissPlacesHint: PropTypes.func,
+  /** Told once the reader has saved a favourite while the hint was due, so the page's own flag drops with no write. */
+  onSettlePlacesHint: PropTypes.func,
   /**
    * The map view to open at load (one-screen-plan.md D4): `{date, eventType, locationId}` from the page's own `#map/...`
    * address. Null means open nothing: every device opens on This week.

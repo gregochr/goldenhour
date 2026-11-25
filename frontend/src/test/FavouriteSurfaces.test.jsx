@@ -607,6 +607,22 @@ describe('Your places, the row at the top of This week', () => {
       expect(screen.queryByTestId('your-places-hint')).toBeNull();
     });
 
+    it('tells the page once when the first save lands while the hint was due, and not otherwise', async () => {
+      const onSettleHint = vi.fn();
+      const view = render(list({}, { hintDue: true, onSettleHint }));
+      expect(onSettleHint).not.toHaveBeenCalled();
+
+      view.rerender(list({ places: [1] }, { hintDue: true, onSettleHint }));
+      await screen.findAllByTestId('your-places-chip');
+      expect(onSettleHint).toHaveBeenCalledTimes(1);
+
+      cleanup();
+      const quiet = vi.fn();
+      render(list({ places: [1] }, { hintDue: false, onSettleHint: quiet }));
+      await screen.findAllByTestId('your-places-chip');
+      expect(quiet).not.toHaveBeenCalled();
+    });
+
     it('a Lite reader sees the same line with a Pro pill that opens one upsell for places and dates', () => {
       render(list({ status: 'locked' }, { hintDue: true }));
       const trigger = screen.getByTestId('your-places-hint-button');

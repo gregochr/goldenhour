@@ -1788,8 +1788,12 @@
 .wf-quiet-caret { margin-left: auto; padding-left: 8px; }
 /* Desktop and tablet: the fold sits in the sunrise row's cell above its (hidden while folded) card; the sunset row's cell
    is an inert space while folded. The cell is the grid item, so it carries the column the cards would. */
-.wf-hstrip.wf-hstrip-rows .wf-hcards > .wf-quiet-cell { grid-column: var(--c); display: flex; flex-direction: column; gap: 7px; min-width: 0; }
-.wf-quiet-cell > .wf-day-body > * { flex: 1 1 auto; }
+.wf-hstrip.wf-hstrip-rows .wf-hcards > .wf-day-cell { grid-column: var(--c); }
+/* A day that is not quiet has a transparent cell: its card is the grid item it always was, placed by its own `--c`. */
+.wf-hstrip.wf-hstrip-rows .wf-hcards > .wf-day-cell:not([data-quiet]) { display: contents; }
+.wf-hstrip.wf-hstrip-rows .wf-hcards > .wf-day-cell:not([data-quiet]) > .wf-day-body > * { grid-column: var(--c); }
+/* A quiet day's cell stacks the fold above its card. */
+.wf-hstrip.wf-hstrip-rows .wf-hcards > .wf-day-cell[data-quiet] { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 @media (forced-colors: active) {
   .wf-quiet-fold { border-color: CanvasText; }
   .wf-quiet-fold:focus-visible { outline: 2px solid Highlight; }
@@ -1798,7 +1802,7 @@
 /* The week's best, a sibling of the This week heading (screen-spec.md D3): `best Fri sunrise, Crimdon Beach 4★ →`. It
    gives way before the Further ahead jump does (an ellipsis on the words, the arrow stays), and its accessible name
    carries the full text. */
-.wf-sec-bar > .wf-guide-link { margin: 0 2px 0 -4px; }
+.wf-sec-bar-week > .wf-guide-link { margin: 0 2px 0 -4px; }
 .wf-sec-best {
   display: inline-flex;
   align-items: center;
@@ -1817,7 +1821,7 @@
 .wf-sec-best > [aria-hidden='true']:last-child { flex: none; white-space: pre; }
 .wf-sec-best:hover .wf-sec-best-t { text-decoration: underline; }
 .wf-sec-best:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; border-radius: 4px; }
-.wf-sec-bar > .wf-sec-jump { margin-left: auto; }
+.wf-sec-bar-week > .wf-sec-jump { margin-left: auto; }
 
 /* The one-time hint that stands in for Your places (screen-spec.md D8): one dashed line, about 34px, with a Dismiss. */
 .wf-yp-hint {
@@ -2102,6 +2106,18 @@ div.wf-hc:where([data-control]).vp:hover {
 .wf-hstrip-rows .wf-hcards > .wf-hc-away .wf-hc-pls {
   column-gap: 8px;
 }
+/* The same slim hole and away-card rules for a card inside its day's cell (`.wf-day-cell > .wf-day-body`, drawn for every
+   day so cards never re-parent): the transparent cell of a day that is not quiet keeps the originals' alignment, and a
+   quiet day's flex cell takes the sizing alone (a column flex has no row to stretch or top-align in). */
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hgap { min-height: 0; padding: 12px 10px; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell:not([data-quiet]) > .wf-day-body > .wf-hgap { align-self: start; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hgap span { font-size: 11px; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hc-away { min-height: 0; padding: 9px 10px; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell:not([data-quiet]) > .wf-day-body > .wf-hc-away { align-self: start; }
+.wf-hstrip-rows .wf-hcards:has(> .wf-day-cell:not([data-quiet]) > .wf-day-body > .wf-hc:not(.wf-hc-away))
+  > .wf-day-cell:not([data-quiet]) > .wf-day-body > .wf-hc-away { align-self: stretch; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hc-away .wf-hc-top { display: none; }
+.wf-hstrip-rows .wf-hcards > .wf-day-cell > .wf-day-body > .wf-hc-away .wf-hc-pls { column-gap: 8px; }
 /* Met Office warning lanes (weather-warnings-plan.md W3), first in the stack: text in the official level colour from
    `utils/warnings.js` (Tailwind classes on the element), the level word always printed, no icon or triangle (style guide
    v1.4). Not a `.wf-lane`: that class paints its fill on a `::before` layer. */
@@ -11524,13 +11540,15 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 /* A lane with no route is text, not a control. */
 div.wf-lane { cursor: default; }
 @media (max-width: 639px) {
-  .wf-sec-bar { padding: 0; gap: 4px; }
+  .wf-sec-bar { padding: 5px 0 4px; }
   .wf-sec-h { font-size: 12.5px; }
-  .wf-sec-jump { min-height: 28px; padding: 2px 6px; }
+  .wf-sec-jump { min-height: 32px; }
   /* The bar is one thin line (screen-spec.md section 4, about 28 px): a smaller help ? and a tighter best button, so the
      week's best keeps as many words as the line allows before its ellipsis. */
-  .wf-sec-bar > .wf-guide-link { width: 20px; height: 20px; margin: 0 0 0 -2px; font-size: 10px; }
-  .wf-sec-bar > .wf-guide-link::after { inset: -4px -6px; }
+  .wf-sec-bar-week { padding: 0; gap: 4px; }
+  .wf-sec-bar-week > .wf-sec-jump { min-height: 28px; padding: 2px 6px; }
+  .wf-sec-bar-week > .wf-guide-link { width: 20px; height: 20px; margin: 0 0 0 -2px; font-size: 10px; }
+  .wf-sec-bar-week > .wf-guide-link::after { inset: -4px -6px; }
   .wf-sec-best { flex: 1 1 0; justify-content: flex-start; padding: 2px 2px; font-size: 10.5px; }
 }
 

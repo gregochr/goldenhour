@@ -411,7 +411,7 @@ function AppInner() {
    */
   const {
     homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate, postcodePromptDue,
-    placesHintDue, dismissPlacesHint,
+    placesHintDue, dismissPlacesHint, settlePlacesHint,
     homeSettingsVersion, driveTimesVersion, mapColourScale,
     startSettingsRead, homeSaved, driveTimesRecalculated, colourSaved,
     // Threaded to the Map pane on the same route as `mapColourScale` (map-mobile-sheet-plan.md
@@ -993,6 +993,7 @@ function AppInner() {
             <WindowFirstShell
               placesHintDue={placesHintDue}
               onDismissPlacesHint={dismissPlacesHint}
+              onSettlePlacesHint={settlePlacesHint}
               mapColourScale={mapColourScale}
               onScreenChange={setActiveScreen}
               registerOpenMap={registerOpenMap}

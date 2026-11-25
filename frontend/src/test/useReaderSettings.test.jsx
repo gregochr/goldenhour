@@ -425,6 +425,18 @@ describe('useReaderSettings — placesHintDue (screen-spec.md D8)', () => {
       expect(markPlacesHintDismissed).toHaveBeenCalledTimes(1);
     });
 
+    it('settlePlacesHint (a first favourite saved) hides it with NO write, so a remount cannot bring it back', async () => {
+      getSettings.mockResolvedValue(DUE);
+      const { result } = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+      expect(result.current.placesHintDue).toBe(true);
+
+      act(() => { result.current.settlePlacesHint(); });
+
+      expect(result.current.placesHintDue).toBe(false);
+      expect(markPlacesHintDismissed).not.toHaveBeenCalled();
+    });
+
     it('a failed write leaves it hidden for this session', async () => {
       getSettings.mockResolvedValue(DUE);
       markPlacesHintDismissed.mockRejectedValue(new Error('offline'));

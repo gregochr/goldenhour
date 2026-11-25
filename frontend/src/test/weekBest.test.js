@@ -37,22 +37,25 @@ describe('weekBestOf (screen-spec.md D3)', () => {
       rating: 4,
       dow: 'Fri',
       event: 'sunrise',
-      spoken: 'Best this week: Friday sunrise, Crimdon Beach, 4 stars. Open on the map.',
     });
   });
 
-  it('speaks a single star in the singular and a sunset as sunset', () => {
-    const one = weekBestOf([card({ ...BEST, targetType: 'SUNSET', pickRating: 1 })], null);
+  it('words a sunset as sunset', () => {
+    expect(weekBestOf([card({ ...BEST, targetType: 'SUNSET', pickRating: 1 })], null).event).toBe('sunset');
+  });
 
-    expect(one.event).toBe('sunset');
-    expect(one.spoken).toBe('Best this week: Friday sunset, Crimdon Beach, 1 star. Open on the map.');
+  it('when two cards carry the Best flag (a stale cache), the EARLIEST wins: the cards are chronological and nothing ranks', () => {
+    const later = card({ ...BEST, date: '2026-11-29', pickLocationName: 'Later Bay', pickRating: 5 });
+    const earlier = card({ ...BEST, date: '2026-11-26', dow: 'Thu', pickLocationName: 'Earlier Bay', pickRating: 2 });
+
+    expect(weekBestOf([earlier, later], null).place).toBe('Earlier Bay');
+    expect(weekBestOf([later, earlier], null).place).toBe('Later Bay');
   });
 
   it('prints no stars when the pick place has no served slot rating', () => {
     const none = weekBestOf([card({ ...BEST, pickRating: null })], null);
 
     expect(none.rating).toBeNull();
-    expect(none.spoken).toBe('Best this week: Friday sunrise, Crimdon Beach. Open on the map.');
   });
 
   it('falls back to the region when the pick names no place', () => {

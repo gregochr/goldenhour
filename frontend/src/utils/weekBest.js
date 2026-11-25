@@ -13,35 +13,26 @@
 const EVENT_WORD = { SUNRISE: 'sunrise', SUNSET: 'sunset' };
 
 /**
- * The long weekday of an ISO date ("Friday"), read at noon UTC so no timezone can move the day.
- *
- * @param {string} dateStr an ISO date
- * @returns {string} the weekday
- */
-function longWeekday(dateStr) {
-  return new Date(`${dateStr}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
-}
-
-/**
  * The week's best window, by the served flag.
  *
  * @param {Array<object>} cards the strip's descriptors (`buildHeatStripCards`)
  * @param {?Array<string>} forecastDates the days the screen shows; null leaves every card eligible
  * @returns {?{date: string, eventType: string, locationId: ?number, place: string, rating: ?number,
- *   dow: string, event: string, spoken: string}} what the bar draws, or null when no served Best
+ *   dow: string, event: string}} what the bar draws, or null when no served Best
  *   pick sits in the four days (Lite, scoped away, none served)
  */
 export function weekBestOf(cards, forecastDates) {
   const pool = Array.isArray(forecastDates)
     ? (cards || []).filter((card) => forecastDates.includes(card.date))
     : (cards || []);
+  // The server serves exactly one BEST pick. Should a stale cached briefing ever carry two, the EARLIEST wins: the cards
+  // arrive chronologically (no ranking happens here), so the first flagged card is the soonest window to act on.
   const card = pool.find((c) => c?.pickKind === 'best' && !c.away);
   const eventWord = card ? EVENT_WORD[card.targetType] : null;
   if (!card || !eventWord) return null;
   const place = card.pickLocationName || card.pickRegion;
   if (!place) return null;
   const rating = typeof card.pickRating === 'number' ? card.pickRating : null;
-  const spokenRating = rating == null ? '' : `, ${rating} ${rating === 1 ? 'star' : 'stars'}`;
   return {
     date: card.date,
     eventType: card.targetType,
@@ -50,6 +41,5 @@ export function weekBestOf(cards, forecastDates) {
     rating,
     dow: card.dow,
     event: eventWord,
-    spoken: `Best this week: ${longWeekday(card.date)} ${eventWord}, ${place}${spokenRating}. Open on the map.`,
   };
 }

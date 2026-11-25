@@ -112,7 +112,7 @@ function lineOf(row) {
  */
 export default function YourPlacesRow({
   spots, windows, scoreIndex, reachById, allowedLocationIds, onOpenWindow, onOpenPlace, onOpenArea,
-  hintDue = false, onDismissHint = null,
+  hintDue = false, onDismissHint = null, onSettleHint = null,
 }) {
   const favourites = useFavourites();
   const upsell = useFavouriteUpsell();
@@ -130,6 +130,10 @@ export default function YourPlacesRow({
   // Latched while rendering (React's own "adjust state when a prop changes" pattern), so the very commit that shows the
   // first save already has the hint gone.
   if (savedNow && !everSaved) setEverSaved(true);
+  // The first save while the hint was due: tell the page, so its own flag drops (the server stamped it too).
+  useEffect(() => {
+    if (everSaved && hintDue) onSettleHint?.();
+  }, [everSaved, hintDue, onSettleHint]);
   /** ✕: hides the hint at once, writes the flag, and puts focus on the This week heading (the button unmounts). */
   const dismissHint = () => {
     setHintGone(true);
@@ -329,6 +333,8 @@ YourPlacesRow.propTypes = {
   hintDue: PropTypes.bool,
   /** Records the hint's dismissal; called once from the ✕. */
   onDismissHint: PropTypes.func,
+  /** Called once after the first save while the hint was due. */
+  onSettleHint: PropTypes.func,
   spots: PropTypes.arrayOf(PropTypes.object),
   windows: PropTypes.arrayOf(PropTypes.object),
   scoreIndex: PropTypes.shape({ byId: PropTypes.instanceOf(Map), byName: PropTypes.instanceOf(Map) }),

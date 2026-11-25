@@ -12,6 +12,9 @@
  * a day with no card at all stay open.
  */
 
+/** No quiet day opened yet: one stable empty set, shared by the shell's state and the strip's default prop. */
+export const NO_QUIET_OPEN = new Set();
+
 /** The highest rating a quiet day may reach: "nothing above 2★". */
 export const QUIET_AT_MOST = 2;
 
@@ -29,7 +32,8 @@ function onDay(lane, date) {
 /**
  * Whether a matrix day folds.
  *
- * @param {{date: string, am: ?object, pm: ?object}} day the matrix day (`buildWindowMatrix`)
+ * @param {{date: string, am: ?object, pm: ?object, amEmpty: ?string, pmEmpty: ?string}} day the matrix day
+ *        (`buildWindowMatrix`); a missing window with no `amEmpty`/`pmEmpty` reason keeps the day open
  * @param {{warningLanes?: Array<object>, watchedLanes?: Array<object>, topicLanes?: Array<object>}} [lanes]
  *        the strip's lanes: warnings, watched dates drawn as a lane of their own, and the topic lanes (a topic lane
  *        that a watched date decorates carries {@code watched})
@@ -39,6 +43,9 @@ function onDay(lane, date) {
 export function isQuietDay(day, lanes = {}) {
   const windows = [day?.am, day?.pm].filter(Boolean);
   if (windows.length === 0) return false;
+  // A missing window counts only when the matrix EXPLAINS it (this morning has gone, past the end of the forecast):
+  // an unexplained hole is a window nobody can account for, so the day stays open.
+  if ((!day.am && !day.amEmpty) || (!day.pm && !day.pmEmpty)) return false;
   const allQuiet = windows.every((card) => typeof card.bestRating === 'number' && card.bestRating <= QUIET_AT_MOST);
   if (!allQuiet) return false;
   const { warningLanes = [], watchedLanes = [], topicLanes = [] } = lanes;

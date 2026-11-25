@@ -170,7 +170,7 @@ export function recordReducer(record, action) {
  * response carries no place name, which the reducer already keeps from the record for the same home.
  *
  * @returns {{homePlace: (?string|undefined), homeCoords: (?{lat: number, lon: number}|undefined),
- *           postcodePromptDue: boolean, placesHintDue: boolean, dismissPlacesHint: function,
+ *           postcodePromptDue: boolean, placesHintDue: boolean, dismissPlacesHint: function, settlePlacesHint: function,
  *           comingUpLastSeenDate: (?string|undefined), setComingUpLastSeenDate: function,
  *           homeSettingsVersion: number, driveTimesVersion: number, mapColourScale: string,
  *           startSettingsRead: function, homeSaved: function,
@@ -358,6 +358,11 @@ export default function useReaderSettings() {
     setPlacesHintGone(true);
     markPlacesHintDismissed().catch(() => {});
   }, []);
+  /**
+   * The reader saved a favourite while the hint was due: the server has stamped the flag (the first favourite of any kind
+   * does), so patch it down here with no write, and a remount of the shell can never bring the hint back.
+   */
+  const settlePlacesHint = useCallback(() => setPlacesHintGone(true), []);
 
   return {
     homePlace,
@@ -367,6 +372,7 @@ export default function useReaderSettings() {
     postcodePromptDue,
     placesHintDue,
     dismissPlacesHint,
+    settlePlacesHint,
     homeSettingsVersion: record.homeSettingsVersion,
     driveTimesVersion: record.driveTimesVersion,
     mapColourScale,

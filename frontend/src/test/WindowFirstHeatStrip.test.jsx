@@ -3241,7 +3241,11 @@ describe('WindowFirstHeatStrip — the row-rails branch (matrix-axis plan §6, D
     // The exact sequence the phone CSS's DOM-order flow depends on: header, sunrise cell, sunset
     // cell, once per day — this is what protects day-major flow now that the desktop branch above
     // is row-major (§6.4's "day-major protection now lives in the phone-branch test").
-    const kinds = Array.from(grid.children).map((el) => el.getAttribute('data-testid'));
+    // Each day's lanes and cards sit in its `.wf-day-body` wrapper (`display: contents`, drawn for every day so cards never
+    // re-parent when a day's quiet state changes), so the order is read THROUGH the wrapper.
+    const kinds = Array.from(grid.children)
+      .flatMap((el) => (el.classList.contains('wf-day-body') ? Array.from(el.children) : [el]))
+      .map((el) => el.getAttribute('data-testid'));
     expect(kinds).toEqual([
       'wf-heat-day', 'wf-heat-empty', 'wf-heat-card',
       'wf-heat-day', 'wf-heat-card', 'wf-heat-card',
@@ -4951,6 +4955,7 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     await renderStrip({ cards: COLUMNS, hotTopics: [tide(D5, 1, 2), tide(D6, 2, 2)] });
     expect(screen.queryByTestId('wf-glance-lanes')).toBeNull();
     const kids = Array.from(screen.getByTestId('wf-heat-grid').children)
+      .flatMap((el) => (el.classList.contains('wf-day-body') ? Array.from(el.children) : [el]))
       .map((el) => el.getAttribute('data-testid'));
     expect(kids).toEqual([
       'wf-heat-day', 'wf-heat-empty', 'wf-heat-card',
@@ -5951,6 +5956,89 @@ describe('WindowFirstHeatStrip — quiet days fold (screen-spec.md D5)', () => {
       expect(screen.getAllByTestId('wf-quiet-cell')).toHaveLength(2);
       const body = document.getElementById(screen.getByTestId('wf-quiet-fold').getAttribute('aria-controls').split(' ')[0]);
       expect(body).toHaveTextContent('this morning has gone');
+    });
+  });
+
+  describe('the canvases of a folded day', () => {
+    /** The canvases drawGeo has been handed since the last clear, de-duplicated. */
+    const painted = () => new Set(drawGeo.mock.calls.map((call) => call[0]));
+
+    it.each([['a phone', true], ['desktop and tablet', false]])(
+      'on %s: a card in a folded day is NOT painted (it has no box), and is painted once the fold opens',
+      async (_name, mobile) => {
+        useIsMobile.mockReturnValue(mobile);
+        await withMeasuredThumbs(160, async () => {
+          drawGeo.mockClear();
+          await strip();
+          const hidden = [...document.querySelectorAll('[hidden] canvas')];
+          expect(hidden.length).toBeGreaterThan(0);
+          // Nothing hidden was drawn at the frame's width, which `fit()` would have written inline for good.
+          hidden.forEach((canvas) => expect(painted().has(canvas)).toBe(false));
+          expect(painted().size).toBeGreaterThan(0);
+
+          drawGeo.mockClear();
+          const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+          await act(async () => { fireEvent.click(fold); });
+
+          const opened = fold.getAttribute('aria-controls').split(' ')
+            .flatMap((id) => [...document.getElementById(id).querySelectorAll('canvas')]);
+          expect(opened.length).toBeGreaterThan(0);
+          opened.forEach((canvas) => expect(painted().has(canvas)).toBe(true));
+        });
+      },
+    );
+  });
+
+  describe('focus never drops to the body (plan 1)', () => {
+    /** Lets a test change one day's served rating after mount, as a refreshed forecast would. */
+    let setD4Rating;
+    function Flipper({ children }) {
+      const [rating, setRating] = React.useState(1);
+      setD4Rating = setRating;
+      return React.cloneElement(children, {
+        cards: WEEK.map((card) => (card.date === D4 ? { ...card, bestRating: rating } : card)),
+        quietOpen: new Set(),
+      });
+    }
+
+    it.each([['a phone', true], ['desktop and tablet', false]])(
+      'on %s: a day that stops being quiet while its fold has focus hands focus to its first card, with no remount',
+      async (_name, mobile) => {
+        useIsMobile.mockReturnValue(mobile);
+        await strip({ wrap: (node) => <Flipper>{node}</Flipper> });
+        const cardBefore = document.querySelector(`[data-testid="wf-heat-card"][data-date="${D4}"]`);
+        const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+        fold.focus();
+        expect(fold).toHaveFocus();
+
+        await act(async () => { setD4Rating(4); });
+
+        expect(fold.isConnected).toBe(false);
+        const cardAfter = document.querySelector(`[data-testid="wf-heat-card"][data-date="${D4}"]`);
+        expect(cardAfter).toBe(cardBefore);
+        expect(document.activeElement).not.toBe(document.body);
+        expect(cardAfter.querySelector('.wf-hc-hit')).toHaveFocus();
+      },
+    );
+
+    it('a card inside a body that has just been hidden hands focus to its fold button', async () => {
+      useIsMobile.mockReturnValue(true);
+      let closeD4;
+      function Closer({ children }) {
+        const [open, setOpen] = React.useState(new Set([D4]));
+        closeD4 = () => setOpen(new Set());
+        return React.cloneElement(children, { quietOpen: open });
+      }
+      await strip({ wrap: (node) => <Closer>{node}</Closer> });
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      const hit = document.getElementById(fold.getAttribute('aria-controls')).querySelector('.wf-hc-hit');
+      hit.focus();
+      expect(hit).toHaveFocus();
+
+      await act(async () => { closeD4(); });
+
+      expect(document.getElementById(fold.getAttribute('aria-controls'))).toHaveAttribute('hidden');
+      expect(fold).toHaveFocus();
     });
   });
 });

@@ -26,7 +26,7 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { daysOut, fieldBloomAllowed, fieldConfidence, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
-import { isQuietDay, topicLaneCount } from '../utils/quietDays.js';
+import { NO_QUIET_OPEN, isQuietDay, topicLaneCount } from '../utils/quietDays.js';
 import StarFigure from './shared/StarFigure.jsx';
 import { buildFourDayTiles, buildGlanceLanes } from '../utils/fourDayTiles.js';
 import {
@@ -55,9 +55,6 @@ import { picksNoteText } from '../utils/pickGeography.js';
 import { GuideWhy } from './guide/GuideLink.jsx';
 import { SubRegionActionButton } from './subregions/SubRegionActions.jsx';
 import BookmarkMark from './shared/BookmarkMark.jsx';
-
-/** No quiet day opened yet (a stable default so the prop is not a new Set every render). */
-const NO_QUIET_OPEN = new Set();
 
 /**
  * The thumbnail frame's aspect clamps.
@@ -1026,6 +1023,7 @@ export default function WindowFirstHeatStrip({
         key={`${day.date}:fold`}
         type="button"
         data-testid="wf-quiet-fold"
+        data-date={day.date}
         className={`wf-quiet-fold${day.today ? ' today' : ''}`}
         aria-expanded={open}
         aria-controls={controls}
@@ -1053,29 +1051,39 @@ export default function WindowFirstHeatStrip({
     );
   };
   /**
-   * A quiet day's cell in one of the desktop's two card rows. The column's own header stays; the sunrise row's cell
-   * carries the fold button above the (hidden while folded) card, and the sunset row's cell holds only its card, so it
-   * is an empty, inert space while folded. The card is mounted either way, so the button's `aria-controls` names both
-   * real elements.
+   * A day's cell in one of the desktop's two card rows, drawn for EVERY day so a card never re-parents or remounts when
+   * its day's quiet state changes (focus and the canvas stay with it). The column's own header stays; for a quiet day the
+   * sunrise row's cell carries the fold button above the (hidden while folded) card, and the sunset row's cell holds only
+   * its card, so it is an empty, inert space while folded. The card is mounted either way, so the button's
+   * `aria-controls` names both real elements. A day that is not quiet has a transparent cell (`display: contents`).
    *
    * @param {object} day the matrix day
    * @param {number} column the grid column, 1-based
    * @param {'am'|'pm'} slot which row
    * @param {React.ReactElement} node the card or the explained hole
    */
-  const renderQuietCell = (day, column, slot, node) => (
-    <div
-      key={`${day.date}:${slot}:cell`}
-      className={`wf-quiet-cell wf-quiet-cell-${slot}`}
-      data-testid="wf-quiet-cell"
-      style={{ '--c': column }}
-    >
-      {slot === 'am' && renderFold(day, `${bodyIdOf(day.date, 'am')} ${bodyIdOf(day.date, 'pm')}`, false)}
-      <div id={bodyIdOf(day.date, slot)} className="wf-day-body" hidden={!quietOpen.has(day.date)}>
-        {node}
+  const renderQuietCell = (day, column, slot, node) => {
+    const quiet = quietDates.has(day.date);
+    return (
+      <div
+        key={`${day.date}:${slot}:cell`}
+        className={`wf-day-cell wf-day-cell-${slot}`}
+        data-quiet={quiet ? 'true' : undefined}
+        data-testid={quiet ? 'wf-quiet-cell' : undefined}
+        style={{ '--c': column }}
+      >
+        {quiet && slot === 'am' && renderFold(day, `${bodyIdOf(day.date, 'am')} ${bodyIdOf(day.date, 'pm')}`, false)}
+        <div
+          id={bodyIdOf(day.date, slot)}
+          className="wf-day-body"
+          data-date={day.date}
+          hidden={quiet && !quietOpen.has(day.date)}
+        >
+          {node}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
   /**
    * The almanac entries the lanes carry the jump of (one-screen-plan.md D5). Further ahead drops exactly these, so a
    * date shows once: here as a lane, or there as an entry. Reported only when the SET changes (a sorted key), so a
@@ -1370,6 +1378,11 @@ export default function WindowFirstHeatStrip({
       const canvas = canvases.get(card.key);
       if (!canvas) continue;
       const well = canvas.parentElement;
+      // A card inside a folded quiet day has no layout box: its well measures 0, and the fallback below would paint it
+      // at the frame's width, which `fit()` writes inline and which an opened fold would then keep (the hook's repaint
+      // compares only the frame's width). Skipped, and repainted when the fold opens (the layout effect below).
+      // `closest('[hidden]')` rather than `getClientRects()`: jsdom has no layout and reports no box for any well.
+      if (well?.closest('[hidden]')) continue;
       const cardWidth = well && well.clientWidth > 0 ? well.clientWidth : width;
       const cardHeight = Math.round(cardWidth * frameAspect);
       // The point sets are KEYED, never positional (heatSpots.js): the integer the kernel takes
@@ -1657,6 +1670,37 @@ export default function WindowFirstHeatStrip({
     }
     repaintNow();
   }, [isMobile, repaintNow]);
+
+  // Opening a fold (or a day ceasing to be quiet) gives its hidden cards a layout box for the first time: repaint them,
+  // since the hook's own repaint triggers compare only the frame's width. Not on the first commit (the mount paints).
+  const quietKey = [...quietDates].sort().join('|');
+  const quietPaintedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!quietPaintedRef.current) {
+      quietPaintedRef.current = true;
+      return;
+    }
+    repaintNow();
+  }, [quietOpen, quietKey, repaintNow]);
+
+  // Focus never drops to the body (plan 1): if the element the reader had focus on has gone, or sits inside a body that
+  // is now hidden, it moves to its day's fold button; if that has vanished (the day stopped being quiet), to the day's
+  // first card.
+  const lastFocusRef = useRef(null);
+  useLayoutEffect(() => {
+    const last = lastFocusRef.current;
+    if (!last) return;
+    const gone = !last.el.isConnected;
+    if (!gone && !last.el.closest('[hidden]')) return;
+    const root = stripRef.current;
+    const date = last.date;
+    const target = root?.querySelector(`[data-testid="wf-quiet-fold"][data-date="${date}"]`)
+      ?? root?.querySelector(`[data-testid="wf-heat-card"][data-date="${date}"] .wf-hc-hit`);
+    if (target) {
+      target.focus({ preventScroll: true });
+      lastFocusRef.current = { el: target, date };
+    }
+  }, [quietOpen, quietKey]);
 
   /**
    * Ask PhotoCast's highlight, scrolled into view when it ARRIVES or MOVES (F5, plan §2.8) — never on
@@ -2244,6 +2288,7 @@ export default function WindowFirstHeatStrip({
       <div
         key={card.key}
         data-testid="wf-heat-card"
+        data-date={card.date}
         data-away="true"
         className={`${className} wf-hc-away`}
         style={place}
@@ -2269,6 +2314,7 @@ export default function WindowFirstHeatStrip({
       <div
         key={card.key}
         data-testid="wf-heat-card"
+        data-date={card.date}
         data-control="true"
         // The same attribute name the region band's swatch uses for the same state, so the two
         // unscored marks on the Plan screen are one convention rather than two. It drives no
@@ -2349,6 +2395,7 @@ export default function WindowFirstHeatStrip({
     <div
       key={day.date}
       data-testid="wf-heat-day"
+      data-date={day.date}
       data-today={day.today ? 'true' : undefined}
       className={`wf-hday${day.today ? ' today' : ''}`}
       style={{ '--c': column, '--r': MATRIX_ROW.header }}
@@ -2393,7 +2440,21 @@ export default function WindowFirstHeatStrip({
   // matches no visible text, announced ahead of buttons that each name themselves. The grouping
   // the matrix needs is visual, and the buttons carry the words.
   return (
-    <section ref={stripRef} data-testid="wf-heat-strip" className="wf-hstrip-block">
+    <section
+      ref={stripRef}
+      data-testid="wf-heat-strip"
+      className="wf-hstrip-block"
+      onFocus={(event) => {
+        const el = event.target;
+        lastFocusRef.current = { el, date: el.closest?.('[data-date]')?.dataset.date ?? null };
+      }}
+      onBlur={(event) => {
+        // Focus that went to a real element OUTSIDE the strip is not ours to bring back; a null target is ambiguous
+        // (the focused element was removed), so it is kept.
+        const next = event.relatedTarget;
+        if (next && !event.currentTarget.contains(next)) lastFocusRef.current = null;
+      }}
+    >
       {/* ⚠️ Two structures from one matrix, never both mounted at once (matrix-axis plan D3). A
           desktop reader gets sticky day tiles plus two row-scoped rails, which needs `.wf-dhrow` and
           `.wf-hrow` to contain rail + cards together — a rail can only pin over its own row's cards
@@ -2435,24 +2496,18 @@ export default function WindowFirstHeatStrip({
                   : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`)}
               </>
             );
-            if (!quietDates.has(day.date)) {
-              return (
-                <React.Fragment key={day.date}>
-                  {renderDayHeader(day, column)}
-                  {body}
-                </React.Fragment>
-              );
-            }
-            // A quiet day: the fold replaces the day header, and the body (lanes and cards) stays mounted, `hidden`
-            // while folded, so the button's `aria-controls` always names a real element.
+            // The body wrapper is drawn for EVERY day, `hidden` only while a quiet day is folded, so its cards never
+            // re-parent or remount when the day's quiet state changes. A quiet day's fold replaces the day header.
+            const quiet = quietDates.has(day.date);
             return (
               <React.Fragment key={day.date}>
-                {renderFold(day, bodyIdOf(day.date), true)}
+                {quiet ? renderFold(day, bodyIdOf(day.date), true) : renderDayHeader(day, column)}
                 <div
                   id={bodyIdOf(day.date)}
                   className="wf-day-body"
-                  data-testid="wf-quiet-body"
-                  hidden={!quietOpen.has(day.date)}
+                  data-date={day.date}
+                  data-testid={quiet ? 'wf-quiet-body' : undefined}
+                  hidden={quiet && !quietOpen.has(day.date)}
                 >
                   {body}
                 </div>
@@ -2490,7 +2545,7 @@ export default function WindowFirstHeatStrip({
                 const node = day.am
                   ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
                   : renderEmpty(day.amEmpty, column, MATRIX_ROW.sunrise, `${day.date}:am`);
-                return quietDates.has(day.date) ? renderQuietCell(day, column, 'am', node) : node;
+                return renderQuietCell(day, column, 'am', node);
               })}
             </div>
           </div>
@@ -2502,7 +2557,7 @@ export default function WindowFirstHeatStrip({
                 const node = day.pm
                   ? renderCard(day.pm, column, MATRIX_ROW.sunset, day.solo)
                   : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`);
-                return quietDates.has(day.date) ? renderQuietCell(day, column, 'pm', node) : node;
+                return renderQuietCell(day, column, 'pm', node);
               })}
             </div>
           </div>

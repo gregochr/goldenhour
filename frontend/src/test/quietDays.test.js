@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { QUIET_AT_MOST, isQuietDay, topicLaneCount } from '../utils/quietDays.js';
 
-/** A matrix day holding the given windows (a bare rating, or null for a served-but-unscored window). */
-function day(am, pm, date = '2026-11-25') {
+/**
+ * A matrix day holding the given windows (a bare rating, or null for a served-but-unscored window). A missing window is
+ * EXPLAINED by default (the matrix's own copy); pass `explained: false` for an unexplained hole.
+ */
+function day(am, pm, date = '2026-11-25', { explained = true } = {}) {
   return {
     date,
     am: am === undefined ? null : { bestRating: am },
     pm: pm === undefined ? null : { bestRating: pm },
+    amEmpty: am === undefined && explained ? 'this morning has gone' : null,
+    pmEmpty: pm === undefined && explained ? 'past the end of the forecast' : null,
   };
 }
 
@@ -34,6 +39,13 @@ describe('isQuietDay (screen-spec.md D5)', () => {
     expect(isQuietDay(day(undefined, 2))).toBe(true);
     expect(isQuietDay(day(undefined, 4))).toBe(false);
     expect(isQuietDay(day(2, undefined))).toBe(true);
+  });
+
+  it('an UNEXPLAINED hole keeps the day open: a missing window folds only when the matrix says why it is missing', () => {
+    expect(isQuietDay(day(undefined, 2, '2026-11-25', { explained: false }))).toBe(false);
+    expect(isQuietDay(day(1, undefined, '2026-11-25', { explained: false }))).toBe(false);
+    expect(isQuietDay(day(undefined, 2))).toBe(true);
+    expect(isQuietDay(day(1, undefined))).toBe(true);
   });
 
   it('is not quiet with no window at all, or with no day', () => {
