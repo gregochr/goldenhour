@@ -54,7 +54,10 @@ public enum RunType {
     ASK,
 
     /** Ask PhotoCast Ready-answer precompute — one run per precompute, user-less. */
-    ASK_READY;
+    ASK_READY,
+
+    /** The point snowpack refresh (snow_state): Open-Meteo only, no Claude call. */
+    SNOW_STATE;
 
     /** Furthest day ahead any run type forecasts (T+5). */
     public static final int FORECAST_HORIZON_DAYS = 5;

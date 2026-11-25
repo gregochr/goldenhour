@@ -100,6 +100,25 @@ Sensitivity:
 
 S2 turns the kept fixture into a test asserting these outcomes.
 
+**S2 replay (test, 2026-11-25).** `PointSnowpackFixtureReplayTest` replays the kept fixture (copied to
+`backend/src/test/resources/snow/`) at 08:00 UTC on 24 to 30 Nov. The fixture carries **no wind or shortwave**, so
+the test supplies 0 m/s and 0 W/m2 for both: every melt hour uses the base DDF of 3, which makes each pack an upper
+bound. Computed snow water (mm) / fresh snow (cm), days 24 to 30:
+
+| Point | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+|---|---|---|---|---|---|---|---|
+| Rydal Water, Grasmere, Durham, Tynemouth | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Scafell Pike (961 m) | 56.1 / 2.9 | 40.0 / 13.3 | 23.1 / 0.0 | 27.6 / 3.2 | 35.9 / 5.8 | 38.1 / 1.8 | 36.8 / 0.4 |
+| Helvellyn (855 m) | 34.6 / 2.1 | 37.1 / 21.6 | 33.3 / 0.0 | 34.6 / 0.9 | 37.8 / 2.2 | 37.2 / 0.2 | 33.9 / 0.0 |
+| Windy Gyle | 0.8 / 0.6 | 2.9 / 4.1 | 0.0 / 0.0 | 1.2 / 0.8 | 5.0 / 2.7 | 0.9 / 0.0 | 0.0 / 0.0 |
+| Harbottle Hills | 0.7 / 0.5 | 0.0 / 0.8 | 0.0 / 0.0 | 1.6 / 1.1 | 8.7 / 5.1 | 5.7 / 0.3 | 0.0 / 0.0 |
+| High Force | 0.8 / 0.6 | 0.0 / 0.3 | 0.0 / 0.0 | 0.8 / 0.6 | 7.5 / 4.8 | 7.2 / 5.0 | 0.0 / 0.0 |
+
+These match the bullets above for every place and for Scafell Pike. **Helvellyn differs**: 33 to 38 mm here
+against 35 to 49, and 21.6 cm fresh on the 25th against 22.6. The fixture's Helvellyn point is at 855 m (not the
+OS 950 m the S2 fetch uses), so its air is warmer; the earlier figures most likely came from a 950 m run. Both
+clear the 5 mm white line by a wide margin every day.
+
 ⚠️ Request wind in **m/s** (`wind_speed_unit=ms`). Open-Meteo defaults to km/h, which would silently make the 5 m/s test compare against km/h.
 
 **Depth is never shown for a summit** (a 60–97 mm modelled summit pack is a plausible white top but an
