@@ -1673,7 +1673,7 @@ export default function WindowFirstHeatStrip({
 
   // Opening a fold (or a day ceasing to be quiet) gives its hidden cards a layout box for the first time: repaint them,
   // since the hook's own repaint triggers compare only the frame's width. Not on the first commit (the mount paints).
-  const quietKey = [...quietDates].sort().join('|');
+  const quietKey = [...quietDates].sort((a, b) => a.localeCompare(b)).join('|');
   const quietPaintedRef = useRef(false);
   useLayoutEffect(() => {
     if (!quietPaintedRef.current) {
