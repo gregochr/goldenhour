@@ -21,7 +21,13 @@ for (const W of [360, 375]) {
         await route.fulfill({ response: res, json });
       });
       await loginAndWaitForForecast(page, 'pro');
-      await page.addStyleTag({ content: '[data-testid="window-first-pane"] * { letter-spacing: 0.9px !important; }' });
+      // Through the CSSOM, never `addStyleTag`: the app's CSP is `style-src 'self'`, which blocks an injected <style>.
+      await page.evaluate(() => {
+        const sheet = [...document.styleSheets].find((x) => {
+          try { return Boolean(x.cssRules); } catch { return false; }
+        });
+        sheet.insertRule('[data-testid="window-first-pane"] * { letter-spacing: 0.9px !important; }', sheet.cssRules.length);
+      });
       await expect(page.getByTestId('this-week-best')).toBeVisible();
       await expect(page.getByTestId('your-places-hint')).toBeVisible();
       await expect(page.getByTestId('wf-quiet-fold').first()).toBeVisible();
