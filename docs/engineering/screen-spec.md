@@ -36,7 +36,7 @@ One screen, read top to bottom in that order. The map is a view opened *from* a 
 |---|---|---|
 | Masthead | ≤ 52 px | brand, ⌕ Find, ☰. No light times on a phone (§6.4 has them). |
 | Lens, full | ≈ 80 px | sticky; two rows, then a short count (`6 spots · 4 windows`). |
-| Lens, collapsed | ≈ 36 px | after scrolling past This week's last day (§6.2). |
+| Lens, past This week | 0 px | not drawn once This week has scrolled away (§6.6, amended 2026-11-25). |
 | This week heading | ≈ 28 px | carries the week's best (§6.3). |
 | Your places | ≈ 34 px | one line, scrolls sideways; absent for a reader with nothing bookmarked (the hint replaces it once). |
 | A quiet day | ≈ 34 px | folded (§6.5). |
@@ -81,9 +81,9 @@ Each D below is one change. Files are starting points; the planner confirms them
 - A day whose sunrise **and** sunset are both ≤ 2★ (served ratings), with **no** warning and **no** watched-date lane, folds to one line: `Wed 25 · nothing above 2★ ▸` (a button, `aria-expanded`). Opening it shows the day as normal for the session.
 - Topic lanes on a quiet day (mist, snow) still show **inside** the folded line as a count (`· 1 topic`) so nothing is hidden silently. An unscored window never counts as quiet.
 
-### 6.6 D6: the lens collapses while scrolling (phones only)
-- After the reader scrolls past This week's last day, the sticky lens becomes one line: `Drive 45 min · any rating · 6 spots · 4 windows ▾`. Tapping it opens the full lens in place (it stays open until the reader scrolls back to the top). No animation; reserve the height so the page doesn't jump.
-- Desktop and tablet: unchanged.
+### 6.6 D6: the lens belongs to This week
+- **Amended 2026-11-25 (owner):** the lens gates only This week (the cards, the heatmap and the count), so once the reader scrolls past This week's last day it is **not drawn** at all, rather than collapsing to one line. It comes back as soon as This week does. No animation; the page doesn't jump. Widths, focus and the verdict exception: `docs/engineering/lens-this-week-only-plan.md`.
+- *As first specified and built in P4 (superseded):* a one-line collapse `Drive 45 min · any rating · 6 spots · 4 windows ▾` that opened in place, on phones only.
 
 ### 6.7 D7: remove repetition
 - The lens summary becomes the count (`6 spots · 4 windows`). Delete the reach/default/rating words that repeat the buttons (`formatLensReadout` parts) and their tests; keep "weekday default" only as the drive button's own title/tooltip if it's still needed. Amended 2026-11-24 (owner): the count names the windows it spans, and 'within reach' when the drive tier hid some, because cards across windows count one place more than once.
@@ -124,7 +124,7 @@ Each PR includes its own guide changes (§8), its deletions (§7) and the refere
 - The heading names the served Best bet, and pressing it opens that map view.
 - On a week with two quiet days, all four days are on the first screen. The first day starts ≤ 220 px down.
 - A quiet day with a warning or a watched date never folds.
-- After scrolling past the week, the lens is one line; tapping it shows the full lens with no jump.
+- After scrolling past the week, the lens is gone and Further ahead's bar sits at the top; scrolling back brings the full lens, with no jump.
 - The map view header shows that window's blue and golden times. The phone masthead has no light times; desktop has today's.
 - Card → map → close animates both ways with focus back on the card. Under reduced motion it fades. ‹ › never animates.
 - Lint, tests (coverage floors unchanged), audit, build, the E2E smoke and a11y are all green. The orphan check is clean.
