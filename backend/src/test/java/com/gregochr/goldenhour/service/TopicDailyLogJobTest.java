@@ -110,9 +110,7 @@ class TopicDailyLogJobTest {
         lenient().when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(any(), anyCollection()))
                 .thenReturn(List.of());
         lenient().when(slotAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
-        lenient().when(snowStateRepository.findByEvaluationDateBetween(YESTERDAY, YESTERDAY))
-                .thenReturn(List.of());
-        lenient().when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
+        // snowStateRepository and the enabled roster answer an empty list unstubbed; SNOW tests stub their own.
         lenient().when(locationRepository.findCoastalLocations()).thenReturn(List.of());
         lenient().when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(any()))
                 .thenReturn(List.of());
@@ -949,6 +947,7 @@ class TopicDailyLogJobTest {
         when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(YESTERDAY,
                 List.of(TargetType.SUNRISE, TargetType.SUNSET))).thenThrow(down);
         when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenThrow(down);
+        when(snowStateRepository.findByEvaluationDateBetween(YESTERDAY, YESTERDAY)).thenThrow(down);
         when(locationRepository.findCoastalLocations()).thenThrow(down);
         when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(YESTERDAY))
                 .thenThrow(down);
