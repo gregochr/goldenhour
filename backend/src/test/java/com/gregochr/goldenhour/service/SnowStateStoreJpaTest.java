@@ -32,9 +32,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import({SnowStateWriter.class, SnowStateReader.class, SnowStateStoreJpaTest.FixedClock.class})
 class SnowStateStoreJpaTest {
 
-    private static final Instant NOW = Instant.parse("2026-11-25T12:00:00Z");
-    private static final LocalDate TODAY = LocalDate.of(2026, 11, 25);
-    private static final LocalDateTime NOW_UTC = LocalDateTime.of(2026, 11, 25, 12, 0);
+    private static final Instant NOW = Instant.parse("2024-01-15T12:00:00Z");
+    private static final LocalDate TODAY = LocalDate.of(2024, 1, 15);
+    private static final LocalDateTime NOW_UTC = LocalDateTime.of(2024, 1, 15, 12, 0);
     private static final String HELVELLYN = "summit:helvellyn";
     private static final String PLACE = "loc:7";
 

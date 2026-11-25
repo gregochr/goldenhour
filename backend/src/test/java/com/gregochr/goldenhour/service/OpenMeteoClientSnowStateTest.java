@@ -46,7 +46,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class OpenMeteoClientSnowStateTest {
 
     private static final String BASE_URL = "http://open-meteo.test";
-    private static final long T0 = Instant.parse("2026-11-25T13:47:00Z").toEpochMilli();
+    private static final long T0 = Instant.parse("2024-01-15T13:47:00Z").toEpochMilli();
     private static final String DAILY_LIMIT =
             "{\"error\":true,\"reason\":\"Daily API request limit exceeded. Please try again tomorrow.\"}";
     private static final String HOURLY_LIMIT =

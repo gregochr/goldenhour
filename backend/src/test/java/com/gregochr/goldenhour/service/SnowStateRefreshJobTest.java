@@ -41,17 +41,18 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link SnowStateRefreshJob}, with the clock fixed at 2026-11-25 10:00 UTC so the five dates are
- * 25 to 29 November. The real {@link SolarService} places the slot hours; the Open-Meteo response series start at
+ * Unit tests for {@link SnowStateRefreshJob}, with the clock fixed at 2024-01-15 10:00 UTC (a historical winter
+ * date, never the wall-clock day) so the five dates are 15 to 19 January. The real {@link SolarService} places
+ * the slot hours; the Open-Meteo response series start at
  * 00:00 UTC seven days back and run fourteen days, as the real fetch does.
  */
 @ExtendWith(MockitoExtension.class)
 class SnowStateRefreshJobTest {
 
-    private static final LocalDate TODAY = LocalDate.of(2026, 11, 25);
+    private static final LocalDate TODAY = LocalDate.of(2024, 1, 15);
     private static final List<LocalDate> DATES = List.of(TODAY, TODAY.plusDays(1), TODAY.plusDays(2),
             TODAY.plusDays(3), TODAY.plusDays(4));
-    private static final LocalDateTime NOW_UTC = LocalDateTime.of(2026, 11, 25, 10, 0);
+    private static final LocalDateTime NOW_UTC = LocalDateTime.of(2024, 1, 15, 10, 0);
     private static final LocalDateTime SERIES_START = TODAY.minusDays(7).atStartOfDay();
     private static final int SERIES_HOURS = 14 * 24;
     private static final DateTimeFormatter HOUR = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm");
@@ -84,7 +85,7 @@ class SnowStateRefreshJobTest {
 
     @BeforeEach
     void setUp() {
-        Clock clock = Clock.fixed(Instant.parse("2026-11-25T10:00:00Z"), ZoneOffset.UTC);
+        Clock clock = Clock.fixed(Instant.parse("2024-01-15T10:00:00Z"), ZoneOffset.UTC);
         job = new SnowStateRefreshJob(locationService, openMeteoClient, solarService, writer, jobRunService,
                 dynamicSchedulerService, servedEpoch, clock);
         jobRun = JobRunEntity.builder().id(RUN_ID).build();
@@ -208,7 +209,7 @@ class SnowStateRefreshJobTest {
         responses.set(0, response(20, sunriseHour(TODAY)));
         responses.set(SUMMITS, response(35, sunriseHour(TODAY)));
         stubFetch(responses, SUMMITS + 1);
-        when(writer.write(argThat(slots -> slots != null), eq(TODAY), eq(NOW_UTC))).thenReturn(20);
+        when(writer.write(argThat(slots -> slots.size() == 20), eq(TODAY), eq(NOW_UTC))).thenReturn(20);
 
         Report report = SchedulerFireOutcome.capture(() -> job.run(false));
 
@@ -396,7 +397,7 @@ class SnowStateRefreshJobTest {
         List<OpenMeteoForecastResponse> responses = nulls(SUMMITS + 1);
         responses.set(SUMMITS, response(10));
         stubFetch(responses, SUMMITS + 1);
-        when(writer.write(argThat(slots -> slots != null), eq(TODAY), eq(NOW_UTC)))
+        when(writer.write(argThat(slots -> slots.size() == 10), eq(TODAY), eq(NOW_UTC)))
                 .thenThrow(new IllegalStateException("db down"));
 
         Report report = SchedulerFireOutcome.capture(() -> job.run(false));
@@ -417,7 +418,7 @@ class SnowStateRefreshJobTest {
             responses.add(response(10));
         }
         stubFetch(responses, SUMMITS + 1);
-        when(writer.write(argThat(slots -> slots != null), eq(TODAY), eq(NOW_UTC))).thenReturn(0);
+        when(writer.write(argThat(slots -> slots.size() == 160), eq(TODAY), eq(NOW_UTC))).thenReturn(0);
 
         Report report = SchedulerFireOutcome.capture(() -> job.run(false));
 
