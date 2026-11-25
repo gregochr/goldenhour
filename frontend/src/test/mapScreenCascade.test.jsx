@@ -61,12 +61,20 @@ describe('the map view\'s rules', () => {
     expect(view).not.toMatch(/visibility|pointer-events/);
   });
 
-  it('never carries a transform, on the view or its box, and animates opacity only', () => {
+  it('never carries a transform, on the view or its box, and has no enter keyframe of its own', () => {
     expect(view).not.toMatch(/transform|translate|scale/);
     expect(box).not.toMatch(/transform|translate|scale/);
-    const keyframes = /@keyframes wf-map-screen-in\s*\{([\s\S]*?)\}\s*\}/.exec(SOURCE)?.[1] ?? '';
-    expect(keyframes).toMatch(/opacity/);
-    expect(keyframes).not.toMatch(/transform|translate|scale/);
+    // The old `wf-map-screen-in` fade is gone: the card's morph (`utils/mapMotion.js`) is the enter, and the pane's
+    // own arrival is an opacity transition (screen-spec-plan.md section 6).
+    expect(SOURCE).not.toMatch(/wf-map-screen-in/);
+    expect(view).not.toMatch(/animation/);
+  });
+
+  it('hides the pane while arriving with visibility, never display, and fades it in with opacity only', () => {
+    const arriving = topLevelRule('.wf-map-screen.wf-map-arriving .wf-map-tab');
+    expect(declared(arriving, 'visibility')).toBe('hidden');
+    expect(arriving).not.toMatch(/display|transform|translate|scale/);
+    expect(declared(topLevelRule('.wf-map-screen .wf-map-tab'), 'transition')).toMatch(/^opacity \.12s/);
   });
 
   it('carries the map\'s passing ink, as the Map tab\'s panel did', () => {

@@ -14934,15 +14934,30 @@ div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
   z-index: 48;
   display: flex;
   --color-plex-text-muted: var(--color-panel-ink);
-  animation: wf-map-screen-in .14s ease-out;
 }
 .wf-map-screen[hidden] { display: none; }
-@keyframes wf-map-screen-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* ── The card opens into the map (screen-spec.md D4, screen-spec-plan.md §6; `utils/mapMotion.js`) ───────────────────
+   A card thumbnail morphs into the view and the view back into its card, with the browser's View Transitions. The
+   names are CLASSES (the CSP is `style-src 'self'`: no inline style), and exactly one element carries the name at a
+   time in each state. The live map is never in either snapshot: while a transition runs the pane is
+   `visibility: hidden` (never `display`, so Leaflet still measures a real box and the hidden-mount guards read
+   what they always read), and it fades in over 120 ms when the class goes. Opacity only; no transform on the view. */
+.wf-vt-card,
+.wf-vt-frame { view-transition-name: wf-map-morph; }
+.wf-map-screen .wf-map-tab { transition: opacity .12s ease-out; }
+.wf-map-screen.wf-map-arriving .wf-map-tab { visibility: hidden; opacity: 0; }
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; }
+::view-transition-group(wf-map-morph) {
+  animation-duration: 230ms;
+  animation-timing-function: ease-out;
 }
+html.wf-vt-closing::view-transition-group(wf-map-morph) { animation-duration: 180ms; }
 @media (prefers-reduced-motion: reduce) {
-  .wf-map-screen { animation: none; }
+  .wf-map-screen .wf-map-tab { transition: none; }
+  ::view-transition-group(wf-map-morph) { animation: none; }
+  ::view-transition-old(wf-map-morph),
+  ::view-transition-new(wf-map-morph) { animation-duration: 110ms; }
 }
 .wf-map-screen-scrim {
   position: absolute;
