@@ -90,7 +90,9 @@ export function canMorphOpen({ source, inPlace = false, loadTime = false, steppi
  *
  * <p>{@code update} is the WHOLE open body (it closes the shell's layers, takes the door, sets the route and note and
  * shows the view), run inside the transition's callback with {@code flushSync}, so the old snapshot is the untouched
- * screen and a press made while this one is pending finds the view open and re-targets it instead of opening twice.
+ * screen. A second press while this one is pending runs its {@code update} plainly at once (this module is busy);
+ * the first press's deferred body then finds the view open and re-targets it in place, so there is still one view and
+ * one history entry.
  *
  * @param {object} options
  * @param {?Element} options.source the card thumbnail the open was pressed on
@@ -124,6 +126,11 @@ export function openWithMotion({
       return;
     }
     cleaned = true;
+    // The callback never came (forced cleanup): the press must not be lost, so the update runs here, once.
+    if (!ran) {
+      ran = true;
+      update();
+    }
     busy = false;
     activeKind = null;
     activeTransition = null;
@@ -133,6 +140,14 @@ export function openWithMotion({
     onDone?.();
   };
   const run = () => {
+    if (cleaned) {
+      // Late: a forced cleanup got here first. Run the update plainly if nothing has, and leave no class behind.
+      if (!ran) {
+        ran = true;
+        flushSync(update);
+      }
+      return;
+    }
     ran = true;
     flushSync(update);
     // The name moves from the card to the view in this one commit: two elements with one name would abort the morph.
@@ -151,7 +166,6 @@ export function openWithMotion({
     transition = document.startViewTransition(run);
   } catch {
     cleanup(true);
-    if (!ran) update();
     return false;
   }
   activeKind = 'open';
@@ -219,6 +233,7 @@ export function closeWithMotion({ source, frame, update }) {
     busy = false;
     activeKind = null;
     activeTransition = null;
+    watcher?.disconnect();
     clearTimeout(timer);
     document.documentElement.classList.remove(CLOSING_CLASS);
     source.classList.remove(CARD_CLASS);
@@ -227,10 +242,23 @@ export function closeWithMotion({ source, frame, update }) {
   busy = true;
   activeKind = 'close';
   frame.classList.add(ARRIVING_CLASS);
+  // The view being hidden or shown again during the one-frame wait (Back, a reopen) means this close is stale.
+  let viewChanged = false;
+  const watcher = typeof MutationObserver === 'function'
+    ? new MutationObserver(() => { viewChanged = true; })
+    : null;
+  watcher?.observe(frame, { attributes: true, attributeFilter: ['hidden'] });
   // A frame that never comes (a hidden tab) must not leave the view open: the timer closes it plainly.
   timer = setTimeout(() => { cleanup(); closeOnce(); }, CLEANUP_TIMEOUT_MS);
   requestAnimationFrame(() => {
     if (cleaned) return;
+    watcher?.takeRecords();
+    watcher?.disconnect();
+    // Closed (or closed and reopened) while waiting: nothing to close, and a stale close must never hit a new view.
+    if (viewChanged || frame.hidden) {
+      cleanup();
+      return;
+    }
     // The card may have scrolled out or unmounted in the frame that was waited for: then it is a plain close.
     if (!canMorphCloseNow(source, frame)) {
       cleanup();
@@ -240,6 +268,11 @@ export function closeWithMotion({ source, frame, update }) {
     frame.classList.add(FRAME_CLASS);
     document.documentElement.classList.add(CLOSING_CLASS);
     const run = () => {
+      if (cleaned) {
+        // Late: the timer got here first. Close only if nothing has, and name nothing.
+        closeOnce();
+        return;
+      }
       updated = true;
       clearTimeout(timer);
       timer = setTimeout(cleanup, CLEANUP_TIMEOUT_MS);

@@ -190,6 +190,44 @@ describe('openWithMotion', () => {
     expect(thumb.classList.contains(CARD_CLASS)).toBe(false);
   });
 
+  it('a callback that arrives AFTER the timeout runs the update once, plainly, and leaves no class or name behind', async () => {
+    vi.useFakeTimers();
+    let late;
+    document.startViewTransition = vi.fn((callback) => {
+      late = callback;
+      return { finished: new Promise(() => {}) };
+    });
+    const update = vi.fn(() => { frame.hidden = false; });
+    frame.hidden = true;
+    openWithMotion({ source: thumb, update });
+    await vi.advanceTimersByTimeAsync(CALLBACK_TIMEOUT_MS + 1);
+    // The forced cleanup did not lose the press.
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(thumb.classList.contains(CARD_CLASS)).toBe(false);
+    late();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(frame.hidden).toBe(false);
+    expect(frame.classList.contains(FRAME_CLASS)).toBe(false);
+    expect(frame.classList.contains(ARRIVING_CLASS)).toBe(false);
+    expect(thumb.classList.contains(CARD_CLASS)).toBe(false);
+    expect(canMorphOpen({ source: thumb })).toBe(true);
+  });
+
+  it('a late callback after a rejection-driven cleanup runs the update once and names nothing', async () => {
+    let late;
+    document.startViewTransition = vi.fn((callback) => {
+      late = callback;
+      return { finished: Promise.resolve(), updateCallbackDone: Promise.reject(new Error('x')) };
+    });
+    const update = vi.fn();
+    openWithMotion({ source: thumb, update });
+    await settle();
+    late();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(frame.classList.contains(FRAME_CLASS)).toBe(false);
+    expect(frame.classList.contains(ARRIVING_CLASS)).toBe(false);
+  });
+
   it('runs the update plainly, once, when startViewTransition throws', () => {
     installStub({ throwOnStart: true });
     const update = vi.fn();
@@ -314,6 +352,51 @@ describe('closeWithMotion', () => {
     // The skipped open cleaned up, so nothing is left running.
     expect(frame.classList.contains(ARRIVING_CLASS)).toBe(false);
     expect(canMorphOpen({ source: thumb })).toBe(true);
+  });
+
+  it('a close callback that arrives AFTER the timeout closes once and names nothing', async () => {
+    let late;
+    document.startViewTransition = vi.fn((callback) => {
+      late = callback;
+      return { finished: new Promise(() => {}) };
+    });
+    const update = vi.fn();
+    vi.useFakeTimers();
+    closeWithMotion({ source: thumb, frame, update });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(late).toBeTypeOf('function');
+    await vi.advanceTimersByTimeAsync(CLEANUP_TIMEOUT_MS + 1);
+    // Nothing had run the close yet (the callback never came): the timer closed plainly.
+    expect(update).toHaveBeenCalledTimes(1);
+    late();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(thumb.classList.contains(CARD_CLASS)).toBe(false);
+    expect(frame.classList.contains(FRAME_CLASS)).toBe(false);
+    expect(frame.classList.contains(ARRIVING_CLASS)).toBe(false);
+    expect(document.documentElement.classList.contains(CLOSING_CLASS)).toBe(false);
+  });
+
+  it('a view closed during the one-frame wait (Back) is not closed again', async () => {
+    const update = vi.fn();
+    closeWithMotion({ source: thumb, frame, update });
+    frame.hidden = true;
+    await settle();
+    await settle();
+    expect(update).not.toHaveBeenCalled();
+    expect(document.startViewTransition).not.toHaveBeenCalled();
+    expect(frame.classList.contains(ARRIVING_CLASS)).toBe(false);
+  });
+
+  it('a view closed and reopened during the wait is never closed by the stale close', async () => {
+    const update = vi.fn();
+    closeWithMotion({ source: thumb, frame, update });
+    frame.hidden = true;
+    await Promise.resolve();
+    frame.hidden = false;
+    await settle();
+    await settle();
+    expect(update).not.toHaveBeenCalled();
+    expect(frame.classList.contains(ARRIVING_CLASS)).toBe(false);
   });
 
   it('a second press while one is waiting is swallowed: one close', async () => {
