@@ -22,11 +22,10 @@ test.describe('Further ahead', () => {
     await expect(heading).toBeInViewport();
     await expect(heading).toBeFocused();
     await expect(page.getByRole('region', { name: /Further ahead/ })).toBeVisible();
-    // The heading sticks under the lens bar: it is not hidden behind it.
-    const top = (await heading.boundingBox()).y;
-    const lensBottom = (await page.getByTestId('window-first-lens').boundingBox()).y
-      + (await page.getByTestId('window-first-lens').boundingBox()).height;
-    expect(top).toBeGreaterThanOrEqual(lensBottom - 1);
+    // The lens belongs to This week: past it, it is not drawn, and the heading's bar sticks at the top of the screen
+    // (the shape is pinned in lens-collapse.spec.js).
+    await expect(page.getByTestId('window-first-lens')).toHaveCSS('visibility', 'hidden');
+    expect((await heading.boundingBox()).y).toBeLessThanOrEqual(24);
   });
 
   test('both sections are labelled regions with their own headings, This week above Further ahead', async ({ page }) => {

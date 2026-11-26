@@ -131,19 +131,24 @@ describe('the masthead line (README §1)', () => {
     expect(css).toMatch(/\.wf-tick-home \{[^}]*min-width: 32px[^}]*height: 28px/);
   });
 
-  it('draws the collapsed lens as one 36px line: the summary, no vertical padding, a zero-height spacer, phone only', () => {
-    const css = rules(['.wf-lens-summary', '.wf-lens.wf-lens-collapsed', '.wf-lens-spacer'], 'phone');
-    expect(css).toMatch(/\.wf-lens-summary \{[^}]*min-height: 35px/);
-    expect(css).toMatch(/\.wf-lens\.wf-lens-collapsed \{ padding-top: 0; padding-bottom: 0; \}/);
-    expect(css).toMatch(/\.wf-lens-spacer \{ height: 0; \}/);
-    expect(css).toMatch(/\.wf-lens-summary\[hidden\] \{ display: none; \}/);
-    expect(rules(['.wf-lens-summary', '.wf-lens-spacer', '.wf-lens-collapsed'], 'base')).toBe('');
+  it('hides the lens past This week with visibility, at EVERY width, keeping its sticky slot (no display, no spacer)', () => {
+    const base = rules(['.wf-lens-away'], 'base');
+    expect(base).toMatch(/\.wf-lens-away \{\s*visibility: hidden;\s*\}/);
+    expect(base).not.toMatch(/display/);
+    // The one-line state is gone entirely: no summary, no collapsed lens, no spacer, no body wrapper, in any arm.
+    expect(rules(['.wf-lens-summary', '.wf-lens-spacer', '.wf-lens-collapsed', '.wf-lens-body'], 'phone')).toBe('');
   });
 
-  it('keeps the lens body wrapper at EVERY width as display: contents, so desktop lays out as before and no chip remounts', () => {
-    const base = rules(['.wf-lens-body'], 'base');
-    expect(base).toMatch(/\.wf-lens-body \{ display: contents; \}/);
-    expect(base).toMatch(/\.wf-lens-body\[hidden\] \{ display: none; \}/);
+  it('gives Further ahead its own top and reserve, and leaves This week on the shared full-lens variables', () => {
+    const css = rules(['.wf-further-ahead', '.wf-sec-bar-ahead', '.wf-sec', '.wf-yp :is'], 'base');
+    expect(css).toMatch(/\.wf-sec-bar-ahead \{[^}]*top: calc\(var\(--safe-t\) \+ max\(0px, var\(--wf-ahead-top, 0px\) - 1px\)\)/);
+    expect(css).toMatch(/\.wf-sec\.wf-further-ahead \{[^}]*scroll-margin-top: calc\(var\(--safe-t\) \+ var\(--wf-ahead-top, 0px\)\)/);
+    expect(css).toMatch(/\.wf-sec-bar-ahead > \.wf-sec-h \{[^}]*scroll-margin-top: calc\(var\(--safe-t\) \+ var\(--wf-ahead-top, 0px\) \+ 2px\)/);
+    expect(css).toMatch(/\.wf-further-ahead :is\(button, a, \[tabindex\]\):not\(\.wf-sec-h\) \{[^}]*var\(--wf-ahead-reserve, 44px\)/);
+    // This week's targets keep reading the full lens: zeroing these would scroll a This week target under a lens that returns.
+    expect(css).toMatch(/\.wf-sec \{[^}]*scroll-margin-top: calc\(var\(--safe-t\) \+ var\(--wf-bar-h, 54px\)\)/);
+    expect(css).toMatch(/\.wf-sec-h \{[^}]*scroll-margin-top: calc\(var\(--safe-t\) \+ var\(--wf-bar-h, 54px\) \+ 2px\)/);
+    expect(css).toMatch(/\.wf-yp :is\(button, a, \[tabindex\]\) \{[^}]*var\(--wf-lens-reserve, 98px\)/);
   });
 
   it('⚠️ keeps every phone-only rule out of the base stylesheet, so desktop and tablet cannot see it', () => {

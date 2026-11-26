@@ -3595,42 +3595,11 @@ div.wf-hc:where([data-control]).also:hover {
   margin-bottom: -1px;
   overflow: hidden;
 }
-/* The lens's body wrapper, at EVERY width, so the chips are never remounted when the viewport crosses 639px (focus survives).
-   `display: contents` keeps the chips and the count the flex items of `.wf-lens` they always were, so desktop and tablet
-   lay out exactly as before; only a phone ever hides it (`hidden`, below). */
-.wf-lens-body { display: contents; }
-.wf-lens-body[hidden] { display: none; }
-/* The phone lens that collapses to one line past This week (screen-spec.md D6, `useCollapsingLens`). Desktop and tablet
-   never draw the summary or the spacer. */
-@media (max-width: 639px) {
-  .wf-lens-summary[hidden] { display: none; }
-  .wf-lens-summary {
-    flex: 1 1 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    min-height: 35px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--color-plex-text-secondary);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    text-align: left;
-  }
-  .wf-lens-summary-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .wf-lens-summary-t b { color: var(--color-plex-text); font-weight: 600; }
-  .wf-lens-summary:focus-visible {
-    outline: 2px solid transparent;
-    outline-offset: -2px;
-    box-shadow: inset 0 0 0 2px var(--color-plex-gold);
-  }
-  /* One line: no vertical padding, so the bar is the button and its 1px rule (36px). */
-  .wf-lens.wf-lens-collapsed { padding-top: 0; padding-bottom: 0; }
-  /* Its height is written by the hook (full minus collapsed); zero otherwise. */
-  .wf-lens-spacer { height: 0; }
+/* The lens belongs to This week (screen-spec.md D6, `useLensPastWeek`): past This week it is not drawn, at every width. It
+   keeps its sticky flow slot, so the document is exactly as tall as it was and nothing needs a spacer: `visibility`, never
+   `display` (the shell also sets `inert`, which takes it out of the tab order). */
+.wf-lens-away {
+  visibility: hidden;
 }
 /* A caption and its chips, always together. The handoff's rule and the reason for it: a wrap that
    puts "Rated" at the end of one row and its three chips at the start of the next leaves two
@@ -11601,10 +11570,17 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-sec-h .wf-jump-badge { margin-left: 8px; vertical-align: 1px; }
 /* Every focusable thing in Further ahead and in Your places reserves against the sticky stack, as the cards do. Written
    as a sum in a different order from the card rules, which a stylesheet test finds by their exact text. */
-.wf-further-ahead :is(button, a, [tabindex]):not(.wf-sec-h),
 .wf-yp :is(button, a, [tabindex]) {
   scroll-margin-top: calc(var(--safe-t) + var(--wf-lens-reserve, 98px) + 2px);
 }
+/* Further ahead has its own pair (`useLensReserve`): the lens is not drawn below This week, so its bar sticks at the top and
+   its rows reserve against that bar alone, never the lens term. 0 and 44px are first-paint fallbacks only. */
+.wf-further-ahead :is(button, a, [tabindex]):not(.wf-sec-h) {
+  scroll-margin-top: calc(var(--safe-t) + var(--wf-ahead-reserve, 44px) + 2px);
+}
+.wf-sec.wf-further-ahead { scroll-margin-top: calc(var(--safe-t) + var(--wf-ahead-top, 0px)); }
+.wf-sec-bar-ahead { top: calc(var(--safe-t) + max(0px, var(--wf-ahead-top, 0px) - 1px)); }
+.wf-sec-bar-ahead > .wf-sec-h { scroll-margin-top: calc(var(--safe-t) + var(--wf-ahead-top, 0px) + 2px); }
 /* A lane with no route is text, not a control. */
 div.wf-lane { cursor: default; }
 @media (max-width: 639px) {

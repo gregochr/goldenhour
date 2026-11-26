@@ -67,6 +67,7 @@ import { watchedStillToCome } from '../utils/watchedDates.js';
 import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
+import useLensPastWeek from '../hooks/useLensPastWeek.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
 
 /**
@@ -207,6 +208,9 @@ const PENDING_SLOW_AFTER_MS = 10_000;
 
 /** The design's frame: 1080px. */
 const WRAP_MAX_WIDTH = '1080px';
+/** The lens's height before it is measured: a phone's two chip rows and a count line, and the single row from 640px. */
+const LENS_GUESS_PHONE = 94;
+const LENS_GUESS_WIDE = 54;
 
 /** No lane carries an almanac entry: the starting value of the graduated set, shared so it costs no allocation. */
 const NO_ENTRY_IDS = new Set();
@@ -751,7 +755,6 @@ export default function WindowFirstShell({
    * `ResizeObserver` callback for properties that affect no layout of their own.
    */
   const shellRef = useRef(null);
-  useLensReserve(shellRef);
   /**
    * Whether the lens bar has left its resting place, and the sentinel that answers it.
    *
@@ -769,8 +772,8 @@ export default function WindowFirstShell({
    */
   const [lensSentinelRef, lensStuck] = useStuckSentinel();
   /**
-   * The This week section, handed to the lens bar (screen-spec.md D6), which watches it to collapse to one line on a
-   * phone once the section has scrolled past the lens (`useCollapsingLens`).
+   * The This week section, watched by `useLensPastWeek` (screen-spec.md D6) to know the lens has been scrolled past: the
+   * lens belongs to This week and is not drawn below it.
    *
    * <p>⚠️ The watched element is the SECTION, not a 1px sentinel at its end, and that is deliberate. An IntersectionObserver
    * reports only a change of "intersecting", so a 1px marker that starts below the viewport is missed whenever the page jumps
@@ -778,7 +781,7 @@ export default function WindowFirstShell({
    * intersecting". The section is taller than the viewport and intersects at the top of the page, so every jump from the top
    * to past its end flips the state and is reported. The line it is measured against is the lens's own bottom edge (plus a
    * little), not the viewport top: the Further ahead jump parks the next heading just under the lens, which is the case the
-   * viewport-top line missed. A state, not a ref: the bar's observer is built when the node arrives.
+   * viewport-top line missed. A state, not a ref: the observer is built when the node arrives.
    */
   const [weekNode, setWeekNode] = useState(null);
   /**
@@ -2271,6 +2274,27 @@ export default function WindowFirstShell({
     ratingLens?.floorId, ratingLens?.minRating, reachMeasured]);
 
   /**
+   * The lens belongs to This week (screen-spec.md D6; lens-this-week-only-plan.md): past This week it is not drawn, at every
+   * width. The state is lifted here, out of the bar, because `useLensReserve` needs it too and cannot see inside the bar.
+   * Never while the plan-conflict verdict shows (`enabled`): a warning with an action is not to be hidden.
+   *
+   * <p>The first-paint guess is the lens's height at the width: a phone's two chip rows and a count line (94px), a
+   * desktop's single row (53.5px); the measurement replaces it as soon as the bar mounts.
+   */
+  const lensVerdictShown = Boolean(conflict?.line);
+  const getLensFocusTarget = useCallback(() => document.getElementById(FURTHER_AHEAD_HEADING_ID), []);
+  const lensPast = useLensPastWeek({
+    enabled: !lensVerdictShown,
+    weekNode,
+    guessHeight: isMobile ? LENS_GUESS_PHONE : LENS_GUESS_WIDE,
+    getFocusTarget: getLensFocusTarget,
+  });
+  // `hidden` here is "Further ahead's top assumes the lens is gone": true unless the verdict holds the lens drawn. It is
+  // NOT `lensPast.hidden`: the Further ahead jump scrolls with margins read BEFORE the lens flips, so they must already
+  // exclude it, or the jump leaves a lens-sized gap above the heading.
+  useLensReserve(shellRef, { hidden: !lensVerdictShown });
+
+  /**
    * The safety warning a topic on this plan carries, and the window it is about.
    *
    * <p>⚠️ <b>Page-level because the surface that used to guarantee it is gone.</b>
@@ -2572,7 +2596,9 @@ export default function WindowFirstShell({
       {!operationsShown && reachLens && ratingLens && (
         <WindowFirstLensBar
           stuck={lensStuck}
-          weekNode={weekNode}
+          hidden={lensPast.hidden}
+          attachLens={lensPast.attachLens}
+          focusProps={lensPast.focusProps}
           lens={reachLens}
           ratingLens={ratingLens}
           spotCount={windowCards.reduce((total, card) => total + placesOf(card.spots).length, 0)}

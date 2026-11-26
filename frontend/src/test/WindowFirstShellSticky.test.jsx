@@ -661,11 +661,15 @@ describe('the section bars\' stylesheet half (one-screen-plan.md O2)', () => {
 
   it('reserves for the sticky stack on every focusable thing in Further ahead and Your places', () => {
     const css = decls(readCss());
+    // Your places reserves against the full lens; Further ahead has its own pair (the lens is not drawn over it).
+    const yp = css.indexOf('.wf-yp :is(button, a, [tabindex])');
+    expect(yp).toBeGreaterThanOrEqual(0);
+    expect(css.slice(yp, css.indexOf('}', yp)))
+      .toContain('scroll-margin-top: calc(var(--safe-t) + var(--wf-lens-reserve, 98px) + 2px)');
     const at = css.indexOf('.wf-further-ahead :is(button, a, [tabindex])');
     expect(at).toBeGreaterThanOrEqual(0);
     expect(css.slice(at, css.indexOf('}', at)))
-      .toContain('scroll-margin-top: calc(var(--safe-t) + var(--wf-lens-reserve, 98px) + 2px)');
-    expect(css.slice(at, css.indexOf('{', at))).toContain('.wf-yp :is(button, a, [tabindex])');
+      .toContain('scroll-margin-top: calc(var(--safe-t) + var(--wf-ahead-reserve, 44px) + 2px)');
     // The heading (a [tabindex] element) keeps its own, smaller margin: the sum above would override it.
     expect(css.slice(at, css.indexOf('{', at))).toContain('.wf-further-ahead :is(button, a, [tabindex]):not(.wf-sec-h)');
   });

@@ -1,9 +1,9 @@
 import { test, expect, loginAndWaitForForecast, openMapView, closeMapView } from './fixture.js';
 
 /**
- * Screen spec P4 in a real browser: the phone lens collapses past This week and the page does not move, the masthead is one
- * line, and the map view's header carries the window's light. jsdom has no layout, so the heights here are the only place
- * "no jump" and "one line" are actually measured.
+ * Screen spec D6 and P4 in a real browser: the lens belongs to This week (past it, at every width, it is hidden in place and
+ * the page does not move), the phone masthead is one line, and the map view's header carries the window's light. jsdom has no
+ * layout, so the heights here are the only place "no jump" and "one line" are actually measured.
  */
 
 /** Gives the seeded reader a home for this page only (the seed has none), so the masthead is in its steady, one-line state. */
@@ -26,6 +26,25 @@ async function settle(page) {
   await page.evaluate(() => new Promise((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   }));
+}
+
+/** What the lens and Further ahead measure right now: the page's height, where Further ahead sits, and the sticky bar. */
+function lensProbe(page) {
+  return page.evaluate(() => {
+    const lens = document.querySelector('[data-testid="window-first-lens"]');
+    const further = document.getElementById('wf-further-ahead');
+    const bar = document.querySelector('[data-testid="further-ahead-bar"]');
+    const shell = document.querySelector('[data-testid="window-first-shell"]');
+    return {
+      docHeight: document.scrollingElement.scrollHeight,
+      furtherTop: Math.round(further.getBoundingClientRect().top + window.scrollY),
+      furtherViewportTop: further.getBoundingClientRect().top,
+      lensHeight: lens.getBoundingClientRect().height,
+      aheadBarTop: bar.getBoundingClientRect().top,
+      barVar: shell.style.getPropertyValue('--wf-bar-h'),
+      aheadTopVar: shell.style.getPropertyValue('--wf-ahead-top'),
+    };
+  });
 }
 
 /** Fails the test (skips, with the reason) if the seeded page is too short to scroll past This week. */
@@ -78,110 +97,118 @@ for (const W of [360, 375, 390]) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth), 'no horizontal scroll').toBeLessThanOrEqual(W);
     });
 
-    test('scrolling past This week collapses the lens to one line, a tap opens it, the top resets it, and nothing jumps', async ({ page }) => {
+    test('scrolling past This week hides the lens in place, and nothing in the page moves', async ({ page }) => {
       test.setTimeout(60_000);
       await loginAndWaitForForecast(page, 'pro');
-      const lens = page.getByTestId('window-first-lens');
-      const summary = page.getByTestId('window-first-lens-summary');
-      await expect(summary).toBeHidden();
-      const fullHeight = (await lens.boundingBox()).height;
-      const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
-      // The SECTION, not its heading: the heading is sticky, so its page position moves with the scroll.
-      const furtherTop = () => page.evaluate(() => Math.round(
-        document.getElementById('wf-further-ahead').getBoundingClientRect().top + window.scrollY,
-      ));
-      const furtherBefore = await furtherTop();
-
       await requireRoomToScroll(page);
+      const lens = page.getByTestId('window-first-lens');
+      await expect(lens).toHaveCSS('visibility', 'visible');
+      const before = await lensProbe(page);
       await scrollPastWeek(page);
-      await expect(summary).toBeVisible();
-      await expect(summary).toHaveAttribute('aria-expanded', 'false');
-      await expect(summary).toHaveAccessibleName(/^Drive .* spots?/);
-      const collapsed = await lens.boundingBox();
-      expect(collapsed.height, 'one line').toBeLessThanOrEqual(40);
-      // The document is exactly as tall as it was, and what sits below the lens has not moved in the page.
-      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(documentHeight);
-      expect(await furtherTop()).toBe(furtherBefore);
-      // The bars publish the collapsed height, so the sticky heading sits right under the line.
-      const barH = await page.getByTestId('window-first-shell').evaluate((el) => el.style.getPropertyValue('--wf-bar-h'));
-      expect(Number.parseFloat(barH)).toBeCloseTo(collapsed.height, 0);
-
-      // A tap opens it in place, the same button, expanded, and it stays open through a further scroll.
-      await summary.click();
-      await expect(summary).toHaveAttribute('aria-expanded', 'true');
-      expect((await lens.boundingBox()).height).toBeGreaterThan(fullHeight - 2);
-      await page.evaluate(() => window.scrollBy(0, 120));
-      await expect(summary).toHaveAttribute('aria-expanded', 'true');
-      // The controls are reachable again.
-      await expect(page.getByTestId('window-first-lens-tiers')).toBeVisible();
-
-      // Back at the top it resets, and a reset never moves focus: the tapped button still holds it, so it stays drawn.
+      await expect(lens).toHaveCSS('visibility', 'hidden');
+      await expect(lens).toHaveAttribute('inert', '');
+      const after = await lensProbe(page);
+      // `visibility` keeps the sticky slot: the document is exactly as tall as it was and the section below has not moved.
+      expect(after.docHeight).toBe(before.docHeight);
+      expect(after.furtherTop).toBe(before.furtherTop);
+      expect(after.lensHeight, 'the box is the same box').toBeCloseTo(before.lensHeight, 0);
+      // This week reads the shared variables, which keep the FULL lens; Further ahead's bar sits at the top without it.
+      expect(after.barVar).toBe(before.barVar);
+      expect(after.aheadTopVar).toBe('0px');
+      expect(Math.abs(after.aheadBarTop), 'Further ahead\'s bar sticks at top: 0').toBeLessThanOrEqual(1);
+      // Back at the top the lens is there again, whole.
       await page.evaluate(() => window.scrollTo(0, 0));
-      await expect(summary).toBeFocused();
-      await expect(summary).toBeVisible();
-      // Once focus has moved on, the resting lens is back, and scrolling past the week collapses it once more.
-      await summary.blur();
-      await expect(summary).toBeHidden();
-      expect(Math.abs((await lens.boundingBox()).height - fullHeight)).toBeLessThanOrEqual(1);
-      await scrollPastWeek(page);
-      await expect(summary).toHaveAttribute('aria-expanded', 'false');
+      await expect(lens).toHaveCSS('visibility', 'visible');
+      await expect(lens).not.toHaveAttribute('inert');
+      expect(Math.abs((await lens.boundingBox()).height - before.lensHeight)).toBeLessThanOrEqual(1);
     });
 
-    test('the lens never collapses under a focused chip, and collapses on the blur', async ({ page }) => {
+    test('the lens stays drawn under a keyboard-focused chip, and goes on the blur', async ({ page }) => {
       await loginAndWaitForForecast(page, 'pro');
       const chip = page.getByTestId('window-first-lens-tiers-option').first();
       await requireRoomToScroll(page);
       await chip.focus();
       await scrollPastWeek(page);
       await settle(page);
-      await expect(page.getByTestId('window-first-lens-summary')).toBeHidden();
-      await expect(page.getByTestId('window-first-lens')).not.toHaveClass(/wf-lens-collapsed/);
+      await expect(page.getByTestId('window-first-lens')).toHaveCSS('visibility', 'visible');
       await chip.blur();
-      await expect(page.getByTestId('window-first-lens-summary')).toBeVisible();
+      await expect(page.getByTestId('window-first-lens')).toHaveCSS('visibility', 'hidden');
     });
 
-    test('a TAPPED chip (Android focuses it and a touch scroll never blurs it) does not hold the lens open', async ({ page }) => {
+    test('a TAPPED chip (Android focuses it and a touch scroll never blurs it) does not hold the lens: focus moves to Further ahead', async ({ page }) => {
       await loginAndWaitForForecast(page, 'pro');
       await requireRoomToScroll(page);
       // A real pointer press: focus lands on the chip without :focus-visible.
       await page.getByTestId('window-first-lens-floors-option').first().click();
       await scrollPastWeek(page);
       await settle(page);
-      await expect(page.getByTestId('window-first-lens-summary')).toBeVisible();
-      await expect(page.getByTestId('window-first-lens')).toHaveClass(/wf-lens-collapsed/);
-      // Focus was moved into the persistent summary, never left in the hidden body or on <body>.
-      await expect(page.getByTestId('window-first-lens-summary')).toBeFocused();
+      await expect(page.getByTestId('window-first-lens')).toHaveCSS('visibility', 'hidden');
+      // Focus was moved to Further ahead's heading, never left in the inert lens or on <body>.
+      await expect(page.getByTestId('further-ahead-heading')).toBeFocused();
     });
 
-    test('the real Further ahead jump collapses the lens, and the heading lands visible below the collapsed line', async ({ page }) => {
+    test('the real Further ahead jump lands with no lens and no gap: the section at the top, its bar and heading right there', async ({ page }) => {
       await loginAndWaitForForecast(page, 'pro');
       await requireRoomToScroll(page);
       await page.getByTestId('further-ahead-jump').click();
       await expect(page.getByTestId('further-ahead-heading')).toBeFocused();
       await settle(page);
-      await expect(page.getByTestId('window-first-lens-summary')).toBeVisible();
-      await expect(page.getByTestId('window-first-lens')).toHaveClass(/wf-lens-collapsed/);
-      const lens = await page.getByTestId('window-first-lens').boundingBox();
+      await expect(page.getByTestId('window-first-lens')).toHaveCSS('visibility', 'hidden');
+      const probe = await lensProbe(page);
+      expect(Math.abs(probe.aheadBarTop), 'the bar is at top: 0').toBeLessThanOrEqual(1);
+      // No blank, lens-sized slot above the heading with the tail of This week showing in it.
+      expect(Math.abs(probe.furtherViewportTop), 'the section starts at the top').toBeLessThanOrEqual(2);
       const heading = await page.getByTestId('further-ahead-heading').boundingBox();
-      expect(heading.y, 'the heading is not hidden behind the collapsed lens').toBeGreaterThanOrEqual(lens.y + lens.height - 1);
-      expect(heading.y + heading.height).toBeLessThanOrEqual(844);
+      expect(heading.y, 'the heading is in the first line of the screen').toBeLessThanOrEqual(24);
+    });
+
+    test('the This week jump from Further ahead lands with its heading BELOW the lens, which has come back', async ({ page }) => {
+      await loginAndWaitForForecast(page, 'pro');
+      await requireRoomToScroll(page);
+      await page.getByTestId('further-ahead-jump').click();
+      await settle(page);
+      await expect(page.getByTestId('window-first-lens')).toHaveCSS('visibility', 'hidden');
+      // `focusSectionHeading(THIS_WEEK_HEADING_ID)`'s move, made directly: scroll the section to the top and focus its heading.
+      await page.evaluate(() => {
+        const heading = document.getElementById('wf-this-week-h');
+        heading.closest('section').scrollIntoView({ block: 'start' });
+        heading.focus({ preventScroll: true });
+      });
+      await settle(page);
+      const lens = page.getByTestId('window-first-lens');
+      await expect(lens).toHaveCSS('visibility', 'visible');
+      const lensBox = await lens.boundingBox();
+      const heading = await page.locator('#wf-this-week-h').boundingBox();
+      expect(heading.y, 'WCAG 2.4.11: the focused heading is not under the lens').toBeGreaterThanOrEqual(lensBox.y + lensBox.height - 1);
     });
   });
 }
 
-test.describe('The lens on desktop and tablet is unchanged', () => {
-  for (const [name, viewport] of [['desktop', { width: 1280, height: 800 }], ['tablet', { width: 768, height: 1024 }]]) {
-    test(`${name}: scrolling to the bottom never collapses it and draws no summary`, async ({ page }) => {
-      await page.setViewportSize(viewport);
+for (const [name, viewport] of [['tablet', { width: 768, height: 1024 }], ['desktop', { width: 1280, height: 800 }]]) {
+  test.describe(`The lens belongs to This week at ${name}`, () => {
+    test.use({ viewport });
+
+    test('is hidden in place past This week, and drawn again on the way back', async ({ page }) => {
       await loginAndWaitForForecast(page, 'pro');
-      const before = (await page.getByTestId('window-first-lens').boundingBox()).height;
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await requireRoomToScroll(page);
+      const lens = page.getByTestId('window-first-lens');
+      const before = await lensProbe(page);
+      await scrollPastWeek(page);
+      await expect(lens).toHaveCSS('visibility', 'hidden');
+      const after = await lensProbe(page);
+      expect(after.docHeight).toBe(before.docHeight);
+      expect(after.furtherTop).toBe(before.furtherTop);
+      expect(after.barVar).toBe(before.barVar);
+      expect(Math.abs(after.aheadBarTop)).toBeLessThanOrEqual(1);
       await expect(page.getByTestId('window-first-lens-summary')).toHaveCount(0);
       await expect(page.getByTestId('window-first-lens-spacer')).toHaveCount(0);
-      expect(Math.abs((await page.getByTestId('window-first-lens').boundingBox()).height - before)).toBeLessThanOrEqual(1);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expect(lens).toHaveCSS('visibility', 'visible');
     });
-  }
+  });
+}
 
+test.describe('The desktop masthead', () => {
   test('desktop keeps the origin chip and today\'s times, labelled "today"', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await withHome(page);

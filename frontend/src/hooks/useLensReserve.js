@@ -51,10 +51,23 @@ const RING_ALLOWANCE = 6;
  * <p>The screen has a second sticky element under the lens bar, the "This week" heading bar
  * ({@code .wf-sec-bar-week}). The day tiles, the rails and every focused card sit below it, so its measured height is
  * added to {@code --wf-lens-h} and to {@code --wf-lens-reserve}: the existing {@code calc()}s in the stylesheet need no
- * new term, and they stay right while the bar is absent (it adds zero). Further ahead's heading replaces it once the
- * first section has scrolled away, and is about the same height, so the same reservation serves its focusable rows.
- * {@code --wf-bar-h} is the lens bar ALONE, the line both headings stick at.
+ * new term, and they stay right while the bar is absent (it adds zero). Further ahead has its own pair (below), because
+ * the lens is not drawn over it. {@code --wf-bar-h} is the lens bar ALONE, the line This week's heading sticks at.
  *
+ * <h2>The lens belongs to This week: Further ahead's own pair (lens-this-week-only-plan.md)</h2>
+ *
+ * <p>Past This week the lens is {@code visibility: hidden} and {@code inert}, which keeps its box: no ResizeObserver
+ * reports the flip, so {@code hidden} is an explicit input here. {@code --wf-bar-h}, {@code --wf-lens-h} and
+ * {@code --wf-lens-reserve} nevertheless KEEP the full lens measurement, because This week reads them too (its scroll
+ * margins, its cards, the This week jump): zeroing them would scroll a This week target to {@code top: 0}, bring This week
+ * back across the line, and draw the lens over the focused target (WCAG 2.4.11). Further ahead is below the line whenever the
+ * reader is in it, so it has its own pair that drops only the lens term while {@code hidden}:
+ * {@code --wf-ahead-top} (where its bar sticks and its section and heading land) and {@code --wf-ahead-reserve} (its own bar
+ * plus the ring: never 0, or a tabbed row lands under that bar).
+ *
+ * <p>The caller passes {@code hidden} as "no verdict is holding the lens drawn", not the lens's visibility at this instant:
+ * the Further ahead jump scrolls with margins read BEFORE the lens flips, so they must already exclude it.
+ * *
  * <h2>⚠️ `--wf-mast-h` IS GONE, AND RE-ADDING IT IS A DELIBERATE PHASE</h2>
  *
  * <p>This hook also measured the masthead and published its height, because M3 gave `.wf-mast` a
@@ -90,11 +103,16 @@ const RING_ALLOWANCE = 6;
  * edge now, so that offset is a constant zero and the sentinel takes no argument.
  *
  * @param {object} rootRef ref to the element that hosts the variables — the arm's `.wf-shell`
+ * @param {object} [options]
+ * @param {boolean} [options.hidden] whether Further ahead's measurements assume the lens is not drawn over it (see above);
+ *        read by the effect, so a change re-measures. The three shared variables never read it.
  */
-export default function useLensReserve(rootRef) {
+export default function useLensReserve(rootRef, { hidden = false } = {}) {
   // The last value written per property, so a resize that changes nothing does not touch the DOM.
   // `ResizeObserver` fires on sub-pixel reflows the bar has plenty of.
-  const written = useRef({ '--wf-lens-reserve': null, '--wf-lens-h': null, '--wf-bar-h': null });
+  const written = useRef({
+    '--wf-lens-reserve': null, '--wf-lens-h': null, '--wf-bar-h': null, '--wf-ahead-top': null, '--wf-ahead-reserve': null,
+  });
 
   useEffect(() => {
     const root = rootRef.current;
@@ -127,6 +145,9 @@ export default function useLensReserve(rootRef) {
       // element+box, so re-calling it costs nothing, and `disconnect()` in the teardown below
       // releases both at once.
       if (observer && barEl) observer.observe(barEl);
+      // Further ahead's own bar: its measured height is the whole of its reservation once the lens term is dropped.
+      const aheadEl = root.querySelector('.wf-sec-bar-ahead');
+      if (observer && aheadEl) observer.observe(aheadEl);
       const bar = heightOf(barEl);
       const week = heightOf(weekEl) ?? 0;
       // The ring allowance is added once rather than per element — it is the focus outline's own 2px
@@ -146,6 +167,12 @@ export default function useLensReserve(rootRef) {
       // stick at this line, one after the other, so neither may include the other's height. A measured zero for the
       // same reason as `--wf-lens-h`.
       write('--wf-bar-h', bar ?? 0);
+      // Further ahead's pair (see the class note): the lens term is dropped while `hidden`. The shared three above are
+      // deliberately untouched by it.
+      const aheadBar = heightOf(aheadEl);
+      const lensTerm = hidden ? 0 : (bar ?? 0);
+      write('--wf-ahead-top', lensTerm);
+      write('--wf-ahead-reserve', aheadBar === null ? null : lensTerm + aheadBar + RING_ALLOWANCE);
     };
 
     observer = new ResizeObserver(apply);
@@ -161,6 +188,8 @@ export default function useLensReserve(rootRef) {
       clear('--wf-lens-reserve');
       clear('--wf-lens-h');
       clear('--wf-bar-h');
+      clear('--wf-ahead-top');
+      clear('--wf-ahead-reserve');
     };
-  }, [rootRef]);
+  }, [rootRef, hidden]);
 }
