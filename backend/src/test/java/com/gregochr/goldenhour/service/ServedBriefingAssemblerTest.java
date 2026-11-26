@@ -521,6 +521,32 @@ class ServedBriefingAssemblerTest {
     }
 
     @Test
+    @DisplayName("each served slot is stamped with its own latest disposition from the serve's one read, "
+            + "and a slot the record cannot settle keeps no stamp (a drive tier re-runs the fold from these)")
+    void slotsCarryTheirLatestDispositionStamp() {
+        EvaluationViewService.LatestDisposition stability =
+                new EvaluationViewService.LatestDisposition(DispositionCategory.SKIPPED_STABILITY, false);
+        EvaluationViewService.LatestDisposition fog =
+                new EvaluationViewService.LatestDisposition(DispositionCategory.SKIPPED_TRIAGED, false, true);
+        when(evaluationViewService.loadServeTriage(any(), any(), any()))
+                .thenReturn(new EvaluationViewService.ServeTriage(Map.of(), Map.of(
+                        EvaluationViewService.stabilitySkipKey("Bamburgh", D, TargetType.SUNRISE), stability,
+                        EvaluationViewService.stabilitySkipKey("Whitby", D, TargetType.SUNRISE), fog,
+                        // A different window's record for Durham must not stamp this window's Durham.
+                        EvaluationViewService.stabilitySkipKey("Durham", D, TargetType.SUNSET), stability)));
+
+        DailyBriefingResponse served = assembler.assembleForPlan(scoredSnapshot(), 0.5);
+
+        Map<String, EvaluationViewService.LatestDisposition> sunrise = new java.util.HashMap<>();
+        for (BriefingSlot slot : served.days().get(0).eventSummaries().get(0).regions().get(0).slots()) {
+            sunrise.put(slot.locationName(), slot.disposition());
+        }
+        assertThat(sunrise.get("Bamburgh")).isEqualTo(stability);
+        assertThat(sunrise.get("Whitby")).isEqualTo(fog);
+        assertThat(sunrise.get("Durham")).isNull();
+    }
+
+    @Test
     @DisplayName("a serve reads the dispositions once, through loadServeTriage, never the "
             + "separate triaged-names method")
     void oneDispositionReadPerServe() {

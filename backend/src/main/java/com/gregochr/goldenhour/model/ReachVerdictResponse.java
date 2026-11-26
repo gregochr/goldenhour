@@ -61,6 +61,15 @@ public record ReachVerdictResponse(
      * @param pick           the forecast's pick if it falls on this window at this tier, or null. Away, only a
      *                       pick that names the origin region
      * @param pickRegion     the picked region's name, or null (the pick's own, repeated for the client's join)
+     * @param coverageReason why the window has no rating at this tier, so the card can say it: the reason of the
+     *                       blanked region whose word the window wears (the same fold the served pipeline
+     *                       uses, run over the in-reach places), or, when the tier emptied the window because
+     *                       every region was served-blanked, the one date-level reason (NOT_ATTEMPTED or AWAY)
+     *                       they all share. Null on a rated window, when the dropped regions disagree or were
+     *                       stood down, failed, unknown or merely out of reach (a far region's weather never
+     *                       speaks for the ring)
+     * @param fog            TRUE when {@code coverageReason} is a STOOD_DOWN that was mostly weather triage's
+     *                       visibility rule ("Fog forecast"); null otherwise
      * @param regions        every in-reach region of the window, best first, for surfaces that need each region's
      *                       own verdict (the Map pill, R3); away, the origin region alone
      */
@@ -76,6 +85,8 @@ public record ReachVerdictResponse(
             @JsonInclude(JsonInclude.Include.NON_NULL) Integer thinCount,
             @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindow.Pick pick,
             @JsonInclude(JsonInclude.Include.NON_NULL) String pickRegion,
+            @JsonInclude(JsonInclude.Include.NON_NULL) CoverageReason coverageReason,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean fog,
             List<RegionVerdict> regions) {
 
         /**

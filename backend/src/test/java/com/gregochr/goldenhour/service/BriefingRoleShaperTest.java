@@ -38,7 +38,7 @@ class BriefingRoleShaperTest {
             "claudeSummary", "claudeHeadline");
     private static final Set<String> SLOT_KEPT = Set.of("locationId", "locationName", "solarEventTime",
             "verdict", "weather", "tide", "flags", "claudeRating", "skyRating",
-            "displayVerdict", "canopy", "eclipse", "neighbourOutlier", "gated", "forced", "triaged");
+            "displayVerdict", "canopy", "eclipse", "neighbourOutlier", "gated", "forced", "triaged", "disposition");
 
     private final BriefingRoleShaper shaper = new BriefingRoleShaper();
 
@@ -237,6 +237,18 @@ class BriefingRoleShaperTest {
     }
 
     @Test
+    @DisplayName("LITE: the window's coverage reason and fog survive (a reason is not a rating)")
+    void forLite_keepsWindowCoverageReason() {
+        BriefingWindow reasoned = fullWindow().withCoverage(
+                com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN, Boolean.TRUE);
+
+        BriefingWindow lite = summaryOf(shaper.forLite(response(reasoned))).window();
+
+        assertThat(lite.coverageReason()).isEqualTo(com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN);
+        assertThat(lite.fog()).isTrue();
+    }
+
+    @Test
     @DisplayName("PRO is unchanged: the input keeps its picks, and forLite never mutates it")
     void forLite_doesNotMutateInput() {
         DailyBriefingResponse full = response(fullWindow().withPick(pick()));
@@ -252,7 +264,7 @@ class BriefingRoleShaperTest {
         Set<String> stripped = Set.of("pick");
         Set<String> handledAsTide = Set.of("tide", "tideFacts", "badges");
         Set<String> kept = Set.of("eventTime", "verdict", "bestRating", "confidence", "warningIds",
-                "warningPlaceCounts");
+                "warningPlaceCounts", "coverageReason", "fog");
 
         assertThat(componentNames(BriefingWindow.class))
                 .as("a new component must be classified here and handled in forLite()")

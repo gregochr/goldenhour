@@ -448,6 +448,9 @@ Tests:
   zero-coverage region (`BriefingHonestyFilter.blankedForReach`): STAND_DOWN only when a surviving place carries the
   `triaged` stamp (the weather really stood it down), AWAITING otherwise. The served filter reads the latest dispositions;
   D5 forbids re-reading them, so the stamp (from the same evidence) stands in.
+  **Superseded 2026-11-25 (`unscored-reason-card-plan.md` C1):** "any triaged" is gone. `blankedForReach` runs the served
+  `CoverageReasons.of` and `fogMajority` over each in-reach slot's `disposition` stamp (set from `latestBySlot`, still no
+  store re-read), and a window carries `coverageReason`/`fog`.
 - **`briefingVersion` also hashes the rendered events** (they bound where a pick may land), and each window carries
   `topRegionName` (the in-reach top region; away, the origin region).
 - **Fetch key.** `useReachVerdicts` keys on `briefingVersion | origin | homeSettingsVersion | driveTimesVersion | user`
