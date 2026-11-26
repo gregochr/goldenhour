@@ -1,6 +1,6 @@
 # The lens belongs to This week (2026-11-25)
 
-Status: **planned, not built.** Queued by the owner. One PR, built by Sonnet per CLAUDE.md's owner rule. It amends
+Status: **built** (2026-11-25, one PR). Queued by the owner. One PR, built by Sonnet per CLAUDE.md's owner rule. It amends
 `screen-spec.md` D6 (§6.6), which P4 (#1941) built as a one-line collapse.
 
 ## 1. What prompted it
@@ -59,7 +59,9 @@ full lens is back at once. No summary button, no "opened" state, no forced colla
   it is rare.
 - **No animation.**
 
-## 3. Owner decisions
+## 3. Owner decisions (decided by the owner on 2026-11-25)
+
+**L1 = every width. L2 = no new way back.** The recommendations below were taken as written.
 
 - **L1, which widths.** *Recommended: every width.* On desktop and tablet the lens over Further ahead is equally
   irrelevant, and the change removes height rather than adding a phone-only control. `.wf-body` is a single column at
@@ -137,3 +139,26 @@ From P4's D6, everything that only served the one-line state:
 | 6 | Wrong E2E file; `watchDeparture` still used by the masthead | §4, §5.4 |
 | 7 | The body wrapper loses its job | §4 |
 | 8 | A verdict arriving past This week | §2: intended |
+
+## 7. As built (2026-11-25)
+
+Deviations from §2 and §5, each with its reason:
+
+- **The Further ahead pair is written on the shell root, not on the Further ahead section.** `useLensReserve` already
+  publishes the other three there, the section is not mounted when the hook first runs, and custom properties inherit
+  down to the section either way. Names as suggested: `--wf-ahead-top`, `--wf-ahead-reserve`.
+- **The pair assumes the lens hidden unless a verdict holds it drawn; it does not follow the lens's live visibility.**
+  `useLensReserve(shellRef, { hidden: !verdict })`. The Further ahead jump scrolls with margins read before the lens
+  flips, so a pair that followed `hidden` would still leave the lens-sized gap the plan set out to remove. A lens held
+  drawn by keyboard focus over Further ahead covers its bar until the blur (rare, brief).
+- **`.wf-sec.wf-further-ahead`, `.wf-sec-bar-ahead` and its heading read the pair** (new rules after the shared ones, in
+  `index.css`); This week's rules and `.wf-yp` are untouched and still read the shared three.
+- **The hook is `useLensPastWeek`** (`enabled`, `weekNode`, `guessHeight`, `getFocusTarget`; returns `attachLens`,
+  `hidden`, `focusProps`). The lens height is measured from the element (ResizeObserver) with a per-width first-paint
+  guess in the shell (94px phone, 54px from 640px). The old `COLLAPSED_GUESS`, `forced`, `opened`, the spacer and the
+  cached-full-height machinery are gone.
+- **Tests:** `WindowFirstLensPastWeek.test.jsx` (hook, bar and reserve together, at 390, 768 and 1280),
+  `WindowFirstShellLensPastWeek.test.jsx` (the shell's wiring at the same widths), the stylesheet pins in
+  `mapMobileCompactCascade.test.jsx`, and the rewritten `lens-collapse.spec.js`. The E2E "This week jump" makes the same
+  scroll-and-focus move `focusSectionHeading` makes rather than pressing a door, because no door back to This week is
+  guaranteed to exist in the seeded Further ahead.

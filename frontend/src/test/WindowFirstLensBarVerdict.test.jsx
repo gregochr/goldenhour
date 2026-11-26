@@ -161,14 +161,14 @@ describe('WindowFirstLensBar — the verdict line for assistive tech', () => {
     expect(sr).toEqual([' stars', ' star']);
   });
 
-  it('keeps an always-mounted status span, a direct child of the bar, empty without a verdict', () => {
+  it('keeps an always-mounted status span, a sibling of the bar (outside its inert subtree), empty without a verdict', () => {
     render(<Lens verdict={null} />);
     const status = screen.getByTestId('window-first-lens-verdict-status');
     expect(status).toHaveAttribute('role', 'status');
     expect(status).toHaveAttribute('aria-live', 'polite');
     expect(status).toHaveClass('sr-only');
     expect(status).toBeEmptyDOMElement();
-    expect(status.parentElement).toBe(screen.getByTestId('window-first-lens'));
+    expect(status.previousElementSibling).toBe(screen.getByTestId('window-first-lens'));
   });
 
   it('fills the SAME status node with the announce sentence, so the change is announced', () => {
@@ -185,12 +185,12 @@ describe('WindowFirstLensBar — the verdict line for assistive tech', () => {
   it('does not remount the status span when the viewport flips between phone and desktop', () => {
     const { unmount } = render(<Lens verdict={VERDICT} />);
     const desktop = screen.getByTestId('window-first-lens-verdict-status');
-    expect(desktop.parentElement).toBe(screen.getByTestId('window-first-lens'));
+    expect(desktop.previousElementSibling).toBe(screen.getByTestId('window-first-lens'));
     unmount();
     asPhone();
     render(<Lens verdict={VERDICT} />);
     const phone = screen.getByTestId('window-first-lens-verdict-status');
-    expect(phone.parentElement).toBe(screen.getByTestId('window-first-lens'));
+    expect(phone.previousElementSibling).toBe(screen.getByTestId('window-first-lens'));
     expect(phone).toHaveTextContent(VERDICT.announce);
   });
 });
