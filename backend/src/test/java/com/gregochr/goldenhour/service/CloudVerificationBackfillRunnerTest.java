@@ -45,7 +45,11 @@ class CloudVerificationBackfillRunnerTest {
     private CloudVerificationBackfillRunner runner;
 
     private static BackfillBatch batch(int n) {
-        return new BackfillBatch(n, n);
+        return new BackfillBatch(n, n, 0, false);
+    }
+
+    private static BackfillBatch batchWithCalls(int n, int calls) {
+        return new BackfillBatch(n, n, calls, false);
     }
 
     @BeforeEach
@@ -141,7 +145,7 @@ class CloudVerificationBackfillRunnerTest {
         // would blank the rest of the backlog, and the anti-join would never revisit any of it.
         when(verificationService.backfill(anyInt()))
                 .thenReturn(batch(100))
-                .thenReturn(new BackfillBatch(100, 0))
+                .thenReturn(new BackfillBatch(100, 0, 0, false))
                 .thenReturn(batch(100));
 
         runner.run();
@@ -175,19 +179,89 @@ class CloudVerificationBackfillRunnerTest {
     }
 
     @Test
-    @DisplayName("a scheduled tick takes a bounded slice, leaving the rest for the next hour")
-    void runScheduled_stopsAtTheBatchCeiling() {
-        // The whole point of the schedule: ~25k evaluations at four sample points each is far more
-        // than an hour's archive allowance, so a tick must yield rather than drain.
-        when(verificationService.backfill(anyInt())).thenReturn(batch(100));
+    @DisplayName("a scheduled tick stops once its archive-call budget is spent, leaving the rest for the next hour")
+    void runScheduled_stopsAtTheCallBudget() {
+        // Open-Meteo charges per coordinate, so the tick budgets calls, not batches. At 1,000
+        // calls a batch the 2,500 budget allows three: 0, 1,000 and 2,000 are all under it.
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(batchWithCalls(100, 1_000));
 
         runner.runScheduled();
 
-        verify(verificationService, times(CloudVerificationBackfillRunner.SCHEDULED_BATCHES_PER_RUN))
-                .backfill(anyInt());
+        verify(verificationService, times(3)).backfill(CloudVerificationBackfillRunner.BATCH_SIZE);
         assertThat(runner.status().running()).isFalse();
-        assertThat(runner.status().verified())
-                .isEqualTo(100 * CloudVerificationBackfillRunner.SCHEDULED_BATCHES_PER_RUN);
+        assertThat(runner.status().verified()).isEqualTo(300);
+        assertThat(runner.status().lastError()).isNull();
+    }
+
+    @Test
+    @DisplayName("a manual run ignores the call budget")
+    void run_ignoresTheCallBudget() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(batchWithCalls(100, 1_000), batchWithCalls(100, 1_000),
+                        batchWithCalls(100, 1_000), batchWithCalls(100, 1_000), BackfillBatch.EMPTY);
+
+        runner.run();
+
+        verify(verificationService, times(5)).backfill(CloudVerificationBackfillRunner.BATCH_SIZE);
+        assertThat(runner.status().verified()).isEqualTo(400);
+    }
+
+    @Test
+    @DisplayName("a spent allowance on the first batch pauses the tick and reports SKIPPED, not FAILED")
+    void scheduledTick_quotaOnFirstBatch_reportsSkipped() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(new BackfillBatch(0, 0, 5, true));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(runner::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo(
+                "0 verified · paused: Open-Meteo archive allowance used up; resumes when it resets");
+        assertThat(runner.status().lastError()).isEqualTo(CloudVerificationBackfillRunner.PAUSED_TEXT);
+        assertThat(runner.status().running()).isFalse();
+        verify(verificationService, times(1)).backfill(CloudVerificationBackfillRunner.BATCH_SIZE);
+    }
+
+    @Test
+    @DisplayName("a spent allowance after progress pauses the tick and reports PARTIAL")
+    void scheduledTick_quotaAfterProgress_reportsPartial() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(batch(100), new BackfillBatch(0, 0, 5, true), batch(100));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(runner::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo(
+                "100 verified · paused: Open-Meteo archive allowance used up; resumes when it resets");
+        verify(verificationService, times(2)).backfill(CloudVerificationBackfillRunner.BATCH_SIZE);
+    }
+
+    @Test
+    @DisplayName("a spent allowance on a batch that still saved rows counts those rows and reports PARTIAL")
+    void scheduledTick_quotaOnBatchThatSavedRows_countsThem() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(new BackfillBatch(40, 40, 50, true));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(runner::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo(
+                "40 verified · paused: Open-Meteo archive allowance used up; resumes when it resets");
+        assertThat(runner.status().verified()).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("a blank batch with no quota signal is still FAILED, so a real outage stays loud")
+    void scheduledTick_blankWithoutQuota_stillFails() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(new BackfillBatch(100, 0, 500, false));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(runner::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo(
+                "0 verified · stopped: archive returned no observations — stopped after 0 batch(es); re-run to resume");
     }
 
     @Test

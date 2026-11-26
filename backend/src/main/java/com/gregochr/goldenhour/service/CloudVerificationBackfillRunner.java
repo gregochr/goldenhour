@@ -45,16 +45,26 @@ public class CloudVerificationBackfillRunner {
     static final int MAX_BATCHES = 1000;
 
     /**
-     * Batches attempted per scheduled tick.
+     * Archive calls a scheduled tick may spend before it stops starting new batches.
      *
-     * <p>Sized to sit inside Open-Meteo's hourly allowance rather than to finish quickly. Each
-     * batch is 100 evaluations at five sample points (cone ×3, observer, far-solar), chunked 20
-     * to a request — about 25 requests. A dozen batches is therefore ~300 requests an hour, which
-     * walks ~25k evaluations down over roughly a day unattended. Overshooting is not harmful (a
-     * throttled batch stops the tick and is cleared on the next one), but it wastes an hour's
-     * progress, so this errs low.
+     * <p>Open-Meteo charges one call per <em>location</em> in a multi-coordinate request, not one per
+     * request, and the free archive allows 10,000 calls a day (5,000 an hour). Each evaluation samples
+     * five points (cone x3, observer, far-solar), and every evaluation of the same sunrise or sunset
+     * samples the same five, so the service fetches each distinct point once and candidates are
+     * ordered to keep an event's evaluations in one batch. A batch of 100 evaluations is then about
+     * 18 events, roughly 93 calls (without that it was about 500).
+     *
+     * <p>A day has about 420 distinct events, so ~420 x 5 = ~2,100 calls after de-duplication, about
+     * 21% of the daily allowance. The backlog grows once a day, at 00:00 UTC, when a new target date
+     * passes the archive lag, so a single tick normally drains it. 2,500 is half the hourly cap: the
+     * tick is checked before each batch, so it overshoots by at most one batch, and a spent
+     * allowance ends the run as a pause rather than a failure.
      */
-    static final int SCHEDULED_BATCHES_PER_RUN = 12;
+    static final int SCHEDULED_CALL_BUDGET_PER_RUN = 2_500;
+
+    /** Summary and status text when Open-Meteo's archive allowance is spent. */
+    static final String PAUSED_TEXT =
+            "paused: Open-Meteo archive allowance used up; resumes when it resets";
 
     private final CloudVerificationService verificationService;
     private final DynamicSchedulerService dynamicSchedulerService;
@@ -90,10 +100,10 @@ public class CloudVerificationBackfillRunner {
     /**
      * One scheduled tick: works a bounded slice of the backlog, then yields until the next hour.
      *
-     * <p>Exists because the backlog cannot be drained in a single pass. Roughly 25,000 evaluations
-     * at five archive points each is ~6,250 requests — far beyond an hour's allowance — so an
-     * unbounded run simply burns the quota, hits a blank batch and stops. Ticking hourly turns that
-     * into steady unattended progress instead of something a person has to sit and re-trigger.
+     * <p>Exists because a large backlog cannot be drained without spending Open-Meteo's archive
+     * allowance, so the tick stops once it has spent {@link #SCHEDULED_CALL_BUDGET_PER_RUN} calls.
+     * Ticking hourly turns that into steady unattended progress instead of something a person has
+     * to sit and re-trigger.
      *
      * <p>A no-op once the backlog is clear: the first batch finds no candidates and returns
      * immediately, so leaving the job enabled costs nothing.
@@ -111,7 +121,7 @@ public class CloudVerificationBackfillRunner {
                     e.getMessage());
         }
         status.set(BackfillStatus.started(LocalDateTime.now(clock), remainingOrNull()));
-        runBounded(SCHEDULED_BATCHES_PER_RUN);
+        runBounded(MAX_BATCHES, SCHEDULED_CALL_BUDGET_PER_RUN);
     }
 
     /**
@@ -158,20 +168,35 @@ public class CloudVerificationBackfillRunner {
      */
     @Async("forecastExecutor")
     void run() {
-        runBounded(MAX_BATCHES);
+        runBounded(MAX_BATCHES, Integer.MAX_VALUE);
     }
 
     /**
-     * Works through the backlog for at most {@code maxBatches} committed batches.
+     * Works through the backlog for at most {@code maxBatches} committed batches, starting no new
+     * batch once {@code callBudget} archive calls have been spent.
      *
      * @param maxBatches the batch ceiling for this run
+     * @param callBudget archive calls after which no further batch is started
      */
     @Async("forecastExecutor")
-    void runBounded(int maxBatches) {
+    void runBounded(int maxBatches, int callBudget) {
         String error = null;
+        boolean paused = false;
+        long callsSpent = 0;
         try {
-            for (int i = 0; i < maxBatches; i++) {
+            for (int i = 0; i < maxBatches && callsSpent < callBudget; i++) {
                 BackfillBatch batch = verificationService.backfill(BATCH_SIZE);
+                if (batch.quotaExhausted()) {
+                    // Open-Meteo's allowance is spent: count the rows that did get data, then pause
+                    // rather than fail. Checked before the blank test, which it would also satisfy.
+                    if (batch.withObservations() > 0) {
+                        status.updateAndGet(s -> s.withBatch(batch.withObservations(), remainingOrNull()));
+                    }
+                    paused = true;
+                    error = PAUSED_TEXT;
+                    LOG.warn("[CLOUD VERIFY] {}", PAUSED_TEXT);
+                    break;
+                }
                 if (batch.rowsWritten() == 0) {
                     break;
                 }
@@ -185,29 +210,36 @@ public class CloudVerificationBackfillRunner {
                     break;
                 }
                 status.updateAndGet(s -> s.withBatch(batch.withObservations(), remainingOrNull()));
+                callsSpent += batch.archiveCalls();
             }
         } catch (Exception e) {
             error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             LOG.error("[CLOUD VERIFY] backfill run failed: {}", error, e);
         } finally {
             final String captured = error;
+            final boolean pausedOnQuota = paused;
             BackfillStatus finalStatus =
                     status.updateAndGet(s -> s.finished(LocalDateTime.now(clock), captured));
             // Clear the guard last: until it flips, a concurrent start() is correctly refused.
             running.set(false);
             LOG.info("[CLOUD VERIFY] backfill run complete — verified={} batches={} error={}",
                     finalStatus.verified(), finalStatus.batches(), captured);
-            reportRun(finalStatus, captured);
+            reportRun(finalStatus, captured, pausedOnQuota);
         }
     }
 
     /**
      * Reports how a run ended: clean is SUCCEEDED with the verified and remaining counts, stopped with
-     * progress made is PARTIAL, stopped with none is FAILED.
+     * progress made is PARTIAL, stopped with none is FAILED. A spent Open-Meteo allowance is a pause,
+     * not a failure: SKIPPED when nothing was verified this run, PARTIAL otherwise.
      */
-    private static void reportRun(BackfillStatus finalStatus, String error) {
+    private static void reportRun(BackfillStatus finalStatus, String error, boolean pausedOnQuota) {
         String verified = finalStatus.verified() + " verified";
-        if (error == null) {
+        if (pausedOnQuota) {
+            SchedulerFireOutcome.report(
+                    finalStatus.verified() > 0 ? SchedulerFireStatus.PARTIAL : SchedulerFireStatus.SKIPPED,
+                    verified + " · " + PAUSED_TEXT);
+        } else if (error == null) {
             SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, verified
                     + (finalStatus.remaining() != null ? " · " + finalStatus.remaining() + " remaining" : ""));
         } else {
