@@ -1,56 +1,15 @@
-import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
-import WindowFirstShell from '../components/WindowFirstShell.jsx';
+import { screen, act } from '@testing-library/react';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { registerMapDoor } from './shellMapDoor.js';
+import { lensShellCtx, stubLensObservers, renderLensShell as renderShell } from './shellLensHarness.jsx';
 
 /**
  * The shell's half of "the lens belongs to This week" (screen-spec.md D6): the shell lifts `useLensPastWeek`, watching the
  * This week section at every width and passing `hidden` to the bar. The state machine itself is
  * `WindowFirstLensPastWeek.test.jsx`; this file pins the wiring, at 390, 768 and 1280.
  */
-const TODAY = '2026-08-08';
-
 let mockIsMobile = false;
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
-
-const ctx = () => ({
-  briefing: { generatedAt: `${TODAY}T12:00:00`, hotTopics: [] },
-  loading: false,
-  heatStripCards: [],
-  heatSpots: [],
-  heatPointSets: new Map(),
-  windowCards: [],
-  paneItems: [],
-  upcomingEvents: [],
-  travelDayDates: new Set(),
-  evaluationScores: new Map(),
-  scoreIndex: new Map(),
-  reachById: new Map(),
-  todayStr: TODAY,
-  tomorrowStr: '2026-08-09',
-  homePlace: 'Newcastle',
-  isPro: true,
-  isLiteUser: false,
-  reachLens: {
-    tier: { id: '45', label: '45 min', limitMinutes: 45 },
-    tierId: '45',
-    defaultTier: { id: '45', label: '45 min', limitMinutes: 45 },
-    defaultTierId: '45',
-    weekend: false,
-    overridden: false,
-    locked: false,
-    selectTier: vi.fn(),
-    resetToDefault: vi.fn(),
-  },
-  ratingLens: {
-    floor: { id: 'any', min: null, label: 'Any rating' },
-    floorId: 'any',
-    minRating: null,
-    selectFloor: vi.fn(),
-  },
-});
 
 let observers;
 
@@ -58,41 +17,14 @@ beforeEach(() => {
   localStorage.clear();
   mockIsMobile = false;
   observers = [];
-  vi.stubGlobal('IntersectionObserver', class {
-    constructor(callback, options) {
-      this.callback = callback;
-      this.options = options;
-      observers.push(this);
-    }
-
-    observe(element) { this.element = element; }
-
-    disconnect() {}
-  });
-  vi.stubGlobal('ResizeObserver', class {
-    observe() {}
-
-    unobserve() {}
-
-    disconnect() {}
-  });
-  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+  stubLensObservers(observers);
+  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(lensShellCtx());
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-
-const renderShell = () => render(
-  <WindowFirstShell
-    onOpenSettings={vi.fn()}
-    onSignOut={vi.fn()}
-    onShowOnMap={vi.fn()}
-    locations={[]}
-    registerOpenMap={registerMapDoor}
-  />,
-);
 
 const observerOf = (testId) => observers.findLast((o) => o.element?.dataset?.testid === testId);
 const report = (testId, entry) => act(() => { observerOf(testId).callback([entry]); });
