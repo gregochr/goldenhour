@@ -1330,7 +1330,62 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
     });
   });
 
-  describe('verdictBlanked — a STAND_DOWN word over a blanked region (verdict-honesty H4)', () => {
+  describe('blankedReason read from the served window (unscored-reason-card C2)', () => {
+    const served = (window, regions = [], verdict = 'AWAITING') => ({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET', regions, unregioned: [], window: { verdict, badges: [], ...window },
+      }])],
+    });
+
+    it.each([
+      ['STOOD_DOWN', undefined, 'STOOD_DOWN'],
+      ['STOOD_DOWN', true, 'FOG'],
+      ['STOOD_DOWN', false, 'STOOD_DOWN'],
+      ['NOT_ATTEMPTED', undefined, 'NOT_ATTEMPTED'],
+      ['FAILED', undefined, 'FAILED'],
+      ['AWAY', undefined, null],
+      ['UNKNOWN', undefined, null],
+      ['SOMETHING_NEW', undefined, null],
+    ])('%s (fog %s) on the window gives %s', (coverageReason, fog, expected) => {
+      const [card] = build(served({ coverageReason, ...(fog === undefined ? {} : { fog }) }));
+      expect(card.blankedReason).toBe(expected);
+    });
+
+    it('is null when the window carries no reason and the word is AWAITING (legacy payload)', () => {
+      const [card] = build(served({}, [{ regionName: 'North', displayVerdict: 'AWAITING', slots: [] }]));
+      expect(card.blankedReason).toBeNull();
+    });
+
+    it('prefers the served reason over the legacy slots rule', () => {
+      const [card] = build(served(
+        { coverageReason: 'NOT_ATTEMPTED' },
+        [{ regionName: 'North', displayVerdict: 'STAND_DOWN', slots: [] }],
+        'STAND_DOWN',
+      ));
+      expect(card.blankedReason).toBe('NOT_ATTEMPTED');
+    });
+
+    it('reads the origin region\'s own reason when the page is scoped to a region', () => {
+      const [card] = buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Blank', displayVerdict: 'AWAITING', slots: [], coverageReason: 'FAILED' },
+            { regionName: 'Other', displayVerdict: 'AWAITING', slots: [], coverageReason: 'NOT_ATTEMPTED' },
+          ],
+          unregioned: [],
+          window: { verdict: 'AWAITING', badges: [], coverageReason: 'NOT_ATTEMPTED' },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Blank' } },
+      );
+      expect(card.blankedReason).toBe('FAILED');
+    });
+  });
+
+  describe('blankedReason — a STAND_DOWN word over a blanked region (verdict-honesty H4, legacy fallback)', () => {
     // The honesty filter empties a blanked region's `slots`, and since it words an unknown reason
     // AWAITING a blanked STAND_DOWN can only be weather triage. The card then qualifies "Poor".
     const windowOf = (regions, verdict = 'STAND_DOWN') => ({
@@ -1346,7 +1401,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'North', displayVerdict: 'STAND_DOWN', slots: [] },
       ]));
       expect(card.verdict).toBe('STAND_DOWN');
-      expect(card.verdictBlanked).toBe(true);
+      expect(card.blankedReason).toBe('STOOD_DOWN');
     });
 
     it('is false for a STAND_DOWN region that still carries slots (a triage stand-down below the gate)', () => {
@@ -1354,7 +1409,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'North', displayVerdict: 'STAND_DOWN', slots: [slot], meanRating: 2, sampleSufficient: false },
       ]));
       expect(card.verdict).toBe('STAND_DOWN');
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('is false for a blanked AWAITING region, whose word is not Poor', () => {
@@ -1362,12 +1417,12 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'North', displayVerdict: 'AWAITING', slots: [] },
       ], 'AWAITING'));
       expect(card.verdict).toBe('AWAITING');
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('is false for a region payload that carries no slots field at all (legacy)', () => {
       const [card] = build(windowOf([{ regionName: 'North', displayVerdict: 'STAND_DOWN' }]));
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('reads the region the word came from: a blanked stand-down beside a region WITH slots is false', () => {
@@ -1377,7 +1432,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'A-blank', displayVerdict: 'STAND_DOWN', slots: [] },
         { regionName: 'B-live', displayVerdict: 'STAND_DOWN', slots: [slot] },
       ]));
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('a real blanked stand-down outranks a blanked AWAITING region, whatever the names', () => {
@@ -1385,7 +1440,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'A-awaiting', displayVerdict: 'AWAITING', slots: [] },
         { regionName: 'Z-stood-down', displayVerdict: 'STAND_DOWN', slots: [] },
       ]));
-      expect(card.verdictBlanked).toBe(true);
+      expect(card.blankedReason).toBe('STOOD_DOWN');
     });
 
     it('at home scope a RATED top region speaks for the window, whatever blanked sibling it has', () => {
@@ -1396,7 +1451,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'Z-rated', displayVerdict: 'STAND_DOWN', slots: [slot], meanRating: 2.4 },
       ]));
       expect(card.verdict).toBe('STAND_DOWN');
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('under an origin the SCOPED region decides, not the roster', () => {
@@ -1415,8 +1470,8 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: originName } },
       )[0];
 
-      expect(away('Blank').verdictBlanked).toBe(true);
-      expect(away('Live').verdictBlanked).toBe(false);
+      expect(away('Blank').blankedReason).toBe('STOOD_DOWN');
+      expect(away('Live').blankedReason).toBeNull();
     });
   });
 

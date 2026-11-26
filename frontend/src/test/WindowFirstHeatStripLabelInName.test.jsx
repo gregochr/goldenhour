@@ -114,7 +114,7 @@ const VARIANTS = [
   ['an Ask-highlighted card', [card(TODAY, 'SUNSET', { pickKind: 'best' })], { highlightKeys: new Map([[SUNSET, 2]]) }],
   // The wording variants: each prints a DIFFERENT visible word than the rated card's ("unsettled", "Too few", "Poor").
   ['a blanked stand-down (visible "unsettled")', [card(TODAY, 'SUNSET', {
-    verdict: 'STAND_DOWN', verdictLabel: 'Poor', verdictBlanked: true, verdictMean: null,
+    verdict: 'STAND_DOWN', verdictLabel: 'Poor', blankedReason: 'STOOD_DOWN', verdictMean: null,
   })], {}],
   ['an UNRATED word (visible "Too few")', [card(TODAY, 'SUNSET', {
     verdict: 'UNRATED', verdictLabel: 'Too few rated', verdictMean: 3.6,

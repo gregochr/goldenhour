@@ -526,13 +526,37 @@ function verdictMeanOf(scoped, top) {
 }
 
 /**
- * What a card says beside a STAND_DOWN word over a blanked region (plan-card-verdict-honesty-plan.md
- * H4). The visible form is short enough for the mean's own slot ("unsettled", about 54px at
- * 10px, the honesty filter's "Too unsettled to forecast" abridged); the spoken form is the filter's label in full, so the card
- * and the region rail speak one vocabulary.
+ * What a card says beside a verdict word over a window nothing was scored in (unscored-reason-card-plan.md §3.3):
+ * one table keyed by the card's {@code blankedReason}. A LOOKUP on the served {@code coverageReason} enum, the
+ * {@code VERDICT_LABEL} precedent: no threshold, no selection, no reason is ever derived on the client.
+ *
+ * <p>{@code visible} is short enough for the mean's own slot (about 54px at 10px for 9 characters); {@code spoken}
+ * is the honesty filter's served label in full, so the card, its {@code title}, its sentence and the region rail
+ * speak one vocabulary. {@code AWAY}, {@code UNKNOWN} and an absent reason are deliberately not in the table: they
+ * stay silent, as before. Away cards never print the note (the strip drops it), so {@code AWAY} never reaches a face.
+ *
+ * <p>Width: see the measurement recorded in the C2 plan Status and the changelog. The note is the part that gives
+ * way ({@code .wf-hc-note} shrinks and ellipsises, and its {@code title} carries the full phrase).
  */
-export const BLANKED_STAND_DOWN_VISIBLE = 'unsettled';
-export const BLANKED_STAND_DOWN_SPOKEN = 'too unsettled to forecast';
+export const BLANKED_REASON_WORDS = Object.freeze({
+  STOOD_DOWN: Object.freeze({ visible: 'unsettled', spoken: 'Too unsettled to forecast' }),
+  FOG: Object.freeze({ visible: 'fog', spoken: 'Fog forecast' }),
+  NOT_ATTEMPTED: Object.freeze({ visible: 'too far out', spoken: 'Not scored at this range' }),
+  FAILED: Object.freeze({ visible: 'run failed', spoken: 'Forecast unavailable' }),
+});
+
+/**
+ * The card's blanked reason from a record that carries the served {@code coverageReason} / {@code fog} pair
+ * (a {@code BriefingWindow}, a tier window or an origin's {@code BriefingRegion}): a lookup, never a derivation.
+ *
+ * @param {?object} source the record to read
+ * @returns {?string} {@code 'STOOD_DOWN' | 'FOG' | 'NOT_ATTEMPTED' | 'FAILED'}, or null (AWAY, UNKNOWN, absent)
+ */
+function blankedReasonFrom(source) {
+  const reason = source?.coverageReason;
+  if (reason === 'STOOD_DOWN') return source.fog === true ? 'FOG' : 'STOOD_DOWN';
+  return reason === 'NOT_ATTEMPTED' || reason === 'FAILED' ? reason : null;
+}
 
 /**
  * The region a window's verdict WORD came from when no region carries a mean to rank it by — the
@@ -583,6 +607,30 @@ function verdictBlankedOf(verdict, scoped, es) {
   if (verdict !== 'STAND_DOWN') return false;
   const region = scoped ?? topRegion(es) ?? pickMeanlessWordRegion(eligibleRegions(es));
   return Array.isArray(region?.slots) && region.slots.length === 0;
+}
+
+/**
+ * Why the window the card wears was not scored (unscored-reason-card-plan.md §6 C2.1), READ from the served record
+ * the card's word comes from, never selected or derived here: the tier window while a scoped headline is worn, else
+ * the origin's own region, else the served {@code BriefingWindow}. The server picked the region (and so the
+ * reason) the window's word came from, so the word and the note cannot describe two regions.
+ *
+ * <p><b>Legacy fallback</b> for a record without the field (a payload cached before the reason existed): a
+ * {@code STAND_DOWN} over an empty-slot region (the old {@link verdictBlankedOf} rule) is {@code 'STOOD_DOWN'};
+ * an AWAITING says nothing.
+ *
+ * @param {string} verdict the verdict the card wears
+ * @param {?object} scoped the tier window, or null
+ * @param {?object} scopedRegion the origin's region record, or null
+ * @param {?object} win the served window projection
+ * @param {?object} es the event summary
+ * @returns {?string} {@code 'STOOD_DOWN' | 'FOG' | 'NOT_ATTEMPTED' | 'FAILED'}, or null
+ */
+function blankedReasonOf(verdict, scoped, scopedRegion, win, es) {
+  const source = scoped ?? scopedRegion ?? win;
+  if (source?.coverageReason != null) return blankedReasonFrom(source);
+  if (scoped) return scoped.blanked === true ? 'STOOD_DOWN' : null;
+  return verdictBlankedOf(verdict, scopedRegion, es) ? 'STOOD_DOWN' : null;
 }
 
 /**
@@ -958,10 +1006,10 @@ export function buildWindowCards(
       // `topMeanRating` stays untouched for the Order control; this is the honesty channel. The
       // away arm tests the SCOPED region, which is the one whose word `verdict` above wears.
       verdictMean: scoped ? (scoped.meanRating ?? null) : servedVerdictMean,
-      // True when the word is a STAND_DOWN over a region the honesty filter blanked (empty `slots`):
-      // the card prints `unsettled` beside "Poor" in the mean's own slot (H4). Read from the
-      // same region `verdictMean` reads, so the qualifier and the word cannot describe two regions.
-      verdictBlanked: scoped ? scoped.blanked === true : verdictBlankedOf(verdict, scopedRegion, es),
+      // Why nothing was scored, read off the served record the word comes from (the tier window, the origin's
+      // region, else the window): `STOOD_DOWN` | `FOG` | `NOT_ATTEMPTED` | `FAILED`, else null. The card prints the
+      // table's visible word in the mean's own slot (H4, unscored-reason-card-plan.md). A lookup, never derived.
+      blankedReason: blankedReasonOf(verdict, scoped, scopedRegion, win, es),
       // The same region `topMeanRating` names, carrying how far it has moved since the previous
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.
