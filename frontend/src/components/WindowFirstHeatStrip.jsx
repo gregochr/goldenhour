@@ -11,8 +11,7 @@ import { useFavourites } from '../context/FavouritesContext.jsx';
 import { POINT_SCORE_INDEX, heatSpotKey, splitByReach } from '../utils/heatSpots.js';
 import {
   badgeChannel,
-  BLANKED_STAND_DOWN_SPOKEN,
-  BLANKED_STAND_DOWN_VISIBLE,
+  BLANKED_REASON_WORDS,
   formatRegionMean,
   shortVerdictLabel,
   VERDICT_LABEL,
@@ -1808,9 +1807,15 @@ export default function WindowFirstHeatStrip({
     // triage-fallback verdict, an unrated window, an away cell — is SILENCE in both the face and the
     // sentence: no mean standing behind a word is itself the disclosure that no rating does.
     const regionMean = card.away ? null : formatRegionMean(card.verdictMean);
-    // H4: a STAND_DOWN word over a region the honesty filter blanked is the weather's call, not a
-    // rating. The mean is null there (never both), so the qualifier takes the mean's own slot.
-    const blankedNote = !card.away && card.verdictBlanked === true && !regionMean;
+    // H4 + unscored-reason-card-plan.md: a window nothing was scored in says WHY, in the mean's own slot (the mean
+    // is null there, never both). Away cards print no note. The reason is a served enum looked up in one table.
+    const blankedWords = card.away || regionMean ? null : (BLANKED_REASON_WORDS[card.blankedReason] ?? null);
+    const blankedNote = blankedWords != null;
+    // WCAG 2.5.3: the visible word must sit inside the accessible name. "unsettled" and "fog" already sit inside
+    // their served labels; "too far out" and "run failed" do not, so they are echoed after the label.
+    const blankedSpoken = blankedWords && !blankedWords.spoken.toLowerCase().includes(blankedWords.visible)
+      ? `${blankedWords.spoken}, ${blankedWords.visible}`
+      : blankedWords?.spoken;
     // thin-sample plan F3: `· N rated` on a rated verdict over a thin reach pool. Read off the SAME
     // `facts.spread` the Spread row draws, so "6/83 rated" and "· 6 rated" are one figure.
     // The scope the verdict word is printed with (reach-scoped-card-plan D6): present only while the card wears the
@@ -1851,10 +1856,12 @@ export default function WindowFirstHeatStrip({
     // A control card names its door first ("Open Saturday sunrise on the map", G2a: the card opens the Map), then the
     // same words as before, so the visible time, verdict and pick words stay in the name (WCAG 2.5.3). An away cell
     // is a read-out and keeps the plain label.
-    const accessibleName = [card.away ? card.label : `Open ${card.label} on the map`, card.time, card.verdictLabel]
+    const accessibleName = [card.away ? card.label : `Open ${card.label} on the map`, card.time,
+      // "Not scored" is display:none beside a reason note (index.css), so the note's label stands for it.
+      blankedNote && card.verdict === 'AWAITING' ? null : card.verdictLabel]
       // The scope follows the verdict word directly, in the long form the qualifier speaks.
       .concat(scopeSpoken ? [scopeSpoken] : [])
-      .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
+      .concat(blankedNote ? [blankedSpoken] : [])
       .concat(regionMean ? [`${regionMean} star average`] : [])
       // A scoped `· N rated` has no pool clause to say it for it (the pool may be sound while the region is not),
       // so it is voiced here, as printed.
@@ -1864,7 +1871,12 @@ export default function WindowFirstHeatStrip({
       .filter(Boolean)
       // Shaped, with places and none rated: the Best row's own words ("None of your sub-regions are rated for this
       // sunset yet.") say it, so "not scored" is not said as well. A stood-down window keeps its own wording.
-      .concat(notScored ? [shaped && facts.best && stoodHere.length === 0 ? facts.best.spoken : notScoredWords] : [])
+      // With a reason note present its spoken form is said once above, so the bare "not scored" clause is dropped
+      // where it would repeat it; a stood-places clause describes the PLACES and is kept (both are true).
+      // The shaped Best row's own words ("None of your sub-regions are rated...") stay: they are on screen.
+      .concat(notScored && !(blankedNote && stoodHere.length === 0 && !(shaped && facts.best))
+        ? [shaped && facts.best && stoodHere.length === 0 ? facts.best.spoken : notScoredWords]
+        : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])
       // Big-seas plan F4: the hatch is a picture, so its count is said too (same list the canvas gets).
       .concat(card.away ? [] : stoodPhrase(stoodHere.length))
@@ -2036,9 +2048,10 @@ export default function WindowFirstHeatStrip({
               <span
                 data-testid="wf-heat-blanked"
                 className="wf-hc-mean wf-hc-note"
-                title={BLANKED_STAND_DOWN_SPOKEN}
+                data-reason={card.blankedReason}
+                title={blankedWords.spoken}
               >
-                {BLANKED_STAND_DOWN_VISIBLE}
+                {blankedWords.visible}
               </span>
             )}
           </span>
@@ -2829,7 +2842,7 @@ WindowFirstHeatStrip.propTypes = {
      * tier" line, all of which claim a RATING stands behind the word.
      */
     verdictMean: PropTypes.number,
-    verdictBlanked: PropTypes.bool,
+    blankedReason: PropTypes.oneOf(['STOOD_DOWN', 'FOG', 'NOT_ATTEMPTED', 'FAILED']),
     /**
      * Present only while the card wears the tier's headline (reach-scoped-card-plan R2): the tier the word, mean,
      * confidence and pick are about. Printed as {@link verdictScopeText} under the verdict row and voiced in the

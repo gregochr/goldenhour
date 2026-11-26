@@ -1,6 +1,6 @@
 # The card says why a window was not scored (2026-11-25)
 
-Status: **C1 (backend) built, in review; C2 (frontend) not started.** Owner decisions D1 to D3 were made on
+Status: **C1 (backend) merged (#1959); C2 (frontend) built, in review.** Owner decisions D1 to D3 were made on
 2026-11-25 (§4). Two phases, C1 (backend) then C2 (frontend), one PR each, built by Sonnet under CLAUDE.md's owner
 rule. Revised after one adversarial review (§7).
 
@@ -234,3 +234,14 @@ stability skips for an unsettled *pattern*. Two meanings of one word on adjacent
 | 6 | The spoken words broke the "speak the filter's label" rule; clash with the stood-places channel | §3.3 speaks served labels; C2.4 |
 | 7 | The `triaged` stamp is weaker evidence than the fold | Moot under §3.1 |
 | 8 | Lite: reach-verdicts is Pro/Admin only | C1.5 |
+
+## 8. C2 build notes (2026-11-26)
+
+- **Width measured** (Chromium, IBM Plex Mono, the real value-column widths from `index.css`): "Not scored" 66.2px at
+  11px/600; "too far out" 66px, "run failed" 60px, "unsettled" 54px, "fog" 18px at 10px. Beside "Not scored" the note
+  gets 0.1px at 320, 9px at 640, 27.6px at 375, 15px at docked 1024 (fits only at undocked 1024, 175px). So §6.3's
+  "shorten it" has no answer: nothing shorter fits beside the word. **Change from the plan:** where the word is
+  AWAITING the note replaces "Not scored" (CSS), and alone each note fits at 70.3px and up.
+- **WCAG 2.5.3:** "too far out" and "run failed" are not inside their served labels, so the sentence echoes them after
+  the label ("Not scored at this range, too far out"); the `title` stays the pure label.
+- `verdictBlankedOf` is kept as the legacy fallback only (a body without the field); it no longer decides on its own.

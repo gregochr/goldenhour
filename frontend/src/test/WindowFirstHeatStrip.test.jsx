@@ -4307,30 +4307,104 @@ describe('WindowFirstHeatStrip — a blanked stand-down says the weather called 
   const note = () => screen.queryByTestId('wf-heat-blanked');
 
   it('prints `unsettled` beside "Poor", in the mean\'s own cell, and voices it in the name', async () => {
-    await renderStrip({ cards: [stripCard({ ...POOR, verdictBlanked: true })] });
+    await renderStrip({ cards: [stripCard({ ...POOR, blankedReason: 'STOOD_DOWN' })] });
 
     expect(note()).toHaveTextContent(/^unsettled$/);
-    expect(note()).toHaveAttribute('title', 'too unsettled to forecast');
+    expect(note()).toHaveAttribute('title', 'Too unsettled to forecast');
     const verdict = screen.getByTestId('wf-heat-verdict');
     expect(verdict).toHaveTextContent(/^Poor$/);
     expect(note().parentElement).toBe(verdict.parentElement);
     expect(note()).toHaveClass('wf-hc-mean');
-    expect(screen.getByRole('button', { name: /Poor, too unsettled to forecast/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Poor, Too unsettled to forecast/ })).toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-value-grid')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('prints neither the note nor the clause for a stood-down card WITH slots', async () => {
-    await renderStrip({ cards: [stripCard({ ...POOR, verdictBlanked: false })] });
+    await renderStrip({ cards: [stripCard({ ...POOR, blankedReason: null })] });
 
     expect(note()).toBeNull();
     expect(screen.queryByTestId('wf-heat-mean')).toBeNull();
     expect(screen.getByRole('button', { name: /Poor/ }).getAttribute('aria-labelledby')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Poor/ }).textContent).not.toMatch(/too unsettled/);
+    expect(screen.getByRole('button', { name: /Poor/ }).textContent).not.toMatch(/[Tt]oo unsettled/);
   });
 
   it('prints nothing for a card that never set the field', async () => {
     await renderStrip({ cards: [stripCard({ ...POOR })] });
     expect(note()).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — the card says why a window was not scored (unscored-reason-card C2)', () => {
+  const UNSCORED = {
+    verdict: 'AWAITING', verdictLabel: 'Not scored', verdictMean: null, bestRating: null,
+  };
+  const note = () => screen.queryByTestId('wf-heat-blanked');
+  const sentence = () => document.getElementById(
+    screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby'),
+  ).textContent;
+
+  it.each([
+    ['STOOD_DOWN', 'unsettled', 'Too unsettled to forecast'],
+    ['FOG', 'fog', 'Fog forecast'],
+    ['NOT_ATTEMPTED', 'too far out', 'Not scored at this range'],
+    ['FAILED', 'run failed', 'Forecast unavailable'],
+  ])('%s: prints %s, titles and speaks the served label once, with no duplicate "not scored"', async (
+    reason, visible, spoken,
+  ) => {
+    await renderStrip({ cards: [stripCard({ ...UNSCORED, blankedReason: reason })] });
+
+    expect(note()).toHaveTextContent(new RegExp(`^${visible}$`));
+    expect(note()).toHaveAttribute('data-reason', reason);
+    expect(note()).toHaveAttribute('title', spoken);
+    expect(note()).toHaveClass('wf-hc-mean');
+    expect(sentence()).toContain(spoken);
+    expect(sentence().split(spoken)).toHaveLength(2);
+    // The verdict word "Not scored" is the face's own; the lower-case fallback clause is the duplicate being dropped.
+    expect(sentence()).not.toContain('not scored');
+  });
+
+  it.each(['STOOD_DOWN', 'FOG', 'NOT_ATTEMPTED', 'FAILED'])(
+    'WCAG 2.5.3: the visible word of %s is inside the sentence', async (reason) => {
+      await renderStrip({ cards: [stripCard({ ...UNSCORED, blankedReason: reason })] });
+      expect(sentence().toLowerCase()).toContain(note().textContent);
+    },
+  );
+
+  it.each([['AWAY'], ['UNKNOWN'], [null], [undefined]])('is silent for a %s reason, as before', async (reason) => {
+    await renderStrip({ cards: [stripCard({ ...UNSCORED, blankedReason: reason })] });
+
+    expect(note()).toBeNull();
+    expect(sentence()).toMatch(/not scored/i);
+  });
+
+  it('prints no note on an away cell', async () => {
+    await renderStrip({ cards: [stripCard({ ...UNSCORED, away: true, blankedReason: 'NOT_ATTEMPTED' })] });
+    expect(note()).toBeNull();
+  });
+
+  it('a printed mean suppresses the note', async () => {
+    await renderStrip({
+      cards: [stripCard({
+        verdict: 'MAYBE', verdictLabel: 'Maybe', verdictMean: 3.1, blankedReason: 'NOT_ATTEMPTED',
+      })],
+    });
+    expect(note()).toBeNull();
+    expect(screen.getByTestId('wf-heat-mean')).toBeInTheDocument();
+  });
+
+  it('keeps the stood-places words beside a NOT_ATTEMPTED note: each said once, neither contradicting', async () => {
+    const stood = [{ lat: 55.4, lng: -1.6, reason: 'HIGH_CLOUD', rid: 'Northumberland & Tyneside', key: '#9' }];
+    const card = stripCard({ ...UNSCORED, blankedReason: 'NOT_ATTEMPTED' });
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({ cards: [card], stoodSets: new Map([[card.key, stood]]) });
+    });
+
+    expect(note()).toHaveTextContent('too far out');
+    expect(sentence().split('Not scored at this range')).toHaveLength(2);
+    // The places' own words stay (the hatch describes places, the note describes the window); the bare fallback
+    // clause does not come back beside them.
+    expect(sentence()).toContain('stood down by the weather');
+    expect(sentence()).not.toContain('not scored');
   });
 });
 
@@ -5046,7 +5120,7 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
   it.each([
     ['a rated word', {}],
     ['an UNRATED word', { verdict: 'UNRATED', verdictLabel: 'Too few rated', verdictMean: 3.6 }],
-    ['a blanked stand-down', { verdictMean: null, verdictBlanked: true }],
+    ['a blanked stand-down', { verdictMean: null, blankedReason: 'STOOD_DOWN' }],
     ['a thin rated word', { verdict: 'MAYBE', verdictLabel: 'Maybe', verdictMean: 3.1, scopedThinCount: 3 }],
   ])('WCAG 2.5.3: every visible string of %s is a substring of the spoken sentence', async (_n, overrides) => {
     await renderStrip({ cards: [scopedCard(overrides)] });
