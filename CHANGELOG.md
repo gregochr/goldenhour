@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.42.3] - 2026-11-26
+
+### Changed — Watching shows which month each watched date is in
+
+Watching, the group at the top of Further ahead, now draws the same month rule as the month lists (`DEC 2026 ───`)
+above each month's watched rows, even when everything watched is in one month. The date rail prints days only, so a
+watched tide run read `23–29` with nothing to say which month it was in. A "no longer listed" row sits under the month
+of its own date. Watching's lists are named `Watching, December 2026` so a screen reader never meets two lists with the
+same name. Frontend only; no new data.
+
+### Changed — an unscored window now says why (backend)
+
+The drive-tier cards (`/api/user/settings/reach-verdicts`) now follow the same rule the served briefing uses when a
+region has nothing rated inside the ring. Before, a single stood-down place made a scoped "Poor unsettled" card; now
+the same fold the served path runs (a triage majority, every slot accounted for, a tie going to "not scored at this
+range") runs over the places in reach, so **fewer drive-tier cards say "unsettled" at T+2 and T+3** (some read "not
+scored at this range" instead, and a blank with an unclear record at T+0 to T+2 is plain "not scored"). That is the
+served rule applied on both paths, not a regression. Each window, served and scoped, now also carries `coverageReason`
+and `fog` (omitted when null) naming why it has no rating, chosen by rule rather than by region name; a window a tier
+empties by dropping far, never-attempted regions carries a reason only when they all share the same date-level one.
+The card's wording follows in the frontend phase.
+
+### Fixed — snow state runs every place at its real height
+
+The snow state job no longer sends a place with no recorded height to Open-Meteo as `nan` (the 9 km grid cell's
+own height), which gave valley-floor places such as the Great Langdale ones a fell's snowpack and a false
+"lying" topic. It now looks the height up from Open-Meteo's 90 m elevation model, in chunks of 100, and keeps it
+in memory by place (reused while the place has not moved). A recorded height always wins. A place whose height
+cannot be found, or whose lookup is skipped while Open-Meteo is cooling off, is left out of that run and counted
+as failed; its previous row stays. Nothing is written to `locations`. The Scheduler screen's description of the
+job no longer says nothing reads its figures.
+
 ## [v2.42.2] - 2026-11-25
 
 ### Docs — plan: month rules in Watching
