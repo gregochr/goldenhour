@@ -41,7 +41,7 @@ function isKeyboardFocus(element) {
  *
  * <p><b>The state.</b> {@code hidden} is true while the This week section is scrolled past the lens, and false otherwise
  * (and always false when {@code enabled} is false). It is held false (the lens stays drawn) while KEYBOARD focus is inside
- * the lens, and ends on the blur. A POINTER focus (see {@link isKeyboardFocus}) does not hold it: when the lens hides with
+ * the lens, and ends on the blur (or when focus leaves the lens by any route, including the focused element being removed). A POINTER focus (see {@link isKeyboardFocus}) does not hold it: when the lens hides with
  * one inside, focus moves to {@code getFocusTarget()} (Further ahead's heading) with {@code preventScroll}, so it never
  * sits in an {@code inert} subtree and never falls to {@code <body>}. {@code enabled} is false while the plan-conflict
  * verdict shows: a warning with an action is never hidden.
@@ -80,6 +80,26 @@ export default function useLensPastWeek({ enabled, weekNode, guessHeight, getFoc
   // Adjust-state-while-rendering: with the hook off (a verdict) the latch is cleared, so a stale "past" cannot outlive it.
   if (!enabled && pastWeek) setPastWeek(false);
   const hidden = enabled && pastWeek && !keyboardFocus;
+
+  // The hold is true only while focus is ACTUALLY in the lens. A focused element that is REMOVED (the Reset button after
+  // its press, a verdict action that refocuses a card) fires no blur, so the lens's own onBlur never clears it: while held,
+  // watch the lens's children for removal, and any focus that lands outside it.
+  useEffect(() => {
+    if (!keyboardFocus || !lensNode) return undefined;
+    const release = () => {
+      if (!lensNode.contains(document.activeElement)) setKeyboardFocus(false);
+    };
+    const onFocusIn = (event) => {
+      if (!lensNode.contains(event.target)) setKeyboardFocus(false);
+    };
+    const mutations = typeof MutationObserver === 'undefined' ? null : new MutationObserver(release);
+    mutations?.observe(lensNode, { childList: true, subtree: true });
+    document.addEventListener('focusin', onFocusIn);
+    return () => {
+      mutations?.disconnect();
+      document.removeEventListener('focusin', onFocusIn);
+    };
+  }, [keyboardFocus, lensNode]);
 
   // The lens's own height, which fixes the line. Read on attach and whenever the box changes.
   useLayoutEffect(() => {
@@ -125,6 +145,9 @@ export default function useLensPastWeek({ enabled, weekNode, guessHeight, getFoc
     hidden,
     focusProps: {
       onFocus: (event) => setKeyboardFocus(isKeyboardFocus(event.target)),
+      // A pointer focus followed by keys (arrows, Space on a clicked chip) is keyboard use: the hold is decided on the keys
+      // too, not once at focus time.
+      onKeyDown: () => setKeyboardFocus(true),
       onBlur: (event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setKeyboardFocus(false);
       },

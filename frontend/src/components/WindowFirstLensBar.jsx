@@ -322,6 +322,7 @@ export default function WindowFirstLensBar({
   );
 
   return (
+    <>
     <div
       ref={attachLens}
       data-testid="window-first-lens"
@@ -426,20 +427,22 @@ export default function WindowFirstLensBar({
       </span>
       {isMobile && marks}
       {!isMobile && <GuideLink section="lens" label="How the drive and rating bar works" />}
-      {/* ⚠️ Always mounted, and a direct child of the bar: a `role` added to a node that mounts with
-          its content is not announced, and the verdict appears in response to a chip press right
-          above it. Outside the `isMobile` branch so a resize does not remount it, and never inside
-          `.wf-lens-res`, whose `> span` rule would clip it. The visible line is not a live region —
-          the count changes on every chip press and would be noise. */}
-      <span
-        role="status"
-        aria-live="polite"
-        data-testid="window-first-lens-verdict-status"
-        className="sr-only"
-      >
-        {verdict?.announce ?? ''}
-      </span>
     </div>
+    {/* ⚠️ Always mounted, and a sibling of the bar, OUTSIDE its `inert` subtree: a `role` added to a node that mounts with
+        its content is not announced, and the verdict appears in response to a chip press right
+        above it. Outside the `isMobile` branch so a resize does not remount it, and never inside
+        the lens (the commit that clears `inert` would then also write the text, and the region would enter the tree already
+        holding it: the failure this comment warns about) and never inside `.wf-lens-res`, whose `> span` rule would clip it. The visible line is not a live region —
+        the count changes on every chip press and would be noise. */}
+    <span
+      role="status"
+      aria-live="polite"
+      data-testid="window-first-lens-verdict-status"
+      className="sr-only"
+    >
+      {verdict?.announce ?? ''}
+    </span>
+    </>
   );
 }
 
@@ -470,7 +473,6 @@ WindowFirstLensBar.propTypes = {
   reachMeasured: PropTypes.bool,
   /** Whether the bar has left its resting place — the shell's sentinel answers it (M3). */
   stuck: PropTypes.bool,
-  /** The This week section, which the phone's lens watches to know it has been scrolled past (D6); null until it mounts. */
   /**
    * Whether the lens is past its welcome: This week is behind the reader, so the controls (which gate nothing below it) are
    * not drawn (`visibility: hidden` and `inert`; the sticky slot stays). The shell owns the state (`useLensPastWeek`).

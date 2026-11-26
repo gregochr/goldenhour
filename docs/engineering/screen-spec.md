@@ -143,7 +143,7 @@ The map in 06 and 08 is a stand-in drawing; the real view is today's map. Rating
 |---|---|
 | `01-phone-today.png` | v2.42.0 as it is: ★ for yours, full quiet days, two headings, a long lens summary, light times in the masthead. |
 | `02-phone-spec.png` | This spec: the bookmark mark, the best in the heading, quiet days folded, `6 spots`. The whole week on one screen. |
-| `03-phone-spec-scrolled-lens-collapsed.png` | D6: the one-line lens after scrolling past the week. |
+| `03-phone-spec-scrolled-lens-collapsed.png` | D6 as first specified (superseded by D6 as amended 2026-11-25, §6.6: past the week the lens is not drawn): the one-line lens after scrolling past the week. |
 | `04-phone-quiet-day-opened.png` | D5: a quiet day opened in place. |
 | `05-phone-new-reader-hint.png` | D8: the one-time hint for a reader with nothing saved. |
 | `06-phone-map-view-header-light.png` | D4: the map view header with that window's blue and golden hour. |

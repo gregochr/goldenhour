@@ -1,6 +1,6 @@
 import React, { useCallback, useRef } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, act, within } from '@testing-library/react';
+import { render, screen, act, within, fireEvent } from '@testing-library/react';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
 import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
@@ -359,5 +359,90 @@ describe('focus', () => {
     act(() => chips()[0].focus());
     passWeek();
     expect(lensEl()).not.toHaveClass('wf-lens-away');
+  });
+});
+
+describe('the hold ends when focus is no longer in the lens', () => {
+  beforeEach(() => setMatches(true));
+
+  const ACTION_VERDICT = { ...VERDICT, action: { kind: 'reach', id: 'any', label: 'Widen the drive' } };
+
+  it('the Reset button removed while keyboard-focused (a press) does not leave the lens drawn past This week', async () => {
+    render(<Host />);
+    // A non-default tier makes the "Back to" reset button appear.
+    const tiers = chips();
+    fireEvent.click(tiers[tiers.length - 1]);
+    const reset = screen.getByTestId('window-first-lens-reset');
+    act(() => reset.focus());
+    passWeek();
+    expect(lensEl()).not.toHaveClass('wf-lens-away');
+    // The press removes the focused button: no blur fires, and the hold must still end.
+    await act(async () => { fireEvent.click(reset); });
+    expect(screen.queryByTestId('window-first-lens-reset')).toBeNull();
+    expect(lensEl()).toHaveClass('wf-lens-away');
+  });
+
+  it('a verdict action that ends the verdict and refocuses a card elsewhere lets the lens hide past This week', async () => {
+    const card = document.createElement('button');
+    document.body.appendChild(card);
+    const { rerender } = render(<Host verdict={ACTION_VERDICT} />);
+    act(() => screen.getByTestId('window-first-lens-verdict-act').focus());
+    // The verdict goes (the action loosened the lens), taking its button; the shell refocuses a card.
+    await act(async () => { rerender(<Host />); });
+    passWeek();
+    act(() => card.focus());
+    expect(lensEl()).toHaveClass('wf-lens-away');
+    card.remove();
+  });
+
+  it('the removed verdict button alone (focus on <body>) does not hold the lens either', async () => {
+    const { rerender } = render(<Host verdict={ACTION_VERDICT} />);
+    act(() => screen.getByTestId('window-first-lens-verdict-act').focus());
+    await act(async () => { rerender(<Host />); });
+    passWeek();
+    expect(lensEl()).toHaveClass('wf-lens-away');
+  });
+
+  it('a focus that lands outside the lens ends the hold even though no blur reached it', () => {
+    render(<Host />);
+    act(() => chips()[0].focus());
+    passWeek();
+    expect(lensEl()).not.toHaveClass('wf-lens-away');
+    const other = document.createElement('button');
+    document.body.appendChild(other);
+    act(() => other.focus());
+    expect(lensEl()).toHaveClass('wf-lens-away');
+    other.remove();
+  });
+
+  it('a pointer-focused chip then driven by keys (arrows, Space) holds the lens drawn', () => {
+    keyboardFocus = false;
+    render(<Host />);
+    act(() => chips()[0].focus());
+    fireEvent.keyDown(chips()[0], { key: 'ArrowRight' });
+    passWeek();
+    expect(lensEl()).not.toHaveClass('wf-lens-away');
+    act(() => chips()[0].blur());
+    expect(lensEl()).toHaveClass('wf-lens-away');
+  });
+});
+
+describe('the verdict announcement', () => {
+  beforeEach(() => setMatches(true));
+
+  it('the live region is mounted before its text and is never inside the inert subtree', () => {
+    const { rerender } = render(<Host />);
+    passWeek();
+    expect(lensEl()).toHaveAttribute('inert');
+    const status = screen.getByTestId('window-first-lens-verdict-status');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveTextContent('');
+    expect(status.closest('[inert]')).toBeNull();
+    expect(lensEl().contains(status)).toBe(false);
+    // The same node then receives the text: it was in the tree (not inert) before the verdict arrived.
+    rerender(<Host verdict={VERDICT} />);
+    expect(screen.getByTestId('window-first-lens-verdict-status')).toBe(status);
+    expect(status).toHaveTextContent('Clash. Nothing fits');
+    expect(status.closest('[inert]')).toBeNull();
   });
 });

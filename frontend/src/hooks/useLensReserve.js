@@ -67,7 +67,7 @@ const RING_ALLOWANCE = 6;
  *
  * <p>The caller passes {@code hidden} as "no verdict is holding the lens drawn", not the lens's visibility at this instant:
  * the Further ahead jump scrolls with margins read BEFORE the lens flips, so they must already exclude it.
- * *
+ *
  * <h2>⚠️ `--wf-mast-h` IS GONE, AND RE-ADDING IT IS A DELIBERATE PHASE</h2>
  *
  * <p>This hook also measured the masthead and published its height, because M3 gave `.wf-mast` a

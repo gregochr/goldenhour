@@ -169,6 +169,9 @@ for (const W of [360, 375, 390]) {
       await settle(page);
       await expect(page.getByTestId('window-first-lens')).toHaveCSS('visibility', 'hidden');
       // `focusSectionHeading(THIS_WEEK_HEADING_ID)`'s move, made directly: scroll the section to the top and focus its heading.
+      // The only door that calls it is a Further ahead entry's "plan" action (`goToPlan`), which exists only for entries
+      // that carry one, and the seeded almanac is not guaranteed to hold one. (The masthead and the strip never call it.)
+      // What is under test is the CSS landing (`scroll-margin-top` reading the shared full-lens variables), which is the same.
       await page.evaluate(() => {
         const heading = document.getElementById('wf-this-week-h');
         heading.closest('section').scrollIntoView({ block: 'start' });

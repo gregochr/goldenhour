@@ -357,7 +357,8 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(screen.queryByTestId('window-first-conflict')).toBeNull();
     const status = screen.getByTestId('window-first-lens-verdict-status');
     expect(status).toBeEmptyDOMElement();
-    expect(screen.getByTestId('window-first-lens')).toContainElement(status);
+    // A sibling of the lens, outside its `inert` subtree (so a verdict arriving past This week is announced).
+    expect(screen.getByTestId('window-first-lens').nextElementSibling).toBe(status);
     expect(screen.getByTestId('window-first-lens-readout')).not.toHaveAttribute('data-variant', 'verdict');
   });
 
