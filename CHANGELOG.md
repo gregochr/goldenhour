@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.42.4] - 2026-11-26
+
+### Changed — the card says why a window was not scored
+
+The This week card now words an unscored window by the reason the server serves (`coverageReason`, with `fog`), in
+the quiet slot beside the verdict: "unsettled" for a weather stand-down (unchanged), "fog" over a fog forecast, "too
+far out" where the forecast does not reach that range, and "run failed" where the run failed. An unclear record or a
+travel day stays silent, as before. The same words are the card's `title` and spoken sentence, taken from the labels
+the region rail already shows ("Too unsettled to forecast", "Fog forecast", "Not scored at this range", "Forecast
+unavailable"), so the card and the rail cannot differ. Where the word beside the note would have been "Not scored",
+the note replaces it: the two together are 136px against a 70 to 175px value column, so the note would have
+collapsed to nothing at every phone width. The reason is read from the window the card wears (the tier window while a
+drive tier is selected, else the served window), never worked out on the client, and a payload without the field keeps
+today's behaviour.
+
+### Changed — the Drive and Rated bar belongs to This week
+
+The drive tier and the rating floor gate only This week (the cards, the heatmap and the count), so once you scroll
+past it into Further ahead the bar is no longer drawn, at every width, and it comes back the moment This week does.
+It replaces the phone's one-line collapse, which still spent about 36px on every Further ahead screen for a control
+that did nothing there. The bar is hidden with `visibility` rather than removed, so it keeps its place and the page does
+not jump, and Further ahead's heading bar now sticks at the very top (so the Further ahead jump lands with no
+lens-sized gap above it). The bar stays drawn under keyboard focus and while a plan-conflict warning shows; a tapped
+chip no longer holds it, and focus moves to the Further ahead heading. The summary button, the spacer and the lens's
+body wrapper are gone, and the guide's folded-bar paragraph and screenshot are replaced.
+
+### Fixed — the cloud verification backfill no longer spends Open-Meteo's whole archive allowance
+
+The hourly cloud verification job was using up Open-Meteo's free archive allowance (10,000 calls a day, one per coordinate) and then failing every hour until it reset, which put about twenty red rows a day in Operations' "Needs a look". Every forecast evaluation of the same sunrise or sunset asks the archive for the same five points, about 5.4 times over, so the job now fetches each distinct point once and orders its work so an event's evaluations are handled together, and a tick stops after 2,500 calls instead of after a fixed number of batches. When Open-Meteo does say the daily or hourly allowance is spent, the job stops asking, keeps what it has verified, and reports "paused: Open-Meteo archive allowance used up; resumes when it resets" as skipped or partial rather than failed; a batch that comes back empty for any other reason is still a failure. Forecasts are unaffected: they use a separate Open-Meteo allowance.
+
 ## [v2.42.3] - 2026-11-26
 
 ### Changed — Watching shows which month each watched date is in
