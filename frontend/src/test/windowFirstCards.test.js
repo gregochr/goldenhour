@@ -1366,6 +1366,23 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
       expect(card.blankedReason).toBe('NOT_ATTEMPTED');
     });
 
+    it('an origin-scoped RATED region with no reason never borrows the served window\'s reason', () => {
+      const [card] = buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'Rated', displayVerdict: 'WORTH_IT', slots: [{ locationName: 'X', canopy: false }], meanRating: 4,
+          }],
+          unregioned: [],
+          window: { verdict: 'AWAITING', badges: [], coverageReason: 'NOT_ATTEMPTED' },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Rated' } },
+      );
+      expect(card.blankedReason).toBeNull();
+    });
+
     it('reads the origin region\'s own reason when the page is scoped to a region', () => {
       const [card] = buildWindowCards(
         events([TODAY, 'SUNSET']),

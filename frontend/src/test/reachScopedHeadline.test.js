@@ -201,6 +201,16 @@ describe('buildWindowCards — the reach-scoped headline', () => {
     expect(withServed({ reachVerdicts: null }).blankedReason).toBe('FAILED');
   });
 
+  it('a tier window with no reason and blanked:false never borrows the served window\'s reason', () => {
+    const served = days();
+    served[0].eventSummaries[0].window = { verdict: 'AWAITING', badges: [], coverageReason: 'FAILED' };
+    const card = buildWindowCards(EV, served, TODAY, TOMORROW, new Set(), REACH, {
+      limitMinutes: 45, defaultLimitMinutes: 45, reachMeasured: true,
+      reachVerdicts: { 45: [entry({ blanked: false })] },
+    }, false)[0];
+    expect(card.blankedReason).toBeNull();
+  });
+
   it('prints a blanked qualifier the server reports, and a thin count only from the server', () => {
     const blanked = cardWith({ reachVerdicts: { 45: [entry({ blanked: true, meanRating: null })] } });
     expect(blanked.blankedReason).toBe('STOOD_DOWN');

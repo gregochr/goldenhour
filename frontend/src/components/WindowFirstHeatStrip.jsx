@@ -1856,7 +1856,9 @@ export default function WindowFirstHeatStrip({
     // A control card names its door first ("Open Saturday sunrise on the map", G2a: the card opens the Map), then the
     // same words as before, so the visible time, verdict and pick words stay in the name (WCAG 2.5.3). An away cell
     // is a read-out and keeps the plain label.
-    const accessibleName = [card.away ? card.label : `Open ${card.label} on the map`, card.time, card.verdictLabel]
+    const accessibleName = [card.away ? card.label : `Open ${card.label} on the map`, card.time,
+      // "Not scored" is display:none beside a reason note (index.css), so the note's label stands for it.
+      blankedNote && card.verdict === 'AWAITING' ? null : card.verdictLabel]
       // The scope follows the verdict word directly, in the long form the qualifier speaks.
       .concat(scopeSpoken ? [scopeSpoken] : [])
       .concat(blankedNote ? [blankedSpoken] : [])
@@ -1871,7 +1873,8 @@ export default function WindowFirstHeatStrip({
       // sunset yet.") say it, so "not scored" is not said as well. A stood-down window keeps its own wording.
       // With a reason note present its spoken form is said once above, so the bare "not scored" clause is dropped
       // where it would repeat it; a stood-places clause describes the PLACES and is kept (both are true).
-      .concat(notScored && !(blankedNote && stoodHere.length === 0)
+      // The shaped Best row's own words ("None of your sub-regions are rated...") stay: they are on screen.
+      .concat(notScored && !(blankedNote && stoodHere.length === 0 && !(shaped && facts.best))
         ? [shaped && facts.best && stoodHere.length === 0 ? facts.best.spoken : notScoredWords]
         : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])

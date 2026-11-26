@@ -2515,7 +2515,8 @@ button.wf-wlane:focus-visible {
    Measured in Chromium, IBM Plex Mono: "Not scored" is 66.2px at 11px/600, "too far out" 66px and "run failed" 60px at
    10px, so beside the word they need 136px and the value column is 70.3 (320), 79.3 (640), 97.8 (375), 85.3 (docked
    1024) and 175.3 (undocked): the note collapsed to 0-28px, i.e. invisible, below 175px. Alone, each fits at every
-   width measured (66px is under 70.3px). "Not scored" stays in the spoken sentence and the element stays in the DOM. */
+   width measured (66px is under 70.3px). "Not scored" stays in the spoken sentence and the element stays in the DOM. Without :has() (Firefox before 121) the rule is ignored and the card degrades to the old
+   layout (word beside a clipped note); the sentence is the same either way. */
 .wf-hc-pv:has(.wf-hc-note) .wf-hc-vd[data-verdict="AWAITING"] { display: none; }
 /* The thin-sample count beside the verdict (thin-sample plan F3): separator ink-3 400, count ink 500,
    solid colours, no opacity. ONE LINE or NOT AT ALL. The value column is 70-175px (see `.wf-hc-mean`)
