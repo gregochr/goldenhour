@@ -318,6 +318,7 @@ filter keeps dropping every place without a drive: a deliberate exception until 
 **The reach-scoped headline (reach-scoped-card-plan R2, D4).** Under a finite tier the card's verdict word, its mean, the haze
 confidence, the `unsettled` note, the `· N rated` count and the BEST BET / ALSO GOOD pick are the server's recomputation over
 the places inside the tier, not the roster-wide figures. `GET /api/user/settings/reach-verdicts[?origin=]`
+**Why a window is unscored (C1, 2026-11-25; the card words it in C2):** a region a tier leaves with no rated place is blanked by the served rule (`BriefingHonestyFilter.blankedForReach` over each slot's `disposition` stamp, same `CoverageReasons.of`/`fogMajority`), so fewer drive-tier cards say "unsettled" at T+2/T+3 (a triage minority is `NOT_ATTEMPTED`, not a stand-down). Each window (`BriefingWindow` and `ReachVerdictResponse.Window`) carries `coverageReason` and `fog` from the blanked region whose word it wears; a window the tier empties by dropping served-blanked regions carries one only if all share `NOT_ATTEMPTED`/`AWAY`.
 (`ReachVerdictService`) prunes the memoised served briefing (`getCachedBriefingForApi`; never a rating store) to the places in
 reach (MEASURED within the tier, or PENDING; UNROUTABLE and a null location id out), re-runs the rollup's per-region arithmetic
 (`BriefingRegionEvaluationRollup.rerollRegion`, the block extracted from `enrich`) and the projector's ranking, verdict and

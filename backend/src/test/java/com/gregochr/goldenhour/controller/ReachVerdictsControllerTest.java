@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.Confidence;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.ReachVerdictResponse;
 import org.junit.jupiter.api.DisplayName;
@@ -41,12 +42,12 @@ class ReachVerdictsControllerTest extends AbstractControllerTest {
                 "Northumberland", false, null,
                 new BriefingWindow.Pick(BriefingWindow.PickKind.BEST, "Northumberland", "Fiery", null, 4.0,
                         "Bamburgh", 7L),
-                "Northumberland",
+                "Northumberland", null, null,
                 List.of(new ReachVerdictResponse.RegionVerdict("Northumberland", DisplayVerdict.WORTH_IT, 4.0),
                         new ReachVerdictResponse.RegionVerdict("Lakes", DisplayVerdict.STAND_DOWN, null)));
         ReachVerdictResponse.Window poor = new ReachVerdictResponse.Window(
                 LocalDate.of(2026, 10, 1), TargetType.SUNSET, DisplayVerdict.AWAITING, null, null, null,
-                null, false, 3, null, null, List.of());
+                null, false, 3, null, null, CoverageReason.NOT_ATTEMPTED, null, List.of());
         return new ReachVerdictResponse(true, "abc123", Map.of("45", List.of(window), "90", List.of(window, poor),
                 "150", List.of(window)));
     }
@@ -87,6 +88,10 @@ class ReachVerdictsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.tiers['45'][0].regions[1].meanRating").doesNotExist())
                 .andExpect(jsonPath("$.tiers['90'][1].meanRating").doesNotExist())
                 .andExpect(jsonPath("$.tiers['90'][1].thinCount").value(3))
+                .andExpect(jsonPath("$.tiers['90'][1].coverageReason").value("NOT_ATTEMPTED"))
+                .andExpect(jsonPath("$.tiers['90'][1].fog").doesNotExist())
+                .andExpect(jsonPath("$.tiers['45'][0].coverageReason").doesNotExist())
+                .andExpect(jsonPath("$.tiers['45'][0].fog").doesNotExist())
                 .andExpect(jsonPath("$.tiers['90'][1].pick").doesNotExist())
                 .andExpect(jsonPath("$.tiers['90'][1].pickRegion").doesNotExist())
                 .andExpect(jsonPath("$.tiers['90'][1].regions.length()").value(0));

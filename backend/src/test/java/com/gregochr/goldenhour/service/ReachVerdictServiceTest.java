@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -10,6 +11,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.Confidence;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.DriveStatus;
@@ -17,6 +19,7 @@ import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.ReachEntry;
 import com.gregochr.goldenhour.model.ReachVerdictResponse;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.service.EvaluationViewService.LatestDisposition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -87,7 +90,7 @@ class ReachVerdictServiceTest {
         clock = Clock.fixed(TODAY.atStartOfDay(LONDON).toInstant(), LONDON);
         rollup = new BriefingRegionEvaluationRollup(clock);
         service = new ReachVerdictService(briefingService, rollup, reachService, regionService,
-                regionDriveDurationService, locationService);
+                regionDriveDurationService, locationService, clock);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -295,6 +298,8 @@ class ReachVerdictServiceTest {
         ReachVerdictResponse.Window at45 = window(response, 45, TODAY, TargetType.SUNRISE);
         assertThat(at45.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
         assertThat(at45.meanRating()).isEqualTo(2.0);
+        assertThat(at45.coverageReason()).as("a rated window has no reason").isNull();
+        assertThat(at45.fog()).isNull();
         assertThat(at45.regions()).extracting(ReachVerdictResponse.RegionVerdict::regionName)
                 .containsExactly(LAKES);
         assertThat(at45.regions().getFirst().meanRating()).isEqualTo(2.0);
@@ -757,10 +762,14 @@ class ReachVerdictServiceTest {
         assertThat(window(response, 150, TODAY, TargetType.SUNRISE).topRegionName()).isEqualTo("Near");
     }
 
-    private ReachVerdictResponse.Window emptiedSample(Set<String> triaged) {
+    private ReachVerdictResponse.Window emptiedSample(LatestDisposition inReachDisposition) {
         Map<String, BriefingEvaluationResult> results = new HashMap<>();
         results.put("Place 601", rating(601, 4));
-        DailyBriefingResponse served = servedOf(List.of(rawRegion("Mixed", slots(601, 3))), results, triaged);
+        Map<String, LatestDisposition> dispositions = new HashMap<>();
+        dispositions.put("Place 602", inReachDisposition);
+        dispositions.put("Place 603", inReachDisposition);
+        DailyBriefingResponse served = servedOn(TODAY, List.of(rawRegion("Mixed", slots(601, 3))), results,
+                dispositions);
         List<ReachEntry> entries = List.of(new ReachEntry(601L, 100, 30, DriveStatus.MEASURED),
                 new ReachEntry(602L, 20, 5, DriveStatus.MEASURED), new ReachEntry(603L, 20, 5, DriveStatus.MEASURED));
         home(served, entries);
@@ -771,7 +780,7 @@ class ReachVerdictServiceTest {
     @DisplayName("honesty, stood-down arm: the tier leaves only places the weather really stood down - STAND_DOWN, "
             + "blanked, no mean")
     void emptiedSampleStoodDown() {
-        ReachVerdictResponse.Window window = emptiedSample(Set.of("Place 602"));
+        ReachVerdictResponse.Window window = emptiedSample(TRIAGED);
 
         assertThat(window.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
         assertThat(window.blanked()).isTrue();
@@ -782,10 +791,257 @@ class ReachVerdictServiceTest {
     @Test
     @DisplayName("honesty, not-attempted arm: places simply not scored read AWAITING, never 'Stand down'")
     void emptiedSampleNotAttempted() {
-        ReachVerdictResponse.Window window = emptiedSample(Set.of());
+        ReachVerdictResponse.Window window = emptiedSample(STABILITY);
 
         assertThat(window.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
         assertThat(window.blanked()).isFalse();
         assertThat(window.meanRating()).isNull();
+        assertThat(window.coverageReason()).isEqualTo(CoverageReason.NOT_ATTEMPTED);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Unscored-reason card, C1 (docs/engineering/unscored-reason-card-plan.md): one fold, a reason on the window
+    // ---------------------------------------------------------------------------------------------
+
+    private static final LocalDate SATURDAY = TODAY.plusDays(3);
+    private static final LatestDisposition TRIAGED = new LatestDisposition(DispositionCategory.SKIPPED_TRIAGED, false);
+    private static final LatestDisposition FOG_TRIAGED =
+            new LatestDisposition(DispositionCategory.SKIPPED_TRIAGED, false, true);
+    private static final LatestDisposition STABILITY =
+            new LatestDisposition(DispositionCategory.SKIPPED_STABILITY, false);
+
+    /** A region the served honesty filter blanked: no slots, AWAITING or STAND_DOWN, and the reason it carries. */
+    private static BriefingRegion servedBlanked(String name, CoverageReason reason) {
+        DisplayVerdict verdict = reason == CoverageReason.STOOD_DOWN ? DisplayVerdict.STAND_DOWN
+                : DisplayVerdict.AWAITING;
+        return new BriefingRegion(name, Verdict.STANDDOWN, "s", List.of(), List.of(), null, null, null, null, null,
+                "detail", verdict, 0, "label", null, null, null, null, null, null, reason);
+    }
+
+    /** A served briefing of one window on {@code date}, its slots stamped with {@code dispositions} by place name. */
+    private DailyBriefingResponse servedOn(LocalDate date, List<BriefingRegion> regions,
+            Map<String, BriefingEvaluationResult> results, Map<String, LatestDisposition> dispositions) {
+        List<BriefingDay> days = List.of(new BriefingDay(date, List.of(
+                new BriefingEventSummary(TargetType.SUNRISE, regions, List.of()))));
+        List<BriefingDay> enriched = rollup.enrich(days, (regionName, d, targetType) -> results);
+        List<BriefingDay> stamped = new ArrayList<>();
+        for (BriefingDay day : enriched) {
+            List<BriefingEventSummary> events = new ArrayList<>();
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                List<BriefingRegion> stampedRegions = new ArrayList<>();
+                for (BriefingRegion region : es.regions()) {
+                    // enrich re-rolls a blanked region; the served one keeps its filter-written reason.
+                    BriefingRegion original = regions.stream()
+                            .filter(r -> r.regionName().equals(region.regionName())).findFirst().orElseThrow();
+                    if (original.slots().isEmpty()) {
+                        stampedRegions.add(original);
+                        continue;
+                    }
+                    stampedRegions.add(region.withSlots(region.slots().stream()
+                            .map(slot -> slot.withDisposition(dispositions.get(slot.locationName()))).toList()));
+                }
+                events.add(es.withRegions(stampedRegions));
+            }
+            stamped.add(day.withEventSummaries(events));
+        }
+        DailyBriefingResponse base = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 1, 0, 0), "h", stamped,
+                null, null, false, List.of(), List.of(), null, null, null, null, null);
+        return PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0), TODAY, Map.of(), Map.of())
+                .withBriefingVersion(VERSION);
+    }
+
+    private static List<ReachEntry> measuredNear(long firstId, int count, int minutes) {
+        List<ReachEntry> entries = new ArrayList<>();
+        for (long id = firstId; id < firstId + count; id++) {
+            entries.add(new ReachEntry(id, minutes, 5, DriveStatus.MEASURED));
+        }
+        return entries;
+    }
+
+    @Test
+    @DisplayName("the Sat-sunset shape: 1 of 4 in-reach places triaged at T+3, the rest stability - AWAITING + "
+            + "NOT_ATTEMPTED, not a scoped 'unsettled'")
+    void satSunsetShapeIsNotAttempted() {
+        Map<String, LatestDisposition> dispositions = new HashMap<>();
+        dispositions.put("Place 801", TRIAGED);
+        for (long id = 802; id <= 806; id++) {
+            dispositions.put("Place " + id, STABILITY);
+        }
+        DailyBriefingResponse served = servedOn(SATURDAY, List.of(rawRegion("Mixed", slots(801, 6))), Map.of(),
+                dispositions);
+        List<ReachEntry> entries = new ArrayList<>(measuredNear(801, 4, 20));
+        entries.addAll(measuredNear(805, 2, 100));
+        home(served, entries);
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, null), 45, SATURDAY, TargetType.SUNRISE);
+
+        assertThat(card.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(card.blanked()).isFalse();
+        assertThat(card.coverageReason()).isEqualTo(CoverageReason.NOT_ATTEMPTED);
+        assertThat(card.fog()).isNull();
+        assertThat(card.topRegionName()).isEqualTo("Mixed");
+    }
+
+    @Test
+    @DisplayName("a triage majority of the in-reach places is a stand-down, and a fog majority carries fog")
+    void fogMajorityCarriesFogOnTheWindow() {
+        Map<String, LatestDisposition> dispositions = new HashMap<>();
+        dispositions.put("Place 811", FOG_TRIAGED);
+        dispositions.put("Place 812", FOG_TRIAGED);
+        dispositions.put("Place 813", TRIAGED);
+        dispositions.put("Place 814", STABILITY);
+        DailyBriefingResponse served = servedOn(TODAY.plusDays(2), List.of(rawRegion("Misty", slots(811, 4))),
+                Map.of(), dispositions);
+        List<ReachEntry> fogEntries = new ArrayList<>(measuredNear(811, 3, 20));
+        fogEntries.addAll(measuredNear(814, 1, 100));
+        home(served, fogEntries);
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, null), 45, TODAY.plusDays(2),
+                TargetType.SUNRISE);
+
+        assertThat(card.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(card.blanked()).isTrue();
+        assertThat(card.coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(card.fog()).isTrue();
+    }
+
+    @Test
+    @DisplayName("the Sat-sunrise shape: every region served-blanked NOT_ATTEMPTED, so the tier empties the window "
+            + "and it still says why")
+    void satSunriseShapeCarriesTheUniformReason() {
+        DailyBriefingResponse served = servedOn(SATURDAY, List.of(servedBlanked("A", CoverageReason.NOT_ATTEMPTED),
+                servedBlanked("B", CoverageReason.NOT_ATTEMPTED)), Map.of(), Map.of());
+        home(served, measuredNear(1, 1, 10));
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, null), 45, SATURDAY, TargetType.SUNRISE);
+
+        assertThat(card.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(card.topRegionName()).isNull();
+        assertThat(card.coverageReason()).isEqualTo(CoverageReason.NOT_ATTEMPTED);
+        assertThat(card.fog()).isNull();
+    }
+
+    @Test
+    @DisplayName("every dropped region AWAY is a date-level fact too: the emptied window says AWAY")
+    void uniformAwayIsCarried() {
+        DailyBriefingResponse served = servedOn(SATURDAY, List.of(servedBlanked("A", CoverageReason.AWAY)),
+                Map.of(), Map.of());
+        home(served, measuredNear(1, 1, 10));
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, null), 45, SATURDAY, TargetType.SUNRISE);
+
+        assertThat(card.coverageReason()).isEqualTo(CoverageReason.AWAY);
+    }
+
+    @Test
+    @DisplayName("a mixed dropped set (one stood down, one not attempted) is silent: reason null")
+    void mixedDroppedSetIsSilent() {
+        DailyBriefingResponse served = servedOn(SATURDAY, List.of(servedBlanked("A", CoverageReason.STOOD_DOWN),
+                servedBlanked("B", CoverageReason.NOT_ATTEMPTED)), Map.of(), Map.of());
+        home(served, measuredNear(1, 1, 10));
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, null), 45, SATURDAY, TargetType.SUNRISE);
+
+        assertThat(card.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(card.coverageReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("a uniform stand-down, failure or unknown among the dropped is silent: a far region's weather "
+            + "never speaks for the ring")
+    void uniformNonDateLevelReasonsAreSilent() {
+        DailyBriefingResponse standDown = servedOn(SATURDAY, List.of(servedBlanked("A", CoverageReason.STOOD_DOWN)),
+                Map.of(), Map.of());
+        home(standDown, measuredNear(1, 1, 10));
+        assertThat(window(service.compute(auth, null), 45, SATURDAY, TargetType.SUNRISE).coverageReason()).isNull();
+
+        DailyBriefingResponse failed = servedOn(SATURDAY, List.of(servedBlanked("A", CoverageReason.FAILED)),
+                Map.of(), Map.of());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(failed);
+        assertThat(window(service.compute(auth, null), 45, SATURDAY, TargetType.SUNRISE).coverageReason()).isNull();
+
+        DailyBriefingResponse unknown = servedOn(SATURDAY, List.of(servedBlanked("A", CoverageReason.UNKNOWN)),
+                Map.of(), Map.of());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(unknown);
+        assertThat(window(service.compute(auth, null), 45, SATURDAY, TargetType.SUNRISE).coverageReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("a blanked NOT_ATTEMPTED region dropped beside a rated region merely out of reach is silent: the "
+            + "ring is empty for a reason that is not the date")
+    void outOfReachRegionKeepsTheEmptiedWindowSilent() {
+        Map<String, BriefingEvaluationResult> results = new HashMap<>();
+        for (long id = 901; id <= 906; id++) {
+            results.put("Place " + id, rating(id, 3));
+        }
+        DailyBriefingResponse served = servedOn(SATURDAY, List.of(servedBlanked("A", CoverageReason.NOT_ATTEMPTED),
+                rawRegion("Far", slots(901, 6))), results, Map.of());
+        home(served, measuredNear(901, 6, 100));
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, null), 45, SATURDAY, TargetType.SUNRISE);
+
+        assertThat(card.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(card.coverageReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("a dropped blanked region with no reason on a legacy payload is silent")
+    void droppedRegionWithoutAReasonIsSilent() {
+        DailyBriefingResponse served = servedOn(SATURDAY, List.of(servedBlanked("A", null)), Map.of(), Map.of());
+        home(served, measuredNear(1, 1, 10));
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, null), 45, SATURDAY, TargetType.SUNRISE);
+
+        assertThat(card.coverageReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("away: the origin region served-blanked NOT_ATTEMPTED keeps its reason on the card")
+    void awayKeepsTheOriginRegionsReason() {
+        DailyBriefingResponse served = servedOn(SATURDAY, List.of(servedBlanked(LAKES, CoverageReason.NOT_ATTEMPTED),
+                rawRegion("Near", slots(701, 2))), Map.of(), Map.of());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(served);
+        awayOrigin(LAKES);
+        Map<Long, Integer> row = new HashMap<>();
+        row.put(701L, 20);
+        when(regionDriveDurationService.getMatrix()).thenReturn(Map.of(LAKES_BASE_REGION_ID, row));
+        when(locationService.findAllEnabled()).thenReturn(List.of(LocationEntity.builder().id(701L).name("Place 701")
+                .driveTargetChangedAt(LocalDateTime.of(2026, 1, 1, 0, 0)).build()));
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, LAKES_BASE_REGION_ID), 45, SATURDAY,
+                TargetType.SUNRISE);
+
+        assertThat(card.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(card.coverageReason()).isEqualTo(CoverageReason.NOT_ATTEMPTED);
+    }
+
+    @Test
+    @DisplayName("away: an origin region left unrated by the tier is worded by the same fold, over its in-reach places")
+    void awayOriginBlankedForReachCarriesItsReason() {
+        Map<String, LatestDisposition> dispositions = new HashMap<>();
+        dispositions.put("Place 721", STABILITY);
+        dispositions.put("Place 722", STABILITY);
+        dispositions.put("Place 723", TRIAGED);
+        DailyBriefingResponse served = servedOn(SATURDAY, List.of(rawRegion(LAKES, slots(721, 3))), Map.of(),
+                dispositions);
+        when(briefingService.getCachedBriefingForApi()).thenReturn(served);
+        awayOrigin(LAKES);
+        Map<Long, Integer> row = new HashMap<>();
+        row.put(721L, 20);
+        row.put(722L, 20);
+        row.put(723L, 100);
+        when(regionDriveDurationService.getMatrix()).thenReturn(Map.of(LAKES_BASE_REGION_ID, row));
+        List<LocationEntity> places = new ArrayList<>();
+        for (long id = 721; id <= 723; id++) {
+            places.add(LocationEntity.builder().id(id).name("Place " + id)
+                    .driveTargetChangedAt(LocalDateTime.of(2026, 1, 1, 0, 0)).build());
+        }
+        when(locationService.findAllEnabled()).thenReturn(places);
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, LAKES_BASE_REGION_ID), 45, SATURDAY,
+                TargetType.SUNRISE);
+
+        assertThat(card.coverageReason()).isEqualTo(CoverageReason.NOT_ATTEMPTED);
+        assertThat(card.topRegionName()).isEqualTo(LAKES);
     }
 }

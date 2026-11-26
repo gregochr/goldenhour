@@ -1,8 +1,8 @@
 # The card says why a window was not scored (2026-11-25)
 
-Status: **planned, not built.** The owner has queued it behind other work. Two phases, C1 (backend) then C2
-(frontend), one PR each, built by Sonnet under CLAUDE.md's owner rule. Revised after one adversarial review
-(§7).
+Status: **C1 (backend) built, in review; C2 (frontend) not started.** Owner decisions D1 to D3 were made on
+2026-11-25 (§4). Two phases, C1 (backend) then C2 (frontend), one PR each, built by Sonnet under CLAUDE.md's owner
+rule. Revised after one adversarial review (§7).
 
 ## 1. What prompted it
 
@@ -130,14 +130,17 @@ inside the backend-heavy licence. The visible form goes in the mean's slot (the 
 `AWAY` never reaches a card face (away days get no card). Do not use "unsettled" for `NOT_ATTEMPTED`, even though
 stability skips for an unsettled *pattern*. Two meanings of one word on adjacent cards is the confusion being fixed.
 
-## 4. Owner decisions (confirm before C1 starts)
+## 4. Owner decisions (decided by the owner on 2026-11-25)
 
 - **D1, a window emptied at a tier.** Carry a uniform `NOT_ATTEMPTED`/`AWAY` reason, and stay silent otherwise
-  (§3.2). *Recommended.* The alternative is silence always, which leaves Sat sunrise exactly as it is.
-- **D2, the visible words** in §3.3. "too far out" and "run failed" are the proposals; width is measured in C2.
+  (§3.2). **Decided: yes**, a window emptied at a drive tier carries a reason only when every dropped region shares
+  `NOT_ATTEMPTED` or `AWAY`; otherwise no reason. The alternative, silence always, would leave Sat sunrise as it is.
+- **D2, the visible words** in §3.3. **Decided: the proposed words** ("too far out", "run failed"); width is
+  measured in C2 (frontend), so C1 only serves the enum.
 - **D3, the change in what cards say.** Under §3.1, fewer drive-tier cards say "Poor unsettled" at T+2/T+3.
   Some say "too far out", and a T+0–T+2 blank with an unclear record says plain "Not scored". That is the served rule
-  applied on both paths, not a regression. The changelog says so.
+  applied on both paths, not a regression. The changelog says so. **Decided: accepted** (fewer drive-tier
+  "unsettled" cards is intended).
 
 ## 5. C1: backend (one PR)
 

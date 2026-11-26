@@ -437,9 +437,41 @@ class ServedBriefingAssembler {
         Map<String, Set<String>> triagedIndex = serveTriage.triagedByKey();
         TriagedByBatchResolver triagedResolver = (regionName, date, targetType) ->
                 triagedIndex.getOrDefault(regionName + "|" + date + "|" + targetType, Set.of());
+        List<BriefingDay> enriched = scoreEnricher.enrich(response.days(), resolver, triagedResolver);
         return new Reenriched(
-                response.withDays(scoreEnricher.enrich(response.days(), resolver, triagedResolver)),
+                response.withDays(stampDispositions(enriched, serveTriage.latestBySlot())),
                 serveTriage.latestBySlot());
+    }
+
+    /**
+     * Stamps each slot with its latest disposition from the serve's one disposition read, so a drive-tier
+     * recomputation can run the honesty filter's own {@link CoverageReasons} fold over the in-reach slots without
+     * re-reading the stores (unscored-reason-card-plan 3.1; reach-scoped-card-plan D5). A slot the record cannot
+     * settle has no entry and keeps a null stamp, which the fold reads as "no record".
+     */
+    private static List<BriefingDay> stampDispositions(List<BriefingDay> days,
+            Map<String, EvaluationViewService.LatestDisposition> latestBySlot) {
+        if (latestBySlot.isEmpty()) {
+            return days;
+        }
+        List<BriefingDay> stamped = new ArrayList<>(days.size());
+        for (BriefingDay day : days) {
+            List<BriefingEventSummary> events = new ArrayList<>(day.eventSummaries().size());
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                List<BriefingRegion> regions = new ArrayList<>(es.regions().size());
+                for (BriefingRegion region : es.regions()) {
+                    List<BriefingSlot> slots = region.slots().stream()
+                            .map(slot -> slot.withDisposition(latestBySlot.get(
+                                    EvaluationViewService.stabilitySkipKey(
+                                            slot.locationName(), day.date(), es.targetType()))))
+                            .toList();
+                    regions.add(region.withSlots(slots));
+                }
+                events.add(es.withRegions(regions));
+            }
+            stamped.add(day.withEventSummaries(events));
+        }
+        return stamped;
     }
 
     /** A re-enriched response with the latest disposition per slot the filter words blanks by. */

@@ -238,8 +238,10 @@ import java.util.List;
  *                                     serve path, so it is never persisted into {@code
  *                                     daily_briefing_cache}; {@code null} on every region the filter
  *                                     did not blank and on a legacy payload, which reads as "not
- *                                     known" (never as a stand-down). Ask PhotoCast is its only reader
- *                                     (the window spread's region tallies); the Plan tab ignores it.
+ *                                     known" (never as a stand-down). Ask PhotoCast reads it (the window spread's
+ *                                     region tallies) and the Plan card reads it through the window
+ *                                     ({@link BriefingWindow#coverageReason}), which carries the reason of the
+ *                                     blanked region whose word it wears.
  *                                     Every {@code with...} method below carries it, because the
  *                                     assembler rebuilds each region after the filter.
  * @param picksBestRating             the highest rating among the places a Lite reader may see ratings for,
@@ -253,6 +255,13 @@ import java.util.List;
  *                                     stripped for a Lite reader and a client-side max over the served slots
  *                                     would drop the canopy rule. Neighbour outliers are included exactly as
  *                                     {@link #bestRating} includes them. Every {@code with...} method carries it.
+ * @param fog                         {@code TRUE} when this blanked region's {@link CoverageReason#STOOD_DOWN} was
+ *                                     mostly weather triage's visibility rule (the label reads "Fog forecast"),
+ *                                     so a card can say "fog" from the served fact rather than parsing the label.
+ *                                     Set ONLY by {@code BriefingHonestyFilter}'s rewrite on the serve path (and
+ *                                     by its reach-tier twin), when true; {@code null} (absent from the JSON) on
+ *                                     every other region. Serve-time, never persisted. Every {@code with...}
+ *                                     method carries it (unscored-reason-card-plan 3.2)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingRegion(
@@ -277,7 +286,8 @@ public record BriefingRegion(
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean sampleSufficient,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean forcedSample,
         @JsonInclude(JsonInclude.Include.NON_NULL) CoverageReason coverageReason,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Integer picksBestRating) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer picksBestRating,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean fog) {
 
     /**
      * Canonical constructor: takes immutable copies of {@code tideHighlights} and {@code slots}, so
@@ -287,6 +297,50 @@ public record BriefingRegion(
     public BriefingRegion {
         tideHighlights = List.copyOf(tideHighlights);
         slots = List.copyOf(slots);
+    }
+
+    /**
+     * Backwards-compatible convenience constructor matching the pre-{@code fog} canonical signature, so every
+     * existing 22-arg call site keeps compiling. Defaults {@code fog} to {@code null} ("not a fog stand-down").
+     *
+     * @param regionName                       display name
+     * @param verdict                          triage verdict
+     * @param summary                          one-line summary
+     * @param tideHighlights                   tide summary lines
+     * @param slots                            per-location assessments
+     * @param regionTemperatureCelsius         representative temperature
+     * @param regionApparentTemperatureCelsius feels-like temperature
+     * @param regionWindSpeedMs                representative wind speed
+     * @param regionWeatherCode                WMO weather code
+     * @param glossHeadline                    Claude gloss headline
+     * @param glossDetail                      Claude gloss detail
+     * @param displayVerdict                   unified colour/label signal
+     * @param scoredLocationCount              how many locations contributed a rating
+     * @param verdictLabel                     pill-label override
+     * @param confidence                       derived confidence, or null
+     * @param meanRating                       the 1dp voting mean, or null
+     * @param bestRating                       the voting max, or null
+     * @param meanRatingDelta                  the 1dp movement since the last build, or null
+     * @param sampleSufficient                 whether the raw sample-size test passed, or null
+     * @param forcedSample                     whether the force-evaluation exemption applies, or null
+     * @param coverageReason                   why the honesty filter blanked the region, or null
+     * @param picksBestRating                  the picks-only best rating, or null
+     */
+    public BriefingRegion(String regionName, Verdict verdict, String summary,
+            List<String> tideHighlights, List<BriefingSlot> slots,
+            Double regionTemperatureCelsius, Double regionApparentTemperatureCelsius,
+            Double regionWindSpeedMs, Integer regionWeatherCode,
+            String glossHeadline, String glossDetail,
+            DisplayVerdict displayVerdict, int scoredLocationCount,
+            String verdictLabel, Confidence confidence,
+            Double meanRating, Integer bestRating, Double meanRatingDelta,
+            Boolean sampleSufficient, Boolean forcedSample, CoverageReason coverageReason,
+            Integer picksBestRating) {
+        this(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius,
+                regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
+                displayVerdict, scoredLocationCount, verdictLabel, confidence, meanRating, bestRating,
+                meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating, null);
     }
 
     /**
@@ -513,7 +567,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, confidence, newMeanRating,
-                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating, fog);
     }
 
     /**
@@ -531,7 +585,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, confidence, meanRating,
-                newBestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
+                newBestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating, fog);
     }
 
     /**
@@ -549,7 +603,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, confidence, meanRating,
-                bestRating, newMeanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
+                bestRating, newMeanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating, fog);
     }
 
     /**
@@ -569,7 +623,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, confidence, meanRating,
-                bestRating, meanRatingDelta, newSampleSufficient, forcedSample, coverageReason, picksBestRating);
+                bestRating, meanRatingDelta, newSampleSufficient, forcedSample, coverageReason, picksBestRating, fog);
     }
 
     /**
@@ -587,7 +641,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, confidence, meanRating,
-                bestRating, meanRatingDelta, sampleSufficient, newForcedSample, coverageReason, picksBestRating);
+                bestRating, meanRatingDelta, sampleSufficient, newForcedSample, coverageReason, picksBestRating, fog);
     }
 
     /**
@@ -603,7 +657,7 @@ public record BriefingRegion(
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, confidence, meanRating,
                 bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason,
-                newPicksBestRating);
+                newPicksBestRating, fog);
     }
 
     /**
@@ -698,7 +752,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, newConfidence, meanRating,
-                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating, fog);
     }
 
     /**
@@ -716,7 +770,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, newGlossHeadline, newGlossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, confidence, meanRating,
-                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating, fog);
     }
 
     /**
@@ -736,7 +790,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, confidence, meanRating,
-                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating, fog);
     }
 
     /**

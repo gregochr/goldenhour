@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.entity.DispositionCategory;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
@@ -82,6 +84,46 @@ class BriefingVersionTest {
         assertThat(version(marked)).isNotEqualTo(version(slot(4, false, false)));
         assertThat(BriefingVersion.of(days(slot(4, false, false), null, "Northumberland"), null, TODAY))
                 .isNotEqualTo(BriefingVersion.of(days(slot(4, false, false), "null", "Northumberland"), null, TODAY));
+    }
+
+    private static String versionWithDisposition(EvaluationViewService.LatestDisposition disposition) {
+        return version(slot(null, false, false).withDisposition(disposition));
+    }
+
+    private static String versionOfBlanked(CoverageReason reason, Boolean fog) {
+        BriefingRegion blanked = new BriefingRegion("Northumberland", Verdict.GO, "summary", List.of(), List.of(),
+                12.0, 10.0, 1.0, 1, null, null, DisplayVerdict.AWAITING, 0, "label", null, null, null, null, null,
+                null, reason, null, fog);
+        return BriefingVersion.of(List.of(new BriefingDay(TODAY, List.of(
+                new BriefingEventSummary(TargetType.SUNRISE, List.of(blanked), List.of())))), null, TODAY);
+    }
+
+    @Test
+    @DisplayName("a slot's disposition (category, cycle ended, low visibility) moves it: the drive tiers fold them")
+    void slotDispositionMovesIt() {
+        EvaluationViewService.LatestDisposition stability =
+                new EvaluationViewService.LatestDisposition(DispositionCategory.SKIPPED_STABILITY, false, false);
+        String base = versionWithDisposition(stability);
+
+        assertThat(versionWithDisposition(stability)).as("identical inputs").isEqualTo(base);
+        assertThat(versionWithDisposition(null)).as("none vs a record").isNotEqualTo(base);
+        assertThat(versionWithDisposition(new EvaluationViewService.LatestDisposition(
+                DispositionCategory.EVALUATED, false, false))).as("category").isNotEqualTo(base);
+        assertThat(versionWithDisposition(new EvaluationViewService.LatestDisposition(
+                DispositionCategory.SKIPPED_STABILITY, true, false))).as("cycle ended").isNotEqualTo(base);
+        assertThat(versionWithDisposition(new EvaluationViewService.LatestDisposition(
+                DispositionCategory.SKIPPED_STABILITY, false, true))).as("low visibility").isNotEqualTo(base);
+    }
+
+    @Test
+    @DisplayName("a blanked region's coverage reason and fog each move it")
+    void blankedReasonAndFogMoveIt() {
+        String base = versionOfBlanked(CoverageReason.STOOD_DOWN, null);
+
+        assertThat(versionOfBlanked(CoverageReason.STOOD_DOWN, null)).as("identical inputs").isEqualTo(base);
+        assertThat(versionOfBlanked(CoverageReason.NOT_ATTEMPTED, null)).as("reason").isNotEqualTo(base);
+        assertThat(versionOfBlanked(null, null)).as("no reason").isNotEqualTo(base);
+        assertThat(versionOfBlanked(CoverageReason.STOOD_DOWN, Boolean.TRUE)).as("fog").isNotEqualTo(base);
     }
 
     @Test
