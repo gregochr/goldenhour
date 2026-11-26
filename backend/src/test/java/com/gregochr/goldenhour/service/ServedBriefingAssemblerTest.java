@@ -39,6 +39,7 @@ import static com.gregochr.goldenhour.service.TideFactFixtures.region;
 import static com.gregochr.goldenhour.service.TideFactFixtures.summary;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -528,7 +529,8 @@ class ServedBriefingAssemblerTest {
                 new EvaluationViewService.LatestDisposition(DispositionCategory.SKIPPED_STABILITY, false);
         EvaluationViewService.LatestDisposition fog =
                 new EvaluationViewService.LatestDisposition(DispositionCategory.SKIPPED_TRIAGED, false, true);
-        when(evaluationViewService.loadServeTriage(any(), any(), any()))
+        when(evaluationViewService.loadServeTriage(eq(D), eq(D),
+                eq(java.util.EnumSet.of(TargetType.SUNRISE, TargetType.SUNSET))))
                 .thenReturn(new EvaluationViewService.ServeTriage(Map.of(), Map.of(
                         EvaluationViewService.stabilitySkipKey("Bamburgh", D, TargetType.SUNRISE), stability,
                         EvaluationViewService.stabilitySkipKey("Whitby", D, TargetType.SUNRISE), fog,
