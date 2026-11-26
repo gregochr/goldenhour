@@ -15,6 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatcher;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -26,6 +27,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
@@ -36,6 +38,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.longThat;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -79,6 +82,9 @@ class SnowStateRefreshJobTest {
     @Mock
     private ServedBriefingEpoch servedEpoch;
 
+    @Mock
+    private LocationEnrichmentService enrichmentService;
+
     private final SolarService solarService = new SolarService();
     private SnowStateRefreshJob job;
     private JobRunEntity jobRun;
@@ -87,7 +93,7 @@ class SnowStateRefreshJobTest {
     void setUp() {
         Clock clock = Clock.fixed(Instant.parse("2024-01-15T10:00:00Z"), ZoneOffset.UTC);
         job = new SnowStateRefreshJob(locationService, openMeteoClient, solarService, writer, jobRunService,
-                dynamicSchedulerService, servedEpoch, clock);
+                dynamicSchedulerService, servedEpoch, enrichmentService, clock);
         jobRun = JobRunEntity.builder().id(RUN_ID).build();
     }
 
@@ -108,6 +114,19 @@ class SnowStateRefreshJobTest {
     private void stubFetch(List<OpenMeteoForecastResponse> responses, int pointCount) {
         when(openMeteoClient.fetchSnowStateBatch(argThat(
                 points -> points != null && points.size() == pointCount))).thenReturn(responses);
+    }
+
+    /** Matches a list of [lat, lon] pairs exactly, array contents included. */
+    private static ArgumentMatcher<List<double[]>> sameCoordinates(List<double[]> expected) {
+        return actual -> actual != null && Arrays.deepEquals(actual.toArray(), expected.toArray());
+    }
+
+    private static List<double[]> coordinatesOf(LocationEntity... places) {
+        return Arrays.stream(places).map(p -> new double[]{p.getLat(), p.getLon()}).toList();
+    }
+
+    private static LocationEntity placeAt(long id, double lat, double lon) {
+        return LocationEntity.builder().id(id).name("Place " + id).lat(lat).lon(lon).build();
     }
 
     private static List<OpenMeteoForecastResponse> nulls(int count) {
@@ -182,10 +201,31 @@ class SnowStateRefreshJobTest {
     }
 
     @Test
-    @DisplayName("summits are fetched first at their OS height; a place with no elevation asks for the model's own")
+    @DisplayName("summits are fetched first at their OS height, then places at their recorded height")
     void pointsAreSummitsFirstThenPlaces() {
         stubRun();
-        stubPlaces(place(5L, 59), place(6L, null));
+        stubPlaces(place(5L, 59));
+        stubFetch(nulls(SUMMITS + 1), SUMMITS + 1);
+
+        SchedulerFireOutcome.capture(() -> job.run(false));
+
+        ArgumentCaptor<List<double[]>> captor = ArgumentCaptor.captor();
+        verify(openMeteoClient).fetchSnowStateBatch(captor.capture());
+        List<double[]> points = captor.getValue();
+        assertThat(points).hasSize(SUMMITS + 1);
+        SnowSummits.Summit first = SnowSummits.ALL.get(0);
+        assertThat(points.get(0)).containsExactly(first.lat(), first.lon(), first.heightM());
+        assertThat(points.get(SUMMITS)).containsExactly(PLACE_LAT, PLACE_LON, 59.0);
+    }
+
+    @Test
+    @DisplayName("a place with no recorded height is looked up and sent at that height, and no point carries NaN")
+    void placeWithNoHeightRunsAtItsLookedUpHeight() {
+        stubRun();
+        LocationEntity noHeight = place(6L, null);
+        stubPlaces(place(5L, 59), noHeight);
+        when(enrichmentService.lookupSurfaceHeights(argThat(sameCoordinates(coordinatesOf(noHeight)))))
+                .thenReturn(List.of(94.6));
         stubFetch(nulls(SUMMITS + 2), SUMMITS + 2);
 
         SchedulerFireOutcome.capture(() -> job.run(false));
@@ -194,10 +234,136 @@ class SnowStateRefreshJobTest {
         verify(openMeteoClient).fetchSnowStateBatch(captor.capture());
         List<double[]> points = captor.getValue();
         assertThat(points).hasSize(SUMMITS + 2);
-        SnowSummits.Summit first = SnowSummits.ALL.get(0);
-        assertThat(points.get(0)).containsExactly(first.lat(), first.lon(), first.heightM());
         assertThat(points.get(SUMMITS)).containsExactly(PLACE_LAT, PLACE_LON, 59.0);
-        assertThat(points.get(SUMMITS + 1)[2]).isNaN();
+        assertThat(points.get(SUMMITS + 1)).containsExactly(PLACE_LAT, PLACE_LON, 94.6);
+        assertThat(points).allSatisfy(p -> assertThat(p[2]).isNotNaN());
+        verify(jobRunService).logApiCall(eq(RUN_ID), eq(ServiceName.OPEN_METEO_FORECAST), eq("GET"),
+                eq("elevation-lookup(1)"), isNull(), longThat(d -> d >= 0), eq(200), isNull(), eq(true), isNull());
+    }
+
+    @Test
+    @DisplayName("a place with a recorded height is never looked up, and the cool-off is not even asked")
+    void recordedHeightAlwaysWins() {
+        stubRun();
+        stubPlaces(place(5L, 59), place(6L, 0));
+        stubFetch(nulls(SUMMITS + 2), SUMMITS + 2);
+
+        SchedulerFireOutcome.capture(() -> job.run(false));
+
+        verifyNoInteractions(enrichmentService);
+        verify(openMeteoClient, never()).isCoolingOff();
+    }
+
+    @Test
+    @DisplayName("a second run reuses the cached height: one lookup across two runs")
+    void secondRunReusesTheCachedHeight() {
+        when(jobRunService.startRun(RunType.SNOW_STATE, false, null)).thenReturn(jobRun);
+        LocationEntity noHeight = place(6L, null);
+        stubPlaces(noHeight);
+        when(enrichmentService.lookupSurfaceHeights(argThat(sameCoordinates(coordinatesOf(noHeight)))))
+                .thenReturn(List.of(94.6));
+        stubFetch(nulls(SUMMITS + 1), SUMMITS + 1);
+
+        SchedulerFireOutcome.capture(() -> job.run(false));
+        SchedulerFireOutcome.capture(() -> job.run(false));
+
+        verify(enrichmentService, times(1))
+                .lookupSurfaceHeights(argThat(sameCoordinates(coordinatesOf(noHeight))));
+        ArgumentCaptor<List<double[]>> captor = ArgumentCaptor.captor();
+        verify(openMeteoClient, times(2)).fetchSnowStateBatch(captor.capture());
+        assertThat(captor.getAllValues().get(1).get(SUMMITS)).containsExactly(PLACE_LAT, PLACE_LON, 94.6);
+    }
+
+    @Test
+    @DisplayName("a place that has moved is looked up again at its new position")
+    void movedPlaceIsLookedUpAgain() {
+        when(jobRunService.startRun(RunType.SNOW_STATE, false, null)).thenReturn(jobRun);
+        LocationEntity before = placeAt(6L, PLACE_LAT, PLACE_LON);
+        LocationEntity after = placeAt(6L, PLACE_LAT + 0.01, PLACE_LON);
+        when(locationService.findAllEnabled()).thenReturn(List.of(before), List.of(after));
+        when(enrichmentService.lookupSurfaceHeights(argThat(sameCoordinates(coordinatesOf(before)))))
+                .thenReturn(List.of(94.6));
+        when(enrichmentService.lookupSurfaceHeights(argThat(sameCoordinates(coordinatesOf(after)))))
+                .thenReturn(List.of(310.2));
+        stubFetch(nulls(SUMMITS + 1), SUMMITS + 1);
+
+        SchedulerFireOutcome.capture(() -> job.run(false));
+        SchedulerFireOutcome.capture(() -> job.run(false));
+
+        ArgumentCaptor<List<double[]>> captor = ArgumentCaptor.captor();
+        verify(openMeteoClient, times(2)).fetchSnowStateBatch(captor.capture());
+        assertThat(captor.getAllValues().get(0).get(SUMMITS)).containsExactly(PLACE_LAT, PLACE_LON, 94.6);
+        assertThat(captor.getAllValues().get(1).get(SUMMITS)).containsExactly(PLACE_LAT + 0.01, PLACE_LON, 310.2);
+    }
+
+    @Test
+    @DisplayName("a failed lookup leaves the place out: not sent, no row, counted failed, the others still run")
+    void failedLookupLeavesThePlaceOut() {
+        stubRun();
+        LocationEntity noHeight = place(6L, null);
+        stubPlaces(place(5L, 59), noHeight);
+        when(enrichmentService.lookupSurfaceHeights(argThat(sameCoordinates(coordinatesOf(noHeight)))))
+                .thenReturn(Collections.singletonList(null));
+        List<OpenMeteoForecastResponse> responses = nulls(SUMMITS + 1);
+        responses.set(SUMMITS, response(35, sunriseHour(TODAY)));
+        stubFetch(responses, SUMMITS + 1);
+
+        Report report = SchedulerFireOutcome.capture(() -> job.run(false));
+
+        List<Slot> slots = writtenSlots();
+        assertThat(slots.stream().map(Slot::pointKey).distinct()).containsExactly("loc:5");
+        // 15 summits and place 5 are sent, place 6 is skipped: a total of 17, 1 fetched, 16 failed
+        assertThat(jobRun.getLocationsProcessed()).isEqualTo(SUMMITS + 2);
+        verify(jobRunService).completeRun(eq(jobRun), eq(1), eq(SUMMITS + 1), eq(DATES));
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("1 of 17 points fetched · 0 rows written");
+        verify(jobRunService).logApiCall(eq(RUN_ID), eq(ServiceName.OPEN_METEO_FORECAST), eq("GET"),
+                eq("elevation-lookup(1)"), isNull(), longThat(d -> d >= 0), isNull(), isNull(), eq(false),
+                eq("elevation lookup failed for part of the chunk"));
+    }
+
+    @Test
+    @DisplayName("while Open-Meteo is cooling off nothing is looked up, and a place with no height counts as failed")
+    void coolOffSkipsTheLookup() {
+        stubRun();
+        stubPlaces(place(6L, null));
+        when(openMeteoClient.isCoolingOff()).thenReturn(true);
+        stubFetch(nulls(SUMMITS), SUMMITS);
+
+        Report report = SchedulerFireOutcome.capture(() -> job.run(false));
+
+        verifyNoInteractions(enrichmentService);
+        assertThat(jobRun.getLocationsProcessed()).isEqualTo(SUMMITS + 1);
+        verify(jobRunService).completeRun(eq(jobRun), eq(0), eq(SUMMITS + 1), eq(DATES));
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("0 of 16 points fetched · 0 rows written");
+    }
+
+    @Test
+    @DisplayName("more than 100 places to look up are logged one call per chunk, and a failed chunk spares the other")
+    void lookupIsLoggedPerChunk() {
+        stubRun();
+        List<LocationEntity> places = new ArrayList<>();
+        List<Double> heights = new ArrayList<>();
+        for (int i = 0; i < 120; i++) {
+            places.add(placeAt(1000L + i, PLACE_LAT + i * 0.001, PLACE_LON));
+            heights.add(i < 100 ? Double.valueOf(100 + i) : null);
+        }
+        when(locationService.findAllEnabled()).thenReturn(places);
+        when(enrichmentService.lookupSurfaceHeights(
+                argThat(sameCoordinates(coordinatesOf(places.toArray(new LocationEntity[0]))))))
+                .thenReturn(heights);
+        stubFetch(nulls(SUMMITS + 100), SUMMITS + 100);
+
+        SchedulerFireOutcome.capture(() -> job.run(false));
+
+        verify(jobRunService).logApiCall(eq(RUN_ID), eq(ServiceName.OPEN_METEO_FORECAST), eq("GET"),
+                eq("elevation-lookup(100)"), isNull(), longThat(d -> d >= 0), eq(200), isNull(), eq(true),
+                isNull());
+        verify(jobRunService).logApiCall(eq(RUN_ID), eq(ServiceName.OPEN_METEO_FORECAST), eq("GET"),
+                eq("elevation-lookup(20)"), isNull(), longThat(d -> d >= 0), isNull(), isNull(), eq(false),
+                eq("elevation lookup failed for part of the chunk"));
+        assertThat(jobRun.getLocationsProcessed()).isEqualTo(SUMMITS + 120);
     }
 
     @Test

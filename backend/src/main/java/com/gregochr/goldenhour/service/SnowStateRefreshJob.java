@@ -25,13 +25,15 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 
 /**
  * Records the point snowpack at every enabled place and every reviewed summit, three times a day
- * (snow-topics-truth-plan §3.2, phase S2). <b>Record only</b>: no hot topic reads these rows yet.
+ * (snow-topics-truth-plan §3.2, phase S2). The snow topics read these rows ({@code SnowStateReader}).
  *
  * <p><b>Why its own fetch.</b> The pack needs seven days of history, which the main forecast fetch must never
  * carry ({@code past_days} would shift the air-quality and stability arrays).
@@ -43,12 +45,18 @@ import java.util.stream.IntStream;
  * slot being the UTC hour containing the event ({@code floor}, as the wildlife comfort job does). Each slot
  * stores {@link PointSnowpack}'s water equivalent and 24 h snowfall, and the low cloud at that hour.
  *
+ * <p><b>Every place at its own height, never the grid cell's.</b> A place's recorded {@code elevation_m} always
+ * wins. One with none is run at its looked-up DEM height ({@link LocationEnrichmentService#lookupSurfaceHeights},
+ * held in memory by location id and reused while its position is unchanged; nothing is written to
+ * {@code locations}). With no height (lookup failed, or Open-Meteo cooling off) it is skipped this run, writes
+ * nothing and counts as failed, so it is never sent as {@code nan}, the model's cell height.
+ *
  * <p><b>Partial runs never erase.</b> A point that was not fetched, or whose lookback was not covered, writes
  * nothing for that slot, so its previous row stays; and the writer never lets a null overwrite a stored value.
  * "Unknown" is therefore a missing or stale row, never a zero.
  *
  * <p><b>Job-run counts.</b> {@code succeeded} and {@code failed} count points (a place or a summit) fetched and
- * not fetched.
+ * not fetched; a place skipped for want of a height is in the total and so in {@code failed}.
  */
 @Service
 public class SnowStateRefreshJob {
@@ -73,13 +81,28 @@ public class SnowStateRefreshJob {
     private final JobRunService jobRunService;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final ServedBriefingEpoch servedEpoch;
+    private final LocationEnrichmentService enrichmentService;
     private final Clock clock;
+
+    /** Looked-up heights by location id; reused only while the place's position is unchanged. */
+    private final Map<Long, Height> heightCache = new ConcurrentHashMap<>();
 
     /** Set while a run is in progress; a second fire is skipped rather than queued. */
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    /** One point to fetch: its key, position and the height the model should run at (NaN: the cell's own). */
+    /** One point to fetch: its key, position and the height in metres the model should run at. */
     private record Point(String key, double lat, double lon, double elevation) {
+    }
+
+    /** A looked-up surface height and the position it was looked up for. */
+    private record Height(double lat, double lon, double metres) {
+    }
+
+    /** The points to fetch, and how many places were left out for want of a height. */
+    private record Plan(List<Point> points, int skipped) {
+        int total() {
+            return points.size() + skipped;
+        }
     }
 
     /**
@@ -92,11 +115,13 @@ public class SnowStateRefreshJob {
      * @param jobRunService           job-run and API-call bookkeeping
      * @param dynamicSchedulerService the DB-backed scheduler this job registers with
      * @param servedEpoch             bumped after a write, so served topics and the Ask snapshot refresh
+     * @param enrichmentService       looks up the surface height of a place with no recorded one
      * @param clock                   clock resolving "today" on the UK civil calendar
      */
     public SnowStateRefreshJob(LocationService locationService, OpenMeteoClient openMeteoClient,
             SolarService solarService, SnowStateWriter writer, JobRunService jobRunService,
-            DynamicSchedulerService dynamicSchedulerService, ServedBriefingEpoch servedEpoch, Clock clock) {
+            DynamicSchedulerService dynamicSchedulerService, ServedBriefingEpoch servedEpoch,
+            LocationEnrichmentService enrichmentService, Clock clock) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.solarService = solarService;
@@ -104,6 +129,7 @@ public class SnowStateRefreshJob {
         this.jobRunService = jobRunService;
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.servedEpoch = servedEpoch;
+        this.enrichmentService = enrichmentService;
         this.clock = clock;
     }
 
@@ -137,10 +163,12 @@ public class SnowStateRefreshJob {
     private void doRun(boolean manual) {
         LocalDate today = ForecastHorizon.today(clock);
         List<LocalDate> dates = IntStream.rangeClosed(0, DAYS_AHEAD).mapToObj(today::plusDays).toList();
-        List<Point> points = points();
 
         JobRunEntity jobRun = jobRunService.startRun(RunType.SNOW_STATE, manual, null);
-        jobRun.setLocationsProcessed(points.size());
+        Plan plan = plan(jobRun);
+        List<Point> points = plan.points();
+        int total = plan.total();
+        jobRun.setLocationsProcessed(total);
 
         List<double[]> request = points.stream().map(p -> new double[]{p.lat(), p.lon(), p.elevation()}).toList();
         List<OpenMeteoForecastResponse> responses;
@@ -152,7 +180,7 @@ public class SnowStateRefreshJob {
             jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST, "GET",
                     "snow-state-batch(" + points.size() + ")", null,
                     System.currentTimeMillis() - startMs, null, null, false, e.getMessage());
-            jobRunService.completeRun(jobRun, 0, points.size(), dates);
+            jobRunService.completeRun(jobRun, 0, total, dates);
             SchedulerFireOutcome.report(SchedulerFireStatus.FAILED, "Open-Meteo fetch failed: " + e.getMessage());
             return;
         }
@@ -176,7 +204,7 @@ public class SnowStateRefreshJob {
             written = writer.write(slots, today, LocalDateTime.now(clock.withZone(ZoneOffset.UTC)));
         } catch (Exception e) {
             LOG.warn("Snow state refresh: write failed — previous rows kept: {}", e.getMessage());
-            jobRunService.completeRun(jobRun, 0, points.size(), dates);
+            jobRunService.completeRun(jobRun, 0, total, dates);
             SchedulerFireOutcome.report(SchedulerFireStatus.FAILED, "Writing snow state failed: " + e.getMessage());
             return;
         }
@@ -184,27 +212,89 @@ public class SnowStateRefreshJob {
             servedEpoch.bump();
         }
 
-        int failed = points.size() - fetched;
+        int failed = total - fetched;
         jobRunService.completeRun(jobRun, fetched, failed, dates);
         LOG.info("Snow state refresh complete — {} of {} point(s) fetched, {} slot row(s) written",
-                fetched, points.size(), written);
-        SchedulerFireOutcome.report(SchedulerFireOutcome.statusFor(failed, points.size()),
-                fetched + " of " + SchedulerFireOutcome.count(points.size(), "point", "points") + " fetched · "
+                fetched, total, written);
+        SchedulerFireOutcome.report(SchedulerFireOutcome.statusFor(failed, total),
+                fetched + " of " + SchedulerFireOutcome.count(total, "point", "points") + " fetched · "
                         + SchedulerFireOutcome.count(written, "row", "rows") + " written");
     }
 
-    /** Summits first, then every enabled place; a place with no recorded height runs at the model's own. */
-    private List<Point> points() {
+    /**
+     * Summits first, then every enabled place at a height: its recorded one, else a cached or looked-up DEM
+     * height. A place with none is skipped (never sent as the model's cell height) and counted.
+     */
+    private Plan plan(JobRunEntity jobRun) {
         List<Point> points = new ArrayList<>();
         for (SnowSummits.Summit summit : SnowSummits.ALL) {
             points.add(new Point(summit.pointKey(), summit.lat(), summit.lon(), summit.heightM()));
         }
-        for (LocationEntity location : locationService.findAllEnabled()) {
-            Integer elevation = location.getElevationMetres();
-            points.add(new Point(SnowStateEntity.locationKey(location.getId()), location.getLat(),
-                    location.getLon(), elevation == null ? Double.NaN : elevation));
+        List<LocationEntity> locations = locationService.findAllEnabled();
+        List<LocationEntity> unknown = new ArrayList<>();
+        for (LocationEntity location : locations) {
+            if (location.getElevationMetres() == null && cachedHeight(location) == null) {
+                unknown.add(location);
+            }
         }
-        return points;
+        lookUp(unknown, jobRun);
+        int skipped = 0;
+        for (LocationEntity location : locations) {
+            Double height = location.getElevationMetres() != null
+                    ? Double.valueOf(location.getElevationMetres()) : cachedHeight(location);
+            if (height == null) {
+                skipped++;
+                LOG.warn("Snow state refresh: no height for location {} — skipped this run", location.getId());
+            } else {
+                points.add(new Point(SnowStateEntity.locationKey(location.getId()), location.getLat(),
+                        location.getLon(), height));
+            }
+        }
+        return new Plan(points, skipped);
+    }
+
+    /** The place's cached looked-up height, or null when none is held or the place has moved since. */
+    private Double cachedHeight(LocationEntity location) {
+        Height cached = heightCache.get(location.getId());
+        if (cached != null && cached.lat() == location.getLat() && cached.lon() == location.getLon()) {
+            return cached.metres();
+        }
+        return null;
+    }
+
+    /**
+     * Looks up the heights of places that have none, remembering each one found. Skipped while Open-Meteo is
+     * cooling off. A failure only leaves its places without a height; it never starts or extends the cool-off.
+     */
+    private void lookUp(List<LocationEntity> places, JobRunEntity jobRun) {
+        if (places.isEmpty()) {
+            return;
+        }
+        if (openMeteoClient.isCoolingOff()) {
+            LOG.warn("Snow state refresh: Open-Meteo cooling off — {} height lookup(s) skipped", places.size());
+            return;
+        }
+        List<double[]> coordinates = places.stream().map(l -> new double[]{l.getLat(), l.getLon()}).toList();
+        long startMs = System.currentTimeMillis();
+        List<Double> heights = enrichmentService.lookupSurfaceHeights(coordinates);
+        long durationMs = System.currentTimeMillis() - startMs;
+        int chunk = LocationEnrichmentService.ELEVATION_CHUNK_SIZE;
+        for (int from = 0; from < places.size(); from += chunk) {
+            int to = Math.min(from + chunk, places.size());
+            boolean ok = true;
+            for (int i = from; i < to; i++) {
+                Double metres = i < heights.size() ? heights.get(i) : null;
+                if (metres == null) {
+                    ok = false;
+                } else {
+                    LocationEntity place = places.get(i);
+                    heightCache.put(place.getId(), new Height(place.getLat(), place.getLon(), metres));
+                }
+            }
+            jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST, "GET",
+                    "elevation-lookup(" + (to - from) + ")", null, durationMs, ok ? 200 : null, null, ok,
+                    ok ? null : "elevation lookup failed for part of the chunk");
+        }
     }
 
     /** The point's slots for the dates; never throws, so one malformed response loses only its own point. */
