@@ -11,11 +11,15 @@ package com.gregochr.goldenhour.model;
  *
  * @param rowsWritten      verification rows persisted
  * @param withObservations rows that actually carry archive data
+ * @param archiveCalls     unique archive points requested, which is what Open-Meteo charges (one call
+ *                         per coordinate)
+ * @param quotaExhausted   whether Open-Meteo said its daily or hourly request allowance is spent
  */
-public record BackfillBatch(int rowsWritten, int withObservations) {
+public record BackfillBatch(int rowsWritten, int withObservations, int archiveCalls,
+                            boolean quotaExhausted) {
 
     /** An empty batch — nothing left to verify. */
-    public static final BackfillBatch EMPTY = new BackfillBatch(0, 0);
+    public static final BackfillBatch EMPTY = new BackfillBatch(0, 0, 0, false);
 
     /**
      * Returns whether the batch did work but obtained no observations at all.
