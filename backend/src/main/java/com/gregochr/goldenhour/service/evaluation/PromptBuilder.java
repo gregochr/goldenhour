@@ -340,6 +340,20 @@ public class PromptBuilder {
             "Rate 1-5, estimate Red Sky Potential (0-100) and Golden Hour Potential (0-100), "
             + "then summarise in exactly one sentence.";
 
+    /** Upwind current low cloud (%) at or above which the combined approach signal's upwind half stands. */
+    private static final int COMBINED_APPROACH_UPWIND_PERCENT = 60;
+
+    /**
+     * Appended to the CLOUD APPROACH RISK block, in the per-location user message only, when the
+     * combined approach signal fires (BUILDING trend, no confirmed thin strip, upwind current at or
+     * above {@link #COMBINED_APPROACH_UPWIND_PERCENT}). Kept out of the system prompt and schema
+     * because Haiku over-generalises any always-present wording into a blanket rule.
+     */
+    static final String COMBINED_APPROACH_SIGNAL_LINE =
+            "COMBINED APPROACH SIGNAL: [BUILDING] and upwind current >=60% both stand. If you rate "
+            + "this 3, the 20-30 point score penalty stops once the higher of fiery_sky and "
+            + "golden_hour reaches 40, so a 3 never carries scores that describe a 2.";
+
     /** AOD threshold above which the dust context block is included. */
     private static final double DUST_AOD_THRESHOLD = 0.3;
 
@@ -615,6 +629,10 @@ public class PromptBuilder {
                         upwind.distanceKm(), upwind.windFromBearing(),
                         toCardinal(upwind.windFromBearing()),
                         upwind.currentLowCloudPercent(), upwind.eventLowCloudPercent()));
+                if (trend != null && trend.isBuilding() && !thinStripConfirmed
+                        && upwind.currentLowCloudPercent() >= COMBINED_APPROACH_UPWIND_PERCENT) {
+                    sb.append(String.format("%n%s", COMBINED_APPROACH_SIGNAL_LINE));
+                }
             }
         }
 

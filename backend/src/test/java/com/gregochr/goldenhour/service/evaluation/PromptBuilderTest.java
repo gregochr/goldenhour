@@ -412,6 +412,19 @@ public class PromptBuilderTest {
         }
 
         @Test
+        @DisplayName("the golden_hour schema description does not carry the 40 floor (user message only)")
+        void outputConfig_goldenHourDescription_hasNoFloor() {
+            String configStr = promptBuilder.buildOutputConfig().toString();
+
+            String golden = configStr.substring(configStr.indexOf("golden_hour={"));
+            golden = golden.substring(0, golden.indexOf("}"));
+            assertThat(golden)
+                    .contains("description=0-100 inclusive. 20-30 points LOWER")
+                    .doesNotContain("reaches 40")
+                    .doesNotContain("band");
+        }
+
+        @Test
         @DisplayName("rating field is constrained to enum [1, 5] — "
                 + "Anthropic rejects minimum/maximum on integer types")
         void outputConfig_ratingIsBoundedOneToFive() {
@@ -750,6 +763,76 @@ public class PromptBuilderTest {
                 .contains("Upwind sample (87km along 228\u00b0 SW): current=70%, at-event=15%");
     }
 
+    private static SolarCloudTrend buildingTrend() {
+        return new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 5),
+                new SolarCloudTrend.SolarCloudSlot(2, 15),
+                new SolarCloudTrend.SolarCloudSlot(1, 35),
+                new SolarCloudTrend.SolarCloudSlot(0, 60)));
+    }
+
+    private static SolarCloudTrend steadyTrend() {
+        return new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 30),
+                new SolarCloudTrend.SolarCloudSlot(2, 30),
+                new SolarCloudTrend.SolarCloudSlot(1, 30),
+                new SolarCloudTrend.SolarCloudSlot(0, 30)));
+    }
+
+    @Test
+    @DisplayName("combined approach signal line appears at BUILDING + upwind current exactly 60")
+    void buildUserMessage_buildingAndUpwind60_includesCombinedSignalLine() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(buildingTrend(), new UpwindCloudSample(87, 228, 60, 15)))
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data))
+                .contains(PromptBuilder.COMBINED_APPROACH_SIGNAL_LINE)
+                .contains("a 3 never carries scores that describe a 2.");
+    }
+
+    @Test
+    @DisplayName("combined approach signal line is absent at BUILDING + upwind current 59")
+    void buildUserMessage_buildingAndUpwind59_omitsCombinedSignalLine() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(buildingTrend(), new UpwindCloudSample(87, 228, 59, 15)))
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("COMBINED APPROACH SIGNAL");
+    }
+
+    @Test
+    @DisplayName("combined approach signal line is absent when the trend is not BUILDING")
+    void buildUserMessage_notBuildingAndUpwind90_omitsCombinedSignalLine() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(steadyTrend(), new UpwindCloudSample(87, 228, 90, 15)))
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("COMBINED APPROACH SIGNAL");
+    }
+
+    @Test
+    @DisplayName("combined approach signal line is absent when a thin strip is confirmed")
+    void buildUserMessage_buildingUpwind90ThinStrip_omitsCombinedSignalLine() {
+        DirectionalCloudData dc = new DirectionalCloudData(60, 20, 10, 5, 45, 30, 25);
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(dc)
+                .cloudApproach(new CloudApproachData(buildingTrend(), new UpwindCloudSample(87, 228, 90, 15)))
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data))
+                .contains("THIN STRIP CONFIRMED")
+                .doesNotContain("COMBINED APPROACH SIGNAL");
+    }
+
+    @Test
+    @DisplayName("combined approach signal line is absent when there is no cloud approach data")
+    void buildUserMessage_noCloudApproach_omitsCombinedSignalLine() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("COMBINED APPROACH SIGNAL");
+    }
+
     @Test
     @DisplayName("a cloudy near horizon with a clear-ish far corridor and a small drop carries neither structure label")
     void buildUserMessage_nearCloudyFarBelowThreshold_noStructureLabel() {
@@ -1015,6 +1098,15 @@ public class PromptBuilderTest {
                 .doesNotContain("output rating 1 or 2")
                 .doesNotContain("upwind CURRENT value matters")
                 .doesNotContain("write only about the approach risk");
+    }
+
+    @Test
+    @DisplayName("the system prompt carries no 40 floor and no band text (it lives in the user message only)")
+    void getSystemPrompt_approachPenalty_hasNoFloor() {
+        assertThat(promptBuilder.getSystemPrompt())
+                .doesNotContain("reaches 40")
+                .doesNotContain("STAR AND SCORE BANDS")
+                .doesNotContain("band floor");
     }
 
     @Test
