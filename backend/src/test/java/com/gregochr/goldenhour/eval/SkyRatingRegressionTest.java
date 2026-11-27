@@ -5,7 +5,7 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
-import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.goldenhour.testsupport.promptusage.RecordingAnthropicApiClient;
 import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
@@ -117,7 +117,7 @@ class SkyRatingRegressionTest {
 
         AnthropicClient client = AnthropicOkHttpClient.builder().apiKey(apiKey).build();
         strategy = new ClaudeEvaluationStrategy(
-                new AnthropicApiClient(client), new PromptBuilder(), new CoastalPromptBuilder(),
+                new RecordingAnthropicApiClient(client), new PromptBuilder(), new CoastalPromptBuilder(),
                 new ObjectMapper(), choice.model(), new SunsetEvaluationParser());
         System.out.printf("[sky-regression] model=%s (from %s)  runs per fixture=%d (%s mode)%n",
                 choice.model(), choice.source(), runs, runs == 1 ? "quick" : "eval");

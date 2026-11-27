@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.MistTrend.MistSlot;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.testsupport.promptusage.RecordingAnthropicApiClient;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -65,7 +66,7 @@ class ValleyMistPromptRegressionTest {
         String modelName = System.getProperty("regression.model",
                 System.getenv().getOrDefault("REGRESSION_MODEL", "HAIKU"));
         strategy = new ClaudeEvaluationStrategy(
-                new AnthropicApiClient(client), new PromptBuilder(), new CoastalPromptBuilder(),
+                new RecordingAnthropicApiClient(client), new PromptBuilder(), new CoastalPromptBuilder(),
                 new ObjectMapper(), EvaluationModel.valueOf(modelName.toUpperCase()),
                 new SunsetEvaluationParser());
     }
