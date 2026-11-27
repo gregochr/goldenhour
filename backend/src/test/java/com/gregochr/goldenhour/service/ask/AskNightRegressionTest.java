@@ -119,6 +119,12 @@ class AskNightRegressionTest {
      * How "closer to home" names the radius: the nearHome form ("within 25 miles of home") or a drive limit ("within
      * 40 minutes of home"), which the prompt allows too. Owner-approved 2026-11-27 (plan A8).
      */
+    /** An alert level overstated in prose: "strong"/"severe" describing the aurora, alert or geomagnetic activity. */
+    static final Pattern OVERSTATED_ALERT = Pattern.compile(
+            "\\b(strong|severe)\\s+(aurora|auroral|geomagnetic|alert|activity|storm)"
+                    + "|\\b(alert|aurora|geomagnetic activity)\\s+(is|was|at)\\s+(strong|severe)",
+            Pattern.CASE_INSENSITIVE);
+
     static final Pattern AT_RADIUS = Pattern.compile("(miles|minutes) of home", Pattern.CASE_INSENSITIVE);
 
     /** A served aurora sentence unlike anything a model would write on its own, to spot a leak to LITE. */
@@ -223,6 +229,8 @@ class AskNightRegressionTest {
      * weather-triaged place, and never an alert level stronger than the state cache's: while the state is
      * MODERATE the prose does not say "strong" or "severe". Owner-approved 2026-11-27 (plan A6): no prompt text
      * asks Ask to name the level, so it is not required, and the fixture's aurora sentence is now neutral.
+     * Narrowed 2026-11-27 (owner-approved, "yes, narrow A6"): the ban applies only when strong/severe describes
+     * the aurora, alert or geomagnetic activity, so "strong stargazing conditions" is allowed.
      */
     @Test
     void auroraTonightForAProAsker() {
@@ -239,7 +247,7 @@ class AskNightRegressionTest {
                         && pick.locationId() == ALLENHEADS);
         assertThat(answer.picks()).extracting(AskPick::locationId).doesNotContain(WOOD);
         assertThat(prose(answer)).as("the summary never overstates the alert level: the state is MODERATE")
-                .doesNotContainIgnoringCase("strong").doesNotContainIgnoringCase("severe");
+                .doesNotContainPattern(OVERSTATED_ALERT);
         assertLiveAndRanked(answer, PRO);
     }
 

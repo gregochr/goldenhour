@@ -9,4 +9,4 @@ accepts "both" and "as well"; the thin-sample place carries a served summary; th
 neutral and the test forbids "strong" and "severe" while the state is MODERATE; the Durham-coast night fixture
 mirrors production (a named area inside "Northumberland & Tyneside"); "closer to home" may name minutes or
 miles. A new plain unit test, `AskRegressionPatternsTest`, pins the accept and reject cases. No `src/main`
-change.
+change. The aurora ban was then narrowed (owner-approved) to "strong" or "severe" describing the aurora, alert or geomagnetic activity, so "strong stargazing conditions" passes.

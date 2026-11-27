@@ -102,6 +102,7 @@ there").
   and keeps the assertion, or (ii) the assertion becomes "never says strong or severe while the state is
   moderate".
 - **Approved by the owner 2026-11-27; applied in this commit.**
+- **Narrowed 2026-11-27 (owner-approved):** the ban applies only when strong/severe describes the aurora, alert or geomagnetic activity; 'strong stargazing conditions' is allowed.
 
 ### A7. "Durham coast" night fixture
 - **Production's shape:** "Durham coast" is not a region. It is an alias of the sub-region "Sunderland & the

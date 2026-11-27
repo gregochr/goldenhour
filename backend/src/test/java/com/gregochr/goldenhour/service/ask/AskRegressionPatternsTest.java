@@ -129,4 +129,22 @@ class AskRegressionPatternsTest {
                 .isTrue();
         assertThat(AskNightRegressionTest.AT_RADIUS.matcher("Closer to home there is Allenheads.").find()).isFalse();
     }
+
+    // -- A6: the overstated alert level ------------------------------------------------------------------
+
+    @Test
+    void overstatedAlertRejectsStrongOrSevereDescribingTheAurora() {
+        assertThat(AskNightRegressionTest.OVERSTATED_ALERT.matcher("strong geomagnetic activity").find()).isTrue();
+        assertThat(AskNightRegressionTest.OVERSTATED_ALERT.matcher("Strong aurora tonight").find()).isTrue();
+        assertThat(AskNightRegressionTest.OVERSTATED_ALERT.matcher("the alert is severe").find()).isTrue();
+        assertThat(AskNightRegressionTest.OVERSTATED_ALERT.matcher("severe storm").find()).isTrue();
+    }
+
+    @Test
+    void overstatedAlertAllowsStrongStargazingAndNeutralWording() {
+        assertThat(AskNightRegressionTest.OVERSTATED_ALERT.matcher("strong stargazing conditions").find()).isFalse();
+        assertThat(AskNightRegressionTest.OVERSTATED_ALERT.matcher("active geomagnetic conditions").find())
+                .isFalse();
+        assertThat(AskNightRegressionTest.OVERSTATED_ALERT.matcher("Kp 6.0").find()).isFalse();
+    }
 }
