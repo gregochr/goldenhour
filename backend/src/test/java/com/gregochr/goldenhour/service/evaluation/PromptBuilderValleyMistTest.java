@@ -185,4 +185,87 @@ class PromptBuilderValleyMistTest {
         assertThat(schema.path("required")).extracting(JsonNode::asText)
                 .doesNotContain("mist_potential");
     }
+
+    private static final String GENERIC_CLEARING = "Clearing: read the MIST/VISIBILITY TREND";
+
+    private static AtmosphericData fogbound() {
+        return unflagged().mistScore(9.0).mistPotential(MistPotential.FOGBOUND).build();
+    }
+
+    @Test
+    @DisplayName("a FOGBOUND message carries its own clearing line and site sentence, not the generic ones")
+    void fogbound_carriesOwnSentences() {
+        String message = promptBuilder.buildUserMessage(fogbound());
+
+        assertThat(message).contains(BLOCK_HEADER).contains("Score: 9.0/10 (FOGBOUND)")
+                .contains(PromptBuilder.VALLEY_MIST_FOGBOUND_CLEARING)
+                .contains(PromptBuilder.VALLEY_MIST_FOGBOUND_SITE_SENTENCE)
+                .doesNotContain(PromptBuilder.VALLEY_MIST_SITE_SENTENCE)
+                .doesNotContain(GENERIC_CLEARING);
+    }
+
+    @Test
+    @DisplayName("the echo instruction is still the last line of a FOGBOUND block")
+    void fogbound_echoInstructionIsLastLine() {
+        String message = promptBuilder.buildUserMessage(fogbound());
+
+        assertThat(message.indexOf(PromptBuilder.VALLEY_MIST_FOGBOUND_CLEARING))
+                .isLessThan(message.indexOf(PromptBuilder.VALLEY_MIST_FOGBOUND_SITE_SENTENCE));
+        assertThat(message.indexOf(PromptBuilder.VALLEY_MIST_FOGBOUND_SITE_SENTENCE))
+                .isLessThan(message.indexOf(PromptBuilder.VALLEY_MIST_ECHO_INSTRUCTION));
+    }
+
+    @Test
+    @DisplayName("LIKELY, POSSIBLE and NONE messages keep the generic sentence and carry no FOGBOUND text")
+    void otherBands_keepGenericSentences() {
+        for (MistPotential band : List.of(MistPotential.LIKELY, MistPotential.POSSIBLE, MistPotential.NONE)) {
+            String message = promptBuilder.buildUserMessage(
+                    unflagged().mistScore(5.0).mistPotential(band).build());
+
+            assertThat(message).as(band.name())
+                    .contains(PromptBuilder.VALLEY_MIST_SITE_SENTENCE)
+                    .contains(GENERIC_CLEARING)
+                    .doesNotContain(PromptBuilder.VALLEY_MIST_FOGBOUND_CLEARING)
+                    .doesNotContain(PromptBuilder.VALLEY_MIST_FOGBOUND_SITE_SENTENCE);
+        }
+    }
+
+    @Test
+    @DisplayName("a FOGBOUND block with no score (Band: form) also carries the FOGBOUND sentences")
+    void fogboundWithoutScore_carriesFogboundSentences() {
+        String message = promptBuilder.buildUserMessage(
+                unflagged().mistPotential(MistPotential.FOGBOUND).build());
+
+        assertThat(message).contains("Band: FOGBOUND")
+                .contains(PromptBuilder.VALLEY_MIST_FOGBOUND_CLEARING)
+                .contains(PromptBuilder.VALLEY_MIST_FOGBOUND_SITE_SENTENCE)
+                .doesNotContain(PromptBuilder.VALLEY_MIST_SITE_SENTENCE);
+    }
+
+    @Test
+    @DisplayName("the FOGBOUND clearing line and site sentence are the plan's, verbatim")
+    void fogboundSentences_areVerbatim() {
+        assertThat(PromptBuilder.VALLEY_MIST_FOGBOUND_CLEARING).isEqualTo(
+                "Clearing: none in the window. Every later slot in the MIST/VISIBILITY TREND stays under "
+                + "300 m, so a small rise inside the fog is not clearing; do not describe the fog as "
+                + "lifting or burning off.");
+        assertThat(PromptBuilder.VALLEY_MIST_FOGBOUND_SITE_SENTENCE).isEqualTo(
+                "This location is a valley-floor / riverside site, and it is fogbound: fog under 300 m with "
+                + "no clearing is a white frame, not the thin-mist shot. MAXIMUM rating 2; the score above "
+                + "measures how sure the fog is, not how good the shot is.");
+    }
+
+    @Test
+    @DisplayName("the schema restates the FOGBOUND cap on rating and mist_potential")
+    void schema_restatesFogboundCap() throws Exception {
+        var mapper = ObjectMappers.jsonMapper();
+        JsonNode props = mapper.readTree(mapper.writeValueAsString(promptBuilder.buildOutputConfig()))
+                .path("format").path("schema").path("properties");
+
+        assertThat(props.path("rating").path("description").asText())
+                .contains("MAXIMUM 2 when the VALLEY MIST CONDITIONS block's band is FOGBOUND")
+                .contains("CLOUD APPROACH RISK");
+        assertThat(props.path("mist_potential").path("description").asText())
+                .contains("FOGBOUND caps rating at 2");
+    }
 }
