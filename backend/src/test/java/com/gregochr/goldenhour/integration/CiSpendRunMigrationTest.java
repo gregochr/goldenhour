@@ -65,7 +65,7 @@ class CiSpendRunMigrationTest extends IntegrationTestBase {
         assertThat(rows.get(0)).containsEntry("schedule_type", "FIXED_DELAY")
                 .containsEntry("fixed_delay_ms", 3600000L)
                 .containsEntry("initial_delay_ms", 300000L)
-                .containsEntry("time_zone", "Europe/London")
+                .containsEntry("time_zone", null)
                 .containsEntry("status", "DISABLED_BY_CONFIG")
                 .containsEntry("status_before_config_disable", "ACTIVE")
                 .containsEntry("config_source", "photocast.ci-spend.enabled");
@@ -135,7 +135,7 @@ class CiSpendRunMigrationTest extends IntegrationTestBase {
         m.setModel("claude-sonnet-5-5");
         m.setInputTokens(10L);
         m.setInputUsdPerMtok(2.0);
-        r.getModels().add(m);
+        r.addModel(m);
         runs.saveAndFlush(r);
         attempts.saveAndFlush(new CiSpendAttemptEntity(5L, 1, T, "sky"));
 

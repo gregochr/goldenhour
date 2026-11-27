@@ -71,11 +71,11 @@ CREATE INDEX idx_ci_spend_model_usage_run ON ci_spend_model_usage (ci_spend_run_
 
 -- The poll job. Seeded DISABLED_BY_CONFIG: photocast.ci-spend.enabled is false (and no GitHub token is set) until
 -- the owner turns it on; DynamicSchedulerService restores ACTIVE when the gate opens. Hourly, first poll five
--- minutes after startup. time_zone is explicit: NULL means UTC since V204.
+-- minutes after startup. time_zone is left NULL (UTC): a fixed-delay job needs none (V172's seed does the same).
 INSERT INTO scheduler_job_config
-    (job_key, display_name, description, schedule_type, fixed_delay_ms, initial_delay_ms, time_zone, status,
+    (job_key, display_name, description, schedule_type, fixed_delay_ms, initial_delay_ms, status,
      status_before_config_disable, config_source)
 VALUES ('ci_spend_poll', 'CI Prompt-Test Spend Poll',
         'Reads the token-count artifacts the paid CI prompt-regression suites upload to GitHub Actions and stores their priced spend for the Runs cost views',
-        'FIXED_DELAY', 3600000, 300000, 'Europe/London', 'DISABLED_BY_CONFIG', 'ACTIVE',
+        'FIXED_DELAY', 3600000, 300000, 'DISABLED_BY_CONFIG', 'ACTIVE',
         'photocast.ci-spend.enabled');

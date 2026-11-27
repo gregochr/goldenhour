@@ -11,12 +11,14 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -123,7 +125,43 @@ public class CiSpendRunEntity {
     private Instant fetchedAt;
 
     /** The per-model token counts and rate snapshots. */
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "ci_spend_run_id", nullable = false)
     private List<CiSpendModelUsageEntity> models = new ArrayList<>();
+
+    /**
+     * The model rows, read-only. Change them only through {@link #addModel}, {@link #replaceModels} and
+     * {@link #clearModels}. (Hibernate uses field access here, so it manages the underlying list directly.)
+     *
+     * @return an unmodifiable view of the model rows
+     */
+    public List<CiSpendModelUsageEntity> getModels() {
+        return Collections.unmodifiableList(models);
+    }
+
+    /**
+     * Adds one model row.
+     *
+     * @param model the row to add
+     */
+    public void addModel(CiSpendModelUsageEntity model) {
+        models.add(model);
+    }
+
+    /**
+     * Replaces every model row (the removed ones are deleted as orphans).
+     *
+     * @param replacement the new rows
+     */
+    public void replaceModels(List<CiSpendModelUsageEntity> replacement) {
+        models.clear();
+        models.addAll(replacement);
+    }
+
+    /** Removes every model row. */
+    public void clearModels() {
+        models.clear();
+    }
 }

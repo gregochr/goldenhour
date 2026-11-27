@@ -526,7 +526,7 @@ public class CiSpendPollService {
             row.setErroredCalls(0);
             row.setCostMicroDollars(null);
             row.setExchangeRateGbpPerUsd(null);
-            row.getModels().clear();
+            row.clearModels();
             runRepository.save(row);
             return new WriteResult(Outcome.UNKNOWN, wrote);
         }
@@ -586,8 +586,7 @@ public class CiSpendPollService {
             rows.add(usageRow);
         }
         row.setErroredCalls(tokens.stream().mapToInt(ModelTokens::erroredCalls).sum());
-        row.getModels().clear();
-        row.getModels().addAll(rows);
+        row.replaceModels(rows);
         if (priceable) {
             row.setUsageState(CiSpendRunEntity.STATE_KNOWN);
             row.setCostMicroDollars(total);

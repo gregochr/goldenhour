@@ -67,7 +67,7 @@ class CiSpendRepositoriesTest {
         CiSpendRunEntity r = run(1L, 1, "sky", "KNOWN");
         r.setCostMicroDollars(3000L);
         r.setExchangeRateGbpPerUsd(0.8);
-        r.getModels().add(model("claude-sonnet-5-5"));
+        r.addModel(model("claude-sonnet-5-5"));
         runs.saveAndFlush(r);
         em.clear();
 
@@ -83,11 +83,25 @@ class CiSpendRepositoriesTest {
     }
 
     @Test
+    @DisplayName("getModels is a read-only view; rows change only through the run's own methods")
+    void modelsAreReadOnly() {
+        CiSpendRunEntity r = run(8L, 1, "sky", "KNOWN");
+        r.addModel(model("a"));
+
+        assertThatThrownBy(() -> r.getModels().add(model("b"))).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> r.getModels().clear()).isInstanceOf(UnsupportedOperationException.class);
+        r.replaceModels(List.of(model("c"), model("d")));
+        assertThat(r.getModels()).extracting(CiSpendModelUsageEntity::getModel).containsExactly("c", "d");
+        r.clearModels();
+        assertThat(r.getModels()).isEmpty();
+    }
+
+    @Test
     @DisplayName("deleting a run deletes its model rows")
     void deletingARunCascadesToItsModels() {
         CiSpendRunEntity r = run(2L, 1, "ask", "UNPRICED");
-        r.getModels().add(model("claude-future-9"));
-        r.getModels().add(model("claude-future-10"));
+        r.addModel(model("claude-future-9"));
+        r.addModel(model("claude-future-10"));
         runs.saveAndFlush(r);
 
         runs.delete(r);
@@ -100,11 +114,11 @@ class CiSpendRepositoriesTest {
     @DisplayName("replacing the model rows of a run removes the old ones")
     void replacingModelsRemovesOrphans() {
         CiSpendRunEntity r = run(3L, 1, "sky", "UNKNOWN");
-        r.getModels().add(model("claude-old-1"));
+        r.addModel(model("claude-old-1"));
         runs.saveAndFlush(r);
 
-        r.getModels().clear();
-        r.getModels().add(model("claude-sonnet-5-5"));
+        r.clearModels();
+        r.addModel(model("claude-sonnet-5-5"));
         runs.saveAndFlush(r);
 
         assertThat(jdbc.queryForList("SELECT model FROM ci_spend_model_usage", String.class))

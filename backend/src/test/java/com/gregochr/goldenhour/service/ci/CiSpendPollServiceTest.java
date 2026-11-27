@@ -250,7 +250,7 @@ class CiSpendPollServiceTest {
             m.setCacheReadTokens(50_000L);
             m.setCacheWriteTokens(8_000L);
             m.setCacheWrite1hTokens(3_000L);
-            row.getModels().add(m);
+            row.addModel(m);
         }
         return row;
     }
