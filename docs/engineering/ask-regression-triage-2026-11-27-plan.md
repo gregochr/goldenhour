@@ -120,51 +120,84 @@ All prompt text lives in `backend/src/main/java/com/gregochr/goldenhour/service/
 covered-windows line sits in the per-question tail. Keep each addition to the words given here; every Ask
 call pays for them (read `docs/engineering/claude-cost-ledger.md` first, and record the added tokens in the PR).
 
-**B1 — a stay-home window is called that, never "marginal".**
-- In `RULES`' "How to judge a window" bullet, after "is a stay-home window with a few exceptions, not a good
-  window: say so plainly,", insert: `calling it a stay-home window (never marginal: marginal is one place's 3★),`
-- Leave the existing sentence "Say instead that … most places are not worth going out for" untouched.
+**B1 — a window is never called "marginal".**
+- In `RULES`' "How to judge a window" bullet, after "not a good window: say so plainly,", insert:
+  `never calling the window marginal (marginal is one place's 3★),`
+- Do not add any new stay-home phrase. Steering toward a test's exact string would be tuning against the test.
+  A hyphenated "stay-home" would also still fail today's regex.
+- The owner's A1 is what makes the stay-home tests measurable.
+- ⚠️ **Interaction for the owner.** In `ask-game-on-weekend.json`, Sunday is itself a stay-home window
+  (sunrise 2 of 201 places at 4★ or better, sunset 5 of 181). A correct game-on answer may therefore say
+  "Sunday is one to stay home for". Today that slips past `doesNotSayStayHome` only because of the hyphen
+  rule. If A1 is adopted, narrow `doesNotSayStayHome` to the summary's lead sentence, or to the BEST BET
+  window.
 
-**B2 — a Ready answer names a covered day that has nothing.**
-- In `systemPromptBlocks`, after "Every pick must be on one of these windows.", append:
-  ` If a day among these windows has no place worth going to, the summary names that day as one to stay home.`
-- This is in the dynamic tail, so only Ready conversations with covered windows see it.
+**B2 — a Ready answer names a covered day that has nothing (bounded, computed by the engine).**
+- `ClaudeAskEngine` already holds a Ready offer's `windowIds` (the windows with candidates) and its
+  `coveredWindowIds`. It computes the **covered dates with no candidate window**, leaving out the BEST BET's
+  date, and passes them to `AskPromptBuilder.systemPromptBlocks` as a new trailing parameter.
+- Keep the existing overloads byte for byte, with an empty list.
+- For each such date, append one line to the dynamic tail, after the covered-windows line:
+  `<EEEE d MMMM> has no place worth going to: say so in the summary, naming the day.`
+- A typed question, and an offer with no such date, add nothing. The line cannot balloon on a quiet week,
+  because it names only days with no candidate at all. It also names the weekday, not "tomorrow".
+- If the covered set holds more than two such dates, emit one line listing them, capped at the first three.
 
 **B3 — favourites: the right call, and the companion said.**
 - In `WITH_USER`, replace "pass favourites true only for a question about their own places." with:
-  `pass favourites true only when the question asks about nothing but their own places; a question that also asks where is best leaves it unset, because the result already names their favourite.`
+  `pass favourites true only when the question limits itself to their own places ("which of my places…"); a question asking where is best and also how their favourite looks leaves it unset, because the result already names their favourite.`
 - Mirror the same rule in `AskToolSchemas.rankSpots`' `favourites` description.
 - In `WITH_USER`, turn the companion rule into its own leading sentence:
   `When rank_spots returns a companion, the summary names it by name with its stars:`
   followed by the existing three `companionKind` clauses, unchanged in meaning.
+- Keep "favourite" and "companion" out of `RULES` and `USER_LESS`, as `AskPromptBuilderTest:538-539` pins.
 - Not done: an engine step that appends the companion sentence itself. It rewrites model prose after
-  validation, so it is a design decision for the owner. It is the fallback if B3 measures short.
+  validation, so it is the owner's design call. It is the fallback if B3 measures short.
 
 **B4 — a looked-up place with no detail is still an answer.**
-- In `PLACE_FIT_AFTER`, after "using the reason given for its status.", insert:
-  `A row with no detail is still answerable: give the rating and the reason given for its status, and never say the reason is unavailable.`
+- In `PLACE_FIT_AFTER`, insert a sentence **after** "using the reason given for its status." so the span
+  `AskPromptBuilderTest:108-110` pins survives:
+  `A rated row with no detail is still answerable true: give its rating, then the reason given for its status as the explanation.`
 - Change the `NEIGHBOUR_OUTLIER` status reason in `AskTools.statusReason` to:
   `Its rating is well above the places beside it, so PhotoCast doubts that star and is not suggesting it.`
   This explains the star, not only why the place is not suggested.
-- Check that `THREAD_RULES`' held-back wording ("never call it low, poor or unreliable") still reads true.
-  "Doubts that star" says neither low nor poor.
+- Update `AskToolsLookUpPlaceTest:312` and the quote of the old outlier reason in
+  `docs/engineering/ask-place-lookup-plan.md:109`.
 
-**B5 — `rank_night_spots` resolves a named area, and a miss lists the names.** This is a production gap: the
-owner's own question "clear skies on the Durham coast tonight?" hits it.
-- **Schema:** in `AskToolSchemas.rankNightSpots`, add `areaName` under the same condition as `rank_spots`
-  (`withNamedAreas`), with the same description.
-- **Matching:** in `AskTools.rankNightSpots`, resolve it exactly as `rank_spots` does: user-only,
-  `matchArea(snapshot.areas(), placeWords(...))`, and the same "Unknown named area '…'. Known: …" failure.
-  Then filter the night spots to `area.locationIds()`.
-- **Miss text:** the night tool's unknown-region failure appends `Known: <region names in scope>.` capped as
-  `KNOWN_AREAS_CAP`, and offers "or leave regionNames out". `rank_spots`' region miss gets the same treatment.
-- **Prompt:** `RULES`' night bullet gains: `For a named area or a stretch of coast, pass it as areaName.`
-- **Defence in depth:** `rankNightSpots` drops canopy (wood) spots, as its schema already promises. The
-  `rank_night_spots` output leaked "Hamsterley Bluebell Wood" into prose in two regression answers.
-  Production's snapshot drops woods already.
+**B5 — `rank_night_spots` resolves a named area, and a miss says what to pass.** This is a production gap:
+the owner's own question "clear skies on the Durham coast tonight?" hits it.
+- **Schema:** in `AskToolSchemas.rankNightSpots`, add `areaName` under `withNamedAreas` (that is, typed
+  only), with `rank_spots`' description.
+- **Args:** add the `areaName` component to `RankNightSpotsArgs` with a delegating constructor that takes the
+  old 8 arguments, as `RankSpotsArgs` does (`AskTools.java:343-348`), so the 19 call sites stand.
+  `AskToolArguments` parses the new field; `StubAskEngine` is unaffected.
+- **Resolution:** in `AskTools.rankNightSpots`, resolve it exactly as `rank_spots` does:
+  - user-only;
+  - `matchArea(snapshot.areas(), placeWords(...))`;
+  - the same "Unknown named area '…'. Known: …" failure, plus "or use regionNames";
+  - filter the pool to `area.locationIds()`;
+  - an area hit that leaves no spot gets an area-named note, not `NOTHING_NIGHT_MATCHES_NOTE`;
+  - not `personal`.
+- **Region miss, both tools** (`AskTools.java:1114` and `:2104`):
+  - In a typed conversation, first try `matchArea` on the name. On a hit, fail with
+    `'<name>' is a named area: pass it as areaName.`
+  - Otherwise append `Known: <names>.`, where the names come from **one shared helper**:
+    `canonicalRegion`'s own universe intersected with scope, capped like `KNOWN_AREAS_CAP`.
+  - Mention areaName only when `user.hasUser()`.
+- **Prompt:** add `For a named area or a stretch of coast, pass it to rank_night_spots as areaName.` to
+  **`WITH_USER`**, beside the `rank_night_spots` nearHome clause, **never `RULES`**. Ready receives `RULES`
+  byte for byte, and its schema has no areaName.
+- **Canopy:** filter canopy spots out of the night pool before the empty-region note. This is defence only:
+  production's builder already drops woods.
 
-**Tests (unit, no API):** cover every prompt string change, plus B5's three paths: area hit filters, area miss
-lists known names, and `areaName` with no user fails. Also cover the region-miss text and the canopy filter.
+**Tests (unit, no API):** cover every prompt string change, with typed and Ready asserted both ways where the
+two prompts differ. Also cover:
+- B2's date computation: no line for a typed question or a fully candidated weekend; exactly the
+  uncandidated date; the BEST BET date left out; the cap.
+- B5: area hit filters; area hit with no spot gives the area note; area miss gives the Known list; `areaName`
+  with no user fails; `areaName` combined with `regionNames`; a region miss that names an area gives the
+  areaName hint; a region miss that names nothing gives the Known list; the canopy filter.
+- `AskToolSchemasTest`: the night `areaName` is present for typed and absent for Ready, mirroring `:132-134`.
 Do **not** touch anything under the `prompt-regression` tag, `AskFixtures`, or the regression fixtures.
 
 **Docs:**
