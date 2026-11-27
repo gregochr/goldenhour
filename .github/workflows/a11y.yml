@@ -63,13 +63,26 @@ jobs:
       - name: Build the frontend
         run: cd frontend && npm run build
 
-      # Keyed on the exact pinned version, as in the smoke job. The cache holds the browser only.
+      # The Playwright version is read from frontend/package.json (where @playwright/test is pinned exactly, no
+      # caret) so the cache key below can never go stale: a hard-coded version literal was left behind on the last bump, CI
+      # restored the old browser, skipped the install and every E2E test failed. A range would key it wrongly.
+      - name: Read the Playwright version
+        id: playwright-version
+        run: |
+          version="$(node -p "require('./frontend/package.json').devDependencies['@playwright/test']")"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::@playwright/test must be pinned to an exact version in frontend/package.json (found '$version'); a range would key the browser cache wrongly."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Keyed on the version read from package.json above, as in the smoke job. The cache holds the browser only.
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-1.65.1
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
       - name: Install Chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'
