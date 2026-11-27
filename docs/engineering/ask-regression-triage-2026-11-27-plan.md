@@ -255,3 +255,49 @@ reading candidate ids.
 **The second push** (`e1c9559`) holds: Codex's P1 on B2 (emptiness read from the spread, gameOn 0 and
 mostly scored, never from the offer's candidate ids), the "marginal" ban, and the moved areaName sentence. It
 starts one more paid run.
+
+## Part C — after the A1–A8 run (`a7f1e39`: 4 failures)
+
+The owner chose, on 2026-11-27, the engine-written companion plus two prompt nudges. Remaining failures:
+- plain-best favourite 2/5;
+- Hadrian's Wall 7/10: 3 runs never called `look_up_place`;
+- the Heugh 8/10: the listed name was missing;
+- typed stay-home weekend 8/10: the summary leads with the picks, unframed.
+
+**B6 — the engine says the companion** (the "not done" fallback of B3, now approved).
+
+*Data and the step:*
+- `AskTools` keeps the **last successful `rank_spots` result's** lead, companion and companionKind, per conversation. Expose this as a read-only accessor; it is null when no companion was returned.
+- After `AskAnswerValidator` accepts an OK answer, `ClaudeAskEngine` appends one fixed sentence when all of the following hold:
+  - there is a companion;
+  - the conversation has a user (companions exist only with one);
+  - the summary does not already name the companion with its stars in one sentence. The test is the companion's name, case-insensitive, within the same sentence as `<n>★`.
+
+*The sentences:*
+  - `YOUR_FAVOURITE` → `Your <name> is <n>★.`
+  - `TIED` → `<name> also scores <n>★, the same as <lead name>.`
+  - `HIGHER_ELSEWHERE` → `<name> scores higher, at <n>★.`
+
+*Constraints:*
+- The sentence is appended only if the result stays within `AskAnswerValidator.SUMMARY_WORDS`. Otherwise the summary is left as it is; the engine never truncates the model's text to make room.
+- It applies to typed conversations only: Ready has no user and no companion.
+- The appended text uses only served fields (name, rating) and adds no pick.
+- A thread's later turn re-reads the summary as "I answered", which is fine.
+
+*Tests:*
+- each kind;
+- already named, so nothing is appended;
+- named without its star, so the sentence is appended;
+- over the cap, so nothing is appended;
+- no user, or no companion, so nothing is appended;
+- the companion from an earlier `rank_spots` call is replaced by a later one.
+
+**B7 — named area: `look_up_place` first, and the listed name said.** In `PLACE_FIT_AFTER`, after "answer from those stars, never as picks.", insert:
+`For a question about how a named area looks, call look_up_place even when you also call rank_spots.`
+After "call it by its listed name, adding the name the reader used.", insert:
+`Name it in the summary by its listed name too.`
+
+**B8 — a stay-home window is framed first.** In `RULES`' "How to judge a window" bullet, after "name the exceptions as exceptions, with their region.", insert:
+`The summary's first sentence says it is a stay-home window; the exceptions follow.`
+- This applies to Ready too: its stay-home tests pass, and this reinforces them.
+- `doesNotSayStayHome` reads only the first sentence (A1). A game-on window is not a stay-home window, so this does not invite a false hit.
