@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.InversionClearance;
 import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.service.InversionScoreCalculator;
 import com.gregochr.goldenhour.service.ValleyMistCalculator;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
@@ -358,6 +359,29 @@ public class PromptBuilder {
             + "thin mist with a clear sky above at sunrise is the shot here, and may rate 4\u20135 "
             + "with no horizon colour at all. Fog under 300 m with no clearing is a white frame: "
             + "rate 2.";
+
+    /**
+     * The clearing line a FOGBOUND {@code mist_prone} message carries in place of the generic
+     * "read the MIST/VISIBILITY TREND" line (valley-mist-fogbound-cap-plan). The generic line invited
+     * the model to read a small rise inside the fog as clearing and to write that the fog "will lift".
+     * This one states the answer: none in the window.
+     */
+    public static final String VALLEY_MIST_FOGBOUND_CLEARING =
+            "Clearing: none in the window. Every later slot in the MIST/VISIBILITY TREND stays under "
+            + "300 m, so a small rise inside the fog is not clearing; do not describe the fog as "
+            + "lifting or burning off.";
+
+    /**
+     * The site sentence a FOGBOUND {@code mist_prone} message carries in place of
+     * {@link #VALLEY_MIST_SITE_SENTENCE}. The cloud-approach-veto lesson: a cap stated in prose next to
+     * a "may rate 4-5" permission was overridden by the model (a fogbound Brathay sunrise rated 4), so
+     * FOGBOUND gets its own sentences with no permission in them, and the cap is restated on the
+     * schema's {@code rating} and {@code mist_potential} descriptions.
+     */
+    public static final String VALLEY_MIST_FOGBOUND_SITE_SENTENCE =
+            "This location is a valley-floor / riverside site, and it is fogbound: fog under 300 m with "
+            + "no clearing is a white frame, not the thin-mist shot. MAXIMUM rating 2; the score above "
+            + "measures how sure the fog is, not how good the shot is.";
 
     /** The echo instruction, in the user message so the system prompt stays byte-identical. */
     public static final String VALLEY_MIST_ECHO_INSTRUCTION =
@@ -726,7 +750,9 @@ public class PromptBuilder {
                                                 "description",
                                                 "1-5. MAXIMUM 3 when the CLOUD APPROACH RISK "
                                                         + "block shows BOTH a [BUILDING] trend "
-                                                        + "AND upwind current >= 60%.")),
+                                                        + "AND upwind current >= 60%. "
+                                                        + "MAXIMUM 2 when the VALLEY MIST "
+                                                        + "CONDITIONS block's band is FOGBOUND.")),
                                         Map.entry("fiery_sky", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
@@ -761,7 +787,8 @@ public class PromptBuilder {
                                                         "FOGBOUND"),
                                                 "description",
                                                 "Only when the message carries a VALLEY MIST "
-                                                        + "CONDITIONS block; omit otherwise.")))))
+                                                        + "CONDITIONS block; omit otherwise. "
+                                                        + "FOGBOUND caps rating at 2.")))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties",
@@ -971,6 +998,11 @@ public class PromptBuilder {
                 sb.append(String.format("%nSky overnight: mean total cloud %.0f%%",
                         facts.meanCloudPercent()));
             }
+        }
+        if (data.mistPotential() == MistPotential.FOGBOUND) {
+            sb.append(String.format("%n%s%n%s%n%s", VALLEY_MIST_FOGBOUND_CLEARING,
+                    VALLEY_MIST_FOGBOUND_SITE_SENTENCE, VALLEY_MIST_ECHO_INSTRUCTION));
+            return;
         }
         sb.append(String.format(
                 "%nClearing: read the MIST/VISIBILITY TREND above for whether visibility is "

@@ -373,7 +373,9 @@ before a merge (CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and
   Fork PRs and Dependabot never reach the paid jobs; for an SDK bump the owner runs the workflow manually.
 - **What runs.** `sky`: `SkyRatingRegressionTest` and `SystemPromptTokenCountTest` with
   `SKY_MODEL=SONNET_55` and `SKY_RUNS` (1 on a PR; 1 or 8 by the dispatch input). `ValleyMistPromptRegressionTest` runs in its own
-  `continue-on-error` step and is reported, never failing, until the owner approves its assertions. `ask`: `Ask*RegressionTest`
+  `continue-on-error` step and is reported, never failing, until the owner approves its assertions. That step passes
+  `-Dregression.model="$SKY_MODEL"`, so it runs on the same model as the sky step (before 2026-11-27 it silently ran on the
+  test's HAIKU default). `ask`: `Ask*RegressionTest`
   with `-DforkCount=1`; any skipped Ask test is shown red in the summary, because a skipped paid test checked nothing.
   `PromptReplayHarnessTest` never runs. The step summary (`scripts/prompt-regression-summary.py`, read from the surefire
   `TEST-*.xml`) and the uploaded reports use `if: ${{ !cancelled() }}`, so a red test step still produces them.
