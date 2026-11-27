@@ -66,7 +66,16 @@ print("changes_fetch_depth=%s" % changes["steps"][0]["with"].get("fetch-depth"))
 for name in ("sky", "ask"):
     print("%s_usage_env=%s" % (name, ",".join(sorted(
         k for k in (jobs[name].get("env") or {}) if k in ("PROMPT_REGRESSION_USAGE_DIR", "HEAD_SHA", "PR_NUMBER")))))
-    print("%s_first_step=%s" % (name, jobs[name]["steps"][0].get("name", "")))
+    names = [st.get("name", "") for st in jobs[name]["steps"]]
+    checkout = [i for i, st in enumerate(jobs[name]["steps"]) if str(st.get("uses", "")).startswith("actions/checkout@")]
+    maven = "Sky rating and token-count tests" if name == "sky" else "Ask regression tests"
+    print("%s_start_count=%d" % (name, names.count("Record start time")))
+    print("%s_maven_count=%d" % (name, names.count(maven)))
+    if "Record start time" in names and maven in names and checkout:
+        i = names.index("Record start time")
+        print("%s_start_wd=%s" % (name, jobs[name]["steps"][i].get("working-directory")))
+        print("%s_start_after_checkout=%s" % (name, i > checkout[0]))
+        print("%s_start_before_maven=%s" % (name, i < names.index(maven)))
     print("%s_job_keys=%s" % (name, ",".join(sorted(jobs[name]))))
     print("%s_step_count=%d" % (name, len(jobs[name]["steps"])))
     for step in jobs[name]["steps"]:
@@ -125,7 +134,11 @@ else
         assert_eq "$job usage artifact is kept 90 days" "90" "$(fact ${job}_usage_retention)"
         assert_eq "$job usage artifact is optional" "ignore" "$(fact ${job}_usage_missing)"
         assert_eq "$job has the usage env" "HEAD_SHA,PROMPT_REGRESSION_USAGE_DIR,PR_NUMBER" "$(fact ${job}_usage_env)"
-        assert_eq "$job records the start time first" "Record start time" "$(fact ${job}_first_step)"
+        assert_eq "$job has exactly one Record start time step" "1" "$(fact ${job}_start_count)"
+        assert_eq "$job paid Maven step exists by exact name" "1" "$(fact ${job}_maven_count)"
+        assert_eq "$job Record start time runs from the repository root" "." "$(fact ${job}_start_wd)"
+        assert_eq "$job Record start time is after checkout" "True" "$(fact ${job}_start_after_checkout)"
+        assert_eq "$job Record start time is before the paid Maven step" "True" "$(fact ${job}_start_before_maven)"
         assert_eq "$job job keys are unchanged (no new needs or environment)" \
             "concurrency,defaults,env,environment,if,name,needs,runs-on,steps,timeout-minutes" "$(fact ${job}_job_keys)"
     done
