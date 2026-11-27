@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,4 +48,26 @@ public interface CiSpendRunRepository extends JpaRepository<CiSpendRunEntity, Lo
      * @return the matching rows
      */
     List<CiSpendRunEntity> findByUsageStateOrderByStartedAtAsc(String usageState);
+
+    /**
+     * Rows that started in a half-open window, oldest first (the Cost trends read; model rows stay lazy).
+     *
+     * @param from the window start, inclusive
+     * @param to   the window end, exclusive
+     * @return the rows
+     */
+    List<CiSpendRunEntity> findByStartedAtGreaterThanEqualAndStartedAtLessThanOrderByStartedAtAscSuiteAscRunAttemptAsc(
+            Instant from, Instant to);
+
+    /**
+     * Rows that started in a half-open window with their model rows, in start, suite, attempt order (the Day view
+     * read, which sums the tokens).
+     *
+     * @param from the window start, inclusive
+     * @param to   the window end, exclusive
+     * @return the rows, each model collection loaded
+     */
+    @Query("select distinct r from CiSpendRunEntity r left join fetch r.models where r.startedAt >= :from "
+            + "and r.startedAt < :to order by r.startedAt, r.suite, r.runAttempt")
+    List<CiSpendRunEntity> findWithModelsStartedBetween(@Param("from") Instant from, @Param("to") Instant to);
 }

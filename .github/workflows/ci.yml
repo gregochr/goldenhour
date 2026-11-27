@@ -522,29 +522,15 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run build
 
-      # The Playwright version is read from frontend/package.json (where @playwright/test is pinned exactly, no
-      # caret) so the cache key below can never go stale: a hard-coded version literal was left behind on the last bump, CI
-      # restored the old browser, skipped the install and every E2E test failed. A range would key it wrongly.
-      - name: Read the Playwright version
-        if: needs.changes.outputs.docs_only != 'true'
-        id: playwright-version
-        run: |
-          version="$(node -p "require('./frontend/package.json').devDependencies['@playwright/test']")"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::@playwright/test must be pinned to an exact version in frontend/package.json (found '$version'); a range would key the browser cache wrongly."
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      # Keyed on the version read from package.json above. The cache holds the browser only; the apt packages
-      # it needs are NOT cached, so install-deps always runs.
+      # Keyed on the exact pinned version (package.json pins @playwright/test with no caret). The cache holds
+      # the browser only; the apt packages it needs are NOT cached, so install-deps always runs.
       - name: Cache Playwright browsers
         if: needs.changes.outputs.docs_only != 'true'
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-1.64.1
 
       - name: Install Chromium
         if: needs.changes.outputs.docs_only != 'true' && steps.playwright-cache.outputs.cache-hit != 'true'

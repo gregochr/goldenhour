@@ -4,6 +4,7 @@ import DayDateBar from './DayDateBar.jsx';
 import DayRunList from './DayRunList.jsx';
 import DayStrip from './DayStrip.jsx';
 import DaySummary from './DaySummary.jsx';
+import PromptTestRuns from './PromptTestRuns.jsx';
 import { visibleDialogOpen } from '../../../hooks/usePanelEscape.js';
 import { nextDay, previousDay, rowMatchesFilter } from '../../../utils/runsDay.js';
 import { ukDateStr } from '../../../utils/mapDates.js';
@@ -155,6 +156,7 @@ export default function RunsDayView({
           selectedKey={selectedKey}
           onOpenDetail={onOpenDetail}
         />
+        <PromptTestRuns runs={data.promptTestRuns} />
       </>
     );
   }

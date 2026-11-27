@@ -281,6 +281,72 @@ class AdminRunsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.error").value("days must be one of [7, 14, 30, 60, 90] or all"));
     }
 
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/admin/runs/cost asks for testing with the app response's own bounds and attaches it")
+    void costComposesTesting() throws Exception {
+        RunCostResponse everything = new RunCostResponse(120, LocalDate.parse("2026-07-05"),
+                LocalDate.parse("2026-11-01"), true, List.of(), List.of(), costTotals(), null);
+        RunCostResponse sevenDay = new RunCostResponse(7, LocalDate.parse("2026-10-19"),
+                LocalDate.parse("2026-11-01"), false, List.of(), List.of(), costTotals(), null);
+        when(runsCostService.cost("7")).thenReturn(sevenDay);
+        when(runsCostService.cost("all")).thenReturn(everything);
+        RunCostResponse.CostTesting testing = new RunCostResponse.CostTesting(List.of(), List.of(),
+                new RunCostResponse.CostTestingTotals(new BigDecimal("3.40"), new BigDecimal("1.62"),
+                        new BigDecimal("1.78"), 110, 14, 7, 1, new BigDecimal("4.30"), null));
+        when(ciSpendCostService.testing(LocalDate.parse("2026-10-19"), LocalDate.parse("2026-10-26"),
+                LocalDate.parse("2026-11-01"), false, sevenDay)).thenReturn(testing);
+        when(ciSpendCostService.testing(LocalDate.parse("2026-07-05"), LocalDate.parse("2026-07-05"),
+                LocalDate.parse("2026-11-01"), true, everything)).thenReturn(null);
+
+        mockMvc.perform(get("/api/admin/runs/cost").param("days", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.testing.totals.lastGbp").value(3.40))
+                .andExpect(jsonPath("$.testing.totals.unknownRuns").value(1));
+        mockMvc.perform(get("/api/admin/runs/cost").param("days", "all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.testing").isEmpty());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("the unrounded appExact never reaches the wire: no key and none of its figures in the response")
+    void appExactIsNotSerialised() throws Exception {
+        RunCostResponse.AppExact exact = new RunCostResponse.AppExact(123.456789, 98.7654321, 424242L,
+                Map.of(LocalDate.parse("2026-11-01"), 7.777777));
+        when(runsCostService.cost("7")).thenReturn(new RunCostResponse(7, LocalDate.parse("2026-10-26"),
+                LocalDate.parse("2026-11-01"), false, List.of(), List.of(), costTotals(), null, null, exact));
+
+        String body = mockMvc.perform(get("/api/admin/runs/cost").param("days", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appExact").doesNotExist())
+                .andExpect(jsonPath("$.rangeDays").value(7))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("appExact").doesNotContain("dayGbp").doesNotContain("7.777777")
+                .doesNotContain("123.456789").doesNotContain("424242");
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/admin/runs/day attaches the prompt test runs of the day's own UTC bounds")
+    void dayComposesPromptTestRuns() throws Exception {
+        RunDayResponse day = emptyDay(LocalDate.parse("2026-11-01"));
+        when(runsDayService.day(LocalDate.parse("2026-11-01"))).thenReturn(day);
+        when(ciSpendCostService.promptTestRuns(day.dayStartUtc(), day.dayEndUtc())).thenReturn(List.of(
+                new com.gregochr.goldenhour.model.runs.PromptTestRunRow(1912, "fix: x",
+                        com.gregochr.goldenhour.model.runs.CiSuite.SKY, 1, "success",
+                        "https://github.com/o/r/actions/runs/1", Instant.parse("2026-11-01T10:00:00Z"), 42, 0,
+                        612000L, 38000L, 434000L, new BigDecimal("0.41"), new BigDecimal("0.52"), "KNOWN",
+                        1046000L, 42)));
+
+        mockMvc.perform(get("/api/admin/runs/day").param("date", "2026-11-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.promptTestRuns[0].prNumber").value(1912))
+                .andExpect(jsonPath("$.promptTestRuns[0].suite").value("SKY"))
+                .andExpect(jsonPath("$.runs").isEmpty());
+    }
+
     private static CostTotals costTotals() {
         return new CostTotals(new BigDecimal("10.00"), BigDecimal.ZERO, new BigDecimal("10.00"), null,
                 new BigDecimal("12.66"), new BigDecimal("0.7900"), new BigDecimal("0.71"), BigDecimal.ZERO, true);

@@ -324,7 +324,7 @@ endpoints, so config is never served.
   zero runs) come **before** any code moves.
 - Runs are bucketed by the UK civil date of `started_at` (`ForecastHorizon.civilDate`, the same as app runs).
   CI rows are bounded to `[firstDay, lastDay]` in every range, "all" included, so they never reach outside the
-  app's days. A CI run before the app's earliest day cannot be opened in the Day view. Accepted.
+  app's days. A CI run before the app's earliest day cannot be opened in the Day view: `requireSelectable` sends such a day to today, and the behaviour is deliberately unchanged because production always has app runs from before any CI run. Accepted.
 - GBP per run is `cost_micro_dollars × its stored rate`. `UNKNOWN` and `UNPRICED` runs count toward `runs` and
   `unknownRuns`, but not toward spend, and they set `costComplete = false`.
 - `RunCostResponse` gains a trailing nullable `testing` and a secondary constructor with the old arguments
@@ -430,8 +430,8 @@ The mock is `CI Spend.html`, in the handoff.
     reported."
   - The summary's spend is unchanged.
 - **Range buttons:** no change (the server applies the range).
-- **Phone** (`useIsMobile`): run rows wrap as in the mock's 640px rule. Desktop and tablet are otherwise
-  unchanged.
+- **Phone**: run rows wrap as in the mock's 640px rule, done with `max-[639px]:` variants (the same breakpoint
+  as `useIsMobile`, `(max-width: 639px)`) rather than the hook. Desktop and tablet are otherwise unchanged.
 - **Tests (Vitest).** No whole-tree snapshots; assert on test ids and text.
   - With `testing` null, the divider, chip, testing line, footnote, testing rows and subtotals are absent, and
     the "All app types" label is present.

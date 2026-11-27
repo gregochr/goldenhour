@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Chip, ChipGroup, ChipRow } from '../../data/Chips.jsx';
+import { Chip, ChipDivider, ChipGroup, ChipRow } from '../../data/Chips.jsx';
 import Segmented from '../../data/Segmented.jsx';
 import useMeasuredWidth from '../../../hooks/useMeasuredWidth.js';
 import useRovingSlots from '../../../hooks/useRovingSlots.js';
-import { COST_ORDER, chartSeries, costSelection, costTypeLabel, selectionSummary, sinceLabel } from '../../../utils/runsCost.js';
+import {
+  COST_ORDER, TEST_SUITES, TEST_SWATCH, chartSeries, costSelection, costTypeLabel, selectionSummary, sinceLabel,
+  testingDayMap, testingOf,
+} from '../../../utils/runsCost.js';
 import { toggleType } from '../../../utils/runsQuery.js';
 import { formatGbp, typeStyle } from '../../../utils/runsDay.js';
 import { COST_RANGES, niceScale } from '../../../utils/runsTiming.js';
@@ -38,6 +41,27 @@ const rangeOptions = (short) => COST_RANGES.map((range) => {
   return { value: String(range), label: short ? brief : long, ariaLabel: long };
 });
 
+/**
+ * The testing layer's pattern fills and strokes, one class set per suite. Whole class names, so Tailwind's scanner
+ * keeps each colour token (a name built at runtime would be pruned).
+ */
+const TEST_FILL = { SKY: 'fill-test-sky', ASK: 'fill-test-ask' };
+const TEST_TINT = { SKY: 'fill-test-sky/20', ASK: 'fill-test-ask/20' };
+const TEST_STROKE = { SKY: 'stroke-test-sky', ASK: 'stroke-test-ask' };
+const TEST_LABEL = { SKY: 'Prompt tests · sky', ASK: 'Prompt tests · ask' };
+
+/** One suite's hatch: a faint tint under 2.5px diagonal stripes, in the suite's own colour token. */
+function HatchPattern({ id, tint, stripe }) {
+  return (
+    <pattern id={id} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="6" height="6" className={tint} />
+      <rect width="2.5" height="6" className={stripe} />
+    </pattern>
+  );
+}
+
+HatchPattern.propTypes = { id: PropTypes.string.isRequired, tint: PropTypes.string.isRequired, stripe: PropTypes.string.isRequired };
+
 /** The y axis label for a gridline: pence only while the scale is small. */
 const axisLabel = (value, step) => `£${value.toFixed(step < 1 ? 2 : (step % 1 !== 0 ? 1 : 0))}`;
 
@@ -59,8 +83,17 @@ const axisLabel = (value, step) => `£${value.toFixed(step < 1 ? 2 : (step % 1 !
  * @param {(days: number|'all') => void} props.onRangeChange picks a period
  * @param {(date: string) => void} props.onOpenDay opens a day in the Day view
  */
-export default function DailySpendChart({ data, selected, onSelect, range, onRangeChange, onOpenDay }) {
+export default function DailySpendChart({
+  data, selected, onSelect, range, onRangeChange, onOpenDay, showTesting = false, onShowTestingChange = () => {},
+}) {
   const [hover, setHover] = useState(null);
+  const patternId = useId().replace(/:/g, '');
+  const testing = testingOf(data);
+  // The testing layer is drawn only while it is asked for and there is something to draw; it never follows the
+  // picked app types (those live in the address) and is always full strength, on top of the day's whole app stack.
+  const withTesting = testing != null && showTesting;
+  const testingDays = useMemo(() => testingDayMap(data), [data]);
+  const suiteLabel = (suite) => testing?.types.find((t) => t.suite === suite)?.label ?? TEST_LABEL[suite];
   const [widthRef, measured] = useMeasuredWidth();
   const isMobile = useIsMobile();
   const allTime = data.allTime === true;
@@ -74,7 +107,7 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
   const plotW = viewW - LEFT - RIGHT;
   const plotH = HEIGHT - TOP - BOTTOM;
   const n = shown.length;
-  const peak = Math.max(0, ...shown.map((day) => Number(day.totalGbp)));
+  const peak = Math.max(0, ...shown.map((day) => Number((withTesting && testingDays.get(day.date)?.appPlusTestingGbp) || day.totalGbp)));
   const scale = niceScale(peak * 1.05);
   const slot = n > 0 ? plotW / n : plotW;
   const gap = slot >= MIN_GAP_SLOT ? Math.max(1, slot * GAP_SHARE) : 0;
@@ -89,9 +122,27 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
   if (hovered) {
     const lines = COST_ORDER.filter((type) => Number(hovered.byType?.[type] ?? 0) > 0);
     const showSelected = picked.length > 1;
-    const rows = lines.length + (showSelected ? 3 : 2);
+    const hoveredTesting = withTesting ? testingDays.get(hovered.date) ?? null : null;
+    const testLines = hoveredTesting ? TEST_SUITES.filter((suite) => Number(hoveredTesting.byType?.[suite] ?? 0) > 0) : [];
+    // Below the type lines: [Selected], [App], Total. The App line appears only with the testing layer, where the
+    // Total is the app and the prompt tests together.
+    const footer = [];
+    if (showSelected) {
+      footer.push({ key: 'selected', label: 'Selected', value: formatGbp(subtotal(hovered)), testId: 'runs-cost-tooltip-selected' });
+    }
+    if (withTesting) {
+      footer.push({ key: 'app', label: 'App', value: formatGbp(hovered.totalGbp), testId: 'runs-cost-tooltip-app' });
+    }
+    footer.push({
+      key: 'total',
+      label: 'Total',
+      value: `${formatGbp(withTesting && hoveredTesting ? hoveredTesting.appPlusTestingGbp : hovered.totalGbp)}${hovered.costComplete === false ? ' so far' : ''}`,
+      testId: 'runs-cost-tooltip-total',
+      strong: true,
+    });
+    const rows = 1 + lines.length + testLines.length + footer.length;
     const height = rows * LINE_H + 12;
-    const totalY = 18 + (rows - 1) * LINE_H;
+    const footerY = (k) => 18 + (1 + lines.length + testLines.length + k) * LINE_H;
     const left = hover > n * 0.6;
     const rawX = left ? LEFT + hover * slot - TOOLTIP_W - 4 : LEFT + (hover + 1) * slot + 4;
     const tx = Math.max(LEFT, Math.min(rawX, viewW - TOOLTIP_W - 2));
@@ -107,18 +158,28 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
             <text x={TOOLTIP_W - 20} fontSize="11" textAnchor="end" className="fill-plex-text font-mono">{formatGbp(hovered.byType[type])}</text>
           </g>
         ))}
-        {showSelected && (
-          <>
-            <text x="10" y={totalY - LINE_H} fontSize="11" className="fill-plex-text-secondary">Selected</text>
-            <text x={TOOLTIP_W - 20} y={totalY - LINE_H} fontSize="11" textAnchor="end" className="fill-plex-text font-mono" data-testid="runs-cost-tooltip-selected">
-              {formatGbp(subtotal(hovered))}
+        {testLines.map((suite, i) => (
+          <g key={suite} transform={`translate(10 ${18 + (lines.length + i + 1) * LINE_H})`} data-testid={`runs-cost-tooltip-${suite.toLowerCase()}`}>
+            <rect y="-8" width="8" height="8" rx="1" fill={`url(#${patternId}-${suite.toLowerCase()})`} className={TEST_STROKE[suite]} strokeWidth="1" />
+            <text x="14" fontSize="11" className="fill-plex-text-secondary">{suiteLabel(suite)}</text>
+            <text x={TOOLTIP_W - 20} fontSize="11" textAnchor="end" className="fill-plex-text font-mono">{formatGbp(hoveredTesting.byType[suite])}</text>
+          </g>
+        ))}
+        {footer.map((line, k) => (
+          <g key={line.key}>
+            <text x="10" y={footerY(k)} fontSize="11" className={line.strong ? 'fill-plex-text font-semibold' : 'fill-plex-text-secondary'}>{line.label}</text>
+            <text
+              x={TOOLTIP_W - 20}
+              y={footerY(k)}
+              fontSize="11"
+              textAnchor="end"
+              className={`fill-plex-text font-mono ${line.strong ? 'font-semibold' : ''}`}
+              data-testid={line.testId}
+            >
+              {line.value}
             </text>
-          </>
-        )}
-        <text x="10" y={totalY} fontSize="11" className="fill-plex-text font-semibold">Total</text>
-        <text x={TOOLTIP_W - 20} y={totalY} fontSize="11" textAnchor="end" className="fill-plex-text font-mono font-semibold">
-          {formatGbp(hovered.totalGbp)}{hovered.costComplete === false ? ' so far' : ''}
-        </text>
+          </g>
+        ))}
       </g>
     );
   }
@@ -143,7 +204,7 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
       <div className="mt-3">
         <ChipRow testId="runs-cost-legend">
           <ChipGroup label="Show types" wrap>
-            <Chip label="All types" nowrap on={picked.length === 0} onClick={() => onSelect(null)} testId="runs-cost-iso-all" />
+            <Chip label="All app types" nowrap on={picked.length === 0} onClick={() => onSelect(null)} testId="runs-cost-iso-all" />
             {COST_ORDER.map((type) => (
               <Chip
                 key={type}
@@ -156,6 +217,21 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
               />
             ))}
           </ChipGroup>
+          {testing && (
+            <>
+              <ChipDivider testId="runs-cost-testing-divider" />
+              <ChipGroup label="Prompt tests">
+                <Chip
+                  label="Prompt tests"
+                  nowrap
+                  swatchClass={TEST_SWATCH.SKY}
+                  on={showTesting}
+                  onClick={() => onShowTestingChange(!showTesting)}
+                  testId="runs-cost-iso-testing"
+                />
+              </ChipGroup>
+            </>
+          )}
         </ChipRow>
         {summary && (
           <p className="mt-2 text-[12px] text-plex-text-secondary" aria-live="polite" data-testid="runs-cost-selection-total">
@@ -170,9 +246,15 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
           viewBox={`0 0 ${viewW} ${HEIGHT}`}
           className="h-auto w-full"
           role="group"
-          aria-label={allTime ? `Daily spend by type since ${since}` : `Daily spend by type over the last ${range} days`}
+          aria-label={`${allTime ? `Daily spend by type since ${since}` : `Daily spend by type over the last ${range} days`}${withTesting ? ', including prompt tests' : ''}`}
           data-testid="runs-cost-svg"
         >
+          {withTesting && (
+            <defs>
+              <HatchPattern id={`${patternId}-sky`} tint={TEST_TINT.SKY} stripe={TEST_FILL.SKY} />
+              <HatchPattern id={`${patternId}-ask`} tint={TEST_TINT.ASK} stripe={TEST_FILL.ASK} />
+            </defs>
+          )}
           {Array.from({ length: 5 }, (_, i) => scale.step * i).map((value) => (
             <g key={value}>
               <line x1={LEFT} x2={LEFT + plotW} y1={y(value)} y2={y(value)} className="stroke-plex-border" strokeWidth="1" />
@@ -203,6 +285,25 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
                     />
                   );
                 })}
+                {withTesting && TEST_SUITES.map((suite) => {
+                  const amount = Number(testingDays.get(day.date)?.byType?.[suite] ?? 0);
+                  if (amount <= 0) return null;
+                  const top = y(stacked + amount);
+                  stacked += amount;
+                  return (
+                    <rect
+                      key={suite}
+                      x={LEFT + i * slot + (slot - barW) / 2}
+                      y={top}
+                      width={barW}
+                      height={(amount / scale.max) * plotH}
+                      fill={`url(#${patternId}-${suite.toLowerCase()})`}
+                      className={TEST_STROKE[suite]}
+                      strokeWidth="1"
+                      data-testing={suite}
+                    />
+                  );
+                })}
               </g>
             );
           })}
@@ -216,6 +317,14 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
           />
           {shown.map((day, i) => {
             const roving = slotProps(i);
+            const dayTesting = withTesting ? testingDays.get(day.date) ?? null : null;
+            const soFar = day.costComplete === false ? ' so far' : '';
+            const label = dayTesting
+              ? `${formatDay(day.date)}: ${formatGbp(dayTesting.appPlusTestingGbp)} in total${soFar}. `
+                + `App ${formatGbp(day.totalGbp)}. `
+                + `${TEST_SUITES.map((suite) => `${suiteLabel(suite)} ${formatGbp(dayTesting.byType?.[suite] ?? 0)}`).join('. ')}. `
+                + 'Open this day.'
+              : `${formatDay(day.date)}: ${formatGbp(day.totalGbp)}${soFar}. Open this day.`;
             return (
               <rect
                 key={day.date}
@@ -225,7 +334,7 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
                 height={plotH}
                 className="cursor-pointer fill-transparent focus-visible:stroke-plex-gold"
                 role="button"
-                aria-label={`${formatDay(day.date)}: ${formatGbp(day.totalGbp)}${day.costComplete === false ? ' so far' : ''}. Open this day.`}
+                aria-label={label}
                 data-slot={roving['data-slot']}
                 tabIndex={roving.tabIndex}
                 onClick={() => onOpenDay(day.date)}
@@ -259,6 +368,11 @@ export default function DailySpendChart({ data, selected, onSelect, range, onRan
             {allTime ? `No spend since ${since}.` : `No spend in the last ${range} days.`}
           </p>
         )}
+        {testing && (
+          <p className="mt-1 font-mono text-[10.5px] text-plex-text-muted" data-testid="runs-cost-testing-note">
+            Hatched = prompt tests (CI), counted separately from the app. Off by default.
+          </p>
+        )}
       </div>
     </section>
   );
@@ -271,10 +385,13 @@ DailySpendChart.propTypes = {
     rangeDays: PropTypes.number.isRequired,
     firstDay: PropTypes.string,
     allTime: PropTypes.bool,
+    testing: PropTypes.object,
   }).isRequired,
   selected: PropTypes.string,
   onSelect: PropTypes.func.isRequired,
   range: PropTypes.oneOfType([PropTypes.number, PropTypes.oneOf(['all'])]).isRequired,
   onRangeChange: PropTypes.func.isRequired,
   onOpenDay: PropTypes.func.isRequired,
+  showTesting: PropTypes.bool,
+  onShowTestingChange: PropTypes.func,
 };
