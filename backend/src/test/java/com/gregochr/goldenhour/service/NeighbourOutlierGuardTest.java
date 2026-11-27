@@ -199,7 +199,7 @@ class NeighbourOutlierGuardTest {
         @Test
         @DisplayName("a tidal slot whose served star differs but whose sky star agrees is not flagged")
         void servedStarHighButSkyStarAgrees() {
-            // Served 4 (tide lifted it), sky 2 like both neighbours: the sky agrees, nothing to guard.
+            // Served star differs from the sky star (fixture), sky 2 like both neighbours: nothing to guard.
             assertThat(flaggedIds(DEFAULTS,
                     points(at(1, 0, 0, null), at(2, 1, 0, null), at(3, 0, 2, null)),
                     sky(1L, "Tidal", 4, 2), sky(2L, "B", 2), sky(3L, "C", 2))).isEmpty();

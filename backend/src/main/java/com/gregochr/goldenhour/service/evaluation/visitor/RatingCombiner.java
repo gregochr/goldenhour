@@ -16,23 +16,26 @@ import java.util.OptionalInt;
  * <p><b>Plain average, no weakest-link, no veto.</b> The combined rating is the arithmetic
  * mean of the scores of the visitors whose {@link Visitor#appliesTo} is {@code true} and which
  * returned a value, rounded to the nearest integer. A {@code 5}-tide + {@code 1}-sky pair
- * averages to {@code 3} before the lift cap below applies (and is then capped to {@code 2}).
+ * averages to {@code 3} before the tide clamp below applies (and is then clamped to {@code 1}).
  *
  * <p><b>v2.13.2 reality.</b> Two visitors exist: {@link SkyVisitor} (always applies) and
  * {@code TideVisitor} (applies to tidal locations). Inland: the average is over the single sky
- * score and equals it exactly. Coastal: the sky and tide scores are averaged, half-up — a
- * 3★ sky + 1★ misaligned tide combines to 2★, a 3★ sky + 4★ aligned tide to 4★.
+ * score and equals it exactly. Coastal: the sky and tide scores are averaged, half-up, and then
+ * clamped by the tide rule below: a 5★ sky + 1★ misaligned tide combines to 4★, a 3★ sky + 4★
+ * aligned tide stays 3★, a 4★ sky + a spring/king tide on the light (5) lifts to 5★.
  *
- * <p><b>One-star tide lift cap.</b> When the rating peers are exactly a sky score and a tide
- * score, the combined rating may be at most one star above the sky score
- * ({@code min(rounded, sky + 1)}): the tide makes the foreground, not the colour, so a perfectly
- * timed tide must not rescue a weak sky by two stars (a 2★ sky + 5 tide is 3★, not 4★; a 1★ sky
- * + 5 tide is 2★, not 3★). The cap is one-sided: a tide dragging the rating <em>down</em> is
- * unchanged. It does not apply to any other peer set (woodland or open-fell bluebell, tide with
- * bluebell and no sky, inland sky-only), and it does not apply to
- * {@code BriefingEvaluationService.recombineBluebell}, where bluebell is a peer by design.
+ * <p><b>The tide only embellishes a good sky</b> ({@code docs/engineering/tide-lift-plan.md}).
+ * When the rating peers are exactly a sky score and a tide score and the sky is a valid 1-5
+ * rating, the rounded average is clamped to {@code [lower, upper]}: {@code lower} is
+ * {@code max(1, sky - 1)} (a badly timed tide costs at most one star) and {@code upper} is
+ * {@code sky + 1} only when the sky is already {@link #GOOD_SKY_FOR_TIDE_LIFT} or better and the
+ * tide scores {@link #SPRING_OR_KING_TIDE_SCORE} (spring or king tide timed to the light),
+ * otherwise {@code sky} (the tide never raises the star). The clamp does not apply to any other
+ * peer set (woodland or open-fell bluebell, tide with bluebell and no sky, inland sky-only), and
+ * it does not apply to {@code BriefingEvaluationService.recombineBluebell}, where bluebell is a
+ * peer by design.
  *
- * <p><b>No gate, no weakest-link, no message/state.</b> Apart from that cap the combiner is plain
+ * <p><b>No gate, no weakest-link, no message/state.</b> Apart from that clamp the combiner is plain
  * arithmetic. The result handler — not this class — owns the sky-not-forecast substitution and
  * the triage state. Crucially, the handler branches out on a sky-empty location <em>before</em>
  * calling the combiner, so the combiner never runs with an absent sky score; it therefore needs
@@ -47,11 +50,17 @@ import java.util.OptionalInt;
 @Component
 public class RatingCombiner {
 
+    /** The most stars the tide may drag the combined rating below the sky score (floor 1). */
+    static final int MAX_TIDE_DRAG = 1;
+
+    /** The sky score at or above which a spring/king tide may lift the star one above the sky. */
+    static final int GOOD_SKY_FOR_TIDE_LIFT = 4;
+
     /**
-     * The most stars the tide may lift the combined rating above the sky score at a coastal
-     * location (sky + tide peers only). The penalty side is not limited.
+     * The tide score meaning a spring or king tide timed to the light; mirrors
+     * {@code TideVisitor}'s private {@code SCORE_KING_OR_SPRING_ALIGNED}.
      */
-    static final int MAX_TIDE_LIFT = 1;
+    static final int SPRING_OR_KING_TIDE_SCORE = 5;
 
     private static final int MIN_SCORE = 1;
     private static final int MAX_SCORE = 5;
@@ -87,7 +96,7 @@ public class RatingCombiner {
      * component scores it averaged.
      *
      * <p>The {@code rating} is the half-up rounded mean of the selected peer scores, except that
-     * a sky + tide pair is capped at {@link #MAX_TIDE_LIFT} stars above the sky score. The
+     * a sky + tide pair is clamped by the tide rule in the class Javadoc. The
      * {@link CombinedRating#components()} list records every applied component regardless.
      *
      * @param location the location under evaluation
@@ -112,26 +121,31 @@ public class RatingCombiner {
                 .average()
                 .orElseThrow();
         int rating = (int) Math.round(average);
-        return new CombinedRating(capTideLift(peers, rating), components);
+        return new CombinedRating(clampTideEffect(peers, rating), components);
     }
 
     /**
-     * Caps the rounded rating at {@link #MAX_TIDE_LIFT} above the sky score, only when the peers
-     * are exactly one SKY and one TIDAL component and the sky score is a valid 1-5 rating.
+     * Clamps the rounded rating to the tide rule (see class Javadoc), only when the peers are
+     * exactly one SKY and one TIDAL component and the sky score is a valid 1-5 rating.
      */
-    private static int capTideLift(List<ComponentScore> peers, int rating) {
+    private static int clampTideEffect(List<ComponentScore> peers, int rating) {
         if (peers.size() != 2) {
             return rating;
         }
         OptionalInt sky = scoreOf(peers, ForecastType.SKY);
-        if (sky.isEmpty() || scoreOf(peers, ForecastType.TIDAL).isEmpty()) {
+        OptionalInt tide = scoreOf(peers, ForecastType.TIDAL);
+        if (sky.isEmpty() || tide.isEmpty()) {
             return rating;
         }
         int skyScore = sky.getAsInt();
         if (skyScore < MIN_SCORE || skyScore > MAX_SCORE) {
             return rating;
         }
-        return Math.min(rating, skyScore + MAX_TIDE_LIFT);
+        int lower = Math.max(MIN_SCORE, skyScore - MAX_TIDE_DRAG);
+        boolean lifts = skyScore >= GOOD_SKY_FOR_TIDE_LIFT
+                && tide.getAsInt() == SPRING_OR_KING_TIDE_SCORE;
+        int upper = lifts ? Math.min(MAX_SCORE, skyScore + 1) : skyScore;
+        return Math.min(upper, Math.max(lower, rating));
     }
 
     private static OptionalInt scoreOf(List<ComponentScore> peers, ForecastType type) {

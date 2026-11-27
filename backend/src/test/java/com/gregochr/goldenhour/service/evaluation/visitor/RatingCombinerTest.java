@@ -144,7 +144,8 @@ class RatingCombinerTest {
     @DisplayName("plain average of two applied visitors (5 and 1 -> 3), no weakest-link")
     void average_twoVisitors_noWeakestLink() {
         RatingCombiner combiner = new RatingCombiner(
-                List.of(stub(true, 5, ForecastType.SKY), stub(true, 1, ForecastType.TIDAL)));
+                List.of(stub(true, 5, ForecastType.SKY), stub(true, 1, ForecastType.BLUEBELL)));
+        // Sky + bluebell peers: the tide clamp does not apply, so the plain average stands.
         assertThat(combiner.combine(location("X"), contextWithRating(5)).rating()).isEqualTo(3);
     }
 
@@ -201,7 +202,7 @@ class RatingCombinerTest {
     }
 
     @Test
-    @DisplayName("coastal exposes SKY + TIDAL components; rating is their half-up average")
+    @DisplayName("coastal exposes SKY + TIDAL components; a 3 sky is not lifted by a spring tide")
     void components_coastal_skyAndTide() {
         RatingCombiner combiner = new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor()));
         VisitorContext context = new VisitorContext(
@@ -210,8 +211,8 @@ class RatingCombinerTest {
         RatingCombiner.CombinedRating result =
                 combiner.combine(coastal("Berwick-Upon-Tweed"), context);
 
-        // Sky 3 + aligned spring tide 5 → avg 4.
-        assertThat(result.rating()).isEqualTo(4);
+        // Sky 3 + aligned spring tide 5 → avg 4, clamped to 3 (the tide never lifts a sub-4 sky).
+        assertThat(result.rating()).isEqualTo(3);
         assertThat(result.components())
                 .extracting(ComponentScore::type)
                 .containsExactly(ForecastType.SKY, ForecastType.TIDAL);
@@ -343,7 +344,7 @@ class RatingCombinerTest {
                 .containsExactly(ForecastType.SKY);
     }
 
-    // ── One-star tide lift cap ────────────────────────────────────────────────
+    // ── Tide clamp: a good sky is needed always ────────────────────────────────────────────────
 
     private static int skyAndTide(int sky, int tide) {
         RatingCombiner combiner = new RatingCombiner(List.of(
@@ -352,20 +353,21 @@ class RatingCombinerTest {
     }
 
     @ParameterizedTest(name = "sky {0} + tide {1} -> {2}")
-    @CsvSource({"3,5,4", "4,5,5", "2,4,3", "2,5,3", "1,5,2", "1,4,2", "5,1,3", "3,1,2", "4,3,4"})
-    @DisplayName("tide lifts the combined rating at most one star above the sky; penalties unchanged")
-    void tideLift_cappedAtOneStar(int sky, int tide, int expected) {
+    @CsvSource({"3,4,3", "3,5,3", "2,5,2", "4,5,5", "4,4,4", "4,1,3", "5,1,4", "5,3,4", "3,1,2",
+            "1,5,1", "5,5,5", "2,1,2", "1,1,1", "4,3,4", "2,4,2"})
+    @DisplayName("only a spring/king tide on a 4+ sky lifts the star; a tide drags it at most one")
+    void tideEffect_clamped(int sky, int tide, int expected) {
         assertThat(skyAndTide(sky, tide)).isEqualTo(expected);
     }
 
     @Test
-    @DisplayName("cap keeps all components recorded")
+    @DisplayName("clamp keeps all components recorded")
     void tideLift_componentsUnchanged() {
         RatingCombiner combiner = new RatingCombiner(List.of(
                 stub(true, 1, ForecastType.SKY), stub(true, 5, ForecastType.TIDAL)));
         RatingCombiner.CombinedRating result =
                 combiner.combine(location("X"), contextWithRating(1));
-        assertThat(result.rating()).isEqualTo(2);
+        assertThat(result.rating()).isEqualTo(1);
         assertThat(result.components()).extracting(ComponentScore::type)
                 .containsExactly(ForecastType.SKY, ForecastType.TIDAL);
     }
