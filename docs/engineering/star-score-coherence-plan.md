@@ -1,8 +1,7 @@
 # Plan: the star and its two scores must agree
 
-**Status: DRAFT v2, 2026-11-27. One phase, one PR.** v1 was reviewed the same day by two read-only
-agents (prompt-rule consistency; regression and model risk), §8. Owner decisions taken so far are in
-§2; the open ones are in §7 and must be answered before the build.
+**Status: APPROVED v2, 2026-11-27. One phase, one PR.** v1 was reviewed the same day by two read-only
+agents (prompt-rule consistency; regression and model risk), §8. Owner decisions are in §2 and §7.
 
 ## 1. The problem, as seen
 
@@ -131,17 +130,16 @@ Owner-run before merge (real money; the session does not run these or change any
 - Cost: about four cache writes (inland and coastal × two models). `prompt_hash` starts a new
   calibration bucket; note it in the changelog.
 
-## 7. Open owner questions
+## 7. Owner rulings, 2026-11-27
 
-- **Q1 — upwind alone, the model agrees the cloud persists** (fiery ≤25, golden ≤30), on a sky
-  that IDEAL or thick-mid would rate 4. Either the star comes down to ≤2 (the one place the star
-  follows the scores; it is a blocked horizon in all but name), or that ceiling is lifted.
-  Recommended: star ≤2.
-- **Q2 — foreground boosts (inversion, valley mist).** Their star rates the foreground, not the
-  sky. Either exempt them from the bands (bars stay low under a 4-5★, the summary names the
-  inversion or mist), or let golden_hour rise into the band (breaking the blocked ceiling on
-  inversion mornings). Recommended: exempt.
-- **Q3 — the §4 bands as drafted.**
+- **Q1 — upwind alone, the model agrees the cloud persists** (fiery ≤25, golden ≤30): **the star
+  drops to ≤2**, binding against IDEAL and the thick-mid rate-4 floor, as the combined-signal cap
+  does. A blocked horizon in all but name; the one place the star follows the scores. State it on
+  the rule and on the `rating` schema description (binding placement).
+- **Q2 — foreground boosts (inversion MODERATE/STRONG, valley mist "may rate 4-5"): exempt from
+  the bands.** The scores stay what the sky earns; the summary names the inversion or mist as the
+  reason for the star.
+- **Q3 — the §4 bands: approved as drafted.**
 
 ## 8. Review record, 2026-11-27
 
