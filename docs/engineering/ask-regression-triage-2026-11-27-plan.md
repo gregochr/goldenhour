@@ -210,3 +210,38 @@ Do **not** touch anything under the `prompt-regression` tag, `AskFixtures`, or t
 "Prompt regression — ask" (about $1.50–3.60, the owner's approval in the `prompt-regression` environment).
 **The PR is held unmerged until the owner has run it**, because a prompt change without a measurement is a
 guess. Compare against this run's figures, the paired control.
+
+## Measured: the PR's first paid run (2026-11-27, run 45997936257 on `7f29732`)
+
+**28 tests, 7 failures** (this morning's control: 12). That commit had B1–B5 as first built, with B2 still
+reading candidate ids.
+- **Now passing:** `aLowerRatedFavourite…`, `aTie…`, `thinSample…`, `neighbourOutlier…`,
+  `clearSkiesOnTheDurhamCoastTonight` and `auroraTonight…`. The aurora test fixes nothing in Ask and may be
+  sampling variance (A6 still stands).
+- **`mixed_…` 1/10. Ask is now right; the test is over-strict.** 9 of 10 summaries open "Saturday has
+  **nowhere** worth going to" or "Saturday has **no place** worth going to". `MIXED`
+  (`saturday[^.]*(stay|poor|not worth|nothing|…)`) accepts neither. **A2, amended:** add
+  `nowhere|no place|no places` to the alternatives, as well as `tomorrow`.
+- **Stay-home ×3, 0/10. Still a real fault, and still an over-strict regex.** About 13 of 30 still say
+  "marginal" despite B1, about 8 say "stay-home window" (the hyphen, A1), and about 3 "most places are not
+  worth" (A1). The next push therefore bans "marginal" outright in `RULES`' never-write list, which already
+  holds "stand down" etc. That list's words appeared in neither run's 280 answers.
+  - A few answers lead with the pick and never frame the weekend, e.g. "Bamburgh tomorrow at sunset is the
+    forecast's pick…". The bestBet rule permits that lead. Whether the frame must come first is the owner's
+    call.
+- **`aPlainBestQuestionNamesALowerRankedFavourite` 3/5 (bar 4), up from 1/5.** B3 helps but is not enough:
+  the misses still say "two places rated 4★ or better" without naming Mary's. The next lever is the engine
+  appending the companion sentence itself (B3's "not done"), which is the owner's design call.
+- **`hadriansWallIsAnswered` 4/10.** Unchanged in kind: every miss answers from the Wall's three places
+  (A5).
+- **New: `closerToHomeResolvesAgainstTheEarlierNightAnswer` (single run).** The follow-up used a drive limit
+  ("within 40 minutes of home"). The prompt allows that ("'Closer' in a follow-up: pass a maxDriveMinutes
+  smaller than the earlier picks' drive, or nearHome true"), and so does the test's own `personal` check
+  ("nearHome or a drive limit"). The test then requires "miles of home", which only nearHome produces.
+  - **A8:** accept `miles of home|minutes of home` there, or say in the prompt which of the two "closer" uses.
+  - B5's areaName sentence had been inserted between the nearHome and drive clauses, so the next push moves
+    it after them, in case it nudged the choice.
+
+**The second push** (`e1c9559`) holds: Codex's P1 on B2 (emptiness read from the spread, gameOn 0 and
+mostly scored, never from the offer's candidate ids), the "marginal" ban, and the moved areaName sentence. It
+starts one more paid run.
