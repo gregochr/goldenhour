@@ -2,8 +2,10 @@
 # Tests for scripts/prompt-regression-usage.py (docs/engineering/ci-spend-plan.md, C1).
 #
 # The usage artifact is what production later prices into Cost trends, so a script that double-counts a shard,
-# reads a half-written one, or lets anything but counts and identifiers into the file is worse than none. Fixture
-# shards and surefire reports are written here and fed through `python3 -I`, exactly as the workflow runs it.
+# reads a half-written one, or lets anything but counts and identifiers into the file is worse than none. The
+# script takes no path arguments: it derives every path from its own location. Each case therefore builds a
+# temporary tree (scripts/prompt-regression-usage.py copied in, backend/target/... fixtures beside it) and runs the
+# copy under `python3 -I`, exactly as the workflow runs it.
 
 set -uo pipefail
 
@@ -13,26 +15,25 @@ SCRIPTS="$(cd "$HERE/.." && pwd)"
 source "${HERE}/helpers.sh"
 
 WORK="$(mktemp -d)"
-OUTSIDE="$(mktemp -d)"
-trap 'rm -rf "$WORK" "$OUTSIDE"' EXIT
-# The script only touches paths inside its working directory, as in the workflow (repository root).
-cd "$WORK" || exit 1
+trap 'rm -rf "$WORK"' EXIT
 
-# usage SUITE SHARDS REPORTS OUT: runs the script with a fixed environment
+# new_tree NAME: a repo-shaped tree with the script copied in and empty shard and report directories
+new_tree() {
+    mkdir -p "$WORK/$1/scripts" "$WORK/$1/backend/target/prompt-regression-usage" "$WORK/$1/backend/target/surefire-reports"
+    cp "$SCRIPTS/prompt-regression-usage.py" "$WORK/$1/scripts/"
+    echo "$WORK/$1"
+}
+
+# usage TREE SUITE: runs the tree's copy with a fixed environment, from an unrelated directory; stdout is the summary
 usage() {
-    env -u GITHUB_STEP_SUMMARY GITHUB_RUN_ID=123456789 GITHUB_RUN_ATTEMPT=2 HEAD_SHA=abc123 PR_NUMBER=1912 \
-        STARTED_AT=2026-11-27T10:00:00Z \
-        python3 -I "$SCRIPTS/prompt-regression-usage.py" --suite "$1" --shards "$2" --reports "$3" --out "$4"
+    (cd "$WORK" && env -u GITHUB_STEP_SUMMARY GITHUB_RUN_ID=123456789 GITHUB_RUN_ATTEMPT=2 HEAD_SHA=abc123 \
+        PR_NUMBER=1912 STARTED_AT=2026-11-27T10:00:00Z \
+        python3 -I "$1/scripts/prompt-regression-usage.py" --suite "$2")
 }
 
 # jget FILE PYEXPR: evaluates PYEXPR with the parsed document as d and prints the result
 jget() {
     python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$1" "$2"
-}
-
-new_dir() {
-    mkdir -p "$WORK/$1"
-    echo "$WORK/$1"
 }
 
 SHARD_A='{"models":[{"model":"claude-sonnet-5-5","calls":3,"erroredCalls":1,"input":100,"output":20,"cacheRead":50,"cacheWrite":10,"cacheWrite1h":4}]}'
@@ -42,17 +43,17 @@ REPORT='<testsuite name="com.x.SkyRatingRegressionTest" tests="10" errors="1" sk
 REPORT2='<testsuites><testsuite name="com.x.Other" tests="5" errors="0" skipped="0" failures="0"/></testsuites>'
 
 # ── sums across shards, ignoring .tmp, counts from surefire ──────────────────────────────────────────────────
-S="$(new_dir shards)"
-R="$(new_dir reports)"
+T="$(new_tree sums)"
+S="$T/backend/target/prompt-regression-usage"
+R="$T/backend/target/surefire-reports"
 printf '%s' "$SHARD_A" > "$S/shard-1-aaa.json"
 printf '%s' "$SHARD_B" > "$S/shard-2-bbb.json"
 printf '%s' '{"models":[{"model":"claude-sonnet-5-5","calls":999,"erroredCalls":0,"input":999,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":0}]}' > "$S/shard-3-ccc.json.tmp"
 printf '%s' "$REPORT" > "$R/TEST-com.x.SkyRatingRegressionTest.xml"
 printf '%s' "$REPORT2" > "$R/TEST-com.x.Other.xml"
-OUT="$WORK/out/usage.json"
-usage sky "$S" "$R" "$OUT"
+OUT="$T/backend/target/prompt-regression-usage-sky.json"
 echo "-- sums shards"
-assert_eq "exit status is 0" "0" "$(usage sky "$S" "$R" "$OUT" >/dev/null 2>&1; echo $?)"
+assert_eq "exit status is 0" "0" "$(usage "$T" sky >/dev/null 2>&1; echo $?)"
 assert_eq "sonnet calls summed, .tmp ignored" "5" "$(jget "$OUT" "[m for m in d['models'] if m['model']=='claude-sonnet-5-5'][0]['calls']")"
 assert_eq "sonnet erroredCalls" "1" "$(jget "$OUT" "[m for m in d['models'] if m['model']=='claude-sonnet-5-5'][0]['erroredCalls']")"
 assert_eq "sonnet input" "105" "$(jget "$OUT" "[m for m in d['models'] if m['model']=='claude-sonnet-5-5'][0]['input']")"
@@ -78,14 +79,21 @@ echo "-- exact keys: counts and identifiers only"
 assert_eq "top-level keys" "['cases', 'complete', 'failed', 'finishedAt', 'headSha', 'models', 'pr', 'runAttempt', 'runId', 'schema', 'startedAt', 'suite']" "$(jget "$OUT" "sorted(d)")"
 assert_eq "model keys" "['cacheRead', 'cacheWrite', 'cacheWrite1h', 'calls', 'erroredCalls', 'input', 'model', 'output']" "$(jget "$OUT" "sorted(d['models'][0])")"
 
+# ── the output name follows the suite ────────────────────────────────────────────────────────────────────────
+usage "$T" ask >/dev/null 2>&1
+echo "-- suite selects the output file"
+assert_file_exists "ask writes the ask file" "$T/backend/target/prompt-regression-usage-ask.json"
+assert_eq "and says ask" "ask" "$(jget "$T/backend/target/prompt-regression-usage-ask.json" "d['suite']")"
+
 # ── a malformed shard is skipped with a warning ──────────────────────────────────────────────────────────────
-S="$(new_dir shards-bad)"
+T="$(new_tree bad)"
+S="$T/backend/target/prompt-regression-usage"
 printf '%s' "$SHARD_A" > "$S/shard-1-aaa.json"
 printf '{"models":[{"model":' > "$S/shard-2-bbb.json"
 printf '%s' '{"models":"nope"}' > "$S/shard-3-ccc.json"
 printf '%s' '[1,2]' > "$S/shard-4-ddd.json"
-OUT="$WORK/out/bad.json"
-ERR="$(usage sky "$S" "$R" "$OUT" 2>&1 >/dev/null)"
+OUT="$T/backend/target/prompt-regression-usage-sky.json"
+ERR="$(usage "$T" sky 2>&1 >/dev/null)"
 echo "-- malformed shards"
 assert_contains "warns about the truncated shard" "$ERR" "shard-2-bbb.json"
 assert_contains "warns about the wrong-shape shard" "$ERR" "shard-3-ccc.json"
@@ -94,72 +102,60 @@ assert_eq "the good shard still counts" "3" "$(jget "$OUT" "d['models'][0]['call
 assert_eq "only the good model" "1" "$(jget "$OUT" "len(d['models'])")"
 
 # ── no shards, no reports ────────────────────────────────────────────────────────────────────────────────────
-S="$(new_dir shards-none)"
-R0="$(new_dir reports-none)"
-OUT="$WORK/out/none.json"
+T="$(new_tree none)"
+OUT="$T/backend/target/prompt-regression-usage-ask.json"
 echo "-- nothing recorded"
-assert_eq "exit status is 0" "0" "$(usage ask "$S" "$R0" "$OUT" >/dev/null 2>&1; echo $?)"
+assert_eq "exit status is 0" "0" "$(usage "$T" ask >/dev/null 2>&1; echo $?)"
 assert_eq "models empty" "[]" "$(jget "$OUT" "d['models']")"
 assert_eq "complete is false without a report" "False" "$(jget "$OUT" "d['complete']")"
 assert_eq "cases zero" "0" "$(jget "$OUT" "d['cases']")"
 assert_eq "suite is passed through" "ask" "$(jget "$OUT" "d['suite']")"
 
 # ── missing directories entirely ─────────────────────────────────────────────────────────────────────────────
-OUT="$WORK/out/missing.json"
-assert_eq "missing shards and reports dirs still exit 0" "0" "$(usage sky "$WORK/nope1" "$WORK/nope2" "$OUT" >/dev/null 2>&1; echo $?)"
-assert_eq "and still write a document" "[]" "$(jget "$OUT" "d['models']")"
+T="$WORK/bare"
+mkdir -p "$T/scripts"
+cp "$SCRIPTS/prompt-regression-usage.py" "$T/scripts/"
+assert_eq "no backend/target at all still exits 0" "0" "$(usage "$T" sky >/dev/null 2>&1; echo $?)"
+assert_eq "and still writes a document" "[]" "$(jget "$T/backend/target/prompt-regression-usage-sky.json" "d['models']")"
 
 # ── an unreadable report does not count as complete ──────────────────────────────────────────────────────────
-R1="$(new_dir reports-garbled)"
-printf '<testsuite name="x" tests="1"' > "$R1/TEST-com.x.Broken.xml"
-OUT="$WORK/out/garbled.json"
-usage sky "$S" "$R1" "$OUT" >/dev/null 2>&1
-assert_eq "garbled report is not complete" "False" "$(jget "$OUT" "d['complete']")"
+T="$(new_tree garbled)"
+printf '<testsuite name="x" tests="1"' > "$T/backend/target/surefire-reports/TEST-com.x.Broken.xml"
+usage "$T" sky >/dev/null 2>&1
+assert_eq "garbled report is not complete" "False" "$(jget "$T/backend/target/prompt-regression-usage-sky.json" "d['complete']")"
 
 # ── a manual run has no PR; the environment may be empty ─────────────────────────────────────────────────────
-OUT="$WORK/out/manual.json"
-env -u GITHUB_STEP_SUMMARY GITHUB_RUN_ID= GITHUB_RUN_ATTEMPT= HEAD_SHA=def PR_NUMBER= STARTED_AT= \
-    python3 -I "$SCRIPTS/prompt-regression-usage.py" --suite sky --shards "$S" --reports "$R" --out "$OUT"
+T="$(new_tree manual)"
+(cd "$WORK" && env -u GITHUB_STEP_SUMMARY GITHUB_RUN_ID= GITHUB_RUN_ATTEMPT= HEAD_SHA=def PR_NUMBER= STARTED_AT= \
+    python3 -I "$T/scripts/prompt-regression-usage.py" --suite sky >/dev/null)
+OUT="$T/backend/target/prompt-regression-usage-sky.json"
 echo "-- manual run"
 assert_eq "pr is null" "None" "$(jget "$OUT" "d['pr']")"
 assert_eq "runId is null" "None" "$(jget "$OUT" "d['runId']")"
 assert_eq "headSha kept" "def" "$(jget "$OUT" "d['headSha']")"
 
 # ── summary: one line of totals on stdout; the script never touches the job summary file ──────────────────────
-S="$(new_dir shards-sum)"
-printf '%s' "$SHARD_A" > "$S/shard-1-aaa.json"
-usage sky "$S" "$R" "$WORK/out/sum.json" > "$WORK/stdout.txt" 2>/dev/null
+T="$(new_tree summary)"
+printf '%s' "$SHARD_A" > "$T/backend/target/prompt-regression-usage/shard-1-aaa.json"
+usage "$T" sky > "$WORK/stdout.txt" 2>/dev/null
 echo "-- summary line"
 assert_eq "one line on stdout" "1" "$(wc -l < "$WORK/stdout.txt" | tr -d ' ')"
 assert_file_has "stdout has the totals" "$WORK/stdout.txt" "Prompt usage (sky): 3 calls (1 errored), 100 input, 20 output, 50 cache read, 10 cache write"
 echo "existing" > "$WORK/step-summary.md"
-GITHUB_STEP_SUMMARY="$WORK/step-summary.md" python3 -I "$SCRIPTS/prompt-regression-usage.py" \
-    --suite sky --shards "$S" --reports "$R" --out "$WORK/out/sum2.json" > /dev/null
+(cd "$WORK" && GITHUB_STEP_SUMMARY="$WORK/step-summary.md" python3 -I "$T/scripts/prompt-regression-usage.py" --suite sky >/dev/null)
 assert_eq "an env-named summary file is left alone" "existing" "$(cat "$WORK/step-summary.md")"
 assert_file_lacks "the script does not reference GITHUB_STEP_SUMMARY" "$SCRIPTS/prompt-regression-usage.py" "GITHUB_STEP_SUMMARY"
 
-# ── paths are confined to the working directory ──────────────────────────────────────────────────────────────
-S="$(new_dir shards-conf)"
-printf '%s' "$SHARD_A" > "$S/shard-1-aaa.json"
-echo "-- path confinement"
-ERR="$(usage sky "$S" "$R" "$OUTSIDE/x.json" 2>&1 >/dev/null)"
-assert_eq "an --out outside the cwd exits 0" "0" "$(usage sky "$S" "$R" "$OUTSIDE/x.json" >/dev/null 2>&1; echo $?)"
-assert_file_missing "an --out outside the cwd writes nothing" "$OUTSIDE/x.json"
-assert_contains "and says why" "$ERR" "outside the working directory"
-usage sky "$S" "$R" "../escape-$$.json" >/dev/null 2>&1
-assert_file_missing "a ../ --out writes nothing" "$WORK/../escape-$$.json"
-mkdir -p "$OUTSIDE/shards" && printf '%s' "$SHARD_A" > "$OUTSIDE/shards/shard-1-aaa.json"
-usage sky "$OUTSIDE/shards" "$R" "$WORK/out/shards-outside.json" >/dev/null 2>&1
-assert_file_missing "--shards outside the cwd is refused" "$WORK/out/shards-outside.json"
-usage sky "$S" "$OUTSIDE" "$WORK/out/reports-outside.json" >/dev/null 2>&1
-assert_file_missing "--reports outside the cwd is refused" "$WORK/out/reports-outside.json"
-ln -s "$OUTSIDE" "$WORK/link"
-usage sky "$S" "$R" "$WORK/link/viasymlink.json" >/dev/null 2>&1
-assert_file_missing "a symlink out of the cwd is refused" "$OUTSIDE/viasymlink.json"
-usage sky "$S" "$R" "$WORK/out/inside.json" >/dev/null 2>&1
-assert_file_exists "a path inside the cwd still works" "$WORK/out/inside.json"
-echo "-- suite is validated"
-assert_eq "a bad --suite exits non-zero" "2" "$(usage evil "$S" "$R" "$WORK/out/evil.json" >/dev/null 2>&1; echo $?)"
-assert_file_missing "a bad --suite writes nothing" "$WORK/out/evil.json"
+# ── no path arguments, and the suite is validated ────────────────────────────────────────────────────────────
+T="$(new_tree args)"
+echo "-- arguments"
+for arg in --out --shards --reports; do
+    assert_eq "$arg is not accepted" "2" "$(cd "$WORK" && python3 -I "$T/scripts/prompt-regression-usage.py" --suite sky "$arg" "$WORK/elsewhere.json" >/dev/null 2>&1; echo $?)"
+done
+assert_file_missing "nothing was written outside the tree" "$WORK/elsewhere.json"
+assert_eq "a bad --suite is rejected" "2" "$(usage "$T" evil >/dev/null 2>&1; echo $?)"
+assert_eq "a path-shaped --suite is rejected" "2" "$(usage "$T" ../../evil >/dev/null 2>&1; echo $?)"
+assert_file_missing "a bad --suite writes nothing" "$T/backend/target/prompt-regression-usage-evil.json"
+assert_file_missing "and no file leaves the tree" "$WORK/evil.json"
 
 finish_tests

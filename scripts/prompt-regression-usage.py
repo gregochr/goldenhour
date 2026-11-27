@@ -1,10 +1,13 @@
 """Token-usage artifact of a paid prompt-regression run (docs/engineering/ci-spend-plan.md, C1).
 
-    python3 -I scripts/prompt-regression-usage.py --suite sky|ask --shards DIR --reports DIR --out FILE
+    python3 -I scripts/prompt-regression-usage.py --suite sky|ask
 
-Sums every shard-*.json under --shards (one per recording JVM, written by PromptUsageRecorder), counts cases and
-failures from the surefire TEST-*.xml under --reports, and writes one small JSON file (schema 1) that the workflow
-uploads and production later prices. It holds token counts and run identifiers only: no prompt text, model output,
+Takes no path arguments: every path is derived from this script's own location (the repository root is two levels
+up), so no caller-supplied text reaches the filesystem. Sums every shard-*.json under
+backend/target/prompt-regression-usage (one per recording JVM, written by PromptUsageRecorder; the workflow's
+PROMPT_REGRESSION_USAGE_DIR points there), counts cases and failures from the surefire TEST-*.xml under
+backend/target/surefire-reports, and writes backend/target/prompt-regression-usage-SUITE.json (schema 1), which the
+workflow uploads and production later prices. It holds token counts and run identifiers only: no prompt text, model output,
 keys or headers.
 
 Environment: GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, HEAD_SHA, PR_NUMBER (empty on a manual run), STARTED_AT.
@@ -24,26 +27,14 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+TARGET = os.path.join(ROOT, "backend", "target")
+SHARDS_DIR = os.path.join(TARGET, "prompt-regression-usage")
+REPORTS_DIR = os.path.join(TARGET, "surefire-reports")
+# A fixed lookup, so the output file name is a constant and never caller-supplied text.
+OUT_NAMES = {"sky": "prompt-regression-usage-sky.json", "ask": "prompt-regression-usage-ask.json"}
+
 FIELDS = ("calls", "erroredCalls", "input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
-
-
-def confined(path):
-    """The resolved absolute path, or None (with an error on stderr) when it is outside the working directory.
-
-    The workflow runs the script from the repository root with paths under backend/target; anything that resolves
-    elsewhere (an absolute path, `..`, a symlink out) is refused, so the script can only read and write inside the
-    checkout.
-    """
-    root = os.path.realpath(os.getcwd())
-    resolved = os.path.realpath(path)
-    try:
-        inside = os.path.commonpath([resolved, root]) == root
-    except ValueError:
-        inside = False
-    if not inside:
-        sys.stderr.write("error: path is outside the working directory, refusing: %s\n" % os.path.basename(path))
-        return None
-    return resolved
 
 
 def as_int(raw):
@@ -124,8 +115,8 @@ def utc_now():
 
 def build(args, env):
     """The schema-1 document as a dict."""
-    totals = read_shards(args.shards)
-    cases, failed, found = read_reports(args.reports)
+    totals = read_shards(SHARDS_DIR)
+    cases, failed, found = read_reports(REPORTS_DIR)
     models = [dict([("model", model)] + [(f, totals[model][f]) for f in FIELDS]) for model in sorted(totals)]
     return {
         "schema": 1,
@@ -157,19 +148,10 @@ def main(argv):
     """Entry point."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--suite", required=True, choices=("sky", "ask"))
-    parser.add_argument("--shards", required=True)
-    parser.add_argument("--reports", required=True)
-    parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
-    args.shards = confined(args.shards)
-    args.reports = confined(args.reports)
-    out = confined(args.out)
-    if args.shards is None or args.reports is None or out is None:
-        return 0
+    out = os.path.join(TARGET, OUT_NAMES[args.suite])
     doc = build(args, os.environ)
-    out_dir = os.path.dirname(out)
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(TARGET, exist_ok=True)
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(doc, handle, indent=2)
         handle.write("\n")

@@ -160,8 +160,14 @@ assert_file_has "sky model is Sonnet 5.5" "$WF" "SKY_MODEL: SONNET_55"
 assert_file_has "SKY_RUNS defaults to 1" "$WF" "SKY_RUNS: \${{ inputs.sky_runs || '1' }}"
 assert_file_has "ask summary shows skips red" "$WF" "--skipped-red"
 assert_file_has "runs the usage script isolated" "$WF" "python3 -I scripts/prompt-regression-usage.py"
-assert_file_has "sky Write usage appends to the job summary" "$WF" '--out backend/target/prompt-regression-usage-sky.json >> "$GITHUB_STEP_SUMMARY"'
-assert_file_has "ask Write usage appends to the job summary" "$WF" '--out backend/target/prompt-regression-usage-ask.json >> "$GITHUB_STEP_SUMMARY"'
+assert_file_has "sky Write usage appends to the job summary" "$WF" 'python3 -I scripts/prompt-regression-usage.py --suite sky >> "$GITHUB_STEP_SUMMARY"'
+assert_file_has "ask Write usage appends to the job summary" "$WF" 'python3 -I scripts/prompt-regression-usage.py --suite ask >> "$GITHUB_STEP_SUMMARY"'
+# The script takes no paths: its fixed directory must be the one PROMPT_REGRESSION_USAGE_DIR names.
+USAGE_PY="$ROOT/scripts/prompt-regression-usage.py"
+assert_file_has "the script reads shards from backend/target" "$USAGE_PY" 'TARGET = os.path.join(ROOT, "backend", "target")'
+assert_file_has "the script shard directory matches the env var" "$USAGE_PY" 'os.path.join(TARGET, "prompt-regression-usage")'
+assert_file_lacks "the script takes no --out argument" "$USAGE_PY" 'add_argument("--out"'
+assert_file_lacks "the script takes no --shards argument" "$USAGE_PY" 'add_argument("--shards"'
 assert_file_has "usage shards go under backend/target" "$WF" "PROMPT_REGRESSION_USAGE_DIR: \${{ github.workspace }}/backend/target/prompt-regression-usage"
 assert_file_lacks "no Anthropic key as a repository secret" "$WF" "secrets.ANTHROPIC_API_KEY"
 assert_file_lacks "never runs the replay harness in a -Dtest" "$WF" "-Dtest='PromptReplayHarnessTest"
