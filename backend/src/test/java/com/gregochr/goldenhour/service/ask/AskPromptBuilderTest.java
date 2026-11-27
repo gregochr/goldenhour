@@ -702,6 +702,26 @@ class AskPromptBuilderTest {
     }
 
     @Test
+    @DisplayName("B9: the stay-home line follows the empty-day lines at the end of the tail, and false is "
+            + "byte for byte the older overload")
+    void stayHomeLineFollowsTheEmptyDayLines() {
+        List<String> covered = List.of("2026-10-10_sunrise", "2026-10-11_sunrise");
+        List<LocalDate> empty = List.of(LocalDate.of(2026, 10, 10));
+        AskPromptBuilder.SystemPrompt older = builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null,
+                false, false, covered, false, empty);
+
+        assertThat(builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null, false, false, covered,
+                false, empty, false)).isEqualTo(older);
+        AskPromptBuilder.SystemPrompt told = builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null,
+                false, false, covered, false, empty, true);
+        String line = "Every window this question covers is a stay-home one: open the summary by saying so, then "
+                + "name the forecast's pick, and any places worth going to as exceptions.\n";
+        assertThat(told.staticPart()).isEqualTo(older.staticPart());
+        assertThat(told.dynamicPart()).isEqualTo(older.dynamicPart() + line);
+        assertThat(older.dynamicPart()).doesNotContain("stay-home");
+    }
+
+    @Test
     @DisplayName("B7: a typed prompt tells the model to call look_up_place for a named area even beside "
             + "rank_spots, and to name the place by its listed name in the summary; Ready has no such tool")
     void typedPromptCarriesTheNamedAreaRules() {

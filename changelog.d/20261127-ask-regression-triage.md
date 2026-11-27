@@ -7,3 +7,5 @@ to the reader's own places, and a companion is named with its stars. A looked-up
 rating and status reason, and the neighbour-outlier reason now explains the star ("Its rating is well above the places beside it, so
 PhotoCast doubts that star and is not suggesting it."). `rank_night_spots` takes `areaName` (typed questions only), and a region name
 that misses, in either tool, says to pass the named area as `areaName` or lists the regions that exist.
+
+When every window an anchored Ready question covers is a stay-home one (fewer than 5% of its rated places game-on, mostly scored, the forecast has a BEST pick and some place somewhere is game-on), the engine now tells the prompt so, and the summary opens by saying it before naming the forecast's pick and any exceptions.

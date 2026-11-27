@@ -29,6 +29,10 @@ public class AskPromptBuilder {
      */
     private static final DateTimeFormatter DAY_MONTH = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH);
 
+    /** Told to an anchored Ready question whose every covered window is a stay-home one (B9). */
+    static final String STAY_HOME_LINE = "Every window this question covers is a stay-home one: open the summary "
+            + "by saying so, then name the forecast's pick, and any places worth going to as exceptions.";
+
     /** Up to this many covered days with no place worth going to each get their own line in a Ready prompt. */
     private static final int MAX_EMPTY_DAY_LINES = 2;
 
@@ -421,6 +425,32 @@ public class AskPromptBuilder {
     public SystemPrompt systemPromptBlocks(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
             AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
             List<String> coveredWindowIds, boolean warningsInForce, List<LocalDate> emptyDates) {
+        return systemPromptBlocks(today, scope, contextWindow, contextNight, tonight, hasUser, hasThread,
+                coveredWindowIds, warningsInForce, emptyDates, false);
+    }
+
+    /**
+     * The two-part system prompt, which also tells an anchored Ready question that every window it covers is a
+     * stay-home one, so the summary opens by saying so (ask regression triage, B9). With {@code allStayHome}
+     * false it is byte for byte the prompt of the overload above; the cached static part never changes.
+     *
+     * @param today         today on the UK civil calendar
+     * @param scope         the regions asked about; {@link AskScope#ALL} means every region
+     * @param contextWindow the solar window the reader is looking at, or null
+     * @param contextNight  the night the reader is looking at, or null
+     * @param tonight       the date of the night in progress, or null
+     * @param hasUser       whether a user is behind the conversation
+     * @param hasThread     whether the question follows earlier exchanges
+     * @param coveredWindowIds the windows a Ready question is about; empty for a typed question
+     * @param warningsInForce whether a Met Office warning covers a place the question is about
+     * @param emptyDates    the covered dates with no place rated 4★ or better in scope
+     * @param allStayHome   whether every covered window is a stay-home one and the forecast has a pick
+     * @return the two parts
+     */
+    public SystemPrompt systemPromptBlocks(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
+            AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
+            List<String> coveredWindowIds, boolean warningsInForce, List<LocalDate> emptyDates,
+            boolean allStayHome) {
         // A typed question (a user behind it) is given look_up_place; the Ready precompute is not, so its rules
         // are RULES byte for byte (AskToolSchemas.tools' withPlaceLookup is the same split).
         String rules = hasUser ? RULES.replace(PLACE_FIT_BEFORE, PLACE_FIT_AFTER) : RULES;
@@ -440,6 +470,9 @@ public class AskPromptBuilder {
                     .append(". Every pick must be on one of these windows.\n");
         }
         appendEmptyDays(sb, emptyDates);
+        if (allStayHome) {
+            sb.append(STAY_HOME_LINE).append('\n');
+        }
         if (contextWindow != null) {
             sb.append("The reader is looking at ")
                     .append(DAY_MONTH.format(contextWindow.date()))

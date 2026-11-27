@@ -113,6 +113,9 @@ public class ClaudeAskEngine implements AskEngine {
      * forces {@code submit_answer}. Kept out of the system prompt so the fresh and thread prompts
      * are untouched.
      */
+    /** A window is a stay-home one when fewer than this percent of its rated places are game-on (B9). */
+    static final int STAY_HOME_GAME_ON_PCT = 5;
+
     static final String LAST_TURN_LINE = "This is your last turn: call submit_answer now with what you have, "
             + "or with answerable:false and what is missing.";
 
@@ -269,13 +272,46 @@ public class ClaudeAskEngine implements AskEngine {
 
     /** Whether a window's spread holds no game-on place and is mostly scored; a missing spread is not empty. */
     private static boolean isEmptySpread(Optional<AskSnapshot.Spread> spread) {
-        if (spread.isEmpty() || spread.get().gameOn() != 0) {
-            return false;
-        }
-        AskSnapshot.Spread.Regions regions = spread.get().regions();
+        return spread.isPresent() && spread.get().gameOn() == 0 && isMostlyScored(spread.get());
+    }
+
+    /**
+     * Whether a spread is mostly scored: the thin and not-scored regions are fewer than half of the in-scope
+     * regions (a region the weather stood down counts as scored). The unlooked-at rule B2 and B9 share.
+     */
+    private static boolean isMostlyScored(AskSnapshot.Spread spread) {
+        AskSnapshot.Spread.Regions regions = spread.regions();
         int unlooked = orZero(regions.thin()) + orZero(regions.notScored());
         int total = regions.counted() + orZero(regions.stoodDown()) + unlooked;
         return total > 0 && unlooked * 2 < total;
+    }
+
+    /**
+     * Whether every window an anchored Ready question covers is a stay-home one (ask regression triage, B9):
+     * each has a spread over the conversation's scope that is mostly scored, rates places, and has fewer than
+     * {@link #STAY_HOME_GAME_ON_PCT} percent of them game-on; some covered window carries the BEST BET; and at
+     * least one has a game-on place (when none does, B2's empty-day lines apply instead). A window with no
+     * spread makes it false, and so does a typed, night-bound, coastal-high or AM-or-PM question.
+     */
+    private static boolean allStayHome(AskConversation conversation, AskSnapshot snapshot) {
+        AskAnswerValidator.ReadyBasis basis = conversation.options().readyBasis();
+        if (basis == null || !basis.question().anchored() || basis.offer().coveredWindowIds().isEmpty()) {
+            return false;
+        }
+        boolean best = false;
+        boolean anyGameOn = false;
+        for (String id : basis.offer().coveredWindowIds()) {
+            Optional<AskSnapshot.Window> window = snapshot.window(id);
+            Optional<AskSnapshot.Spread> spread = snapshot.spread(id, conversation.scope());
+            if (window.isEmpty() || spread.isEmpty() || spread.get().rated() <= 0
+                    || spread.get().gameOn() * 100 >= STAY_HOME_GAME_ON_PCT * spread.get().rated()
+                    || !isMostlyScored(spread.get())) {
+                return false;
+            }
+            best |= window.get().pick() != null && window.get().pick().kind() == BriefingWindow.PickKind.BEST;
+            anyGameOn |= spread.get().gameOn() > 0;
+        }
+        return best && anyGameOn;
     }
 
     private static int orZero(Integer n) {
@@ -305,7 +341,7 @@ public class ClaudeAskEngine implements AskEngine {
         AskPromptBuilder.SystemPrompt system = promptBuilder.systemPromptBlocks(snapshot.today(),
                 conversation.scope(), contextWindow, contextNight, snapshot.nights().tonight(), user.hasUser(),
                 !thread.isEmpty(), coveredWindows(conversation), conversation.tools().hasWarningFacts(),
-                emptyCoveredDates(conversation, snapshot));
+                emptyCoveredDates(conversation, snapshot), allStayHome(conversation, snapshot));
         // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
         // the forecast, one query for names, neither of which should repeat each turn.
         String userMessage = promptBuilder.userMessage(question.sanitised(), thread);

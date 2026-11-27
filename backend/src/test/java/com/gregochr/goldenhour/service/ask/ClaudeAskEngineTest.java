@@ -1820,4 +1820,120 @@ class ClaudeAskEngineTest {
         // A window with no spread (an id the snapshot lacks, or no region in scope) is not empty.
         assertThat(ClaudeAskEngine.emptyCoveredDates(covered, todayThenDay2(null), AskScope.ALL)).isEmpty();
     }
+
+    // -- B9: the stay-home line -----------------------------------------------------------------
+
+    private static final String STAY_HOME_LINE = "Every window this question covers is a stay-home one";
+
+    /** A region with 40 rated places and the given number of 4-star ones (the rest 2-star). */
+    private static BriefingRegion stayHomeRegion(String name, long firstId, int fourStars) {
+        return AskFixtures.bandedRegion(name, firstId, 0, 40 - fourStars, 0, fourStars);
+    }
+
+    private static AskSnapshot twoDays(BriefingWindow.Pick todayPick, BriefingRegion today,
+            BriefingRegion tomorrow, BriefingRegion... tomorrowMore) {
+        BriefingRegion[] tomorrowAll = new BriefingRegion[tomorrowMore.length + 1];
+        tomorrowAll[0] = tomorrow;
+        System.arraycopy(tomorrowMore, 0, tomorrowAll, 1, tomorrowMore.length);
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, todayPick, today),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, tomorrowAll)), List.of()));
+    }
+
+    private static BriefingWindow.Pick bestPick() {
+        return AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland", "A", 1L);
+    }
+
+    /** Runs a Ready conversation over both windows and returns the system prompt it sent. */
+    private String readyPrompt(ReadyQuestion readyQuestion, AskSnapshot snapshot) {
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot this weekend?", List.of(WINDOW), null,
+                List.of(WINDOW, "2026-10-06_sunset"));
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), snapshot, AskUserContext.userLess(),
+                AskRunOptions.ready(READY_RUN_ID, readyQuestion, offer));
+
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
+        return systemText(sentParams().getLast());
+    }
+
+    @Test
+    @DisplayName("B9: every covered window stay-home, a BEST pick and some game-on place: the line is added")
+    void allStayHomeAddsTheLine() {
+        AskSnapshot snapshot = twoDays(bestPick(), stayHomeRegion("Northumberland", 100, 1),
+                stayHomeRegion("Teesdale", 300, 1));
+
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, snapshot)).contains(STAY_HOME_LINE
+                + ": open the summary by saying so, then name the forecast's pick, and any places worth going to "
+                + "as exceptions.");
+    }
+
+    @Test
+    @DisplayName("B9: one window over 5 percent, or exactly 5 percent, adds no line")
+    void aWindowAtOrOverFivePercentAddsNoLine() {
+        // 3 of 40 is 7.5 percent.
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(bestPick(),
+                stayHomeRegion("Northumberland", 100, 1), stayHomeRegion("Teesdale", 300, 3))))
+                .doesNotContain(STAY_HOME_LINE);
+        // 2 of 40 is exactly 5 percent: a strict less-than.
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(bestPick(),
+                stayHomeRegion("Northumberland", 100, 1), stayHomeRegion("Teesdale", 300, 2))))
+                .doesNotContain(STAY_HOME_LINE);
+    }
+
+    @Test
+    @DisplayName("B9: a covered window with no spread, or mostly unlooked-at, adds no line")
+    void noSpreadOrMostlyUnlookedAddsNoLine() {
+        // No region in scope tomorrow: no spread.
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, bestPick(), stayHomeRegion("Northumberland", 100, 1)),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null)), List.of())))).doesNotContain(STAY_HOME_LINE);
+        // Two of three regions tomorrow are not scored.
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(bestPick(),
+                stayHomeRegion("Northumberland", 100, 1), stayHomeRegion("Teesdale", 300, 1),
+                AskFixtures.blankedRegion("Cumbria", CoverageReason.UNKNOWN),
+                AskFixtures.blankedRegion("Durham", CoverageReason.UNKNOWN)))).doesNotContain(STAY_HOME_LINE);
+    }
+
+    @Test
+    @DisplayName("B9: COASTAL_HIGH and AM_OR_PM never get the line, though the data would qualify")
+    void comparisonAndCoastalQuestionsAddNoLine() {
+        AskSnapshot snapshot = twoDays(bestPick(), stayHomeRegion("Northumberland", 100, 1),
+                stayHomeRegion("Teesdale", 300, 1));
+
+        assertThat(readyPrompt(ReadyQuestion.COASTAL_HIGH, snapshot)).doesNotContain(STAY_HOME_LINE);
+        assertThat(readyPrompt(ReadyQuestion.AM_OR_PM, snapshot)).doesNotContain(STAY_HOME_LINE);
+    }
+
+    @Test
+    @DisplayName("B9: no BEST pick in the covered set adds no line")
+    void noBestPickAddsNoLine() {
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(null,
+                stayHomeRegion("Northumberland", 100, 1), stayHomeRegion("Teesdale", 300, 1))))
+                .doesNotContain(STAY_HOME_LINE);
+    }
+
+    @Test
+    @DisplayName("B9: every covered window with no game-on place adds no stay-home line, only B2's empty-day one")
+    void noGameOnAnywhereLeavesB2Only() {
+        String prompt = readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(bestPick(),
+                stayHomeRegion("Northumberland", 100, 0), stayHomeRegion("Teesdale", 300, 0)));
+
+        assertThat(prompt).doesNotContain(STAY_HOME_LINE)
+                .contains("Tuesday 6 October has no place worth going to");
+    }
+
+    @Test
+    @DisplayName("B9: a typed question and a night-bound Ready one never get the line")
+    void typedAndNightBoundAddNoLine() {
+        AskSnapshot snapshot = twoDays(bestPick(), stayHomeRegion("Northumberland", 100, 1),
+                stayHomeRegion("Teesdale", 300, 1));
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), snapshot, USER, AskRunOptions.none());
+
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
+        assertThat(systemText(sentParams().getFirst())).doesNotContain(STAY_HOME_LINE);
+        assertThat(readyPrompt(ReadyQuestion.NIGHT_SKY, snapshot)).doesNotContain(STAY_HOME_LINE);
+    }
 }
