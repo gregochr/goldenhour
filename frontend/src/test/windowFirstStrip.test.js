@@ -136,12 +136,12 @@ describe('buildHeatStripCards — one thumbnail per rendered window', () => {
     expect(build(events, [])[0].verdictMean).toBeNull();
   });
 
-  it('folds verdictBlanked from the card, false when absent (verdict-honesty H4)', () => {
+  it('folds blankedReason from the card, null when absent (verdict-honesty H4)', () => {
     const events = [{ date: TODAY, targetType: 'SUNSET' }];
 
-    expect(build(events, [card({ verdictBlanked: true })])[0].verdictBlanked).toBe(true);
-    expect(build(events, [card()])[0].verdictBlanked).toBe(false);
-    expect(build(events, [])[0].verdictBlanked).toBe(false);
+    expect(build(events, [card({ blankedReason: 'STOOD_DOWN' })])[0].blankedReason).toBe('STOOD_DOWN');
+    expect(build(events, [card()])[0].blankedReason).toBeNull();
+    expect(build(events, [])[0].blankedReason).toBeNull();
   });
 
   it('carries the active tier\'s minutes through to the thumbnail, null when none (verdict-honesty H2)', () => {

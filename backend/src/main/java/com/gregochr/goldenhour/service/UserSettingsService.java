@@ -640,6 +640,24 @@ public class UserSettingsService {
     }
 
     /**
+     * Records that the caller dismissed the one-time "Bookmark places and watch dates" hint (V230,
+     * screen-spec D8) and answers the settings with {@code placesHintDue} now false.
+     *
+     * <p>The {@link #markPostcodePromptDismissed} shape: its own endpoint, no request body, a
+     * column-scoped update and a fresh re-read. It stamps only while the column is null, so a reader
+     * who already saved a favourite (which stamps it too) keeps the first instant. Open to every role.
+     *
+     * @param auth the authenticated user
+     * @return the updated user settings response
+     */
+    @Transactional
+    public UserSettingsResponse markPlacesHintDismissed(Authentication auth) {
+        userRepository.updatePlacesHintDismissedAtByUsernameIfNull(auth.getName(), clock.instant());
+        AppUserEntity user = getUser(auth);
+        return mapToResponse(user, null);
+    }
+
+    /**
      * Finds the nearest UK postcode to a point — the "Use my location" lookup. Persists nothing.
      *
      * <p>Validates before the upstream is touched: both values present, finite, and in range. The
@@ -719,6 +737,8 @@ public class UserSettingsService {
                 // The one place the flag is decided, on every response this service builds: no
                 // postcode and never dismissed (plan §2 #3). A postcode saved anywhere ends it.
                 user.getHomePostcode() == null && user.getPostcodePromptDismissedAt() == null,
+                // Decided here too (screen-spec D8): due until a dismissal or a first favourite stamps it.
+                user.getPlacesHintDismissedAt() == null,
                 user.isMarketingEmailOptIn());
     }
 }

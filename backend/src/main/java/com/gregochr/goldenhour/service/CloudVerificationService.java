@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.CloudVerificationEntity;
+import com.gregochr.goldenhour.model.ArchiveBatchResult;
 import com.gregochr.goldenhour.model.BackfillBatch;
 import com.gregochr.goldenhour.model.CloudVerificationBucket;
 import com.gregochr.goldenhour.model.CloudVerificationPair;
@@ -21,6 +22,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -279,16 +281,52 @@ public class CloudVerificationService {
                         LinkedHashMap::new, Collectors.toList()));
 
         List<CloudVerificationEntity> verified = new ArrayList<>(candidates.size());
+        int archiveCalls = 0;
+        boolean quotaExhausted = false;
         for (Map.Entry<LocalDate, List<VerificationCandidate>> entry : byDate.entrySet()) {
-            verified.addAll(verifyDate(entry.getKey(), entry.getValue()));
+            DateOutcome outcome = verifyDate(entry.getKey(), entry.getValue());
+            archiveCalls += outcome.calls();
+            if (outcome.quotaReason() != null) {
+                // The allowance is spent: rows with no observations would only be written and then
+                // deleted again at the next tick, so keep just the ones that did get data, and do
+                // not ask the archive about the remaining dates.
+                quotaExhausted = true;
+                LOG.warn("[CLOUD VERIFY] archive allowance spent ({}) — pausing", outcome.quotaReason());
+                outcome.rows().stream().filter(v -> v.getHorizonLowCloud() != null).forEach(verified::add);
+                break;
+            }
+            verified.addAll(outcome.rows());
         }
         repository.saveAll(verified);
 
         int withData = (int) verified.stream()
                 .filter(v -> v.getHorizonLowCloud() != null).count();
-        LOG.info("[CLOUD VERIFY] verified={} withObservations={} dates={} cutoff={}",
-                verified.size(), withData, byDate.size(), cutoff);
-        return new BackfillBatch(verified.size(), withData);
+        LOG.info("[CLOUD VERIFY] verified={} withObservations={} archiveCalls={} dates={} cutoff={}",
+                verified.size(), withData, archiveCalls, byDate.size(), cutoff);
+        return new BackfillBatch(verified.size(), withData, archiveCalls, quotaExhausted);
+    }
+
+    /**
+     * A coordinate pair used to recognise the same archive point requested by several evaluations.
+     *
+     * <p>Exact {@code double} equality is deliberate: identical inputs to
+     * {@link DirectionalSamplingGeometry} give identical outputs, and two evaluations whose azimuths
+     * differ even slightly simply fetch separately, which is correct, never a wrong shared answer.
+     *
+     * @param lat latitude
+     * @param lon longitude
+     */
+    private record PointKey(double lat, double lon) {
+    }
+
+    /**
+     * What verifying one date produced.
+     *
+     * @param rows        one row per candidate
+     * @param calls       unique points requested, which is what Open-Meteo charges
+     * @param quotaReason the spent-allowance reason, or {@code null}
+     */
+    private record DateOutcome(List<CloudVerificationEntity> rows, int calls, String quotaReason) {
     }
 
     /**
@@ -331,49 +369,68 @@ public class CloudVerificationService {
     /**
      * Verifies every candidate sharing one date, in batched archive requests.
      *
-     * <p>Points are laid out {@link #POINTS_PER_CANDIDATE} per candidate — the three solar-cone
-     * bearings, then the observer, then the far-solar point — so a single batch covers all claims
-     * for the whole date and the responses map back positionally.
+     * <p>Each candidate has {@link #POINTS_PER_CANDIDATE} points — the three solar-cone bearings,
+     * then the observer, then the far-solar point. Identical coordinates (every evaluation of the
+     * same event) are fetched once, and the responses map back to each candidate by index.
      *
      * @param date       the shared solar-event date
      * @param candidates candidates on that date
      * @return one verification row per candidate, with null observations where the archive failed
      */
-    private List<CloudVerificationEntity> verifyDate(LocalDate date,
+    private DateOutcome verifyDate(LocalDate date,
             List<VerificationCandidate> candidates) {
         // The cone matters — the forecast's own solar reading is a 3-point average, so sampling a
         // single centre point here would compare an average against a spot reading and attribute
         // the difference to forecast error. The far-solar point reads the canvas-underlighting
         // corridor the 113 km gate never sees (centre of the 4 km mid-canvas corridor, near edge
         // of the 8 km high-canvas one — see FAR_SOLAR_OFFSET_METRES).
-        List<double[]> points = new ArrayList<>(candidates.size() * POINTS_PER_CANDIDATE);
+        // Open-Meteo charges one call per coordinate, and every evaluation of the same event asks
+        // for the same five points, so each distinct coordinate is fetched once and every candidate
+        // keeps five indices into that unique list.
+        List<double[]> uniquePoints = new ArrayList<>(candidates.size() * POINTS_PER_CANDIDATE);
+        Map<PointKey, Integer> indexByPoint = new HashMap<>();
+        List<int[]> candidateIndices = new ArrayList<>(candidates.size());
         for (VerificationCandidate candidate : candidates) {
-            points.addAll(DirectionalSamplingGeometry.computeSolarConePoints(
+            List<double[]> own = new ArrayList<>(POINTS_PER_CANDIDATE);
+            own.addAll(DirectionalSamplingGeometry.computeSolarConePoints(
                     candidate.lat(), candidate.lon(), candidate.azimuthDeg()));
-            points.add(new double[]{candidate.lat(), candidate.lon()});
-            points.add(DirectionalSamplingGeometry.computeFarSolarPoint(
+            own.add(new double[]{candidate.lat(), candidate.lon()});
+            own.add(DirectionalSamplingGeometry.computeFarSolarPoint(
                     candidate.lat(), candidate.lon(), candidate.azimuthDeg()));
+            int[] indices = new int[POINTS_PER_CANDIDATE];
+            for (int p = 0; p < POINTS_PER_CANDIDATE; p++) {
+                double[] point = own.get(p);
+                Integer existing = indexByPoint.get(new PointKey(point[0], point[1]));
+                if (existing == null) {
+                    existing = uniquePoints.size();
+                    indexByPoint.put(new PointKey(point[0], point[1]), existing);
+                    uniquePoints.add(point);
+                }
+                indices[p] = existing;
+            }
+            candidateIndices.add(indices);
         }
 
-        List<OpenMeteoForecastResponse> responses =
-                archiveClient.fetchArchiveBatch(points, date, ARCHIVE_HOURLY);
+        ArchiveBatchResult result =
+                archiveClient.fetchArchiveBatch(uniquePoints, date, ARCHIVE_HOURLY);
+        List<OpenMeteoForecastResponse> responses = result.responses();
 
         List<CloudVerificationEntity> rows = new ArrayList<>(candidates.size());
         for (int i = 0; i < candidates.size(); i++) {
             VerificationCandidate candidate = candidates.get(i);
-            int base = i * POINTS_PER_CANDIDATE;
+            int[] indices = candidateIndices.get(i);
             List<OpenMeteoForecastResponse> cone = new ArrayList<>(
                     DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT);
             for (int c = 0; c < DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT; c++) {
-                cone.add(responseAt(responses, base + c));
+                cone.add(responseAt(responses, indices[c]));
             }
             // Centre bearing is the representative coordinate recorded on the row.
-            double[] centre = points.get(base + 1);
+            double[] centre = uniquePoints.get(indices[1]);
             rows.add(buildRow(candidate, centre, cone,
-                    responseAt(responses, base + OBSERVER_OFFSET),
-                    responseAt(responses, base + FAR_SOLAR_OFFSET)));
+                    responseAt(responses, indices[OBSERVER_OFFSET]),
+                    responseAt(responses, indices[FAR_SOLAR_OFFSET])));
         }
-        return rows;
+        return new DateOutcome(rows, uniquePoints.size(), result.quotaExhaustedReason());
     }
 
     /**

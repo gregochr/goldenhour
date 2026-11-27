@@ -1,6 +1,5 @@
 import { isNewEntry } from './comingUpArrivals.js';
 import { lastPlanDateStr } from './comingUpHandoff.js';
-import { GLANCE_LABEL } from './tabLabels.js';
 import { isWarningEntry } from './comingUpWarnings.js';
 
 /**
@@ -192,6 +191,23 @@ export function chipCounts(counts) {
     count: chip.families
       ? chip.families.reduce((sum, family) => sum + (byFamily[family] ?? 0), 0)
       : total,
+  }));
+}
+
+/**
+ * Each chip's count over a given list of entries, for a list that has had entries taken out of it (Further ahead
+ * drops the dates This week already shows as lanes, so the served {@code counts} would promise rows that are not
+ * there). The same membership rule as the list itself ({@link matchesFilter}), so a chip's number and its rows agree.
+ *
+ * @param {Array} entries the entries Further ahead lists, unfiltered
+ * @returns {Array<{id: string, label: string, count: number}>}
+ */
+export function chipCountsOf(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  return FILTER_CHIPS.map((chip) => ({
+    id: chip.id,
+    label: chip.label,
+    count: list.filter((entry) => matchesFilter(entry, chip.id)).length,
   }));
 }
 
@@ -419,7 +435,7 @@ export function rangeBarHeight(value, scale) {
  *
  * <p>All three served actions now have a real destination (plan §6b, D8): {@code plan} switches tabs
  * and focuses Plan; {@code coastal-spots}/{@code dark-sky-spots} open the map overlay through the
- * new {@code kind:'coming-up'} channel. {@code interactive} names all three — the P3a-era refusal
+ * new {@code kind:'further-ahead'} channel. {@code interactive} names all three — the P3a-era refusal
  * (the map channel did not exist yet) no longer applies.
  *
  * <p>A map door ({@code coastal-spots}/{@code dark-sky-spots}) is also withheld when the reader holds
@@ -477,6 +493,10 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
     id: entry.id,
     type: entry.type,
     startDate: entry.startDate,
+    // Passed through for the watch match (utils/watchedDates.js): the entry's own span and, on a merged entry, the
+    // tide's own days.
+    endDate: entry.endDate,
+    dayRanges: entry.dayRanges ?? null,
     inNext4Days: overlapsNext4Days(entry, todayStr),
     family: entry.family,
     isForecast: entry.kind === 'FORECAST',
@@ -573,12 +593,12 @@ export function buildChronology(entries, todayStr, filterId, lastSeenDate, forec
 }
 
 /**
- * The footer's note (coming-up-glance plan P2; the four days moved to At a Glance's day headers by
+ * The footer's note (coming-up-glance plan P2; the four days moved to This week's day headers by
  * glance-topic-strip-plan.md), shown in every status. It states a rule, not
  * a count, so it is true before the feed has answered and after. "Fixed in advance", not "fixed by
  * orbital mechanics": two of the six sources compute nothing orbital — the NLC season boundary is a
  * hard-coded calendar window and the equinox/solstice dates are fixed `MonthDay` anchors.
  */
 export const FOOTER = 'This list shows dates fixed in advance, from today on. Weather-driven topics '
-  + `can't be known that far out, so they appear only under the next four days on ${GLANCE_LABEL}, `
+  + "can't be known that far out, so they appear only under the next four days in This week, "
   + 'except Met Office weather warnings, which are listed here when they run past those four days.';

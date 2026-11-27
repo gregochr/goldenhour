@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.DriveStatus;
@@ -16,10 +17,13 @@ import com.gregochr.goldenhour.model.ReachVerdictResponse;
 import com.gregochr.goldenhour.service.PlanWindowProjector.ScopedWindow;
 import com.gregochr.goldenhour.service.PlanWindowProjector.WindowKey;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -70,6 +74,7 @@ public class ReachVerdictService {
     private final RegionService regionService;
     private final RegionDriveDurationService regionDriveDurationService;
     private final LocationService locationService;
+    private final Clock clock;
 
     /**
      * Constructs a {@code ReachVerdictService}.
@@ -80,16 +85,18 @@ public class ReachVerdictService {
      * @param regionService              resolves the away origin region
      * @param regionDriveDurationService supplies the region base drive-time matrix
      * @param locationService            supplies the enabled roster, for each place's drive-target stamp
+     * @param clock                      the clock {@code daysAhead} is measured on, for the coverage-reason fold
      */
     public ReachVerdictService(BriefingService briefingService, BriefingRegionEvaluationRollup rollup,
             ReachService reachService, RegionService regionService,
-            RegionDriveDurationService regionDriveDurationService, LocationService locationService) {
+            RegionDriveDurationService regionDriveDurationService, LocationService locationService, Clock clock) {
         this.briefingService = briefingService;
         this.rollup = rollup;
         this.reachService = reachService;
         this.regionService = regionService;
         this.regionDriveDurationService = regionDriveDurationService;
         this.locationService = locationService;
+        this.clock = clock;
     }
 
     /**
@@ -159,17 +166,56 @@ public class ReachVerdictService {
         return cells;
     }
 
+    /**
+     * What a window lost to the tier, so an emptied window can say why. {@code blankedReasons} holds the reason of
+     * each served-blanked region dropped (no place to measure, so none in reach); {@code outOfReach} is set when a
+     * region with real places was dropped because none was in reach, or a blanked region carried no reason.
+     */
+    private static final class Dropped {
+        private final Set<CoverageReason> blankedReasons = EnumSet.noneOf(CoverageReason.class);
+        private boolean outOfReach;
+
+        void blanked(CoverageReason reason) {
+            if (reason == null) {
+                outOfReach = true;
+            } else {
+                blankedReasons.add(reason);
+            }
+        }
+
+        void outOfReach() {
+            outOfReach = true;
+        }
+
+        /**
+         * The one reason an emptied window may carry: every dropped region was served-blanked and all share the
+         * same date-level reason ({@code NOT_ATTEMPTED} or {@code AWAY}, facts about the day and horizon that are
+         * true inside the ring). A stand-down, a failure, an unknown or a mixed set stays silent: a far region's
+         * weather must not speak for a ring it is not in.
+         */
+        CoverageReason uniformDateLevelReason() {
+            if (outOfReach || blankedReasons.size() != 1) {
+                return null;
+            }
+            CoverageReason only = blankedReasons.iterator().next();
+            return only == CoverageReason.NOT_ATTEMPTED || only == CoverageReason.AWAY ? only : null;
+        }
+    }
+
     private List<ReachVerdictResponse.Window> windowsAt(DailyBriefingResponse served, Map<Long, Cell> cells,
             int tier, RegionEntity origin) {
         String originName = origin == null ? null : origin.getName();
         List<BriefingDay> days = new ArrayList<>(served.days().size());
+        Map<WindowKey, Dropped> dropped = new HashMap<>();
         for (BriefingDay day : served.days()) {
             List<BriefingEventSummary> events = new ArrayList<>(day.eventSummaries().size());
             for (BriefingEventSummary summary : day.eventSummaries()) {
                 List<BriefingRegion> regions = new ArrayList<>(summary.regions().size());
+                Dropped lost = dropped.computeIfAbsent(new WindowKey(day.date(), summary.targetType()),
+                        key -> new Dropped());
                 for (BriefingRegion region : summary.regions()) {
                     boolean scoped = originName == null || originName.equals(region.regionName());
-                    BriefingRegion kept = scoped ? prune(region, cells, tier, day, summary) : region;
+                    BriefingRegion kept = scoped ? prune(region, cells, tier, day, summary, lost) : region;
                     if (kept != null) {
                         regions.add(kept);
                     }
@@ -180,7 +226,8 @@ public class ReachVerdictService {
         }
         Map<WindowKey, ScopedWindow> windows = PlanWindowProjector.reproject(days, renderedOf(served));
         List<ReachVerdictResponse.Window> out = new ArrayList<>(windows.size());
-        windows.forEach((key, scopedWindow) -> out.add(windowBody(key, scopedWindow, originName)));
+        windows.forEach((key, scopedWindow) -> out.add(
+                windowBody(key, scopedWindow, originName, dropped.getOrDefault(key, new Dropped()))));
         return out;
     }
 
@@ -190,11 +237,13 @@ public class ReachVerdictService {
      * before ranking), else the extracted arithmetic re-run on the survivors.
      */
     private BriefingRegion prune(BriefingRegion region, Map<Long, Cell> cells, int tier, BriefingDay day,
-            BriefingEventSummary summary) {
+            BriefingEventSummary summary, Dropped lost) {
         // A region with no place to measure (the honesty filter blanked it) has no place in reach either, so at
         // a finite tier it is dropped like any region the tier empties: a distant blanked region must not speak
         // for a window it cannot be reached for.
+        // Its reason is remembered, though: if it empties the window, a date-level one may still be said.
         if (region.slots().isEmpty()) {
+            lost.blanked(region.coverageReason());
             return null;
         }
         List<BriefingSlot> inReach = region.slots().stream()
@@ -204,13 +253,15 @@ public class ReachVerdictService {
             return region;
         }
         if (inReach.isEmpty()) {
+            lost.outOfReach();
             return null;
         }
         BriefingRegion rerolled = rollup.rerollRegion(region, inReach, day.date(), summary.targetType());
         // Nothing rated survived: word it as the served pipeline words a zero-coverage region, not as a rating.
         boolean scoreable = inReach.stream().anyMatch(BriefingSlot::couldCarryRating);
         if (rerolled.scoredLocationCount() == 0 && scoreable) {
-            return BriefingHonestyFilter.blankedForReach(rerolled, inReach.stream().anyMatch(BriefingSlot::triaged));
+            return BriefingHonestyFilter.blankedForReach(rerolled, inReach, day.date(), summary.targetType(),
+                    ForecastHorizon.daysAhead(day.date(), clock));
         }
         return rerolled;
     }
@@ -237,7 +288,8 @@ public class ReachVerdictService {
         return rendered;
     }
 
-    private ReachVerdictResponse.Window windowBody(WindowKey key, ScopedWindow scoped, String originName) {
+    private ReachVerdictResponse.Window windowBody(WindowKey key, ScopedWindow scoped, String originName,
+            Dropped lost) {
         BriefingWindow window = scoped.window();
         BriefingRegion region;
         DisplayVerdict verdict;
@@ -261,11 +313,19 @@ public class ReachVerdictService {
             pick = window.pick() != null && originName.equals(window.pick().regionName()) ? window.pick() : null;
             regions = region == null ? List.of() : List.of(regionVerdict(region));
         }
+        boolean blankedRegion = region != null && region.slots().isEmpty() && region.coverageReason() != null;
+        CoverageReason reason = blankedRegion ? region.coverageReason() : null;
+        Boolean fog = blankedRegion ? region.fog() : null;
+        if (region == null && (originName != null || scoped.all().isEmpty())) {
+            // The tier emptied the window: every region it had was dropped. Say why only when that is a fact about
+            // the date (D1), never from a far region's weather.
+            reason = lost.uniformDateLevelReason();
+        }
         return new ReachVerdictResponse.Window(key.date(), key.targetType(), verdict,
                 printableMean(region, verdict), region == null ? null : region.meanRating(),
                 region == null ? null : region.confidence(), region == null ? null : region.regionName(),
                 verdict == DisplayVerdict.STAND_DOWN && region != null && region.slots().isEmpty(),
-                thinCount(region, verdict), pick, pick == null ? null : pick.regionName(), regions);
+                thinCount(region, verdict), pick, pick == null ? null : pick.regionName(), reason, fog, regions);
     }
 
     private static ReachVerdictResponse.RegionVerdict regionVerdict(BriefingRegion region) {

@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.model.ArchiveBatchResult;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
@@ -11,11 +12,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.function.LongConsumer;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +49,7 @@ public class OpenMeteoArchiveClient {
 
     private final RestClient archiveRestClient;
     private final ObjectMapper objectMapper;
+    private final LongConsumer sleeper;
 
     /**
      * Constructs the client with a default archive {@link RestClient}.
@@ -70,47 +75,68 @@ public class OpenMeteoArchiveClient {
      * @param archiveRestClient the archive HTTP client
      */
     OpenMeteoArchiveClient(ObjectMapper objectMapper, RestClient archiveRestClient) {
+        this(objectMapper, archiveRestClient, OpenMeteoArchiveClient::sleepQuietly);
+    }
+
+    /**
+     * Package-private constructor for unit tests that must not wait out the real back-off.
+     *
+     * @param objectMapper      mapper for the array response
+     * @param archiveRestClient the archive HTTP client
+     * @param sleeper           pause between chunks, in milliseconds
+     */
+    OpenMeteoArchiveClient(ObjectMapper objectMapper, RestClient archiveRestClient,
+            LongConsumer sleeper) {
         this.objectMapper = objectMapper;
         this.archiveRestClient = archiveRestClient;
+        this.sleeper = sleeper;
     }
 
     /**
      * Fetches analysed cloud for many points on one date, in chunked batch requests.
      *
-     * <p>Returns a list the same length as {@code coords}, positionally aligned, with
-     * {@code null} where a chunk failed. Callers must guard against nulls — a null means
-     * "no observation available", which cloud verification records rather than retries.
+     * <p>The returned responses are the same length as {@code coords}, positionally aligned, with
+     * {@code null} where a chunk failed or was never requested. Callers must guard against nulls.
+     *
+     * <p>Never throws. This method carries the {@code open-meteo} retry and circuit breaker, which
+     * the forecast client shares, so an exception escaping it would be retried and could open the
+     * breaker over a quota that only the archive has spent. A spent daily or hourly allowance is
+     * reported through {@link ArchiveBatchResult#quotaExhaustedReason()} and stops the remaining
+     * chunks; a per-minute refusal keeps the 60 s back-off instead.
      *
      * @param coords     list of [lat, lon] pairs
      * @param date       the date to fetch (inclusive start and end)
      * @param hourlyVars comma-separated hourly variables to request
-     * @return responses aligned with {@code coords}; {@code null} entries where a chunk failed
+     * @return responses aligned with {@code coords}, and the quota reason if the allowance ran out
      */
     @Retry(name = "open-meteo")
     @CircuitBreaker(name = "open-meteo")
     @RateLimiter(name = "open-meteo")
-    public List<OpenMeteoForecastResponse> fetchArchiveBatch(List<double[]> coords, LocalDate date,
+    public ArchiveBatchResult fetchArchiveBatch(List<double[]> coords, LocalDate date,
             String hourlyVars) {
         if (coords == null || coords.isEmpty()) {
-            return List.of();
+            return new ArchiveBatchResult(List.of(), null);
         }
         if (coords.size() <= OpenMeteoClient.BATCH_COORD_LIMIT) {
             try {
-                return fetchChunk(coords, date, hourlyVars);
+                return new ArchiveBatchResult(fetchChunk(coords, date, hourlyVars), null);
             } catch (Exception e) {
+                String text = failureText(e);
                 LOG.warn("Open-Meteo archive chunk failed ({} coords, {}): {}",
-                        coords.size(), date, e.getMessage());
-                return Collections.nCopies(coords.size(), null);
+                        coords.size(), date, text);
+                return new ArchiveBatchResult(Collections.nCopies(coords.size(), null),
+                        quotaReason(text));
             }
         }
 
         List<OpenMeteoForecastResponse> results =
                 new ArrayList<>(Collections.nCopies(coords.size(), null));
         boolean hitRateLimit = false;
+        String quotaReason = null;
 
         for (int i = 0; i < coords.size(); i += OpenMeteoClient.BATCH_COORD_LIMIT) {
             if (i > 0) {
-                sleepQuietly(hitRateLimit ? RATE_LIMIT_BACKOFF_MS : INTER_CHUNK_DELAY_MS);
+                sleeper.accept(hitRateLimit ? RATE_LIMIT_BACKOFF_MS : INTER_CHUNK_DELAY_MS);
             }
             int end = Math.min(i + OpenMeteoClient.BATCH_COORD_LIMIT, coords.size());
             List<double[]> chunk = coords.subList(i, end);
@@ -121,14 +147,53 @@ public class OpenMeteoArchiveClient {
                 }
                 hitRateLimit = false;
             } catch (Exception e) {
-                String reason = e.getMessage() != null ? e.getMessage()
-                        : e.getClass().getSimpleName();
+                String text = failureText(e);
                 LOG.warn("Open-Meteo archive chunk failed ({} coords, {}): {}",
-                        chunk.size(), date, reason);
-                hitRateLimit = reason.contains("429");
+                        chunk.size(), date, text);
+                quotaReason = quotaReason(text);
+                if (quotaReason != null) {
+                    break;
+                }
+                hitRateLimit = text.contains("429");
             }
         }
-        return results;
+        return new ArchiveBatchResult(results, quotaReason);
+    }
+
+    /**
+     * Describes a failed fetch, preferring the HTTP response body, which is where Open-Meteo puts
+     * the "request limit exceeded" reason on a 429.
+     *
+     * @param e the failure
+     * @return the response body when there is one, otherwise the message or the exception name
+     */
+    private static String failureText(Exception e) {
+        if (e instanceof RestClientResponseException responseException) {
+            String body = responseException.getResponseBodyAsString();
+            if (body != null && !body.isBlank()) {
+                return responseException.getStatusCode().value() + " " + body;
+            }
+        }
+        return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+    }
+
+    /**
+     * Returns the spent-allowance reason when the failure text says the daily or hourly request
+     * limit was exceeded. A minutely refusal is deliberately not matched: the 200 ms chunk pacing
+     * exceeds the free tier's per-minute allowance within a tick, and the back-off carries on past it.
+     *
+     * @param text the failure text
+     * @return the daily or hourly reason, or {@code null}
+     */
+    private static String quotaReason(String text) {
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (lower.contains("daily api request limit exceeded")) {
+            return "Daily API request limit exceeded";
+        }
+        if (lower.contains("hourly api request limit exceeded")) {
+            return "Hourly API request limit exceeded";
+        }
+        return null;
     }
 
     /**
@@ -218,7 +283,7 @@ public class OpenMeteoArchiveClient {
      *
      * @param millis milliseconds to sleep
      */
-    private void sleepQuietly(long millis) {
+    private static void sleepQuietly(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {

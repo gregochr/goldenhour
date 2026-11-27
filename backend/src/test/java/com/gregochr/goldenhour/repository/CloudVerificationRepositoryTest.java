@@ -73,6 +73,29 @@ class CloudVerificationRepositoryTest {
     }
 
     @Test
+    @DisplayName("findUnverified orders by date, then location, so duplicates of one event are adjacent")
+    void findUnverified_ordersByDateThenLocation_keepingDuplicatesAdjacent() {
+        LocationEntity other = locationRepository.save(LocationEntity.builder()
+                .name("Whitby UK")
+                .lat(54.4858)
+                .lon(-0.6206)
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build());
+        // Ids interleave the two locations, as consecutive forecast runs would write them.
+        Long durhamFirst = evaluationRepository.save(evaluationAt(durham, DATE)).getId();
+        Long otherFirst = evaluationRepository.save(evaluationAt(other, DATE)).getId();
+        Long durhamSecond = evaluationRepository.save(evaluationAt(durham, DATE)).getId();
+        Long otherSecond = evaluationRepository.save(evaluationAt(other, DATE)).getId();
+        Long earlierDate = evaluationRepository.save(evaluationAt(other, DATE.minusDays(1))).getId();
+
+        List<VerificationCandidate> candidates =
+                repository.findUnverified(DATE.plusDays(1), Limit.of(10));
+
+        assertThat(candidates).extracting(VerificationCandidate::evaluationId)
+                .containsExactly(earlierDate, durhamFirst, durhamSecond, otherFirst, otherSecond);
+    }
+
+    @Test
     @DisplayName("findUnverified excludes already-verified evaluations, so backfill is resumable")
     void findUnverified_excludesVerified() {
         ForecastEvaluationEntity evaluation = evaluationRepository.save(evaluation(DATE, 30, true));
@@ -237,6 +260,13 @@ class CloudVerificationRepositoryTest {
         assertThat(repository.countVerifiedInWindow(DATE, DATE)).isEqualTo(1);
         assertThat(repository.findVerifiedPairs(DATE, DATE.plusDays(30))).hasSize(2);
         assertThat(repository.countVerifiedInWindow(DATE, DATE.plusDays(30))).isEqualTo(2);
+    }
+
+    /** Same shape as the default evaluation, but at the given location. */
+    private ForecastEvaluationEntity evaluationAt(LocationEntity location, LocalDate date) {
+        ForecastEvaluationEntity entity = evaluation(date, 30, true);
+        entity.setLocation(location);
+        return entity;
     }
 
     private ForecastEvaluationEntity evaluation(LocalDate date, Integer solarLow,

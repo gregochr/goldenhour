@@ -1,3 +1,4 @@
+import { mapOffered, menuRow, openMapView, openMapWhenOffered, pressMenuRow } from './shellMapDoor.js';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -57,6 +58,9 @@ vi.mock('../api/subRegionApi.js', () => ({ getSubRegions: vi.fn(), saveSubRegion
 // file asserts only that the Map TAB exists, which is `WindowFirstShell`'s doing off a non-null
 // `mapPane` — so a stub pane leaves them all untouched.
 const mapPaneProps = { last: null };
+vi.mock('../components/WindowFirstShell.jsx', async (importOriginal) => (
+  (await import('./shellMapDoor.js')).withMapDoors(await importOriginal())
+));
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: (props) => {
     mapPaneProps.last = props;
@@ -69,14 +73,6 @@ vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ vi
 vi.mock('../components/AuroraFieldThumb.jsx', () => ({
   default: () => <div data-testid="aurora-field-stub" />,
 }));
-// This whole file assumes Plan-first — nearly every test below opens on Plan and clicks its own
-// way to Map. jsdom's `matchMedia` stub answers "no match" for everything (`test/setup.js`), so
-// the real `resolveInitialTab()` would resolve 'map' here, same as it does on an un-mocked
-// desktop-shaped test run — moving every one of those tests' starting point out from under it.
-// Pinned to 'plan' here rather than widening the stub, which would hide the feature from its own
-// tests (default-tab-by-device-plan.md §5). `AppInitialTab.test.jsx` is the file that exercises
-// the real resolution.
-vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
 // The banner asks for per-location scores whenever a real alert is up (aurora-banner-plan.md B2);
 // empty answers keep it on its pending slot, which is all this suite needs of it.
 vi.mock('../api/auroraApi.js', () => ({
@@ -176,6 +172,8 @@ const renderApp = ({ role = 'PRO_USER' } = {}) => {
 };
 
 beforeEach(() => {
+  // Operations is open exactly while the address says `#manage`: no test starts on another's address.
+  window.history.replaceState(null, '', '/');
   resetLinkTokenForTests(); // the link token is read once per page load; tests are separate loads
   resetInviteTokenForTests();
   localStorage.clear();
@@ -210,6 +208,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   delete window.requestIdleCallback;
   delete window.cancelIdleCallback;
 });
@@ -234,7 +233,7 @@ describe('App — the Plan shell', () => {
     providerSpy.mockImplementation(() => { throw new Error('boom'); });
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'At a Glance stopped working' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'This week stopped working' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 
     // The boundary now sits OUTSIDE App's <main> (aurora-banner-plan.md §4 D1), so the fallback brings
@@ -267,7 +266,7 @@ describe('App — WindowFirstBriefingProvider wiring', () => {
     // The Map tab exists only once `allDates` is non-empty, which is derived from the same
     // `visibleLocations` render that re-hands the provider its roster — so once the tab is on
     // screen, the provider's latest props are the post-fetch ones.
-    await screen.findByRole('tab', { name: 'Map' });
+    await mapOffered();
 
     const lastProps = providerSpy.mock.calls.at(-1)[0];
     // The roster, with the fields the heat join is built on (id-first join, lat/lon geometry,
@@ -338,14 +337,16 @@ const SAVED_KESWICK = { ...SETTINGS_KESWICK, homePlaceName: null };
 
 /** Opens the settings dialog from the masthead cog and waits for its own settings fetch. */
 async function openSettings() {
-  fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+  await screen.findByTestId('masthead-menu-button');
+  fireEvent.click(menuRow('window-first-settings'));
   await screen.findByTestId('settings-postcode-input');
   return screen.getByTestId('settings-modal');
 }
 
 /** Opens the settings dialog and returns it while its own read is still out — its form not yet drawn. */
 async function openSettingsStillLoading() {
-  fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+  await screen.findByTestId('masthead-menu-button');
+  fireEvent.click(menuRow('window-first-settings'));
   const dialog = await screen.findByTestId('settings-modal');
   expect(within(dialog).queryByTestId('settings-postcode-input')).toBeNull();
   return dialog;
@@ -358,8 +359,7 @@ function closeSettings(dialog) {
 
 /** The shell mounts a pane on first selection, so the Map tab is opened to read its props. */
 async function openMapPane() {
-  const tab = await screen.findByRole('tab', { name: 'Map' });
-  await act(async () => { fireEvent.click(tab); });
+  await openMapWhenOffered();
   await screen.findByTestId('map-pane-stub');
 }
 
@@ -852,9 +852,17 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
     expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-10');
   });
 
-  it('hands the Coming up tab\'s own write back to the record', async () => {
-    // The bootstrap write on a first visit: `null` is "never seen", and the write's echo is the
-    // date the provider must carry from then on.
+  it('hands the Further ahead bootstrap write back to the record', async () => {
+    // The bootstrap write on a first visit (the first time Further ahead's heading reaches the viewport): `null` is
+    // "never seen", and the write's echo is the date the provider must carry from then on.
+    const observers = [];
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback) { this.callback = callback; this.nodes = []; observers.push(this); }
+
+      observe(node) { this.nodes.push(node); }
+
+      disconnect() { this.nodes = []; }
+    });
     getSettings.mockResolvedValue({ ...SETTINGS_MORPETH, comingUpLastSeenDate: null });
     // Not today's date: the shell falls back to today when the echo carries none, so a date that
     // could be today could not tell the echo from the fallback.
@@ -862,7 +870,11 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
     const { providerSpy } = renderApp();
     await waitFor(() => expect(providerProps(providerSpy).comingUpLastSeenDate).toBeNull());
 
-    await act(async () => { fireEvent.click(await screen.findByRole('tab', { name: 'Coming up' })); });
+    const heading = await screen.findByTestId('further-ahead-heading');
+    await act(async () => {
+      observers.filter((observer) => observer.nodes.includes(heading))
+        .forEach((observer) => observer.callback([{ isIntersecting: true }]));
+    });
 
     await waitFor(() => expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-02'));
     expect(markComingUpSeen).toHaveBeenCalledTimes(1);
@@ -898,7 +910,8 @@ describe('App — the reader\'s settings: one read on mount, then the dialog\'s 
 describe('App — panes handed to WindowFirstShell', () => {
   it('hands over the Map pane once forecast dates exist', async () => {
     renderApp();
-    expect(await screen.findByRole('tab', { name: 'Map' })).toBeInTheDocument();
+    await openMapWhenOffered();
+    expect(screen.getByTestId('map-screen')).toBeInTheDocument();
   });
 
   it('withholds the Map pane while no forecast date exists', async () => {
@@ -915,9 +928,11 @@ describe('App — panes handed to WindowFirstShell', () => {
     // timing.
     await act(async () => {});
 
-    expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
-    // The arm itself is intact — the missing tab is a withheld pane, not a broken shell.
-    expect(screen.getByRole('tab', { name: /^At a Glance/ })).toBeInTheDocument();
+    // No pane was handed over, so no door can open a view onto it.
+    openMapView();
+    expect(screen.queryByTestId('map-screen')).toBeNull();
+    // The arm itself is intact — the missing view is a withheld pane, not a broken shell.
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
   });
 
   /**
@@ -971,8 +986,7 @@ describe('App — panes handed to WindowFirstShell', () => {
 
     /** The shell mounts a pane on first selection, so the tab has to be opened to read its props. */
     const openMapTab = async () => {
-      const tab = await screen.findByRole('tab', { name: 'Map' });
-      await act(async () => { fireEvent.click(tab); });
+      await openMapWhenOffered();
       return screen.findByTestId('map-pane-stub');
     };
 
@@ -1131,171 +1145,78 @@ describe('App — panes handed to WindowFirstShell', () => {
     });
   });
 
-  it('hands the Operations pane to an admin', async () => {
+  it('hands the Operations pane to an admin: the ☰ menu has the row, and pressing it opens the view', async () => {
     renderApp({ role: 'ADMIN' });
-    expect(await screen.findByRole('tab', { name: 'Operations' })).toBeInTheDocument();
+    await screen.findByTestId('masthead-menu-button');
+    pressMenuRow('masthead-menu-operations');
+    expect(await screen.findByTestId('operations-screen')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#manage/runs');
   });
 
-  it('withholds the Operations pane from a pro user', async () => {
+  it('withholds the Operations pane from a pro user: no row in the menu, and a #manage address is cleared', async () => {
     renderApp();
-    // Settle on the Map tab so the absence claim is made against the fully-loaded tab bar.
-    await screen.findByRole('tab', { name: 'Map' });
-    expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();
+    // Settle on the loaded screen so the absence claim is made against the fully-loaded masthead.
+    await mapOffered();
+    fireEvent.click(screen.getByTestId('masthead-menu-button'));
+    expect(screen.getByTestId('window-first-settings')).toBeInTheDocument();
+    expect(screen.queryByTestId('masthead-menu-operations')).toBeNull();
+    await act(async () => { window.location.hash = 'manage/runs'; });
+    await waitFor(() => expect(window.location.hash).toBe(''));
+    expect(screen.queryByTestId('operations-screen')).toBeNull();
   });
 });
 
-// ── The full-frame Map tab's owner outside the shell (map-tab-v2-plan.md §3 P7) ──
+// ── One layout on every screen (one-screen-plan.md D11) ──
 //
-// `<main>`'s own padding is one of the plan's four named full-frame owners, and it lives in
-// App.jsx — outside `WindowFirstShell` entirely — because the shell has no way to reach a sibling
-// element. `WindowFirstShellTabs.test.jsx` pins the shell's own half (the `onTabChange` callback
-// firing, the panel-region wrapper KEEPING its 1080px width constraint on the Map tab rather than
-// releasing it — O-17, bundle rev 2, 2026-09-03, reversing what this comment used to describe as a
-// release — and — since the flex recast, below — the shell root and panel-region wrapper's own
-// flex classes); this is the other end of that channel.
-//
-// ⚠️ Re-pinned onto a flex column (adversarial review): a `calc(100dvh - …)` height chain shipped
-// here first and leaked twice — most recently 16px of page scroll surviving with every banner
-// suppressed, because the panel's real top sat 16px below the sum of the measured terms, an
-// inter-element margin a `ResizeObserver` on element BOXES cannot see. `App`'s root and `<main>`
-// now recast as a flex column instead: no height is computed anywhere, so what this file can pin
-// is STRUCTURE (which classes land on which elements, and only on the Map tab) rather than a
-// number — the actual "does it fill the screen" claim is the orchestrator's browser verification,
-// per CLAUDE.md's UI cadence for any CSS claim.
+// The Map used to recast the page as a viewport-height flex column (`<main>`'s padding, the root's `h-[100dvh]` and the
+// suppressed footer were its owners outside the shell). It is a fixed VIEW over the shell now (`MapScreen`), so the page
+// never re-lays-out under it: what this file pins is that the layout is the same before, during and after the view is
+// open. (Whether the view fills the screen is a browser claim: `smoke/map-view.spec.js`.)
 
-describe('App — recasts the page as a flex column on the Map tab (map-tab-v2-plan.md §3 P7)', () => {
-  // Exact-token helper, not `className.toContain` — since O-17 (bundle rev 2) the Map tab's own
-  // horizontal-padding utility is `sm:px-4`, which itself CONTAINS the substring `'px-4'`. A plain
-  // `.toContain('px-4')` can no longer tell "unprefixed px-4" from "sm:px-4" apart, so it would
-  // pass whichever one was actually present — exactly the false-pass this suite exists to rule
-  // out. Comparing tokens is the fix.
+describe('App — the page keeps one layout whether or not the map view is open', () => {
   const classTokens = (el) => el.className.split(/\s+/).filter(Boolean);
 
-  it('keeps <main>\'s TOP padding on the Map tab so the masthead does not jump, drops only its bottom padding, keeps horizontal padding at sm+ (adversarial review), and gives it flex:1/min-height:0/flex-column — only on the Map tab', async () => {
-    renderApp();
-    // <main> has no accessible name of its own to query by name; its implicit ARIA role finds it.
-    const main = screen.getByRole('main');
-    expect(classTokens(main)).toContain('px-4');
-    expect(classTokens(main)).not.toContain('sm:px-4');
-    expect(classTokens(main)).toContain('py-6');
-    expect(classTokens(main)).not.toContain('pt-6');
-    expect(classTokens(main)).not.toContain('flex-1');
-
-    const mapTab = await screen.findByRole('tab', { name: 'Map' });
-    await act(async () => { mapTab.click(); });
-    await screen.findByTestId('window-first-panel-map');
-
-    // O-17 (bundle rev 2, 2026-09-03): the Map tab keeps a horizontal inset at `sm` and up — it
-    // is what makes the masthead's column line up with every other tab's in that range, since
-    // `WindowFirstShell`'s own panel-region wrapper caps the visible width to the SAME 1080px
-    // column from `sm` up too. Vertically, the Map tab keeps the SAME top padding as every other
-    // tab (`pt-6`, unconditional) so the masthead sits at the same height and does not jump 24px
-    // on a tab switch; the padding comes out of <main>'s own flex-distributed height (border-box),
-    // so the map pane shrinks and page scroll is not reopened. Only BOTTOM padding is dropped —
-    // the footer is suppressed on Map and the map bleeds to the bottom edge.
-    expect(classTokens(main)).not.toContain('px-4');
-    expect(classTokens(main)).toContain('sm:px-4');
-    expect(classTokens(main)).toContain('pt-6');
-    expect(classTokens(main)).not.toContain('py-6');
-    expect(classTokens(main)).not.toContain('pb-6');
-    expect(classTokens(main)).toContain('flex-1');
-    expect(classTokens(main)).toContain('min-h-0');
-    expect(classTokens(main)).toContain('flex-col');
-
-    // Back to Plan restores it — the recast is per-tab, not a one-way switch.
-    const planTab = screen.getByRole('tab', { name: /^At a Glance/ });
-    await act(async () => { planTab.click(); });
-    expect(classTokens(main)).toContain('px-4');
-    expect(classTokens(main)).not.toContain('sm:px-4');
-    expect(classTokens(main)).toContain('py-6');
-    expect(classTokens(main)).not.toContain('pt-6');
-    expect(classTokens(main)).not.toContain('flex-1');
-  });
-
-  // ⚠️ Below `sm` (640px) O-17 does NOT close the residue: `sm:px-4` is a RESPONSIVE utility, so
-  // the token itself is present in the markup unconditionally (Tailwind ships it as a static class
-  // string; a media query in the generated CSS decides whether it paints, not JS, and jsdom
-  // evaluates no media query at all — every `window.matchMedia` call in this suite is a dumb
-  // polyfill, per `test/setup.js`). So there is no class-token assertion that could distinguish
-  // "present but inert below 640px" from "present and active" — that is a rendered-CSS claim, and
-  // CLAUDE.md's UI cadence already puts rendered-CSS claims on the browser, not on this file. What
-  // is left to state in prose rather than pin in code: below `sm`, `<main>` still carries no
-  // horizontal padding class that actually PAINTS (`sm:px-4` needs `sm` to apply), so the masthead
-  // genuinely shifts by 32px on a Plan⇄Map switch on a phone — P12's full-bleed phone chrome
-  // (index.css's edge-hugging bar insets) was measured and tuned against that genuine edge, and
-  // `WindowFirstShell`'s own 1080px column cap does not bind at phone widths regardless (390px is
-  // nowhere near 1080px). See this describe block's own header comment and `App.jsx`'s comment on
-  // `<main>` for the full account.
-
-  it('recasts the page root from min-h-screen to a fixed-height, non-scrolling flex column, only on the Map tab', async () => {
-    renderApp();
-    const main = screen.getByRole('main');
-    // The root is <main>'s own parent — the outermost element App renders, with no accessible
-    // role or testid of its own to query by; reached the same way as the banner block was before
-    // it lost its own ref, through a DOM relationship that does not change across this recast.
-    const root = main.parentElement;
-    expect(root.className).toContain('min-h-screen');
-    expect(root.className).not.toContain('overflow-hidden');
-
-    const mapTab = await screen.findByRole('tab', { name: 'Map' });
-    await act(async () => { mapTab.click(); });
-    await screen.findByTestId('window-first-panel-map');
-
-    expect(root.className).not.toContain('min-h-screen');
-    expect(root.className).toContain('flex');
-    expect(root.className).toContain('flex-col');
-    expect(root.className).toContain('overflow-hidden');
-
-    const planTab = screen.getByRole('tab', { name: /^At a Glance/ });
-    await act(async () => { planTab.click(); });
-    expect(root.className).toContain('min-h-screen');
-    expect(root.className).not.toContain('overflow-hidden');
-  });
-
-  // aurora-banner-plan.md §4 D1: the error boundary and the briefing provider now wrap the banner
-  // block AND <main>. They render no DOM node, so the Map tab's flex column keeps the shape it was
-  // measured against — the `flex-shrink-0` banner block and the `flex-1` <main> as DIRECT children of
-  // the root, in that order. A wrapper element between them would silently end the column.
-  it('keeps the banner block and <main> as direct children of the root, in that order, although one boundary and provider now wrap both', async () => {
+  it('keeps <main> and the root exactly as they were, opened and closed', async () => {
     renderApp();
     const main = screen.getByRole('main');
     const root = main.parentElement;
-    // `app-safe` is the root's own class: a wrapper interposed above <main> would be its parent
-    // instead, and would not carry it.
+    const mainBefore = main.className;
+    const rootBefore = root.className;
+    expect(classTokens(main)).toEqual(expect.arrayContaining(['px-4', 'pt-0', 'pb-6', 'sm:pt-6']));
+    expect(classTokens(root)).toContain('app-safe');
+    expect(classTokens(root)).toContain('min-h-screen');
+
+    await openMapWhenOffered();
+    await screen.findByTestId('map-screen');
+
+    expect(main.className).toBe(mainBefore);
+    expect(root.className).toBe(rootBefore);
+    expect(root.className).not.toContain('overflow-hidden');
+    expect(root.className).not.toContain('h-[100dvh]');
+  });
+
+  // aurora-banner-plan.md §4 D1: the error boundary and the briefing provider wrap the banner block AND <main>
+  // and render no DOM node, so the banner block and <main> stay DIRECT children of the root, in that order.
+  it('keeps the banner block and <main> as direct children of the root, in that order', async () => {
+    renderApp();
+    const main = screen.getByRole('main');
+    const root = main.parentElement;
     expect(classTokens(root)).toContain('app-safe');
 
-    const mapTab = await screen.findByRole('tab', { name: 'Map' });
-    await act(async () => { mapTab.click(); });
-    await screen.findByTestId('window-first-panel-map');
-
     const kids = Array.from(root.children);
-    const block = kids[0];
-    expect(classTokens(block)).toContain('flex-shrink-0');
     expect(kids[1]).toBe(main);
-    // The banner block really is the one holding the banners (the session notice, the rewind pill and
-    // the NLC slot), not an empty sibling that happens to precede <main>.
-    expect(block.querySelector('.max-w-4xl')).not.toBeNull();
+    // The banner block really is the one holding the banners (the session notice, the rewind pill and the NLC slot),
+    // not an empty sibling that happens to precede <main>.
+    expect(kids[0].querySelector('.max-w-4xl')).not.toBeNull();
+    expect(classTokens(kids[0])).not.toContain('flex-shrink-0');
   });
-});
 
-// Adversarial review, real finding #2, upgraded by a live measurement: the app-wide footer ALONE
-// overflowed the full-frame page by 99px at 1280×800 — with zero banners showing. `<main>`'s own
-// padding was never the whole story; the footer sitting below it is a second owner outside the
-// shell's reach, and it is suppressed rather than measured, because a footer under a no-scroll
-// screen whose whole point is "fills the frame" is dead space no calc term should have to reserve.
-describe('App — suppresses the app-wide footer on the Map tab (adversarial review, real finding #2)', () => {
-  it('renders the footer on Plan, and removes it once the Map tab is selected', async () => {
+  it('renders the footer on Plan and keeps it while the map view is open (the page behind it never changes)', async () => {
     renderApp();
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
 
-    const mapTab = await screen.findByRole('tab', { name: 'Map' });
-    await act(async () => { mapTab.click(); });
-    await screen.findByTestId('window-first-panel-map');
-    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
-
-    // Back to Plan restores it — suppression is per-tab, not a one-way switch.
-    const planTab = screen.getByRole('tab', { name: /^At a Glance/ });
-    await act(async () => { planTab.click(); });
+    await openMapWhenOffered();
+    await screen.findByTestId('map-screen');
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 });
@@ -1441,8 +1362,10 @@ describe('App — a wildlife hide\'s hourly rows add no window to the Map pane\'
   it('still withholds the Map tab when no visible location has any forecast row at all', async () => {
     fetchForecasts.mockResolvedValue([]);
     renderApp();
-    await screen.findByRole('tab', { name: /^At a Glance/ });
-    expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+    await screen.findByTestId('this-week-heading');
+    await act(async () => {});
+    openMapView();
+    expect(screen.queryByTestId('map-screen')).toBeNull();
   });
 });
 
@@ -1547,7 +1470,8 @@ describe('App — one line of colour saves for the page, across the dialog\'s op
     choose(dialog, 'temp'); // out at once
     choose(dialog, 'verdict'); // waits behind it
     await closeAndWait(dialog);
-    await act(async () => { fireEvent.click(screen.getByTestId('window-first-signout')); });
+    fireEvent.click(await screen.findByTestId('masthead-menu-button'));
+    await act(async () => { fireEvent.click(await screen.findByTestId('window-first-signout')); });
     await screen.findByTestId('login-username'); // control: signed out
     localStorage.setItem('goldenhour_token', 'the-next-account'); // whoever signs in next
     const rampCallsAtSignOut = setModeSpy.mock.calls.length;
@@ -1683,10 +1607,10 @@ describe('App — the settings dialog hands focus back to the tick line\'s origi
     closeSettings(nudgeDialog);
     await waitFor(() => expect(nudge, 'control: the close restored to the nudge').toHaveFocus());
 
-    // A pointer press on the cog — which macOS Safari does not focus — opens it with focus nowhere.
+    // A pointer press on the menu's Settings row — which macOS Safari does not focus — opens it with focus nowhere.
     nudge.blur();
     expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(menuRow('window-first-settings'));
     const cogDialog = await screen.findByTestId('settings-modal');
     await within(cogDialog).findByTestId('settings-postcode-input');
     await waitFor(() => expect(cogDialog).toHaveFocus()); // its own landing is spent
@@ -1696,8 +1620,10 @@ describe('App — the settings dialog hands focus back to the tick line\'s origi
 
     expect(nudge.isConnected, 'precondition: a stale return address would still have somewhere to send focus')
       .toBe(true);
-    expect(document.activeElement, 'the cog\'s opening had no return address — nothing moves focus')
-      .toBe(document.body);
+    // The menu's row hands focus to the ☰ button before it opens settings (so the dialog records the button as its opener),
+    // which is where the close returns: never the stale nudge, whose address was forgotten.
+    expect(document.activeElement, 'the menu\'s opening returns to the ☰ button, not to the forgotten nudge')
+      .toBe(screen.getByTestId('masthead-menu-button'));
   });
 });
 

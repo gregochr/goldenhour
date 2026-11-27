@@ -49,40 +49,39 @@ function atRules(prelude) {
   }
 }
 
-describe('the tab row: the four-tab collapse is a CONTAINER query', () => {
-  it('makes the tab row an inline-size container with a name', () => {
-    expect(ruleBody('.wf-tabrow')).toMatch(/container:\s*wf-tabrow\s*\/\s*inline-size/);
+describe('the Ask field in the masthead (one-screen-plan.md D14)', () => {
+  it('has no tab row to collapse beside: no container query, no four-tab rule, no tab-count hook', () => {
+    expect(css).not.toMatch(/wf-tabrow/);
+    expect(css).not.toMatch(/data-tab-count/);
   });
 
-  it('collapses the field to 34px under 720px of COLUMN width, with four tabs', () => {
-    const [block] = atRules('container wf-tabrow (max-width: 719px)');
-    expect(block).toBeTruthy();
-    expect(ruleBody('.wf-tabrow[data-tab-count="4"] .wf-askf[data-width]', block)).toMatch(/width:\s*34px/);
-    // The label is clipped, never `display: none`, so the prompt stays in the accessible name; the
-    // key cap (aria-hidden) has no room and is the one thing that is hidden.
-    const label = ruleBody('.wf-tabrow[data-tab-count="4"] .wf-askf-q', block);
+  it('anchors the masthead\'s tools cluster, the popover\'s parent, and takes the field out of the tab row\'s margins', () => {
+    expect(ruleBody('.wf-mast-tools')).toMatch(/position:\s*relative/);
+    const field = ruleBody('.wf-mast .wf-askf');
+    expect(field).toMatch(/margin:\s*0/);
+    expect(field).toMatch(/align-self:\s*center/);
+  });
+});
+
+describe('the masthead\'s Ask field collapses in its own container', () => {
+  it('makes the field\'s room a named inline-size container that takes what the brand, pill and menu leave', () => {
+    const body = ruleBody('.wf-mast-askwrap');
+    expect(body).toMatch(/container:\s*wf-mast\s*\/\s*inline-size/);
+    expect(body).toMatch(/flex:\s*1 1 0/);
+    expect(body).toMatch(/min-width:\s*0/);
+    expect(ruleBody('.wf-mast-askwrap:empty')).toMatch(/display:\s*none/);
+  });
+
+  it('steps 340 to 260 under 340px of room, then collapses to 34px under 260px, clipping the label rather than hiding it', () => {
+    const [step] = atRules('container wf-mast (max-width: 339px)');
+    expect(ruleBody('.wf-mast-askwrap .wf-askf[data-width="340"]', step)).toMatch(/width:\s*260px/);
+    const [collapse] = atRules('container wf-mast (max-width: 259px)');
+    expect(ruleBody('.wf-mast-askwrap .wf-askf[data-width]', collapse)).toMatch(/width:\s*34px/);
+    const label = ruleBody('.wf-mast-askwrap .wf-askf-q', collapse);
     expect(label).toMatch(/clip:\s*rect/);
     expect(label).not.toMatch(/display:\s*none/);
-    expect(ruleBody('.wf-tabrow[data-tab-count="4"] .wf-askf-kbd', block)).toMatch(/display:\s*none/);
-  });
-
-  it('⚠️ is NOT a viewport query any more: the dock narrows the column, not the window', () => {
-    // A viewport rule for the collapse would not fire at 1024px with the dock open (a ~632px column).
-    // Scanned over EVERY `@media` block, whatever its prelude says, so a regression written as
-    // `(max-width:719px)`, `(width < 720px)` or `screen and (…)` cannot slip past an exact-match.
-    const media = [...css.matchAll(/@media[^{]*\{/g)].map((m) => blockFrom(css, m.index + m[0].length - 1));
-    expect(media.length, 'the scan must find the stylesheet\'s media blocks at all').toBeGreaterThan(10);
-    const naming = media.filter((block) => block.includes('wf-askf') && block.includes('data-tab-count'));
-    expect(naming).toEqual([]);
-  });
-
-  it('steps the 340px form down to 260px before it collapses, and the collapse outranks the step', () => {
-    const [step] = atRules('container wf-tabrow (max-width: 799px)');
-    expect(step).toBeTruthy();
-    expect(ruleBody('.wf-tabrow[data-tab-count="4"] .wf-askf[data-width="340"]', step)).toMatch(/width:\s*260px/);
-    // Source order AND specificity: the 34px rule comes later and names `[data-width]` like the step.
-    expect(css.indexOf('(max-width: 719px)', css.indexOf('@container wf-tabrow')))
-      .toBeGreaterThan(css.indexOf('(max-width: 799px)'));
+    expect(ruleBody('.wf-mast-askwrap .wf-askf-kbd', collapse)).toMatch(/display:\s*none/);
+    expect(css.indexOf('(max-width: 259px)')).toBeGreaterThan(css.indexOf('(max-width: 339px)'));
   });
 });
 

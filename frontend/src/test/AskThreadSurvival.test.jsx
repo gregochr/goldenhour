@@ -1,3 +1,4 @@
+import { openMapView } from './shellMapDoor.js';
 /**
  * The Ask conversation SURVIVES every route between two questions except an explicit "New conversation"
  * (`docs/engineering/ask-thread-plan.md` §3 T4, "As built"; the 2026-10-11 production report that a second
@@ -51,8 +52,6 @@ const FIRST = 'Are there any locations where tide matches sunrise?';
 const SECOND = 'Are there any closer to home?';
 const SHEET = { name: 'Ask PhotoCast' };
 
-// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
-const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const sheet = () => screen.queryByRole('dialog', SHEET);
 
 /** Answer 1: two picks, so a card exists to select, plan and show on the map. */
@@ -146,10 +145,10 @@ describe('between two questions on the phone Plan sheet', () => {
 
   it('(c) Plan → Map → Plan (the shell closes the sheet on every tab change)', async () => {
     await phoneWithFirstAnswer();
-    fireEvent.click(tab('Map'));
-    expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+    openMapView();
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     expect(sheet()).toBeNull();
-    fireEvent.click(tab('At a Glance'));
+    fireEvent.click(screen.getByTestId('map-screen-close'));
     await screen.findByTestId('ask-bar');
 
     await askSecond();
@@ -189,8 +188,8 @@ describe('between two questions on the phone Plan sheet', () => {
     await phoneWithFirstAnswer();
     fireEvent.click(screen.getByTestId('ask-pick-select-1'));
     fireEvent.click(await screen.findByTestId('ask-show-on-map-1'));
-    await waitFor(() => expect(tab('Map')).toHaveAttribute('aria-selected', 'true'));
-    fireEvent.click(tab('At a Glance'));
+    await waitFor(() => expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden'));
+    fireEvent.click(screen.getByTestId('map-screen-close'));
     await screen.findByTestId('ask-bar');
 
     await askSecond();

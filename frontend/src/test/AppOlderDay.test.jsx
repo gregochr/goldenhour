@@ -1,3 +1,4 @@
+import { openMapWhenOffered } from './shellMapDoor.js';
 import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
@@ -73,6 +74,9 @@ vi.mock('../components/ManageView.jsx', () => ({
 
 /** The dates the stub pane's buttons send; filled in once the clock-relative dates exist. */
 const mockDates = { older: '' };
+vi.mock('../components/WindowFirstShell.jsx', async (importOriginal) => (
+  (await import('./shellMapDoor.js')).withMapDoors(await importOriginal())
+));
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: ({
     selectedDate, onSelectDate, dates, onLoadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
@@ -147,8 +151,7 @@ async function openMapTab() {
   localStorage.setItem('goldenhour_role', 'ADMIN');
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
   render(<App />);
-  const tab = await screen.findByRole('tab', { name: 'Map' });
-  await act(async () => { fireEvent.click(tab); });
+  await openMapWhenOffered();
   return screen.findByTestId('map-pane-stub');
 }
 

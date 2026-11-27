@@ -1606,11 +1606,11 @@ describe('LocationFourDaySheet — a wildlife hide shows its hourly comfort fore
 });
 
 describe('LocationFourDaySheet — Your places (find-and-favourites-plan.md F4)', () => {
-  it('puts the toggle in the header, pressed for a starred place, with one constant label', () => {
+  it('puts the toggle in the header, pressed for a bookmarked place, with the Bookmarked name', () => {
     setup({}, (node) => withFavourites(node, { places: [7] }));
     const toggle = within(screen.getByTestId('location-sheet')).getByTestId('location-sheet-favourite');
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(toggle).toHaveAccessibleName('Your place');
+    expect(toggle).toHaveAttribute('data-starred', 'true');
+    expect(toggle).toHaveAccessibleName('Bookmarked');
   });
 
   it('draws no toggle outside a provider, so the sheet is exactly what it was', () => {

@@ -1,3 +1,4 @@
+import { mapOffered, openMapWhenOffered, pressMenuRow } from './shellMapDoor.js';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -64,6 +65,9 @@ vi.mock('../components/ManageView.jsx', () => ({
   default: () => <div data-testid="manage-stub" />,
 }));
 /** The Map pane, printing the two props the rewind seeds: the handoff and the selected date. */
+vi.mock('../components/WindowFirstShell.jsx', async (importOriginal) => (
+  (await import('./shellMapDoor.js')).withMapDoors(await importOriginal())
+));
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: ({ handoff, selectedDate }) => (
     <div data-testid="map-pane-stub" data-selected-date={selectedDate ?? ''}>
@@ -136,13 +140,14 @@ function renderApp(role) {
 }
 
 async function openMapTab() {
-  const tab = await screen.findByRole('tab', { name: 'Map' });
-  await act(async () => { fireEvent.click(tab); });
+  await openMapWhenOffered();
   return screen.findByTestId('map-pane-stub');
 }
 
 describe('App — the admin rewind', () => {
   beforeEach(() => {
+  // Operations is open exactly while the address says `#manage`: no test starts on another's address.
+  window.history.replaceState(null, '', '/');
     vi.clearAllMocks();
     fetchForecasts.mockResolvedValue(FORECASTS);
     fetchLocations.mockResolvedValue(LOCATION_META);
@@ -167,13 +172,13 @@ describe('App — the admin rewind', () => {
 
   it('live, there is no pill', async () => {
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await mapOffered();
     expect(screen.queryByTestId('rewind-pill')).toBeNull();
   });
 
   it('rewound, an admin sees the pill naming the moment, and Back to live clears the rewind and remounts the app', async () => {
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await mapOffered();
     const forecastFetchesBefore = fetchForecasts.mock.calls.length;
 
     act(() => setRewind(REWIND_TO, { date: TOMORROW, eventType: 'SUNRISE' }));
@@ -193,11 +198,11 @@ describe('App — the admin rewind', () => {
     await waitFor(() => expect(screen.queryByTestId('rewind-pill')).toBeNull());
   });
 
-  it('the pill stays above the Operations tab — the tab the rewind is set from, and the way back from it', async () => {
+  it('the pill stays above the Operations view — the view the rewind is set from, and the way back from it', async () => {
     act(() => setRewind(REWIND_TO));
     renderApp('ADMIN');
-    const operations = await screen.findByRole('tab', { name: 'Operations' });
-    await act(async () => { fireEvent.click(operations); });
+    await screen.findByTestId('masthead-menu-button');
+    pressMenuRow('masthead-menu-operations');
 
     await screen.findByTestId('manage-stub');
     expect(screen.getByTestId('rewind-pill')).toHaveTextContent('Rewound to Sun 4 Oct, 05:58 UK');
@@ -242,7 +247,7 @@ describe('App — the admin rewind', () => {
   it('a non-admin never sees the pill, whatever the store holds', async () => {
     act(() => setRewind(REWIND_TO));
     renderApp('PRO_USER');
-    await screen.findByRole('tab', { name: 'Map' });
+    await mapOffered();
     expect(screen.queryByTestId('rewind-pill')).toBeNull();
   });
 });

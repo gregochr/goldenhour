@@ -138,22 +138,6 @@ describe('the Ask entry stylesheet (F1b) — what jsdom cannot see', () => {
     expect(size).toBeGreaterThanOrEqual(16);
   });
 
-  it('collapses the four-tab field by CLIPPING its label, never display:none, so the name survives', () => {
-    const block = conditionalBlocks().find((b) => b.includes('wf-askf-q'));
-    expect(block).toBeDefined();
-    // The label's own rule, not the block: the block also hides the key cap (aria-hidden, no room in
-    // a 34px button), which IS `display: none` and is not the name.
-    const label = /\.wf-askf-q\s*\{([^}]*)\}/.exec(block);
-    expect(label).not.toBeNull();
-    expect(label[1]).toMatch(/clip:\s*rect\(0, 0, 0, 0\)/);
-    expect(label[1]).not.toMatch(/display:\s*none/);
-  });
-
-  it('keeps the tab list a shrinking flex item beside the field, so it still scrolls', () => {
-    expect(ruleBody('.wf-tabrow')).toMatch(/display:\s*flex/);
-    expect(ruleBody('.wf-tabrow > .wf-tabs')).toMatch(/min-width:\s*0/);
-  });
-
   it('makes the tall sheet a flex column whose scroller shrinks, off the data-size BottomSheet sets', () => {
     const sheet = ruleBody('.app-safe-sheet[data-size="tall"]');
     expect(sheet).toMatch(/display:\s*flex/);
@@ -182,11 +166,6 @@ describe('the Ask entry stylesheet (F1b) — what jsdom cannot see', () => {
     expect(ruleBody('.wf-ask-in-field')).toMatch(/border:\s*1px solid rgba\(242, 231, 211, \.4\)/);
   });
 
-  it('holds the field\'s width where it is not drawn, as a box nobody can reach', () => {
-    const body = ruleBody('.wf-askf-ghost');
-    expect(body).toMatch(/visibility:\s*hidden/);
-    expect(body).toMatch(/pointer-events:\s*none/);
-  });
 });
 
 describe('the Ask stylesheet — the thread (T4)', () => {

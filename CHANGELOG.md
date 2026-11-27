@@ -5,6 +5,323 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.42.4] - 2026-11-26
+
+### Changed — the card says why a window was not scored
+
+The This week card now words an unscored window by the reason the server serves (`coverageReason`, with `fog`), in
+the quiet slot beside the verdict: "unsettled" for a weather stand-down (unchanged), "fog" over a fog forecast, "too
+far out" where the forecast does not reach that range, and "run failed" where the run failed. An unclear record or a
+travel day stays silent, as before. The same words are the card's `title` and spoken sentence, taken from the labels
+the region rail already shows ("Too unsettled to forecast", "Fog forecast", "Not scored at this range", "Forecast
+unavailable"), so the card and the rail cannot differ. Where the word beside the note would have been "Not scored",
+the note replaces it: the two together are 136px against a 70 to 175px value column, so the note would have
+collapsed to nothing at every phone width. The reason is read from the window the card wears (the tier window while a
+drive tier is selected, else the served window), never worked out on the client, and a payload without the field keeps
+today's behaviour.
+
+### Changed — the Drive and Rated bar belongs to This week
+
+The drive tier and the rating floor gate only This week (the cards, the heatmap and the count), so once you scroll
+past it into Further ahead the bar is no longer drawn, at every width, and it comes back the moment This week does.
+It replaces the phone's one-line collapse, which still spent about 36px on every Further ahead screen for a control
+that did nothing there. The bar is hidden with `visibility` rather than removed, so it keeps its place and the page does
+not jump, and Further ahead's heading bar now sticks at the very top (so the Further ahead jump lands with no
+lens-sized gap above it). The bar stays drawn under keyboard focus and while a plan-conflict warning shows; a tapped
+chip no longer holds it, and focus moves to the Further ahead heading. The summary button, the spacer and the lens's
+body wrapper are gone, and the guide's folded-bar paragraph and screenshot are replaced.
+
+### Fixed — the cloud verification backfill no longer spends Open-Meteo's whole archive allowance
+
+The hourly cloud verification job was using up Open-Meteo's free archive allowance (10,000 calls a day, one per coordinate) and then failing every hour until it reset, which put about twenty red rows a day in Operations' "Needs a look". Every forecast evaluation of the same sunrise or sunset asks the archive for the same five points, about 5.4 times over, so the job now fetches each distinct point once and orders its work so an event's evaluations are handled together, and a tick stops after 2,500 calls instead of after a fixed number of batches. When Open-Meteo does say the daily or hourly allowance is spent, the job stops asking, keeps what it has verified, and reports "paused: Open-Meteo archive allowance used up; resumes when it resets" as skipped or partial rather than failed; a batch that comes back empty for any other reason is still a failure. Forecasts are unaffected: they use a separate Open-Meteo allowance.
+
+## [v2.42.3] - 2026-11-26
+
+### Changed — Watching shows which month each watched date is in
+
+Watching, the group at the top of Further ahead, now draws the same month rule as the month lists (`DEC 2026 ───`)
+above each month's watched rows, even when everything watched is in one month. The date rail prints days only, so a
+watched tide run read `23–29` with nothing to say which month it was in. A "no longer listed" row sits under the month
+of its own date. Watching's lists are named `Watching, December 2026` so a screen reader never meets two lists with the
+same name. Frontend only; no new data.
+
+### Changed — an unscored window now says why (backend)
+
+The drive-tier cards (`/api/user/settings/reach-verdicts`) now follow the same rule the served briefing uses when a
+region has nothing rated inside the ring. Before, a single stood-down place made a scoped "Poor unsettled" card; now
+the same fold the served path runs (a triage majority, every slot accounted for, a tie going to "not scored at this
+range") runs over the places in reach, so **fewer drive-tier cards say "unsettled" at T+2 and T+3** (some read "not
+scored at this range" instead, and a blank with an unclear record at T+0 to T+2 is plain "not scored"). That is the
+served rule applied on both paths, not a regression. Each window, served and scoped, now also carries `coverageReason`
+and `fog` (omitted when null) naming why it has no rating, chosen by rule rather than by region name; a window a tier
+empties by dropping far, never-attempted regions carries a reason only when they all share the same date-level one.
+The card's wording follows in the frontend phase.
+
+### Fixed — snow state runs every place at its real height
+
+The snow state job no longer sends a place with no recorded height to Open-Meteo as `nan` (the 9 km grid cell's
+own height), which gave valley-floor places such as the Great Langdale ones a fell's snowpack and a false
+"lying" topic. It now looks the height up from Open-Meteo's 90 m elevation model, in chunks of 100, and keeps it
+in memory by place (reused while the place has not moved). A recorded height always wins. A place whose height
+cannot be found, or whose lookup is skipped while Open-Meteo is cooling off, is left out of that run and counted
+as failed; its previous row stays. Nothing is written to `locations`. The Scheduler screen's description of the
+job no longer says nothing reads its figures.
+
+## [v2.42.2] - 2026-11-25
+
+### Docs — plan: month rules in Watching
+
+Plan (`docs/engineering/watching-month-rules-plan.md`) for drawing the month lists' `DEC 2026` rules inside Further
+ahead's Watching group, so a watched tide run's dates say which month they fall in. Amends screen-spec D2. Not built yet.
+
+### Fixed — snow topics read each place's own snowpack and white summits in view (snow S3)
+
+"Fresh snow", "Fresh snow with mist" and "Snow on the fells" no longer read the 9 km grid snow depth or the
+freezing level. They read the point snowpack each place and summit is modelled with (`snow_state`, from S2): a
+place has snow underfoot when its own modelled snow water reaches 3 mm, at any height, and a place is ringed for
+"Snow on the fells" when its nearest white summit (5 mm) is within 12 km and its sunrise low cloud is at most
+60 %. An all-white place carries both. The fells topic words itself per day as green below, white throughout, or
+unknown below, from the majority of its ringed places. Facts become `fresh ~N cm` or `lying` and `<summit> white`;
+the `snow line` and `N m below the tops` facts are gone. A place with a missing or stale snow row gets no snow topic.
+The daily topic log's SNOW intensity switches from grid depth in metres to modelled snow water in millimetres from
+today (a unit change under the same topic type), and the Ready question "Is there snow on the tops?" is now offered
+only when "Snow on the fells" is live.
+
+### Added — a point snowpack recorded per place and summit (snow S2, record only)
+
+A new job, `snow_state_refresh`, runs three times a day and works out how much snow is lying at every enabled place
+and at fifteen reviewed fell summits, from each point's own last seven days of weather (wet-bulb rain-or-snow split,
+a settling gate, degree-day melt) instead of Open-Meteo's 9 km grid snow depth. It records the modelled water
+equivalent, the snow added in the 24 hours before the slot, and the low cloud at that hour, for today and the next
+four sunrises and sunsets, in a new `snow_state` table (V231). A point that could not be fetched keeps its previous
+row, and a row more than 36 hours old reads as unknown, never as bare ground. Nothing reads the table yet: no hot
+topic, rating or prompt changes until the detectors switch over in the next phase. It uses Open-Meteo only (no Claude
+cost), asks for wind in m/s, has its own 150 second budget, and a minute-limit or concurrency refusal ends its run
+without starting the cool-off the main fetch shares.
+
+### Fixed — snow topics ring only the snowy places, one topic per day
+
+"Fresh snow" and "Snow, mist & frost" named no places, so the map ringed every place in the topic's regions
+(230 rings for 60 snowy rows on a Friday sunrise). Each day's topic now carries the exact snowy places, is built
+from sunrise rows only, and stays until midnight instead of vanishing at dawn. A multi-day spell is one topic per
+day instead of one dated to its earliest day, so a travel day on day 1 no longer hides day 2's snow, and the detail
+no longer says "today and tomorrow". Ask's hot-topics and coming-up lists now offer every kind's first day before
+any kind's second, so a long snow spell does not push the aurora out.
+
+### Added — a Frost & mist hot topic for the hoar-frost morning
+
+A sunrise with valley mist likely and sub-zero air (the 2 m temperature at the first hour at or after sunrise, strictly below 0 °C) now gets its own "Frost & mist" topic: one card per day naming exactly the ringed places, with the coldest place's air reading, the site count and a hoar-frost and rime explanation. It replaces Valley mist for those sunrise place-days instead of stacking a second ring on them; Valley mist keeps the milder mornings and every sunset. A place with snow lying still qualifies, so a snowy frost-and-mist morning carries both this and the snow topic. The topic ranks above Valley mist in rarity (Valley mist and Sea mist each move down one rank), has a new sky-blue swatch kept apart from every other topic under deuteranopia and protanopia, the 🧊 glyph, and the snow (winter) badge channel. The sub-zero air rounding is now one shared helper, so the snow-mist frost fact and this one read identically.
+
+### Docs — a plan for a Frost & mist hot topic
+
+`docs/engineering/frost-mist-plan.md` plans a "Frost & mist" topic for the hoar-frost morning on bare ground: valley mist likely at sunrise with sub-zero air. Until now frost was named only over lying snow ("Snow, mist & frost"). It replaces Valley mist for the same sunrise place-day rather than stacking, and is built after snow S3 and the bluebell rings fix.
+
+### Fixed — E2E smoke: the middle-chip click no longer lands on bare map
+
+Test infrastructure only. `clickMiddleChip` now waits for the Map label layer to settle, clicks the chosen chip by its accessible name instead of its index, and asserts the callout opened, so a repaint right after a window change can no longer redirect the click (the intermittent `roles.spec.js` "none of the LITE locks appear" failure).
+
+### Fixed — bluebell topics ring only the woods that qualified
+
+The Bluebell hot topic named only its regions, so the map ringed every bluebell wood in those regions, including woods rated below the topic threshold because a neighbour qualified. The topic now carries the exact woods rated 3/5 or better that day (best first, then by name), limited to the regions it names.
+
+## [v2.42.1] - 2026-11-25
+
+### Docs — a plan to make the snow hot topics tell the truth
+
+`docs/engineering/snow-topics-truth-plan.md` plans the fix for "Fresh snow · 230 places" on 27 November, covering all three snow topics (Fresh snow, Fresh snow with mist, Snow on the fells). It records the four causes found (region-wide place lists, Open-Meteo's 9 km grid snow depth, summit snowfall kept as rain, no freezing level beyond about two days) and the owner's decisions. Today's Open-Meteo probe data is kept in `docs/engineering/snow-evidence/` as the replay fixture. The build follows the screen-spec series.
+
+### Docs — plan: the card says why a window was not scored
+
+`docs/engineering/unscored-reason-card-plan.md` plans two phases (C1 backend, C2 frontend) so that This week's
+cards print why a blank window has no rating ("too far out", "run failed", "fog", "unsettled"), and so that the drive-tier
+headline words a blank by the same rule as the served briefing (today one stood-down place in reach makes "Poor
+unsettled", and "Not scored at this range" is said even at T+0 to T+2). Not built; queued.
+
+### Changed — screen spec P5: the card opens into the map, and the guide swept
+
+Pressing a card now grows its little map picture into the map view, and ✕ or Escape shrinks the view back into the same card, with the browser's View Transitions (230 ms in, 180 ms out; a 110 ms fade for readers who ask for reduced motion). Only a card thumbnail morphs: a lane, a Your places chip, the week's best button, the lens summary, Find and every link open the map as before, Back and the scrim close it at once, and a browser without View Transitions behaves exactly as it did. The live map is hidden with `visibility` (never `display`) while the morph runs, so its size is always measured and the hidden-mount guards are unchanged, and it fades in over 120 ms afterwards; the old `wf-map-screen-in` fade is gone. The planning, map and getting-started guides describe the motion, stale wording is fixed (the Lite one-time line, the phone's `Plan from home again`, the phone top line) and the screenshots that no longer match the screen are retaken.
+
+### Fixed — Your places no longer widens a phone's layout
+
+With three or more bookmarked places a Pro phone's layout grew past the screen (390 became 742, and the fixed Ask bar followed): each chip's spoken text (`.sr-only`, absolutely positioned) sat outside the chip row's scroller, so the row did not clip it. The row is now the positioned ancestor on a phone. A smoke case bookmarks three places through the API at 360, 375 and 390 and asserts no horizontal overflow.
+
+### Changed — screen spec P4: the light in the map header, a one-line masthead and the collapsing lens
+
+The map view's header now carries the window's blue and golden hour at the place it names (`blue 07:11–07:53 · golden 07:54–08:36`, golden in the golden colour): the selected place's, else the best reachable place's, read from the same served score rows the callout uses (never a calculation, never the masthead's endpoint); nothing for a night or a place with no score row. On a phone the masthead is one line (brand, `⌕ Find`, ☰, about 44px instead of 116px): the `↑ ↓` times are gone (the light lives in the map header and the desktop masthead), the origin chip and its second row are gone (the lens caption names an away origin, the ☰ menu carries `Plan from home again`, and the unset-postcode nudge stays as one slim line only until a postcode is saved). Desktop and tablet keep today's times, now labelled `today`. On a phone the lens collapses to one line, `Drive 45 min · any rating · 6 spots ▾`, once the reader has scrolled past This week; a tap opens it in place until they scroll back to the top, it never collapses under a focused control, and the page does not jump (a spacer keeps the height, and the sticky bars sit right under the one line). The map and planning guides and their screenshots follow.
+
+### Changed — screen spec P3: the best in the heading, quiet days and the hint
+
+This week's bar now carries the week's best: `best Fri sunrise, Crimdon Beach 4★ →` beside the heading, which reads "This week" alone (the "· forecast" suffix and the separate "The days ahead" heading are gone, and the help `?` moved up next to the heading). The button is the served Best bet (the window whose pick is the Best bet, the pick's own place and that place's own served rating, never a ranking); pressing it opens that map view. Lite, an origin scoped away from the pick and a forecast with no Best bet show no button, and Lite's Best-bets upsell stays in the strip foot. A quiet day folds to one line, `Wed 25 · nothing above 2★ ▸`, when every window it shows is served and at most 2★ and it has no warning and no watched date; it opens in place (the same button, `aria-expanded`, focus stays), a phone's folded line counts the day's topics (`· 1 topic`) so nothing is hidden, and an unscored window or a Lite reader never folds. A reader with nothing bookmarked or watched sees, once, `Bookmark places and watch dates to build your plan.` with a ✕ in place of Your places; the first save or the ✕ ends it for good (a new `app_user.places_hint_dismissed_at`, V230, stamped by `PUT /api/user/settings/places-hint-dismissed` or by the first favourite of any kind, served as `placesHintDue`). A Lite reader sees the same line with the Pro pill and one upsell for places and dates; the Lite Your places teaser and the empty line are deleted. The planning guide and its screenshots follow.
+
+### Changed — screen spec P2: places and watched dates separate
+
+Your places now holds places and areas only, best rating first (ties by drive time, then name), with the quiet ones last and muted, and each chip is one line: `Crimdon Beach · Fri sunrise 4★`. A watched date has one home: a lane on its day in This week once it is forecast (a topic lane already carrying that event takes the bookmark mark and the plan instead of a second lane appearing), otherwise **Watching**, a new group of the same entry cards at the top of Further ahead, otherwise a quiet "no longer listed" row with a Stop watching button. Pressing Watch moves the card into Watching and focus goes with it; unwatching moves it back; the undo toast finds its control where it moved to. The `Further ahead ↓` jump shows how many dates you are watching. The date chips, their calendar tile and their ✕ in Your places are deleted, with the watch toasts and the Pro upsell reworded. The planning and your-places guides and their screenshots follow.
+
+Review fixes: a watched date a topic lane carries but that has no plan window still shows (the mark alone on that lane); a watch that becomes a lane says so (`It's on Fri in This week.`) and focus lands on Further ahead's heading, never the body; the move's focus comes from the Watch control's own callback; one key is bound to one entry everywhere; a decorated topic lane opens the watched plan; the Your places heading is visually hidden on a phone.
+
+### Docs — plan: the lens belongs to This week
+
+`docs/engineering/lens-this-week-only-plan.md` plans hiding the Drive · Rated lens once the reader has scrolled past This
+week (instead of P4's one-line collapse), since nothing in Further ahead reads it, and amends `screen-spec.md` D6 to
+match. Not built; queued.
+
+### Changed — a watched date shows its calendar tile, not "in N days"
+
+In Your places, a watched-date chip now leads with the same calendar tile Further ahead draws in its left rail (day of week for a single day, the day or `23–29` range, the month) beside the event name, instead of a date suffix and an "in N days" countdown. A date not yet forecast reads "best spots once it's forecast", and one with windows reads "in this week's forecast". The "Stop watching" label still includes the date. The empty-state copy is now "Tap ☆ on a place, an area or a date, and it lands here."
+
+### Docs — the screen specification and its plan
+
+The owner's single specification for the one screen is now `docs/engineering/screen-spec.md`, linked from CLAUDE.md's reference index, `plan-tab.md` and `map-tab.md`. `docs/engineering/screen-spec-plan.md` plans its five phases (P1–P5).
+
+### Changed — the bookmark mark, and a lens that only counts
+
+Screen spec P1 (`docs/engineering/screen-spec.md` D1 and D7). A bookmarked place or area, and a watched date, are now marked with a lilac ribbon (`BookmarkMark`, an inline SVG) instead of a star, so the star means a rating and nothing else. The toggles read `Bookmark` / `Bookmarked` for a place or area and `Watch this date` / `Watching` for a date; the words carry the state, so `aria-pressed` is gone and the undo toast announces the change. The spoken suffix is `, bookmarked`, the toast says `Bookmarked X.`, and Ask's `rank_spots` schema says "bookmarked places". The lens readout is the count and its windows at every width (`6 spots · 4 windows`, or `6 of 9 spots within reach · 4 windows`; "within reach" only where a drive time was measured): `formatLensReadout` and its tier, default and rating words are deleted. On a phone the lens is about 90 px (it was 130) and the screen's top padding is about 8 px (it was 37). The guides and the landing pricing list and FAQ say "Bookmark places and watch dates".
+
+## [v2.42.0] - 2026-11-24
+
+### Changed — the landing page pitches planning a shoot
+
+`photocast.online` now pitches PhotoCast as one screen and a map for planning a shoot, in four steps:
+when (Further ahead, dates known in advance, up to 90 days), which morning (This week), where (the map for a
+sunrise or sunset) and go (the place sheet, with a leave-by time for Pro readers who have a home postcode). The
+home page gains a "Plan a shoot" section with new screenshots of This week and Further ahead, the pricing lists
+name This week, Further ahead, Your places at the top of This week and watching a date (Pro), and the FAQ, Terms
+and the engineering pages no longer mention tabs, "Coming up" or "At a Glance". The hero, place-sheet and
+Hadrian's Wall story screenshots no longer show the tab bar (`shot-map` and `shot-detail` are new captures from a
+development build with sample data and are labelled as such; `field-map` and `field-decide` are the real
+24 October captures with the old tab bar cropped off). Three unreferenced, outdated images (`screenshot.png`,
+`screenshot-map.png`, `shot-ask.webp`) are removed along with their `COPY` lines.
+
+The owner deploys this with `release-landing.sh`, after the O4a guides (the home page and FAQ link to
+`guide/planning.html`).
+
+### Changed — the help guides describe one screen, not tabs
+
+The user guides (`docs/engineering/one-screen-plan.md`, phase O4a) now describe PhotoCast as one screen: This week, with
+Further ahead under it, and the map as a full-screen view over both.
+
+- `getting-started.html` is the workflow: when (Further ahead), which morning (This week), where (the map), go (the
+  callout and Leave by).
+- `planning.html`, "Planning a shoot", replaces `at-a-glance.html` and `coming-up.html` and carries every section id the two
+  had, plus `#this-week`, `#further-ahead`, `#your-places` and `#watch-a-date` (watched dates: the toggle, the chips,
+  stopping, the 25-place-and-date limit, the 14-day expiry, no NLC season). The two old addresses stay as meta-refresh
+  stubs (a small `moved.js` keeps the old `#section` and `?embed=1`), because links to them exist in the wild.
+- `map.html` is rewritten for the map view: how it opens and closes, its own `#map/...` address, Back, the header's window
+  control, the callout, "How was it?" and the phone layout.
+- `your-places.html` gains watched dates; `finding-places.html`, `settings.html`, `ask-photocast.html`, `night-sky.html`,
+  `reading-the-forecast.html`, `weather-warnings.html` and the hub lose "tab", "Coming up", "At a Glance" and the ⚙ button.
+- `utils/guide.js`: `GUIDE_PAGES` drops `at-a-glance` and `coming-up` for `planning`; `TAB_GUIDE` is now `SCREEN_GUIDE`
+  (`plan` and `map`); `GUIDE_SECTIONS` points at `planning`, and its `comingUp*` keys are `furtherAhead*`.
+  `guideSections.test.js` also checks that every internal guide link and anchor resolves.
+- New screenshots taken from a local build (no tab bar): the top of the screen, the days ahead, the warning lane, the
+  Your places row, the menu, Further ahead's list and filters, the map view, its window control, Ask beside the map, and
+  a phone screen and map. The old tab-bar shots (`glance-top`, `coming-up-december`, `coming-up-filters`) are deleted.
+- Review round 1: the Ask shot is re-taken with the question in the box and no answer; the old aurora, astro and hot-topics shots (which showed a real home marker) are removed or re-taken, and the tide panel shot is cropped to the panel; home framing, toast text, rating floors, watched-date chips, the stub redirects (3 s meta refresh so the script keeps the section and `?embed=1`) and a `moved.js` test are tightened.
+
+**Deploy order.** The landing site must go out first (the owner runs `release-landing.sh`), before any app build whose
+in-app guide links open `planning.html`; until then those links 404.
+
+### Changed — one screen: the tabs are gone and Operations lives in the menu (O3)
+
+The tab bar is removed. The app is one screen, This week over Further ahead, with the map as a full-screen view opened from a card or any other door, and every device (phone, tablet and desktop) now opens on This week. The "At a Glance" and "Coming up" names go with the tabs, along with the Coming up tab and its badge on the bar (the NEW badge stays on the "Further ahead ↓" jump), the opening-tab logic and the Map button beside the tab list.
+
+The masthead is now the brand, the Ask field on tablet and desktop, and one ☰ menu at every width. Settings, Change home postcode, Guide, Operations and Sign out are its rows; the old inline ⚙, `?` and Sign out buttons are folded into it. Operations is an admin-only full-screen view driven by the `#manage` address: Pro and Lite readers see no Operations row at all, a non-admin `#manage` link is cleared, and an admin can now open a `#manage/runs` link directly. "‹ PhotoCast" and Back both leave it.
+
+`selectTab` is deleted; `closeShellLayers()` remains the one list of what a dialog is. Ask's view is the map view or This week, and its old Coming up labels are gone (the backend still maps an old `coming-up` view to `plan` for one release). No rating, verdict, prompt or served payload changes.
+
+Review round 1: the Ask field collapses (340, 260, then a 34px button) inside the masthead's own container, so the dock cannot push the ☰ menu off screen; the menu's Guide row reads "Close guide" while the guide is open; the callout and Ask's plan card say "Show in This week".
+
+### Changed — a card opens the map framing home and its best place
+
+Opening the map from a This week card, a lane or a Your places window chip used to fly in on the window's best place, so
+the map always landed zoomed in on one spot. It now frames your home and that place together (never closer than zoom 11,
+with room for the callout, the header and the phone's sheet), and still opens the place's callout. Without a saved home, or
+under an away origin, it flies to the place as before; doors about a place (the location sheet, Find, the area sheet, Ask)
+are unchanged.
+
+## [v2.41.2] - 2026-11-24
+
+### Added — Watch a date (one screen, O2b; Pro)
+
+An open entry in Further ahead now has a **☆ Watch this date** button. A watched date joins **Your places** at the top of This week as a chip, earliest first: beyond the forecast it reads "★ 🌊 King tide · 3 Dec" with "in 10 days" (a tap scrolls to the entry and opens it), and once its dates reach the forecast it becomes that morning's plan, such as "King tide · Fri, sunrise 07:48 · best Crimdon Beach 4★ · tide on the light", and a tap opens the map on that window. For a tide the window is the one the tide data marks as on the light (the better-rated when two tie); other topics open their own window, and a meteor peak, which has none, says "clear-sky check on the night" and opens nothing. A watch follows its date if a tide run is reclassified or its start moves a few days, drops off the row once the date has passed, and is deleted two weeks after its start. A Lite reader sees the button with the Pro pill and a worded upsell. Watched dates share the 25-place cap, which now reads "You can keep up to 25 places and dates." They are never places: Ask and the merged place list never see them, and the shared almanac carries no personal data. Backend: `V229` adds `almanac_key` to `user_favourite` with a three-way one-target CHECK and a partial unique index, and `POST`/`DELETE /api/user/settings/favourites/dates/{key}` (Lite 403, bad key 400, cap 409) with the dates also served on `GET`. Review round 1: every watched chip has its own × to stop watching (including one whose date has become a lane, or that the feed no longer lists); the NLC season cannot be watched, since its start is clipped; a date beyond the almanac's 90 days is refused; and un-watching several matched dates is one Undo.
+
+### Changed — Further ahead: the almanac moves to the bottom of the forecast screen (one screen, O2)
+
+Coming up's almanac is now **Further ahead**, the bottom section of the forecast screen, under a sticky "Further ahead · dates known in advance" heading, and the forecast above it is headed "This week · forecast" with a "Further ahead ↓" jump at the right that carries the NEW badge ("Further ahead, 2 new dates"). The badge keeps today's rules: "Mark seen" clears it, scrolling past does not, and the one-off first-visit write now fires when the heading first reaches the viewport. The filter chips are remembered in this browser (`furtherAheadFilter`), so a reader who lives in Coastal opens on it. A date that already shows as a lane under its day in This week is no longer listed twice, and a lane that has nowhere to go is plain text rather than a button; entries with no lane stay listed, in date order. Your places is now one row of compact chips at the top of This week (a chip with a good window opens the map on it, otherwise its sheet; a Lite reader sees the one-line Pro teaser there). The Coming up tab still exists for one more phase but is a door onto the new section and nothing else links to it. Ask offers the rare-events and snow-on-the-tops questions on the plan view, and the server reads an old client's `coming-up` view as `plan` for one release. Review round 1: the arrow keys step over the Coming up door instead of jumping to the section, the jump and the heading show one badge counted from the dates Further ahead actually lists, a date no longer drops out of both places when the matrix has nothing to draw, jumps scroll the section (not its sticky heading) into place, and Find opens in view from the bottom of the screen.
+
+### Fixed — the map view: focus, keyboard, address and the notes it states (review round 1)
+
+Closing the map view always puts focus on the control that opened it, or on the selected tab, never on a hidden title.
+The session-expiry notice stays usable above the view while the banners and footer behind it are inert. The scrim
+closes on a click that began on it, not on the pointer going down, so a touch no longer reaches what is under the
+closing view. ←/→ on the header step the window, Escape works with focus on the page itself, and Escape in the window
+control's menu closes only the menu. The view's address is taken down when a sheet replaces it ("Open in Plan"), is
+rewritten after Back lands on the base entry, is republished when the view reopens and reopens an aurora or astro
+night; a ⌘K pressed as the first gesture no longer inverts Back. The note over the map again states the rating floor,
+reach tier and region a door carried, with one Clear; an away origin can be reset from the view's header; the dock edge
+is measured in the commit that needs it. Removed the code the strip left behind (`doorHeadline`, the door's
+`title`/`caption`/`from`, `tabRequest.opener` and the masthead's `isMapTab`/`hideAtHome`).
+A `#map/<date>/night` or `/aurora` address dated yesterday no longer opens with "has passed" in the small hours: a night belongs to its evening's date, so only an earlier one has passed.
+The page behind the view no longer stays inert if the shell crashes with the view open; the view starts below the pinned
+session notice instead of under it; ←/→ on the header use the window control's own stepping rules (no stepping while an
+older day loads, ‹ at the oldest fetches the older day); Escape with focus on the page closes only the view even with an
+Operations panel open behind it; and a `#map/...` address the page loaded on is only taken down once a layer has adopted it.
+
+### Fixed — Reopening the map view after closing it before it finished loading no longer lands zoomed in on an empty field
+
+If the map view was closed before the map's lazy chunk had landed, the map was built behind the hidden view and the door's camera (fit to a window's places, or fly to a place) ran against a 0x0 box, clamping to zoom 12 and leaving the reopened view on an empty stretch of country with no chips. Both door cameras now hold while the map has no size and run once it does. This was the cause of the red `E2E — Playwright smoke` on `no inline <style> element appears on any main tab`.
+
+### Fixed — The Lite lens dims its tier buttons, not its caption
+
+For a Lite reader the reach control ("Drive from home") was greyed as a whole, which also dimmed its caption below the contrast an accessibility check requires. The lock now dims only the tier buttons; the caption and the Pro pill stay at full strength.
+
+### Changed — the map opens as a view over the screen, not as a tab
+
+The Map is now a view (`docs/engineering/one-screen-plan.md`, phase O1): a labelled region, drawn over the screen you
+came from, with a header that carries the window's title, verdict, best star and confidence, the one window control
+(‹ ›), Find, your origin and, on a tablet or desktop, the Ask field, and a close button. A Glance card, a lane, a Coming
+up card, a Find pick, a spot row, the location sheet's footer, the area sheet's foot, Ask's "Show on map" and the aurora
+banner all open it through one function. Close, Escape or Back puts you back on the same card with the page where you
+left it (the page behind never moves; it only goes inert, and its scroll is locked while the view is open). The Map is
+still reachable from a button beside the tabs, but it is no longer a tab.
+
+The view has an address, `#map/<date>/<sunrise|sunset|night|aurora>[/<place id>]`, kept in step with the window and the
+selected place by the dialog-history engine (a sheet or Find over the view inherits it, and a window step while one
+stands keeps it right). Reloading, or following the link, reopens the view on that window; a window that has passed or
+is not forecast yet opens the view with a one-line note, and an unknown place opens it with no place selected. The map's
+code is fetched when the browser is idle after first paint, and the pane is built the first time the view opens, so a
+reader never sees it built inside a hidden panel.
+
+Removed with the tab: the map tab panel, the "Where you came from" landing strip (a named-spot or subject lens a door
+applied is now stated by a small "Showing …" note with a Clear button), the arrival Back layer and the opening-tab
+preload.
+
+### Chore — best-bet advisor retirement R2b-2: drop the two unmapped columns
+
+Migration V228 drops `pipeline_run.best_bet_status` and `model_selection.extended_thinking`, which no entity has
+mapped since R2b-1. It is irreversible and ships only after the release containing R2b-1 is deployed. No ratings,
+verdicts or prompts change.
+
+### Test — Map warning Details E2E
+
+The seeded E2E fixture now carries one Met Office weather warning (a Yellow rain warning over the Lake District's six
+places, valid for the T+1 sunset window only), written through the same repository the poller uses, with the smoke script
+giving the warnings feature a fake key, a dead loopback base URL and a 24-hour staleness bound. A new Playwright case in
+`map-glance.spec.js` opens the Map on that window and drives the chip's Details toggle (expand, collapse, the panel's close
+button and Escape). Test-only: no production code changes.
+
+### Test — Map phone overflow check
+
+A new smoke spec, `map-phone-overflow.spec.js`, checks the Map's phone states (default, Best bet reason, Regions, Filters, windows, List, callout) at 360, 375 and 390 wide under Chromium mobile emulation. It asserts no element outside the viewport, no inner horizontal scroller and no clipped overflow, measured on boxes because the Map root and sheets hide overflow from the document's own scroll width. No source changed: nothing overflowed at those widths. (At 320 the List sheet's segmented control overflows by about 3px; that width stays report-only.)
+
+### Docs — Guide Map screenshots
+
+The guide's Map page now carries real captures of the warning chip (`#shot-warn-map-chips`) and a location callout with a warning chip (`#shot-warn-callout`), and At a Glance carries a sunrise opened on the Map (`#shot-open`), all taken as the `pro` reader from the seeded E2E stack. The seeded Met Office warning's wording is paraphrased and will appear publicly: the owner approves it before `release-landing.sh` runs.
+
+### Docs — Glance-to-Map follow-ups plan
+
+Records the plan and review questions for the warning Details E2E (#1911), the phone overflow check (#1910) and the guide screenshots (#1912).
+
 ## [v2.41.1] - 2026-11-22
 
 ### Chore — best-bet advisor retirement R2b-1: drop the pick table and the model row

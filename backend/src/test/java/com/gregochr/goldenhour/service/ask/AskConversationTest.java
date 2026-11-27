@@ -190,6 +190,68 @@ class AskConversationTest {
         assertThat(run.outcome().answer().answerable()).isFalse();
     }
 
+    // -- the favourite companion line (Part C, B6) ------------------------------------------
+
+    private static final AskUserContext STARRED = new AskUserContext(7L, UserRole.PRO_USER, false, null,
+            new com.gregochr.goldenhour.model.FavouriteLocations(Set.of(2L), Map.of()));
+
+    private AskConversation rankedFor(AskUserContext user) {
+        AskConversation conversation = open(question("best spot"), snapshot(null), user, null);
+        conversation.tools().rankSpots(new AskTools.RankSpotsArgs(null, null, null, null, null, null, null));
+        return conversation;
+    }
+
+    @Test
+    @DisplayName("an OK answer led by the stored lead that leaves out the reader's favourite gains the "
+            + "engine's sentence, and nothing else changes")
+    void submitAppendsTheCompanionSentence() {
+        AskConversation conversation = rankedFor(STARRED);
+
+        AskRun run = conversation.submit(picks(1L), 1, List.of());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().answer().summary())
+                .isEqualTo("Whitby tonight. Saltburn, your favourite, is 3★.");
+        assertThat(run.outcome().answer().picks()).extracting(AskPick::locationName).containsExactly("Whitby");
+    }
+
+    @Test
+    @DisplayName("a summary that already names the favourite with its star is served as the model wrote it")
+    void submitLeavesANamedCompanionAlone() {
+        AskConversation conversation = rankedFor(STARRED);
+        Raw raw = new Raw(true, "Whitby is 4★ tonight and your Saltburn is 3★.",
+                List.of(new RawPick(1L, SUNSET_TODAY, "Clear west")), List.of(), null);
+
+        AskRun run = conversation.submit(raw, 1, List.of());
+
+        assertThat(run.outcome().answer().summary()).isEqualTo("Whitby is 4★ tonight and your Saltburn is 3★.");
+    }
+
+    @Test
+    @DisplayName("a first pick that is not the lead, a can't-answer, and a reader with no favourites all "
+            + "leave the summary alone (a user-less Ready run never has a companion)")
+    void submitLeavesOtherAnswersAlone() {
+        assertThat(rankedFor(STARRED).submit(picks(2L), 1, List.of()).outcome().answer().summary())
+                .isEqualTo("Whitby tonight.");
+        AskRun cant = rankedFor(STARRED).submit(new Raw(false, "Not in the forecast.", null, null, "parking"), 1,
+                List.of());
+        assertThat(cant.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        assertThat(cant.outcome().answer().summary()).isEqualTo("Not in the forecast.");
+        assertThat(rankedFor(USER).submit(picks(1L), 1, List.of()).outcome().answer().summary())
+                .isEqualTo("Whitby tonight.");
+    }
+
+    @Test
+    @DisplayName("a later rank_spots with no companion clears the pairing, so nothing is appended")
+    void submitAfterALaterRankWithoutACompanionAppendsNothing() {
+        AskConversation conversation = rankedFor(STARRED);
+        conversation.tools().rankSpots(new AskTools.RankSpotsArgs(null, null, true, null, null, null, null));
+
+        AskRun run = conversation.submit(picks(1L), 1, List.of());
+
+        assertThat(run.outcome().answer().summary()).isEqualTo("Whitby tonight.");
+    }
+
     @Test
     @DisplayName("the conversation's anchor reaches the validator: a BEST answer that does not lead with the "
             + "BEST BET window is discarded")

@@ -110,6 +110,40 @@ public class OpenMeteoClient {
     /** Total time the inversion profile fetch may spend before leaving the remaining sites without one. */
     static final Duration INVERSION_PROFILE_FETCH_BUDGET = Duration.ofSeconds(90);
 
+    /**
+     * Hourly variables of the point snowpack fetch (snow-topics-truth-plan §3.2): the five inputs
+     * {@code PointSnowpack} reads, plus the low cloud the white-tops visibility gate reads. Requested on their
+     * own, never added to {@link #FORECAST_PARAMS}. Wind arrives in m/s because every chunk sends
+     * {@code wind_speed_unit=ms}.
+     */
+    static final String SNOW_STATE_PARAMS =
+            "precipitation,temperature_2m,relative_humidity_2m,wind_speed_10m,shortwave_radiation,cloud_cover_low";
+
+    /** Days of history the snow fetch adds ({@code past_days}): the 168 h lookback plus the slot's own day. */
+    static final int SNOW_STATE_PAST_DAYS = 7;
+
+    /** Total time the snow fetch may spend: 14 chunks at the 3 s pause plus request time will not fit 90 s. */
+    static final Duration SNOW_STATE_FETCH_BUDGET = Duration.ofSeconds(150);
+
+    /** Open-Meteo's free-tier per-minute allowance, in weighted calls, logged beside each snow run's cost. */
+    static final int OPEN_METEO_MINUTE_LIMIT = 600;
+
+    /** Open-Meteo's free-tier daily allowance, in weighted calls, logged beside each snow run's cost. */
+    static final int OPEN_METEO_DAILY_LIMIT = 10_000;
+
+    /** Hourly variables per snow fetch point, for the weighted cost. */
+    private static final int SNOW_STATE_VARIABLES = SNOW_STATE_PARAMS.split(",").length;
+
+    /** Days per snow fetch point (7 past plus 7 forecast), for the weighted cost. */
+    private static final int SNOW_STATE_DAYS = 14;
+
+    /** Open-Meteo's weighting: variables per call, and days per call, beyond which a call counts for more. */
+    private static final double COST_VARIABLES_PER_CALL = 10.0;
+    private static final double COST_DAYS_PER_CALL = 14.0;
+
+    /** The elevation token Open-Meteo reads as "use the model's own cell height". */
+    private static final String ELEVATION_MODEL_CELL = "nan";
+
     /** Comma-separated hourly air quality parameters requested from Open-Meteo. */
     static final String AIR_QUALITY_PARAMS = "pm2_5,dust,aerosol_optical_depth";
 
@@ -421,7 +455,7 @@ public class OpenMeteoClient {
             }
             List<double[]> chunk = points.subList(i, Math.min(i + BATCH_COORD_LIMIT, points.size()));
             List<double[]> coords = chunk.stream().map(p -> new double[]{p[0], p[1]}).toList();
-            List<Integer> elevations = chunk.stream().map(p -> (int) Math.round(p[2])).toList();
+            List<String> elevations = chunk.stream().map(p -> String.valueOf((int) Math.round(p[2]))).toList();
             try {
                 List<OpenMeteoForecastResponse> chunkResults = fetchForecastChunk(
                         coords, INVERSION_PROFILE_PARAMS, forecastRestClient, elevations,
@@ -437,6 +471,88 @@ public class OpenMeteoClient {
             }
         }
         return results;
+    }
+
+    /**
+     * Fetches the point snowpack inputs for many places and summits (snow-topics-truth-plan §3.2). Best effort,
+     * data only, modelled on {@link #fetchInversionProfileBatch}: shared {@code open-meteo} rate limiter, no
+     * retry, no circuit breaker. Each chunk of {@value #BATCH_COORD_LIMIT} sends one {@code elevation} per point
+     * (a NaN elevation sends {@code nan}, the model's own cell height; no caller sends one now, it is a
+     * defensive fallback) and {@code past_days=}
+     * {@value #SNOW_STATE_PAST_DAYS}, with the usual inter-chunk pause. Callers put summits first, so a run cut
+     * short loses places before backdrops.
+     *
+     * <p>Fetch discipline: while a cool-off is in force nothing is requested. A refusal for the hourly or daily
+     * limit starts the shared cool-off (the limit is shared). A minute-limit or concurrent-requests 429 ends
+     * this run only and starts no cool-off, so a snow run can never silence the evening's main fetch. The first
+     * failing chunk stops the run, and so does the {@link #SNOW_STATE_FETCH_BUDGET}. Positions not fetched are
+     * {@code null}; callers must guard against that. The run's weighted cost is logged against Open-Meteo's
+     * per-minute and daily allowances.
+     *
+     * @param points list of [lat, lon, elevation metres] triples; a NaN elevation means the model's cell height
+     * @return list of length {@code points.size()} with {@code null} where nothing was fetched
+     */
+    @RateLimiter(name = "open-meteo")
+    public List<OpenMeteoForecastResponse> fetchSnowStateBatch(List<double[]> points) {
+        List<OpenMeteoForecastResponse> results =
+                new ArrayList<>(Collections.nCopies(points.size(), null));
+        CoolOff active = activeCoolOff();
+        if (active != null) {
+            LOG.warn("Snow state fetch skipped: Open-Meteo cooling off until {} UTC ({}), {} points not fetched",
+                    COOL_OFF_END_TIME.format(Instant.ofEpochMilli(active.untilMs())), active.reason(),
+                    points.size());
+            return results;
+        }
+        long startMs = elapsedClockMs.getAsLong();
+        int fetched = 0;
+        for (int i = 0; i < points.size(); i += BATCH_COORD_LIMIT) {
+            if (elapsedClockMs.getAsLong() - startMs >= SNOW_STATE_FETCH_BUDGET.toMillis()) {
+                LOG.info("Snow state fetch budget of {}s reached, {} of {} points skipped",
+                        SNOW_STATE_FETCH_BUDGET.toSeconds(), points.size() - i, points.size());
+                break;
+            }
+            if (i > 0) {
+                sleeper.accept(interChunkDelayMs);
+            }
+            List<double[]> chunk = points.subList(i, Math.min(i + BATCH_COORD_LIMIT, points.size()));
+            List<double[]> coords = chunk.stream().map(p -> new double[]{p[0], p[1]}).toList();
+            List<String> elevations = chunk.stream()
+                    .map(p -> Double.isNaN(p[2]) ? ELEVATION_MODEL_CELL : String.valueOf((int) Math.round(p[2])))
+                    .toList();
+            try {
+                List<OpenMeteoForecastResponse> chunkResults = fetchForecastChunk(
+                        coords, SNOW_STATE_PARAMS, forecastRestClient, elevations, SNOW_STATE_PAST_DAYS, true);
+                for (int j = 0; j < chunkResults.size() && i + j < results.size(); j++) {
+                    results.set(i + j, chunkResults.get(j));
+                    fetched++;
+                }
+            } catch (Exception e) {
+                LOG.warn("Snow state chunk {} failed, stopping with {} of {} points unfetched: {}",
+                        i / BATCH_COORD_LIMIT + 1, points.size() - i, points.size(),
+                        e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                break;
+            }
+        }
+        double cost = fetched * snowStatePointCost();
+        LOG.info("Snow state fetch: {} of {} points fetched, weighted cost {} against {} per minute and {} per day",
+                fetched, points.size(), cost, OPEN_METEO_MINUTE_LIMIT, OPEN_METEO_DAILY_LIMIT);
+        return results;
+    }
+
+    /** Open-Meteo's weighting of one snow fetch point: {@code max(1, variables/10 x max(1, days/14))}. */
+    static double snowStatePointCost() {
+        return Math.max(1.0, SNOW_STATE_VARIABLES / COST_VARIABLES_PER_CALL
+                * Math.max(1.0, SNOW_STATE_DAYS / COST_DAYS_PER_CALL));
+    }
+
+    /** True when {@code e} is a 429 naming concurrent requests. */
+    private boolean isConcurrentRefusal(Throwable e) {
+        String message = e.getMessage() != null ? e.getMessage() : "";
+        if (!Integer.valueOf(HTTP_TOO_MANY_REQUESTS).equals(chunkStatusCode(e, message))) {
+            return false;
+        }
+        String body = e instanceof RestClientResponseException rex ? rex.getResponseBodyAsString() : "";
+        return (message + " " + body).toLowerCase(Locale.ROOT).contains("too many concurrent requests");
     }
 
     /**
@@ -1022,10 +1138,19 @@ public class OpenMeteoClient {
      * (null sends none).
      */
     private List<OpenMeteoForecastResponse> fetchForecastChunk(
-            List<double[]> coords, String hourlyParams, RestClient client, List<Integer> elevations,
+            List<double[]> coords, String hourlyParams, RestClient client, List<String> elevations,
             Integer pastDays) {
-        String elevationList = elevations == null ? null
-                : elevations.stream().map(String::valueOf).collect(Collectors.joining(","));
+        return fetchForecastChunk(coords, hourlyParams, client, elevations, pastDays, false);
+    }
+
+    /**
+     * As above; {@code quietConcurrentRefusal} keeps a concurrent-requests refusal from starting the shared
+     * cool-off (the snow fetch's rule: a best-effort run must not knock the main fetch out for ten minutes).
+     */
+    private List<OpenMeteoForecastResponse> fetchForecastChunk(
+            List<double[]> coords, String hourlyParams, RestClient client, List<String> elevations,
+            Integer pastDays, boolean quietConcurrentRefusal) {
+        String elevationList = elevations == null ? null : String.join(",", elevations);
         String latitudes = coords.stream()
                 .map(c -> String.valueOf(c[0])).collect(Collectors.joining(","));
         String longitudes = coords.stream()
@@ -1056,7 +1181,9 @@ public class OpenMeteoClient {
                     .retrieve()
                     .body(String.class);
         } catch (RuntimeException e) {
-            noteRefusal(e);
+            if (!quietConcurrentRefusal || !isConcurrentRefusal(e)) {
+                noteRefusal(e);
+            }
             throw e;
         }
 
@@ -1086,6 +1213,15 @@ public class OpenMeteoClient {
         if (active != null) {
             throw new OpenMeteoCoolOffException(active.reason(), Instant.ofEpochMilli(active.untilMs()));
         }
+    }
+
+    /**
+     * Read-only: true while a cool-off is in force. Starts and extends nothing.
+     *
+     * @return whether Open-Meteo requests are currently being refused locally
+     */
+    public boolean isCoolingOff() {
+        return coolOffInForce();
     }
 
     /** True while a cool-off is in force. */

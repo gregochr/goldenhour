@@ -21,7 +21,7 @@ function Probe() {
     <div>
       <span data-testid="status">{f.status}</span>
       <span data-testid="ids">{[...f.locationIds].join(',')}</span>
-      <span data-testid="areas">{f.starredAreas.map((a) => a.name).join(',')}</span>
+      <span data-testid="areas">{f.bookmarkedAreas.map((a) => a.name).join(',')}</span>
       <FavouriteToggle kind="place" id={2} name="Steel Rigg" upsell={upsell} />
     </div>
   );
@@ -62,7 +62,7 @@ describe('FavouritesProvider', () => {
     expect(screen.getByTestId('ids')).toHaveTextContent('1');
   });
 
-  it('a failed load is an error state with no toggle (never a wrong aria-pressed)', async () => {
+  it('a failed load is an error state with no toggle (never a wrong name)', async () => {
     fetchFavourites.mockRejectedValue(new Error('down'));
     mountProbe();
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
@@ -74,16 +74,16 @@ describe('FavouritesProvider', () => {
     setFavourite.mockReturnValue(new Promise((r) => { resolve = r; }));
     mountProbe();
     const toggle = await screen.findByTestId('favourite-toggle');
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle).toHaveAttribute('data-starred', 'false');
     fireEvent.click(toggle);
     // Before the server answers the button is already pressed.
-    expect(screen.getByTestId('favourite-toggle')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('favourite-toggle')).toHaveAttribute('data-starred', 'true');
     await waitFor(() => expect(setFavourite).toHaveBeenCalledWith('place', 2, true));
     await act(async () => {
       resolve({ places: [{ locationId: 1 }, { locationId: 2 }], areas: [], locationIds: [1, 2] });
     });
     expect(screen.getByTestId('ids')).toHaveTextContent('1,2');
-    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('Added Steel Rigg to your places.');
+    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('Bookmarked Steel Rigg.');
   });
 
   it('Undo takes it back through the server and says Undone, with no second Undo', async () => {
@@ -95,7 +95,7 @@ describe('FavouritesProvider', () => {
     await waitFor(() => expect(setFavourite).toHaveBeenLastCalledWith('place', 2, false));
     await waitFor(() => expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('Undone.'));
     expect(screen.queryByTestId('undo-toast-undo')).toBeNull();
-    expect(screen.getByTestId('favourite-toggle')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('favourite-toggle')).toHaveAttribute('data-starred', 'false');
   });
 
   it('⚠️ a refused star at the cap reverts and prints the server sentence', async () => {
@@ -103,7 +103,7 @@ describe('FavouritesProvider', () => {
     mountProbe();
     fireEvent.click(await screen.findByTestId('favourite-toggle'));
     await waitFor(() => expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('You can keep up to 25 places.'));
-    expect(screen.getByTestId('favourite-toggle')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('favourite-toggle')).toHaveAttribute('data-starred', 'false');
     expect(screen.queryByTestId('undo-toast-undo')).toBeNull();
   });
 
@@ -112,10 +112,10 @@ describe('FavouritesProvider', () => {
     mountProbe();
     fireEvent.click(await screen.findByTestId('favourite-toggle'));
     await waitFor(() => expect(screen.getByTestId('undo-toast-status')).toHaveTextContent("Couldn't update your places."));
-    expect(screen.getByTestId('favourite-toggle')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('favourite-toggle')).toHaveAttribute('data-starred', 'false');
   });
 
-  it('resolves starred areas by name once the directory lands, and only asks when an area is starred', async () => {
+  it('resolves bookmarked areas by name once the directory lands, and only asks when an area is bookmarked', async () => {
     fetchFavourites.mockResolvedValue({
       places: [], areas: [{ areaId: 5 }], locationIds: [7, 8],
     });
@@ -130,6 +130,8 @@ describe('FavouritesProvider', () => {
   it('the off value answers every question with no, and its actions do nothing', async () => {
     expect(OFF_FAVOURITES.isPlaceStarred(1)).toBe(false);
     expect(OFF_FAVOURITES.isAreaStarred(1)).toBe(false);
+    expect(OFF_FAVOURITES.isDateWatched('king-tide:2026-12-03')).toBe(false);
+    expect(OFF_FAVOURITES.dateKeys.size).toBe(0);
     await expect(OFF_FAVOURITES.setStar()).resolves.toBe(false);
     await expect(OFF_FAVOURITES.toggle()).resolves.toBe(false);
   });
@@ -146,9 +148,12 @@ describe('FavouritesProvider', () => {
     setFavourite.mockResolvedValue({ places: [], areas: [], locationIds: [] });
     render(<FavouritesProvider pro><Spy /></FavouritesProvider>);
     await waitFor(() => expect(screen.getByTestId('spy-status')).toHaveTextContent('ready'));
+    // `spy.current` is written in a passive effect, which can land a tick after the status text is in the DOM (seen
+    // under a loaded full run: the toggle then read the empty pre-load list and bookmarked instead of removing).
+    await waitFor(() => expect(spy.current.isAreaStarred(4)).toBe(true));
     await act(async () => { await spy.current.toggle('area', 4, "Hadrian's Wall"); });
     expect(setFavourite).toHaveBeenCalledWith('area', 4, false);
-    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent("Removed Hadrian's Wall (area) from your places.");
+    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent("Removed the bookmark from Hadrian's Wall (area).");
   });
 
   it('⚠️ serialises changes: the second request waits for the first, and only the LAST answer is applied and announced', async () => {
@@ -172,11 +177,11 @@ describe('FavouritesProvider', () => {
     expect(setFavourite).toHaveBeenCalledTimes(2);
     expect(setFavourite).toHaveBeenLastCalledWith('place', 3, true);
     // One announcement, for the answer that is applied, and the served list is what state holds.
-    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('Added Craster to your places.');
+    expect(screen.getByTestId('undo-toast-status')).toHaveTextContent('Bookmarked Craster.');
     expect(screen.getByTestId('ids')).toHaveTextContent('1,2');
   });
 
-  it('⚠️ converges on the server after a refused change: a starred area\'s members are never left out of locationIds', async () => {
+  it('⚠️ converges on the server after a refused change: a bookmarked area\'s members are never left out of locationIds', async () => {
     const SERVED = { places: [], areas: [{ areaId: 9 }], locationIds: [20, 21] };
     fetchFavourites.mockResolvedValueOnce(BODY).mockResolvedValue(SERVED);
     // Star an area (the server expands its members), then a place that is refused.
@@ -279,7 +284,7 @@ describe('FavouritesProvider', () => {
     }
   });
 
-  it('retries a failed area directory later, and says how many starred areas are unnamed meanwhile', async () => {
+  it('retries a failed area directory later, and says how many bookmarked areas are unnamed meanwhile', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       fetchFavourites.mockResolvedValue({ places: [], areas: [{ areaId: 5 }], locationIds: [7] });

@@ -79,9 +79,9 @@ describe('UndoToast', () => {
   });
 
   it('puts the sentence in the status region and the Undo button OUTSIDE it', () => {
-    setup({ id: 1, message: 'Added Steel Rigg to your places.', onUndo: vi.fn() });
+    setup({ id: 1, message: 'Bookmarked Steel Rigg.', onUndo: vi.fn() });
     const status = screen.getByRole('status');
-    expect(status).toHaveTextContent('Added Steel Rigg to your places.');
+    expect(status).toHaveTextContent('Bookmarked Steel Rigg.');
     expect(within(status).queryByRole('button')).toBeNull();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
@@ -103,6 +103,27 @@ describe('UndoToast', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(origin).toHaveFocus();
     origin.remove();
+  });
+
+  it('⚠️ a lazy returnTo is resolved AFTER the undo has been applied, so it can name the control where it moved to', () => {
+    const before = document.createElement('button');
+    const after = document.createElement('button');
+    document.body.appendChild(before);
+    // The undo moves the control: the old node goes, a new one arrives, and the lazy target finds the new one.
+    const onUndo = vi.fn(() => { before.remove(); document.body.appendChild(after); });
+    const returnTo = vi.fn(() => (before.isConnected ? before : after));
+    setup({ id: 6, message: 'Watching.', onUndo, returnTo });
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(returnTo).toHaveBeenCalledTimes(1);
+    expect(onUndo.mock.invocationCallOrder[0]).toBeLessThan(returnTo.mock.invocationCallOrder[0]);
+    expect(after).toHaveFocus();
+    after.remove();
+  });
+
+  it('a lazy returnTo that finds nothing leaves focus where it is, and never throws', () => {
+    const { onDismiss } = setup({ id: 7, message: 'Watching.', onUndo: vi.fn(), returnTo: () => null });
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   it('Dismiss closes without undoing', () => {

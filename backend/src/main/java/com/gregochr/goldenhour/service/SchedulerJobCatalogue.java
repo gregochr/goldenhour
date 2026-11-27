@@ -281,7 +281,8 @@ public final class SchedulerJobCatalogue {
                 "Fires a set time before sunset, so there's still time to change plans. If the evening "
                         + "refresh is paused, or a place has no rating yet for tomorrow, it rates tomorrow too, "
                         + "skipping a settled sunset.")
-                .resultsCollectedBy("batch_result_polling"));
+                .resultsCollectedBy("batch_result_polling")
+                .staggeredBefore("snow_state_refresh"));
         add(draft("evening_sunrise_refresh", "Tomorrow, at bedtime", Purpose.FORECAST, true,
                 List.of("Open-Meteo", "Anthropic Batch API"),
                 "Re-rates tomorrow's sunrise and sunset at bedtime, so tonight's decisions (an early "
@@ -359,6 +360,13 @@ public final class SchedulerJobCatalogue {
                 "Refreshes the hourly comfort forecast (temperature, feels-like, wind, rain) for wildlife "
                         + "hides, for today and the next five days. One Open-Meteo request, no Claude.",
                 "Morning and evening, for people planning in the morning and in the evening."));
+        add(draft("snow_state_refresh", "Snow on the ground and the fells", Purpose.FORECAST, false,
+                List.of("Open-Meteo"),
+                "Works out how much snow is lying at each place, and on each of the reviewed fell summits, from "
+                        + "its own last seven days of weather, for the next five sunrises and sunsets. The snow "
+                        + "topics read these figures. Open-Meteo only, no Claude.",
+                "Three times a day, the middle run half an hour after the afternoon refresh because both share "
+                        + "Open-Meteo's rate limit."));
         add(draft("tide_refresh", "Weekly tide tables", Purpose.PLACES, false,
                 List.of("WorldTides"),
                 "Fetches 97 days of high and low tides from WorldTides for seascape locations that have a "

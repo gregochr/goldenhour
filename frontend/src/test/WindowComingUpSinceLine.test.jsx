@@ -111,7 +111,7 @@ describe('WindowComingUpSinceLine — guide door (G3)', () => {
     const link = screen.getByTestId('guide-link');
     expect(link).toHaveAccessibleName('What new arrivals are');
     fireEvent.click(link);
-    expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'new', expect.any(Object));
+    expect(mockOpenGuide).toHaveBeenCalledWith('planning', 'new', expect.any(Object));
     expect(onMarkSeen).not.toHaveBeenCalled();
   });
 });

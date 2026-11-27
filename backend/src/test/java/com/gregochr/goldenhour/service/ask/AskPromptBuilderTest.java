@@ -482,8 +482,10 @@ class AskPromptBuilderTest {
     void rulesBanGameOnAndStandDownWording() {
         String rules = flat(AskPromptBuilder.RULES);
 
-        assertThat(rules).contains("Never write \"game on\", \"game-on\", \"stand down\", \"standing down\" "
-                        + "or \"stood down\" in the summary or a pick's why")
+        assertThat(rules).contains("Never write \"game on\", \"game-on\", \"stand down\", \"standing down\", "
+                        + "\"stood down\" or \"marginal\" in the summary or a pick's why")
+                .contains("Say instead that places are worth going to, that a window is a stay-home one, or that "
+                        + "most places are not worth going out for")
                 .contains("field gameOn counts the places rated 4★ or better")
                 .contains("field stoodDown counts the regions or places the weather ruled out")
                 .doesNotContain("4★ is game on");
@@ -528,7 +530,10 @@ class AskPromptBuilderTest {
     void favouritesWordingIsTypedOnly() {
         String withUser = flat(AskPromptBuilder.WITH_USER);
 
-        assertThat(withUser).contains("pass favourites true only for a question about their own places")
+        assertThat(withUser).contains("pass favourites true only when the question limits itself to their own "
+                + "places (\"which of my places...\"); a question asking where is best and also how their "
+                + "favourite looks leaves it unset, because the result already names their favourite")
+                .contains("When rank_spots returns a companion, the summary names it by name with its stars:")
                 .contains("the lead is the answer")
                 .contains("TIED also scores the same as the lead")
                 .contains("YOUR_FAVOURITE is the reader's favourite and ranks lower: say your <name> is <n>★")
@@ -604,5 +609,142 @@ class AskPromptBuilderTest {
                 assertThat(blocks.text()).isEqualTo(single);
             }
         }
+    }
+
+    // -- ask regression triage 2026-11-27 (B1 to B5) -----------------------------------------
+
+    @Test
+    @DisplayName("B1: a window is never called marginal, in the typed prompt and the Ready one alike")
+    void aWindowIsNeverCalledMarginal() {
+        String sentence = "say so plainly, never calling the window marginal (marginal is one place's 3★), "
+                + "quoting the figures as returned";
+
+        assertThat(flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true))).contains(sentence);
+        assertThat(flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false))).contains(sentence);
+    }
+
+    @Test
+    @DisplayName("B4: the no-detail rule follows 'Never give it as a pick' in the typed prompt only")
+    void aRowWithNoDetailIsStillAnswerable() {
+        String typed = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
+        String ready = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false));
+
+        assertThat(typed).contains("using the reason given for its status. Never give it as a pick. A rated row "
+                + "with no detail is still answerable true: give its rating, then the reason given for its "
+                + "status as the explanation. If the reader also wants somewhere to go, call rank_spots.");
+        assertThat(ready).doesNotContain("A rated row with no detail");
+    }
+
+    @Test
+    @DisplayName("B3 and B5: the companion lead sentence and the night areaName clause are WITH_USER only; "
+            + "RULES, which Ready gets byte for byte, never carries them")
+    void companionAndNightAreaWordingIsTypedOnly() {
+        String withUser = flat(AskPromptBuilder.WITH_USER);
+        String clause = "For a named area or a stretch of coast, pass it to rank_night_spots as areaName.";
+
+        assertThat(withUser).contains(clause)
+                .contains("rank_night_spots for a night question. A number of minutes")
+                .contains("and never say within reach. " + clause + " Quote a drive time");
+        for (String shared : List.of(AskPromptBuilder.RULES, AskPromptBuilder.USER_LESS)) {
+            assertThat(flat(shared)).doesNotContain("areaName");
+        }
+        assertThat(builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null, false, false, List.of(),
+                false).staticPart()).doesNotContain("areaName");
+        assertThat(builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null, true, false, List.of(),
+                false).staticPart()).contains("pass it to rank_night_spots as areaName");
+    }
+
+    @Test
+    @DisplayName("B2: no covered day with nothing adds no line, and the older overloads are byte for byte the same")
+    void noEmptyDayAddsNothing() {
+        List<String> covered = List.of("2026-10-10_sunrise");
+        AskPromptBuilder.SystemPrompt plain = builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null,
+                false, false, covered, false);
+
+        assertThat(builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null, false, false, covered,
+                false, List.of())).isEqualTo(plain);
+        assertThat(builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null, false, false, covered,
+                false, null)).isEqualTo(plain);
+        assertThat(plain.dynamicPart()).doesNotContain("has no place worth going to");
+    }
+
+    @Test
+    @DisplayName("B2: one or two empty days get a line each, after the covered-windows line, naming the weekday")
+    void oneOrTwoEmptyDaysGetALineEach() {
+        List<String> covered = List.of("2026-10-10_sunrise", "2026-10-11_sunrise");
+
+        AskPromptBuilder.SystemPrompt one = builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null,
+                false, false, covered, false, List.of(LocalDate.of(2026, 10, 10)));
+        AskPromptBuilder.SystemPrompt two = builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null,
+                false, false, covered, false, List.of(LocalDate.of(2026, 10, 10), LocalDate.of(2026, 10, 11)));
+
+        String windows = "Every pick must be on one of these windows.\n";
+        String saturday = "Saturday 10 October has no place worth going to: say so in the summary, naming the day.\n";
+        String sunday = "Sunday 11 October has no place worth going to: say so in the summary, naming the day.\n";
+        assertThat(one.dynamicPart()).contains(windows + saturday).doesNotContain("Sunday 11 October");
+        assertThat(two.dynamicPart()).contains(windows + saturday + sunday);
+        assertThat(two.staticPart()).isEqualTo(one.staticPart());
+    }
+
+    @Test
+    @DisplayName("B2: more than two empty days share one line that names the first three")
+    void manyEmptyDaysShareOneLineCappedAtThree() {
+        List<LocalDate> days = List.of(LocalDate.of(2026, 10, 10), LocalDate.of(2026, 10, 11),
+                LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 13));
+
+        String tail = builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null, false, false,
+                List.of("2026-10-10_sunrise"), false, days).dynamicPart();
+
+        assertThat(tail).contains("Saturday 10 October, Sunday 11 October and Monday 12 October have no place "
+                + "worth going to: say so in the summary, naming each day.\n")
+                .doesNotContain("13 October");
+        assertThat(tail.split("has no place worth going to|have no place worth going to", -1)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("B9: the stay-home line follows the empty-day lines at the end of the tail, and false is "
+            + "byte for byte the older overload")
+    void stayHomeLineFollowsTheEmptyDayLines() {
+        List<String> covered = List.of("2026-10-10_sunrise", "2026-10-11_sunrise");
+        List<LocalDate> empty = List.of(LocalDate.of(2026, 10, 10));
+        AskPromptBuilder.SystemPrompt older = builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null,
+                false, false, covered, false, empty);
+
+        assertThat(builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null, false, false, covered,
+                false, empty, false)).isEqualTo(older);
+        AskPromptBuilder.SystemPrompt told = builder.systemPromptBlocks(MONDAY, TestScopes.of(), null, null, null,
+                false, false, covered, false, empty, true);
+        String line = "Every window this question covers is a stay-home one: open the summary by saying so, then "
+                + "name the forecast's pick, and any places worth going to as exceptions.\n";
+        assertThat(told.staticPart()).isEqualTo(older.staticPart());
+        assertThat(told.dynamicPart()).isEqualTo(older.dynamicPart() + line);
+        assertThat(older.dynamicPart()).doesNotContain("stay-home");
+    }
+
+    @Test
+    @DisplayName("B7: a typed prompt tells the model to call look_up_place for a named area even beside "
+            + "rank_spots, and to name the place by its listed name in the summary; Ready has no such tool")
+    void typedPromptCarriesTheNamedAreaRules() {
+        String typed = builder.systemPrompt(MONDAY, TestScopes.of(), null, true);
+        String ready = builder.systemPrompt(MONDAY, TestScopes.of(), null, false);
+
+        assertThat(typed)
+                .contains("For a question about how a named area looks, call look_up_place even when you also "
+                        + "call rank_spots.")
+                .contains("call it by its listed name, adding the name the reader used. Name it in the summary "
+                        + "by its listed name too.");
+        assertThat(ready).doesNotContain("call look_up_place even when you also call rank_spots")
+                .doesNotContain("Name it in the summary by its listed name too.");
+    }
+
+    @Test
+    @DisplayName("B8: both prompts say a stay-home window is framed first, with the forecast's pick as the "
+            + "first exception")
+    void bothPromptsFrameAStayHomeWindowFirst() {
+        String sentence = "When every window the question is about is a stay-home one, the summary's first "
+                + "sentence says so, and the forecast's pick follows as the first exception.";
+
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true)).contains(sentence);
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false)).contains(sentence);
     }
 }

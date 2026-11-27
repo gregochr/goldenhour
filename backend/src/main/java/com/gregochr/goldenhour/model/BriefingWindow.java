@@ -83,6 +83,17 @@ import java.util.List;
  * @param warningPlaceCounts per warning and region, how many of that region's enabled places the warning covers
  *                      ("N of M places in this area"); null when {@code warningIds} is. Non-personal: it counts the
  *                      places, never the reader's reach
+ * @param coverageReason why the window has no forecast, when its word is a blanked region's: the
+ *                      {@link BriefingRegion#coverageReason} of the blanked region whose word the window wears (the
+ *                      projector's top region), so the card can say why it is not scored in the words the region
+ *                      rail already speaks. Serve-time, free for every role, never persisted; null on a window whose
+ *                      top region was not blanked and on a legacy payload, which reads as "no reason known"
+ *                      (unscored-reason-card-plan 3.2). Chosen by rule, never by region name: among blanked regions
+ *                      a stand-down outranks an AWAITING one, and among AWAITING ones {@code NOT_ATTEMPTED} and
+ *                      {@code AWAY} outrank {@code FAILED}, which outranks {@code UNKNOWN}
+ * @param fog           {@code TRUE} when {@code coverageReason} is a {@code STOOD_DOWN} that was mostly weather
+ *                      triage's visibility rule ("Fog forecast"); null otherwise. Same source region as
+ *                      {@code coverageReason}
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingWindow(
@@ -95,7 +106,9 @@ public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindowTide tide,
         @JsonInclude(JsonInclude.Include.NON_NULL) List<LocationTideFact> tideFacts,
         @JsonInclude(JsonInclude.Include.NON_NULL) List<String> warningIds,
-        @JsonInclude(JsonInclude.Include.NON_NULL) List<WarningPlaceCount> warningPlaceCounts) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<WarningPlaceCount> warningPlaceCounts,
+        @JsonInclude(JsonInclude.Include.NON_NULL) CoverageReason coverageReason,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean fog) {
 
     /**
      * How many of a region's enabled places one warning covers.
@@ -118,6 +131,41 @@ public record BriefingWindow(
         tideFacts = tideFacts == null ? null : List.copyOf(tideFacts);
         warningIds = warningIds == null ? null : List.copyOf(warningIds);
         warningPlaceCounts = warningPlaceCounts == null ? null : List.copyOf(warningPlaceCounts);
+    }
+
+    /**
+     * Ten-component form, carrying no coverage reason: the shape every construction site had before
+     * {@code coverageReason} existed.
+     *
+     * @param eventTime          the window's single header time, or null
+     * @param verdict            the window's verdict
+     * @param bestRating         the highest rating in the window, or null
+     * @param confidence         the top region's confidence, or null
+     * @param pick               this window's forecast-wide pick, or null
+     * @param badges             hot topics landing on this window
+     * @param tide               the window's tide rollup, or null
+     * @param tideFacts          per-location tide facts, or null
+     * @param warningIds         the weather warning ids, or null
+     * @param warningPlaceCounts the per-region place counts, or null
+     */
+    public BriefingWindow(LocalDateTime eventTime, DisplayVerdict verdict, Integer bestRating,
+            Confidence confidence, Pick pick, List<Badge> badges, BriefingWindowTide tide,
+            List<LocationTideFact> tideFacts, List<String> warningIds,
+            List<WarningPlaceCount> warningPlaceCounts) {
+        this(eventTime, verdict, bestRating, confidence, pick, badges, tide, tideFacts, warningIds,
+                warningPlaceCounts, null, null);
+    }
+
+    /**
+     * Returns a copy carrying why the window has no forecast, every other component unchanged.
+     *
+     * @param newCoverageReason the blanked top region's reason, or null
+     * @param newFog            TRUE when that reason is a visibility stand-down, or null
+     * @return the copy
+     */
+    public BriefingWindow withCoverage(CoverageReason newCoverageReason, Boolean newFog) {
+        return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
+                tide, tideFacts, warningIds, warningPlaceCounts, newCoverageReason, newFog);
     }
 
     /**
@@ -165,7 +213,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withTide(BriefingWindowTide newTide) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
-                newTide, tideFacts, warningIds, warningPlaceCounts);
+                newTide, tideFacts, warningIds, warningPlaceCounts, coverageReason, fog);
     }
 
     /**
@@ -176,7 +224,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withTideFacts(List<LocationTideFact> newTideFacts) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
-                tide, newTideFacts, warningIds, warningPlaceCounts);
+                tide, newTideFacts, warningIds, warningPlaceCounts, coverageReason, fog);
     }
 
     /**
@@ -187,7 +235,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withBadges(List<Badge> newBadges) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, newBadges,
-                tide, tideFacts, warningIds, warningPlaceCounts);
+                tide, tideFacts, warningIds, warningPlaceCounts, coverageReason, fog);
     }
 
     /**
@@ -199,7 +247,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withBestRating(Integer newBestRating) {
         return new BriefingWindow(eventTime, verdict, newBestRating, confidence, pick, badges,
-                tide, tideFacts, warningIds, warningPlaceCounts);
+                tide, tideFacts, warningIds, warningPlaceCounts, coverageReason, fog);
     }
 
     /**
@@ -210,7 +258,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withPick(Pick newPick) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, newPick, badges,
-                tide, tideFacts, warningIds, warningPlaceCounts);
+                tide, tideFacts, warningIds, warningPlaceCounts, coverageReason, fog);
     }
 
     /**
@@ -222,7 +270,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withWarnings(List<String> newWarningIds, List<WarningPlaceCount> newWarningPlaceCounts) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
-                tide, tideFacts, newWarningIds, newWarningPlaceCounts);
+                tide, tideFacts, newWarningIds, newWarningPlaceCounts, coverageReason, fog);
     }
 
     /** Which of the forecast's two picks this is. */

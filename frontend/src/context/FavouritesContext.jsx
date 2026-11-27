@@ -7,6 +7,7 @@ import { fetchAreaDirectory } from '../api/areasApi.js';
 import useUndoToast from '../hooks/useUndoToast.js';
 import UndoToast from '../components/shared/UndoToast.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
+import { lazyReturnTo } from '../utils/focusReturn.js';
 import {
   applyStar, favouriteSets, FAVOURITE_FAILED, NO_FAVOURITES, starToastText,
 } from '../utils/favourites.js';
@@ -24,10 +25,12 @@ import {
 export const OFF_FAVOURITES = Object.freeze({
   status: 'off',
   ...NO_FAVOURITES,
-  starredAreas: Object.freeze([]),
+  bookmarkedAreas: Object.freeze([]),
   areasUnresolved: 0,
   isPlaceStarred: () => false,
   isAreaStarred: () => false,
+  isDateWatched: () => false,
+  registerWatchHome: () => () => {},
   setStar: () => Promise.resolve(false),
   toggle: () => Promise.resolve(false),
 });
@@ -45,9 +48,9 @@ export const FavouritesContext = createContext(OFF_FAVOURITES);
  * <p><b>A Lite reader never calls the endpoint</b> ({@code pro} false: the provider fetches nothing and its status is
  * {@code 'locked'}); the server's 403 is the real enforcement, this is only the courtesy of not asking.
  *
- * <p>The served body is already merged (D2): {@code locationIds} is the stars plus the members of the starred areas,
- * so nothing here walks membership. The area directory is read only to NAME the starred areas for the pickers and
- * Find, and only when at least one area is starred.
+ * <p>The served body is already merged (D2): {@code locationIds} is the stars plus the members of the bookmarked areas,
+ * so nothing here walks membership. The area directory is read only to NAME the bookmarked areas for the pickers and
+ * Find, and only when at least one area is bookmarked.
  *
  * <p><b>Toggling is optimistic, with a revert.</b> The star moves at once; the server's whole merged list replaces it
  * when it lands, and only the NEWEST request's answer is applied (writes are ordered by submission, never arrival). A
@@ -74,6 +77,13 @@ export function FavouritesProvider({ pro, children }) {
   const epoch = useRef(0);
   // The newest setStar, so an Undo press made later calls the current one (a callback cannot name itself).
   const setStarRef = useRef(null);
+  // Where a date about to be watched will live: registered by the This week strip, which owns the one-home rule (a lane
+  // on its day, or Watching), so the toast can say where the date went. Read at press time.
+  const watchHomeRef = useRef(null);
+  const registerWatchHome = useCallback((resolve) => {
+    watchHomeRef.current = resolve;
+    return () => { if (watchHomeRef.current === resolve) watchHomeRef.current = null; };
+  }, []);
   // One number per reader session: bumped when the provider unmounts or `pro` changes, so a queued write, a retry or a
   // re-read that outlives the session finds it stale and does nothing (no request, no state, no toast).
   const session = useRef(0);
@@ -122,7 +132,7 @@ export function FavouritesProvider({ pro, children }) {
   }, [hasAreas, directory, directoryAttempt]);
 
   const sets = useMemo(() => (body ? favouriteSets(body) : NO_FAVOURITES), [body]);
-  const starredAreas = useMemo(
+  const bookmarkedAreas = useMemo(
     () => (directory ? directory.filter((entry) => sets.areaIds.has(entry.id)) : []),
     [directory, sets],
   );
@@ -141,17 +151,23 @@ export function FavouritesProvider({ pro, children }) {
   /**
    * Sets one place or area to a given state: optimistic, then the server's merged list, with the toast.
    *
-   * @param {'place'|'area'} kind
-   * @param {number} id
+   * @param {'place'|'area'|'date'} kind
+   * @param {number|string} id the location or area id, or a watched date's key
    * @param {string} name what the toast calls it
    * @param {boolean} on the state to move to
    * @param {boolean} [undo] true for an Undo press: the toast then says "Undone." and offers no second Undo
+   * @param {?Array<number|string>} [group] every id one press changes together (un-watching several matched dates), so the
+   *        one Undo on the last answer's toast puts them ALL back; omitted, the Undo restores just {@code id}
+   * @param {?function(): ?Element} [focusBack] an Undo press only: the original press's lazy focus target, so "Undone."
+   *        returns focus to where the reader was and not to the toast's own (unmounting) Undo button
    * @returns {Promise<boolean>} whether the server took it
    */
-  const setStar = useCallback((kind, id, name, on, undo = false) => {
+  const setStar = useCallback((kind, id, name, on, undo = false, group = null, focusBack = null) => {
     if (bodyRef.current == null) return Promise.resolve(false);
-    // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands.
-    const returnTo = document.activeElement;
+    // What had focus at PRESS time, so the toast can hand focus back there however late the answer lands. A function
+    // resolved at Undo time, because the control may have MOVED by then (a watched date's card changes lists).
+    const returnTo = focusBack ?? lazyReturnTo(document.activeElement);
+    const home = kind === 'date' && on && !undo ? (watchHomeRef.current?.(id) ?? null) : null;
     setBody(applyStar(bodyRef.current, kind, id, on));
     epoch.current += 1;
     pending.current += 1;
@@ -177,10 +193,14 @@ export function FavouritesProvider({ pro, children }) {
           show(undo
             ? { message: 'Undone.', returnTo }
             : {
-              message: starToastText(kind, name, on),
+              message: starToastText(kind, name, on, home),
               returnTo,
               // Void: Undo is a press handler, nothing waits on the second request.
-              onUndo: () => { void setStarRef.current(kind, id, name, !on, true); },
+              onUndo: () => {
+                (group ?? [id]).forEach((each) => {
+                  void setStarRef.current(kind, each, name, !on, true, null, returnTo);
+                });
+              },
             });
         }
         return true;
@@ -208,15 +228,19 @@ export function FavouritesProvider({ pro, children }) {
     return {
       status,
       ...sets,
-      starredAreas,
-      // Starred areas the directory has not named (yet): the watchlist says so rather than hiding them.
-      areasUnresolved: Math.max(0, sets.areaIds.size - starredAreas.length),
+      bookmarkedAreas,
+      // Bookmarked areas the directory has not named (yet): the watchlist says so rather than hiding them.
+      areasUnresolved: Math.max(0, sets.areaIds.size - bookmarkedAreas.length),
       isPlaceStarred: (id) => sets.placeIds.has(id),
       isAreaStarred: (id) => sets.areaIds.has(id),
+      isDateWatched: (key) => sets.dateKeys.has(key),
+      registerWatchHome,
       setStar,
-      toggle: (kind, id, name) => setStar(kind, id, name, !(kind === 'area' ? sets.areaIds : sets.placeIds).has(id)),
+      toggle: (kind, id, name) => setStar(
+        kind, id, name, !({ area: sets.areaIds, date: sets.dateKeys }[kind] ?? sets.placeIds).has(id),
+      ),
     };
-  }, [pro, body, failed, sets, starredAreas, setStar]);
+  }, [pro, body, failed, sets, bookmarkedAreas, setStar, registerWatchHome]);
 
   return (
     <FavouritesContext.Provider value={value}>

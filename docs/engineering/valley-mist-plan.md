@@ -262,6 +262,10 @@ grouping and freshness; the Coming up condition; the migration under Testcontain
   horizon colour at all. Fog under 300 m with no clearing is a white frame: rate 2." The existing MIST
   guidance is otherwise untouched; the inversion precedent on stating facts, not asking for the number back,
   holds. System prompt unchanged where possible, so the batch cache prefix is unchanged for every site.
+  *(As amended 2026-11-27 (`valley-mist-fogbound-cap-plan.md`): a FOGBOUND band gets its own site sentence
+  and its own clearing line (`VALLEY_MIST_FOGBOUND_SITE_SENTENCE`, `VALLEY_MIST_FOGBOUND_CLEARING`) in place
+  of the generic ones, and the cap is restated on the schema's `rating` and `mist_potential` descriptions.
+  LIKELY, POSSIBLE and NONE are byte-identical to before.)*
   *(As built: the system prompt is byte-identical; the echo instruction ("Include `mist_potential`…") is the
   last line of the user-message block. The structured-output schema gains an optional `mist_potential` enum,
   last, because constrained decoding forbids undeclared fields; that changes the shared schema once and the

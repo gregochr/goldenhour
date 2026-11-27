@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.InversionClearance;
 import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.service.InversionScoreCalculator;
 import com.gregochr.goldenhour.service.ValleyMistCalculator;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
@@ -339,6 +340,20 @@ public class PromptBuilder {
             "Rate 1-5, estimate Red Sky Potential (0-100) and Golden Hour Potential (0-100), "
             + "then summarise in exactly one sentence.";
 
+    /** Upwind current low cloud (%) at or above which the combined approach signal's upwind half stands. */
+    private static final int COMBINED_APPROACH_UPWIND_PERCENT = 60;
+
+    /**
+     * Appended to the CLOUD APPROACH RISK block, in the per-location user message only, when the
+     * combined approach signal fires (BUILDING trend, no confirmed thin strip, upwind current at or
+     * above {@link #COMBINED_APPROACH_UPWIND_PERCENT}). Kept out of the system prompt and schema
+     * because Haiku over-generalises any always-present wording into a blanket rule.
+     */
+    static final String COMBINED_APPROACH_SIGNAL_LINE =
+            "COMBINED APPROACH SIGNAL: [BUILDING] and upwind current >=60% both stand. If you rate "
+            + "this 3, the 20-30 point score penalty stops once the higher of fiery_sky and "
+            + "golden_hour reaches 40, so a 3 never carries scores that describe a 2.";
+
     /** AOD threshold above which the dust context block is included. */
     private static final double DUST_AOD_THRESHOLD = 0.3;
 
@@ -359,6 +374,30 @@ public class PromptBuilder {
             + "with no horizon colour at all. Fog under 300 m with no clearing is a white frame: "
             + "rate 2.";
 
+    /**
+     * The clearing line a FOGBOUND {@code mist_prone} message carries in place of the generic
+     * "read the MIST/VISIBILITY TREND" line (valley-mist-fogbound-cap-plan). The generic line invited
+     * the model to read a small rise inside the fog as clearing and to write that the fog "will lift".
+     * This one states the answer: none in the window.
+     */
+    public static final String VALLEY_MIST_FOGBOUND_CLEARING =
+            "Clearing: none in the window. Every later slot in the MIST/VISIBILITY TREND stays under "
+            + "300 m, so a small rise inside the fog is not clearing; do not describe the fog as "
+            + "lifting or burning off.";
+
+    /**
+     * The site sentence a FOGBOUND {@code mist_prone} message carries in place of
+     * {@link #VALLEY_MIST_SITE_SENTENCE}. The cloud-approach-veto lesson: a cap stated in prose next to
+     * a "may rate 4-5" permission was overridden by the model (a fogbound Brathay sunrise rated 4), so
+     * FOGBOUND gets its own sentences with no permission in them. The cap lives in this user message
+     * only, never on the output schema: an always-present schema clause made Haiku rate a clear sky 1
+     * (haiku-local-caps-plan.md section 2A).
+     */
+    public static final String VALLEY_MIST_FOGBOUND_SITE_SENTENCE =
+            "This location is a valley-floor / riverside site, and it is fogbound: fog under 300 m with "
+            + "no clearing is a white frame, not the thin-mist shot. MAXIMUM rating 2; the score above "
+            + "measures how sure the fog is, not how good the shot is.";
+
     /** The echo instruction, in the user message so the system prompt stays byte-identical. */
     public static final String VALLEY_MIST_ECHO_INSTRUCTION =
             "Include \"mist_potential\": one of NONE, POSSIBLE, LIKELY, FOGBOUND in your JSON "
@@ -369,6 +408,18 @@ public class PromptBuilder {
      * Claude caps the rating at 4 rather than 5.
      */
     private static final int SOLAR_MID_CLOUD_THICK_PERCENT = 80;
+
+    /** Solar horizon low cloud above this percentage blocks the light (matches the system prompt's rule). */
+    private static final int SOLAR_LOW_CLOUD_BLOCKED_PERCENT = 60;
+
+    /**
+     * Label appended to the DIRECTIONAL CLOUD solar horizon line when the low cloud blocks the light
+     * and the strip is not thin. Stated here, in the location's own message, so it applies only where
+     * the condition holds (haiku-local-caps-plan.md section 2B).
+     */
+    private static final String SOLAR_BLOCKED_LABEL =
+            " [BLOCKED \u2014 light cannot reach the canvas: rating 1-2, fiery_sky \u226420, "
+            + "golden_hour \u226430; this overrides any rate-4 label]";
 
     /**
      * Horizon sampling distance in km, derived from the sampling geometry so the distance quoted
@@ -530,6 +581,9 @@ public class PromptBuilder {
             if (dc.solarMidCloudPercent() > SOLAR_MID_CLOUD_THICK_PERCENT) {
                 sb.append(" [THICK MID CLOUD — rate 4 (worth the trip), not 3, not 5]");
             }
+            if (dc.solarLowCloudPercent() > SOLAR_LOW_CLOUD_BLOCKED_PERCENT && !isThinStrip(dc)) {
+                sb.append(SOLAR_BLOCKED_LABEL);
+            }
             if (dc.farSolarLowCloudPercent() != null) {
                 int near = dc.solarLowCloudPercent();
                 int far = dc.farSolarLowCloudPercent();
@@ -591,6 +645,10 @@ public class PromptBuilder {
                         upwind.distanceKm(), upwind.windFromBearing(),
                         toCardinal(upwind.windFromBearing()),
                         upwind.currentLowCloudPercent(), upwind.eventLowCloudPercent()));
+                if (trend != null && trend.isBuilding() && !thinStripConfirmed
+                        && upwind.currentLowCloudPercent() >= COMBINED_APPROACH_UPWIND_PERCENT) {
+                    sb.append(String.format("%n%s", COMBINED_APPROACH_SIGNAL_LINE));
+                }
             }
         }
 
@@ -971,6 +1029,11 @@ public class PromptBuilder {
                 sb.append(String.format("%nSky overnight: mean total cloud %.0f%%",
                         facts.meanCloudPercent()));
             }
+        }
+        if (data.mistPotential() == MistPotential.FOGBOUND) {
+            sb.append(String.format("%n%s%n%s%n%s", VALLEY_MIST_FOGBOUND_CLEARING,
+                    VALLEY_MIST_FOGBOUND_SITE_SENTENCE, VALLEY_MIST_ECHO_INSTRUCTION));
+            return;
         }
         sb.append(String.format(
                 "%nClearing: read the MIST/VISIBILITY TREND above for whether visibility is "

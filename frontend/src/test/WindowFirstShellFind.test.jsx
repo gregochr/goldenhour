@@ -1,3 +1,4 @@
+import { openMapView, pressMenuRow, registerMapDoor } from './shellMapDoor.js';
 import React, { useCallback, useRef, useState } from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
@@ -73,25 +74,24 @@ const findButton = () => screen.getByTestId('window-first-search');
 const find = () => screen.queryByTestId('plan-search-panel');
 const input = () => screen.getByTestId('plan-search-input');
 const sheet = () => screen.queryByTestId('location-sheet');
-// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
-const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
-const selectedTab = () => screen.getByRole('tab', { selected: true });
+/** The screen is what is showing: the map view is closed or was never opened. */
+const expectScreen = () => expect(screen.queryByTestId('map-screen')?.hasAttribute('hidden') ?? true).toBe(true);
 
-/** The shell under the guide and Ask providers, with the tab it reports handed to the guide, as `App` does. */
+/** The shell under the guide and Ask providers, with the screen it reports handed to the guide, as `App` does. */
 function Rig({ shellProps }) {
   const closeRef = useRef(null);
   const [current, setCurrent] = useState('plan');
   const closeDialogs = useCallback(() => closeRef.current?.(), []);
   const register = useCallback((fn) => { closeRef.current = fn; }, []);
   const shell = (
-    <WindowFirstShell
+    <WindowFirstShell registerOpenMap={registerMapDoor}
       {...{ locations: [], onShowOnMap: vi.fn(), onSignOut: vi.fn(), onOpenSettings: vi.fn() }}
-      {...{ onTabChange: setCurrent, registerCloseDialogs: register }}
+      {...{ onScreenChange: setCurrent, registerCloseDialogs: register }}
       {...shellProps}
     />
   );
   const tree = (
-    <GuideProvider closeShellDialogs={closeDialogs} activeTab={current}>
+    <GuideProvider closeShellDialogs={closeDialogs} activeScreen={current}>
       <AskProvider>{shell}</AskProvider>
     </GuideProvider>
   );
@@ -112,7 +112,7 @@ function mount({
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(shellCtx(ctx));
   if (askSettings !== false) getAskSettings.mockResolvedValue(askSettings);
   const view = render(<Rig shellProps={props} />);
-  return { ...view, ctx };
+  return { ...view, ctx, rerenderShell: (next) => view.rerender(<Rig shellProps={{ ...props, ...next }} />) };
 }
 
 /** Presses ⌘K (or Ctrl K, or anything else asked for) and returns the event, so a test can read `defaultPrevented`. */
@@ -213,7 +213,7 @@ describe('⌘K / Ctrl K — the guard matrix', () => {
     await ready();
     await expectActs();
     await settle();
-    fireEvent.click(screen.getByRole('button', { name: 'Guide for this tab' }));
+    pressMenuRow('masthead-menu-guide');
     // With Find standing the guide opens as a modal over it (the stacked protocol), which is this rule's case.
     expect(await screen.findByTestId('guide-dialog')).toBeInTheDocument();
 
@@ -290,22 +290,24 @@ describe('⌘K / Ctrl K — the guard matrix', () => {
     await expectActs();
   });
 
-  it('is live on Coming up and the Map, and refused on Operations (a pick there would mean nothing)', async () => {
-    mount({ props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
+  it('is live on the screen and the Map, and refused on Operations (a pick there would mean nothing)', async () => {
+    const { rerenderShell } = mount({ props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await ready();
 
-    fireEvent.click(tab('Coming up'));
+    fireEvent.click(screen.getByTestId('further-ahead-jump'));
     await act(async () => { await Promise.resolve(); });
     await expectActs();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(find()).toBeNull());
 
-    fireEvent.click(tab('Map'));
+    openMapView();
     await expectActs();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(find()).toBeNull());
+    // The view is the base layer under Find: close it before moving to Operations (its screen is inert while it is up).
+    fireEvent.click(screen.getByTestId('map-screen-close'));
 
-    fireEvent.click(tab('Operations'));
+    rerenderShell({ operationsOpen: true });
     expectRefused(chord());
     expect(screen.queryByTestId('window-first-search')).toBeNull();
   });
@@ -345,7 +347,7 @@ describe('the Find button', () => {
   });
 });
 
-describe('what a pick does on At a Glance (unchanged)', () => {
+describe('what a pick does on This week (unchanged)', () => {
   it('a place opens its next-days sheet, a region plans from it', async () => {
     const ctx = findCtx();
     mount({ ctx });
@@ -355,7 +357,7 @@ describe('what a pick does on At a Glance (unchanged)', () => {
     await type('whitby');
     fireEvent.click(screen.getByRole('option', { name: /Whitby/ }));
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(selectedTab()).toHaveTextContent(/At a Glance/);
+    expectScreen();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(sheet()).toBeNull());
 
@@ -366,29 +368,30 @@ describe('what a pick does on At a Glance (unchanged)', () => {
   });
 });
 
-describe('what a pick does on Coming up (decision D6: the Plan tab, then the sheet)', () => {
+describe('what a pick does with Further ahead on the screen (one-screen-plan.md O2: it is the same screen)', () => {
   const toComingUp = async (ctx = findCtx(), props = {}) => {
     mount({ ctx, props });
     await ready();
-    fireEvent.click(tab('Coming up'));
+    // Coming up is a door onto Further ahead, the bottom section of the Plan pane: Find is offered there as everywhere.
+    fireEvent.click(screen.getByTestId('further-ahead-jump'));
     await act(async () => { await Promise.resolve(); });
     fireEvent.click(findButton());
     await screen.findByTestId('plan-search-panel');
     return ctx;
   };
 
-  it('⚠️ a place takes the reader to the Plan tab and opens its sheet there, never over the feed', async () => {
+  it('⚠️ a place opens its sheet on the screen, and Find closes behind it', async () => {
     await toComingUp();
     await type('whitby');
 
     fireEvent.click(screen.getByRole('option', { name: /Whitby/ }));
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(selectedTab()).toHaveTextContent(/At a Glance/);
+    expectScreen();
     expect(find()).toBeNull();
   });
 
-  it('closing that sheet lands focus on the Plan tab button the pick moved the reader to', async () => {
+  it('closing that sheet leaves focus on a real control, never on the body', async () => {
     await toComingUp();
     await type('whitby');
     fireEvent.click(screen.getByRole('option', { name: /Whitby/ }));
@@ -398,27 +401,28 @@ describe('what a pick does on Coming up (decision D6: the Plan tab, then the she
     fireEvent.keyDown(document, { key: 'Escape' });
 
     await waitFor(() => expect(sheet()).toBeNull());
-    expect(document.activeElement).toBe(tab('At a Glance'));
+    expect(document.activeElement).not.toBe(document.body);
   });
 
-  it('a window opens the Map on it, recording Coming up as where Back returns to (G2a)', async () => {
+  it('a window opens the map view on it (the view\'s own Back layer is the way back)', async () => {
     const onOpenMapTab = vi.fn();
     await toComingUp(findCtx(), { mapPane: MAP_PANE, onOpenMapTab });
 
     fireEvent.click(screen.getAllByRole('option', { name: /Tonight/ })[0]);
 
     expect(onOpenMapTab).toHaveBeenCalledTimes(1);
-    expect(onOpenMapTab.mock.calls[0][0]).toMatchObject({ from: 'coming-up', inPlace: false });
+    expect(onOpenMapTab.mock.calls[0][0]).toMatchObject({ kind: 'event', inPlace: false });
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
   });
 
-  it('a region plans from it and leaves the reader on Coming up', async () => {
+  it('a region plans from it and leaves the reader on the screen', async () => {
     const ctx = await toComingUp();
     await type('north york');
 
     fireEvent.click(screen.getByRole('option', { name: /North York Moors/ }));
 
     expect(ctx.setOrigin).toHaveBeenCalledWith(REGION);
-    expect(selectedTab()).toHaveTextContent('Coming up');
+    expectScreen();
   });
 });
 
@@ -428,7 +432,7 @@ describe('what a pick does on the Map', () => {
     const onOpenMapTab = vi.fn();
     mount({ ctx, props: { mapPane: MAP_PANE, onFindOnMap, onOpenMapTab, ...props } });
     await ready();
-    fireEvent.click(tab('Map'));
+    openMapView();
     fireEvent.click(findButton());
     await screen.findByTestId('plan-search-panel');
     return { ctx, onFindOnMap, onOpenMapTab };
@@ -442,7 +446,7 @@ describe('what a pick does on the Map', () => {
 
     expect(onFindOnMap).toHaveBeenCalledWith({ kind: 'location', id: WHITBY, name: 'Whitby' });
     expect(sheet()).toBeNull();
-    expect(selectedTab()).toHaveTextContent('Map');
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     expect(ctx.setOrigin).not.toHaveBeenCalled();
     expect(find()).toBeNull();
   });
@@ -478,7 +482,7 @@ describe('what a pick does on the Map', () => {
     expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'event', date: TODAY, eventType: 'SUNSET', inPlace: true,
     }));
-    expect(selectedTab()).toHaveTextContent('Map');
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
   });
 
   it('⚠️ offers no window the map\'s control cannot reach (a date outside forecastDates)', async () => {
@@ -498,8 +502,8 @@ describe('Back and focus', () => {
   it('Back closes Find on every tab it is offered on', async () => {
     mount({ props: { mapPane: MAP_PANE } });
     await ready();
-    for (const name of ['At a Glance', 'Coming up', 'Map']) {
-      fireEvent.click(tab(name));
+    for (const name of ['This week', 'Further ahead']) {
+      if (name === 'Further ahead') fireEvent.click(screen.getByTestId('further-ahead-jump'));
       await act(async () => { await Promise.resolve(); });
       fireEvent.click(findButton());
       await screen.findByTestId('plan-search-panel');
@@ -511,6 +515,20 @@ describe('Back and focus', () => {
       await waitFor(() => expect(find()).toBeNull());
       expect(__inspectForTests().layers).toBe(0);
     }
+    // In the map view Find is layer 2 over the view's own base layer: Back closes Find, then the view.
+    openMapView();
+    await settle();
+    fireEvent.click(screen.getByTestId('map-screen-find'));
+    await screen.findByTestId('plan-search-panel');
+    await settle();
+    expect(__inspectForTests().layers).toBe(2);
+    await back();
+    await waitFor(() => expect(find()).toBeNull());
+    expect(__inspectForTests().layers).toBe(1);
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
+    await back();
+    expect(__inspectForTests().layers).toBe(0);
+    expect(screen.getByTestId('map-screen')).toHaveAttribute('hidden');
   });
 
   it('⚠️ a ⌘K open has no focused trigger, so closing returns focus to the Find button, not <body>', async () => {
@@ -644,7 +662,7 @@ describe('areas in Find (F2)', () => {
     expect(screen.queryByRole('group', { name: 'Areas' })).toBeNull();
   });
 
-  describe('on At a Glance', () => {
+  describe('on This week', () => {
     it('a pick opens the area sheet with its spots, closes Find, and a Escape returns focus to the Find button', async () => {
       await openWall();
 
@@ -659,7 +677,7 @@ describe('areas in Find (F2)', () => {
       ]);
       expect(spotRows[0]).toHaveTextContent('4★ · Tonight Sunset');
       expect(spotRows[1]).toHaveTextContent('Not rated');
-      expect(selectedTab()).toHaveTextContent(/At a Glance/);
+      expectScreen();
 
       fireEvent.keyDown(document, { key: 'Escape' });
 
@@ -702,7 +720,7 @@ describe('areas in Find (F2)', () => {
     it('⚠️ every route out of the Plan tab closes it', async () => {
       await openWall({ mapPane: MAP_PANE });
 
-      fireEvent.click(tab('Coming up'));
+      fireEvent.click(screen.getByTestId('further-ahead-jump'));
 
       await waitFor(() => expect(areaSheet()).toBeNull());
       expect(__inspectForTests().layers).toBe(0);
@@ -754,7 +772,7 @@ describe('areas in Find (F2)', () => {
       fireEvent.click(screen.getByTestId('area-sheet-map'));
 
       expect(onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({
-        date: TODAY, targetType: 'SUNSET', region: null, locationName: null, title: "Hadrian's Wall", caption: '2 spots',
+        date: TODAY, targetType: 'SUNSET', region: null, locationName: null,
         focusNames: ['Whitby', 'Saltburn'],
       }));
       expect(areaSheet()).toBeNull();
@@ -784,14 +802,14 @@ describe('areas in Find (F2)', () => {
     it('⚠️ takes the reader to the Plan tab and opens the sheet there, never over the feed', async () => {
       mount({ ctx: areaCtx() });
       await ready();
-      fireEvent.click(tab('Coming up'));
+      fireEvent.click(screen.getByTestId('further-ahead-jump'));
       await act(async () => { await Promise.resolve(); });
       await findArea('hadrian');
 
       pickWall();
 
       expect(await screen.findByTestId('area-sheet')).toBeInTheDocument();
-      expect(selectedTab()).toHaveTextContent(/At a Glance/);
+      expectScreen();
       expect(find()).toBeNull();
     });
   });
@@ -801,7 +819,7 @@ describe('areas in Find (F2)', () => {
       const onFindOnMap = vi.fn();
       mount({ ctx: areaCtx(), props: { mapPane: MAP_PANE, onFindOnMap } });
       await ready();
-      fireEvent.click(tab('Map'));
+      openMapView();
       await findArea('hadrian');
       expect(screen.getAllByRole('option')[0]).toHaveTextContent('Show');
 
@@ -811,7 +829,7 @@ describe('areas in Find (F2)', () => {
         kind: 'area', id: 1, name: "Hadrian's Wall", ids: [WHITBY, SALTBURN],
       });
       expect(areaSheet()).toBeNull();
-      expect(selectedTab()).toHaveTextContent('Map');
+      expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
     });
   });
 });
@@ -834,12 +852,6 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
       }],
     };
   };
-  const toComingUp = async () => {
-    await ready();
-    fireEvent.click(tab('Coming up'));
-    await act(async () => { await Promise.resolve(); });
-  };
-
   beforeEach(() => {
     fetchAreaDirectory.mockResolvedValue([WALL]);
     fetchAreaOutlook.mockResolvedValue([{
@@ -850,67 +862,102 @@ describe('Your places through the shell (find-and-favourites-plan.md F4)', () =>
     }]);
   });
 
-  it('Coming up shows the watchlist section for a Pro reader, with served figures', async () => {
+  it('shows Your places at the top of This week for a Pro reader, with served figures', async () => {
     favouritesCtx = favouritesValue({
-      places: [WHITBY], areas: [1], locationIds: [WHITBY], starredAreas: [WALL],
+      places: [WHITBY], areas: [1], locationIds: [WHITBY], bookmarkedAreas: [WALL],
     });
     mount({ ctx: favCtx() });
-    await toComingUp();
+    await ready();
 
-    const section = await screen.findByTestId('coming-up-watchlist');
-    expect(section).toHaveTextContent('★ Your places');
-    const rows = within(section).getAllByTestId('coming-up-watchlist-row');
-    expect(rows.map((r) => r.dataset.kind)).toEqual(['area', 'place']);
-    expect(within(rows[1]).getByTestId('coming-up-watchlist-detail').textContent).toMatch(/^4★/);
+    const section = await screen.findByTestId('your-places');
+    expect(section).toHaveTextContent('Your places');
+    expect(section.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
+    expect(screen.getByTestId('this-week')).toContainElement(section);
+    // Above the forecast, not among the almanac's entries.
+    expect(screen.getByTestId('further-ahead')).not.toContainElement(section);
+    const chips = within(section).getAllByTestId('your-places-chip');
+    expect(chips.map((r) => r.dataset.kind)).toEqual(['area', 'place']);
+    expect(within(chips[1]).getByTestId('your-places-detail').textContent).toMatch(/4★/);
   });
 
-  it('a watchlist place goes to the Plan tab and opens its sheet there, never over the feed', async () => {
+  it('a chip with a window opens the map view on it, focused on the place', async () => {
+    const onOpenMapTab = vi.fn();
     favouritesCtx = favouritesValue({ places: [WHITBY], locationIds: [WHITBY] });
-    mount({ ctx: favCtx() });
-    await toComingUp();
+    mount({ ctx: favCtx(), props: { mapPane: MAP_PANE, onOpenMapTab } });
+    await ready();
 
-    fireEvent.click(await screen.findByTestId('coming-up-watchlist-row'));
+    fireEvent.click(await screen.findByTestId('your-places-chip'));
+
+    expect(onOpenMapTab).toHaveBeenCalledTimes(1);
+    expect(onOpenMapTab.mock.calls[0][0]).toMatchObject({ date: TODAY, inPlace: false });
+    expect(screen.getByTestId('map-screen')).not.toHaveAttribute('hidden');
+  });
+
+  it('an area chip with a window opens the map view on it too, with its spots as the lens', async () => {
+    const onOpenMapTab = vi.fn();
+    favouritesCtx = favouritesValue({ areas: [1], locationIds: [WHITBY], bookmarkedAreas: [WALL] });
+    mount({ ctx: favCtx(), props: { mapPane: MAP_PANE, onOpenMapTab } });
+    await ready();
+
+    fireEvent.click(await screen.findByTestId('your-places-chip'));
+
+    expect(onOpenMapTab).toHaveBeenCalledTimes(1);
+    expect(onOpenMapTab.mock.calls[0][0]).toMatchObject({ date: TODAY, focusNames: ['Whitby'] });
+  });
+
+  it('a chip with no window worth a trip opens the place\'s sheet on the screen', async () => {
+    favouritesCtx = favouritesValue({ places: [SALTBURN], locationIds: [SALTBURN] });
+    mount({ ctx: favCtx() });
+    await ready();
+
+    fireEvent.click(await screen.findByTestId('your-places-chip'));
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(selectedTab()).toHaveTextContent(/At a Glance/);
+    expectScreen();
   });
 
-  it('a watchlist area goes to the Plan tab and opens the area sheet', async () => {
-    favouritesCtx = favouritesValue({ areas: [1], locationIds: [WHITBY], starredAreas: [WALL] });
+  it('an area chip with no window opens the area sheet', async () => {
+    fetchAreaOutlook.mockResolvedValue([{
+      areaId: 1,
+      windows: [{
+        date: TODAY, targetType: 'SUNSET', ratedMembers: 0, totalMembers: 1, gatedMembers: 0, topRating: null, topLocationId: null,
+      }],
+    }]);
+    favouritesCtx = favouritesValue({ areas: [1], locationIds: [WHITBY], bookmarkedAreas: [WALL] });
     mount({ ctx: favCtx() });
-    await toComingUp();
+    await ready();
 
-    fireEvent.click(await screen.findByTestId('coming-up-watchlist-row'));
+    fireEvent.click(await screen.findByTestId('your-places-chip'));
 
     expect(await screen.findByTestId('area-sheet')).toBeInTheDocument();
-    expect(selectedTab()).toHaveTextContent(/At a Glance/);
   });
 
-  it('a Lite reader sees the Your places teaser and no Find group, and Find still opens', async () => {
+  it('a Lite reader sees no Your places row (the hint is not due) and no Find group, and Find still opens', async () => {
     favouritesCtx = favouritesValue({ status: 'locked', places: [WHITBY] });
     mount({ ctx: favCtx() });
-    await toComingUp();
-    expect(screen.getByTestId('coming-up-watchlist-teaser')).toHaveTextContent('Your places');
+    await ready();
+    expect(screen.queryByTestId('your-places')).toBeNull();
+    expect(screen.queryByTestId('your-places-hint')).toBeNull();
     fireEvent.click(findButton());
     await screen.findByTestId('plan-search-panel');
-    expect(screen.queryByRole('group', { name: '★ Your places' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Your places' })).toBeNull();
   });
 
-  it('a Pro reader\'s Find rests on ★ Your places, and a pick opens the place as any row does', async () => {
+  it('a Pro reader\'s Find rests on Your places, and a pick opens the place as any row does', async () => {
     favouritesCtx = favouritesValue({ places: [WHITBY], locationIds: [WHITBY] });
     mount({ ctx: favCtx() });
     await ready();
     fireEvent.click(findButton());
-    const group = await screen.findByRole('group', { name: '★ Your places' });
+    const group = await screen.findByRole('group', { name: 'Your places' });
     fireEvent.click(within(group).getByRole('option', { name: /Whitby/ }));
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
-    expect(screen.getByTestId('location-sheet-favourite')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('location-sheet-favourite')).toHaveAttribute('data-starred', 'true');
   });
 
-  it('no provider: Coming up has no watchlist and no teaser', async () => {
+  it('no provider: the screen has no Your places row and no hint', async () => {
     mount({ ctx: favCtx() });
-    await toComingUp();
-    expect(screen.queryByTestId('coming-up-watchlist')).toBeNull();
-    expect(screen.queryByTestId('coming-up-watchlist-teaser')).toBeNull();
+    await ready();
+    expect(screen.queryByTestId('your-places')).toBeNull();
+    expect(screen.queryByTestId('your-places-hint')).toBeNull();
   });
 });

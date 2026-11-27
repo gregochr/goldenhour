@@ -12,8 +12,7 @@ import {
  * rules only) are injected separately: what the phone changes is the difference, and what desktop
  * keeps is the base alone.
  *
- * <p>Pseudo-element rules (`.wf-tab::before`) are not resolvable by jsdom's `getComputedStyle`, so the
- * hit-area arithmetic parses the declaration text instead.
+ * <p>(The phone tab bar's hit-area tests lived here until the tabs went, one-screen-plan.md O3.)
  */
 
 const CSS_PATH = resolve(process.cwd(), 'src/index.css');
@@ -79,67 +78,6 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-const TAB_NEEDLES = ['.wf-tab'];
-
-function tabs() {
-  document.body.innerHTML = `
-    <div class="wf-tabs" id="bar">
-      <button class="wf-tab" id="tab" role="tab" aria-selected="false">Map</button>
-    </div>`;
-  return { bar: document.getElementById('bar'), tab: document.getElementById('tab') };
-}
-
-describe('phone tabs (README §3, plan R9)', () => {
-  it('are 13px with 7px vertical padding and a 34px body, on a bar with 6px above them', () => {
-    inject(rules(TAB_NEEDLES, 'phone'));
-    const { bar, tab } = tabs();
-    const t = getComputedStyle(tab);
-    const b = getComputedStyle(bar);
-    expect(t.fontSize).toBe('13px');
-    expect(t.paddingTop).toBe('7px');
-    expect(t.paddingBottom).toBe('7px');
-    expect(t.minHeight).toBe('34px');
-    // The bar's padding is `<top> var(--wf-gutter) 4px` — jsdom cannot resolve the var, so it is read
-    // as text. The 4px the extender spends below, and the bar's `margin-bottom: -4px`, are unchanged.
-    expect(rules(['.wf-tabs'], 'phone')).toMatch(/\.wf-tabs \{ padding: 6px var\(--wf-gutter\) 4px; \}/);
-    expect(b.marginBottom).toBe('-4px');
-  });
-
-  it('⚠️ extend the target to 44px of geometry (≥ 40px, ~41px on Map): 6px above, 4px below', () => {
-    // On the Map tab the bottom 4px lies under the map container, which paints over `.wf-tabrow`, so
-    // the REAL target there is about 41px; this pins the geometry, not a 44px claim on every tab.
-    const css = rules(['.wf-tab::before'], 'phone');
-    const inset = /inset:\s*(-?\d+)px 0 (-?\d+)px/.exec(css);
-    expect(inset, '.wf-tab::before declares `inset: <top>px 0 <bottom>px`').not.toBeNull();
-    const above = -Number(inset[1]);
-    const below = -Number(inset[2]);
-    expect(34 + above + below).toBe(44);
-    expect(34 + above + below - 4, 'minus the 4px under the map on the Map tab').toBeGreaterThanOrEqual(40);
-    // The extension must stay inside the bar's padding box, or `overflow-x: auto` clips the target.
-    const bar = rules(['.wf-tabs'], 'phone');
-    expect(above).toBeLessThanOrEqual(Number(/padding:\s*(\d+)px/.exec(bar)[1]));
-    expect(below).toBeLessThanOrEqual(4);
-  });
-
-  it('are unchanged off the phone: 12.5px, 8px 14px, no min-height, 12px bar padding', () => {
-    inject(rules(TAB_NEEDLES, 'base'));
-    const { bar, tab } = tabs();
-    const t = getComputedStyle(tab);
-    expect(t.fontSize).toBe('12.5px');
-    expect(t.paddingTop).toBe('8px');
-    expect(t.paddingLeft).toBe('14px');
-    expect(t.minHeight).not.toBe('34px');
-    expect(rules(['.wf-tabs'], 'base')).toMatch(/padding: 12px var\(--wf-gutter\) 4px/);
-    expect(getComputedStyle(bar).marginBottom).toBe('-4px');
-  });
-
-  it('keep the admin tab\'s dashed border and its push to the right', () => {
-    const css = rules(['.wf-tab-gated'], 'phone');
-    expect(css).toMatch(/border-style:\s*dashed/);
-    expect(css).toMatch(/margin-left:\s*auto/);
-  });
-});
-
 describe('the masthead line (README §1)', () => {
   it('is one 34px row with an 8px top inset, on the phone only', () => {
     inject(rules(['.wf-mast'], 'phone'));
@@ -151,7 +89,7 @@ describe('the masthead line (README §1)', () => {
 
   it('draws the ⋯ box at 30px with a 40px hit area, rows at 44px, a 210px popover', () => {
     const css = rules(['.wf-mast-menu'], 'phone');
-    expect(css).toMatch(/\.wf-mast-menu-btn \{[^}]*width: 30px;[^}]*height: 30px;[^}]*border: 1px solid #3A2C23;[^}]*border-radius: 8px/);
+    expect(css).toMatch(/\.wf-mast-menu-btn \{[^}]*width: 30px;[^}]*height: 30px;[^}]*border: 1px solid var\(--wf-mast-edge\);[^}]*border-radius: 8px/);
     // 30 + 5 on each side = 40.
     expect(css).toMatch(/\.wf-mast-menu-btn::before \{[^}]*inset: -5px/);
     expect(css).toMatch(/\.wf-mast-menu-row,\s*\.wf-mast-menu-status \{[^}]*min-height: 44px/);
@@ -167,10 +105,23 @@ describe('the masthead line (README §1)', () => {
     }
   });
 
-  it('draws the golden times in 10.5px mono #E0A542 with 9px arrows at 85%', () => {
-    const css = rules(['.wf-mast-times', '.wf-mast-arrow', '.wf-mast-time'], 'phone');
-    expect(css).toMatch(/\.wf-mast-times \{[^}]*font-size: 10\.5px;[^}]*color: #E0A542/);
-    expect(css).toMatch(/\.wf-mast-arrow \{[^}]*font-size: 9px;[^}]*opacity: 0\.85/);
+  it('has no light-time rules at all: the phone masthead draws no times (screen-spec.md P4)', () => {
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).not.toContain('.wf-mast-times');
+    expect(css).not.toContain('.wf-mast-time ');
+    expect(css).not.toContain('.wf-mast-arrow');
+  });
+
+  it('does not draw the empty banner block above the masthead on a phone, and leaves it alone elsewhere', () => {
+    expect(rules(['.wf-banners'], 'phone')).toMatch(/\.wf-banners:not\(:has\(:not\(:empty\)\)\) \{ display: none; \}/);
+    expect(rules(['.wf-banners'], 'base')).toBe('');
+  });
+
+  it('draws ⌕ Find as a 30px box in the brand row and the nudge as a slim line', () => {
+    const css = rules(['.wf-mast-find', '.wf-tick-phone'], 'phone');
+    expect(css).toMatch(/\.wf-mast-find \{[^}]*height: 30px[^}]*border: 1px solid var\(--wf-mast-edge\)/);
+    expect(css).toMatch(/\.wf-mast-find:focus-visible \{[^}]*box-shadow: inset/);
+    expect(css).toMatch(/\.wf-tick-phone \{[^}]*padding: 2px 0 6px/);
   });
 
   it('draws the compact origin row at 36px with a 28px group and a 32×28 ⌂', () => {
@@ -180,11 +131,40 @@ describe('the masthead line (README §1)', () => {
     expect(css).toMatch(/\.wf-tick-home \{[^}]*min-width: 32px[^}]*height: 28px/);
   });
 
+  it('hides the lens past This week with visibility, at EVERY width, keeping its sticky slot (no display, no spacer)', () => {
+    const base = rules(['.wf-lens-away'], 'base');
+    expect(base).toMatch(/\.wf-lens-away \{\s*visibility: hidden;\s*\}/);
+    expect(base).not.toMatch(/display/);
+    // The one-line state is gone entirely: no summary, no collapsed lens, no spacer, no body wrapper, in any arm.
+    expect(rules(['.wf-lens-summary', '.wf-lens-spacer', '.wf-lens-collapsed', '.wf-lens-body'], 'phone')).toBe('');
+  });
+
+  it('gives Further ahead its own top and reserve, and leaves This week on the shared full-lens variables', () => {
+    const css = rules(['.wf-further-ahead', '.wf-sec-bar-ahead', '.wf-sec', '.wf-yp :is'], 'base');
+    expect(css).toMatch(/\.wf-sec-bar-ahead \{[^}]*top: calc\(var\(--safe-t\) \+ max\(0px, var\(--wf-ahead-top, 0px\) - 1px\)\)/);
+    expect(css).toMatch(/\.wf-sec\.wf-further-ahead \{[^}]*scroll-margin-top: calc\(var\(--safe-t\) \+ var\(--wf-ahead-top, 0px\)\)/);
+    expect(css).toMatch(/\.wf-sec-bar-ahead > \.wf-sec-h \{[^}]*scroll-margin-top: calc\(var\(--safe-t\) \+ var\(--wf-ahead-top, 0px\) \+ 2px\)/);
+    expect(css).toMatch(/\.wf-further-ahead :is\(button, a, \[tabindex\]\):not\(\.wf-sec-h\) \{[^}]*var\(--wf-ahead-reserve, 44px\)/);
+    // This week's targets keep reading the full lens: zeroing these would scroll a This week target under a lens that returns.
+    expect(css).toMatch(/\.wf-sec \{[^}]*scroll-margin-top: calc\(var\(--safe-t\) \+ var\(--wf-bar-h, 54px\)\)/);
+    expect(css).toMatch(/\.wf-sec-h \{[^}]*scroll-margin-top: calc\(var\(--safe-t\) \+ var\(--wf-bar-h, 54px\) \+ 2px\)/);
+    expect(css).toMatch(/\.wf-yp :is\(button, a, \[tabindex\]\) \{[^}]*var\(--wf-lens-reserve, 98px\)/);
+  });
+
   it('⚠️ keeps every phone-only rule out of the base stylesheet, so desktop and tablet cannot see it', () => {
-    const base = rules(['.wf-mast-row', '.wf-mast-menu', '.wf-mast-times', '.wf-mast-dot', '.wf-tick[data-compact'], 'base');
+    const base = rules(['.wf-mast-row', '.wf-mast-find', '.wf-tick-phone', '.wf-mast-dot', '.wf-tick[data-compact'], 'base');
     expect(base).toBe('');
     // …and the desktop masthead padding is still the base 14px.
-    expect(rules(['.wf-mast'], 'base')).toMatch(/\.wf-mast \{\s*padding: 14px var\(--wf-gutter\) 0;/);
+    expect(rules(['.wf-mast'], 'base')).toMatch(/\.wf-mast \{[^}]*padding: 14px var\(--wf-gutter\) 0;/);
+  });
+});
+
+describe('the ☰ menu is drawn at EVERY width (one-screen-plan.md D14)', () => {
+  it('lives in the base stylesheet, not the phone media block: the button, the popover, the catcher and the rows', () => {
+    const base = rules(['.wf-mast-menu'], 'base');
+    ['.wf-mast-menu {', '.wf-mast-menu-btn {', '.wf-mast-menu-pop {', '.wf-mast-menu-catcher {', '.wf-mast-menu-row'].forEach((needle) => {
+      expect(base).toContain(needle);
+    });
   });
 });
 

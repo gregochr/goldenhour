@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import { pressMenuRow } from './shellMapDoor.js';
 
 /**
  * The shell's own dialog wiring around a four-day location sheet: the routes into settings, search, and the closer
@@ -198,7 +199,8 @@ describe('WindowFirstShell — the dialogs around the four-day sheet', () => {
     const view = renderShell();
     await openSheet(view);
 
-    await act(async () => { fireEvent.click(screen.getByTestId('window-first-settings')); });
+    pressMenuRow('window-first-settings');
+    await act(async () => {});
     expect(view.props.onOpenSettings).toHaveBeenCalled();
     expect(screen.queryAllByRole('dialog')).toHaveLength(0);
   });
@@ -268,15 +270,16 @@ describe('WindowFirstShell — the dialogs around the four-day sheet', () => {
       });
     });
 
-    it('⚠️ the cog closes SEARCH too — the one dialog its M5 close missed', async () => {
-      // The cog is reachable from an open search box, since the tick line leaves the tab order under it and the cog
-      // does not. So Shift+Tab out of the box onto ⚙ put search and settings up together.
+    it('⚠️ the menu\'s Settings row closes SEARCH too — the one dialog its M5 close missed', async () => {
+      // The ☰ menu is reachable from an open search box, since the tick line leaves the tab order under it and the menu
+      // does not. So Shift+Tab out of the box onto it put search and settings up together.
       const { props } = renderShell();
       await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
       await screen.findByTestId('plan-search');
-      expect(screen.getByRole('button', { name: 'Settings' })).not.toHaveAttribute('tabindex', '-1');
+      expect(screen.getByTestId('masthead-menu-button')).not.toHaveAttribute('tabindex', '-1');
 
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Settings' })); });
+      pressMenuRow('window-first-settings');
+    await act(async () => {});
       expect(props.onOpenSettings).toHaveBeenCalledTimes(1);
       expect(screen.queryAllByRole('dialog')).toHaveLength(0);
     });

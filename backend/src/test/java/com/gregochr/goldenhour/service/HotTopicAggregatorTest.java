@@ -59,6 +59,7 @@ class HotTopicAggregatorTest {
     // Feed the HotTopicInputs the aggregator builds; the lambda strategies here never read them.
     private final SlotSignalReader slotSignalReader = mock(SlotSignalReader.class);
     private final LocationRepository locationRepository = mock(LocationRepository.class);
+    private final SnowStateReader snowStateReader = mock(SnowStateReader.class);
 
     @BeforeEach
     void setUp() {
@@ -76,7 +77,7 @@ class HotTopicAggregatorTest {
                 .withScience(List.of(HotTopicFact.metric("AOD", "0.45 · thick")), null);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(dust)),
                 simulationService, travelDayService, eventEnricher, new HotTopicGlanceDecorator(),
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -94,7 +95,7 @@ class HotTopicAggregatorTest {
         simulationService.setTypeActive("MIST", true);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(),
                 simulationService, travelDayService, eventEnricher, new HotTopicGlanceDecorator(),
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -110,7 +111,7 @@ class HotTopicAggregatorTest {
     void getHotTopics_noDetectors_returnsEmpty() {
         HotTopicAggregator aggregator = new HotTopicAggregator(
                 List.of(), simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -130,7 +131,7 @@ class HotTopicAggregatorTest {
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy1, strategy2),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -150,11 +151,43 @@ class HotTopicAggregatorTest {
         HotTopicStrategy strategy = (from, to) -> List.of(away, workable);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
         assertThat(topics).containsExactly(workable);
+    }
+
+    private static com.gregochr.goldenhour.entity.SnowStateEntity snowRow(LocationEntity place, LocalDate date) {
+        return com.gregochr.goldenhour.entity.SnowStateEntity.builder()
+                .pointKey(com.gregochr.goldenhour.entity.SnowStateEntity.locationKey(place.getId()))
+                .evaluationDate(date).eventType(TargetType.SUNRISE).snowWaterMm(8.0).snowfall24hCm(0.0)
+                .computedAt(java.time.LocalDateTime.of(2026, 4, 25, 4, 0)).build();
+    }
+
+    @Test
+    @DisplayName("a travel day on day 1 of a snow spell no longer drops day 2's snow topic")
+    void getHotTopics_snowSpell_travelDayOne_dayTwoSurvives() {
+        LocationEntity place = new LocationEntity();
+        place.setId(7L);
+        place.setName("Mallerstang");
+        List<com.gregochr.goldenhour.entity.SnowStateEntity> rows = List.of(
+                snowRow(place, FROM), snowRow(place, FROM.plusDays(1)));
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(place));
+        when(snowStateReader.freshRows(FROM, TO)).thenReturn(rows);
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of());
+        when(travelDayService.isTravelDay(FROM)).thenReturn(true);
+        when(travelDayService.isTravelDay(FROM.plusDays(1))).thenReturn(false);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(new SnowFreshHotTopicStrategy(slotSignalReader, locationRepository, snowStateReader)),
+                simulationService, travelDayService, eventEnricher, glanceDecorator,
+                slotSignalReader, locationRepository, snowStateReader);
+
+        List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::type, HotTopic::date)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("SNOW_FRESH", FROM.plusDays(1)));
     }
 
     @Test
@@ -169,7 +202,7 @@ class HotTopicAggregatorTest {
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(running)),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(running);
     }
@@ -183,7 +216,7 @@ class HotTopicAggregatorTest {
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(running)),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
         // Yesterday is behind the range and is never consulted — being away then changes nothing.
@@ -200,7 +233,7 @@ class HotTopicAggregatorTest {
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(tonight)),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(tonight);
     }
@@ -215,7 +248,7 @@ class HotTopicAggregatorTest {
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(tonight)),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
     }
@@ -226,7 +259,7 @@ class HotTopicAggregatorTest {
         HotTopic undated = new HotTopic("DUST", "Dust", "no date", null, 2, null, List.of(), null, null);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(undated)),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(undated);
         verifyNoInteractions(travelDayService);
@@ -240,7 +273,7 @@ class HotTopicAggregatorTest {
         when(travelDayService.isTravelDay(FROM.minusDays(2))).thenReturn(false);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(stale)),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(stale);
     }
@@ -253,7 +286,7 @@ class HotTopicAggregatorTest {
         when(travelDayService.isTravelDay(FROM.minusDays(2))).thenReturn(true);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(stale)),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
     }
@@ -271,7 +304,7 @@ class HotTopicAggregatorTest {
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(bare)),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(enriched);
     }
@@ -286,7 +319,7 @@ class HotTopicAggregatorTest {
         HotTopicStrategy strategy = (from, to) -> List.of(lowPriority, medPriorityLaterDate, highPriority);
         HotTopicAggregator aggregator = new HotTopicAggregator(
                 List.of(strategy), simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -301,7 +334,7 @@ class HotTopicAggregatorTest {
         HotTopicStrategy emptyStrategy = (from, to) -> List.of();
         HotTopicAggregator aggregator = new HotTopicAggregator(
                 List.of(emptyStrategy), simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -320,7 +353,7 @@ class HotTopicAggregatorTest {
 
         HotTopicAggregator aggregator = new HotTopicAggregator(
                 List.of(neverCalledStrategy), simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -337,7 +370,7 @@ class HotTopicAggregatorTest {
         HotTopicStrategy strategy = (from, to) -> List.of(realTopic);
         HotTopicAggregator aggregator = new HotTopicAggregator(
                 List.of(strategy), simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -360,7 +393,7 @@ class HotTopicAggregatorTest {
         when(mockStrategy2.detect(eq(FROM), eq(TO), any(HotTopicInputs.class))).thenReturn(List.of());
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(mockStrategy1, mockStrategy2),
                 simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         aggregator.getHotTopics(FROM, TO);
 
@@ -378,7 +411,7 @@ class HotTopicAggregatorTest {
         simulationService.setTypeActive("BLUEBELL", true);
         HotTopicAggregator aggregator = new HotTopicAggregator(
                 List.of(mockStrategy1), simulationService, travelDayService, eventEnricher, glanceDecorator,
-                slotSignalReader, locationRepository);
+                slotSignalReader, locationRepository, snowStateReader);
 
         aggregator.getHotTopics(FROM, TO);
 
@@ -444,7 +477,7 @@ class HotTopicAggregatorTest {
 
         HotTopicAggregator aggregator = new HotTopicAggregator(
                 List.of(realInversionStrategy), simulationService, travelDayService, eventEnricher, glanceDecorator,
-                realReader, locationRepository);
+                realReader, locationRepository, snowStateReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 

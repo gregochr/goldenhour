@@ -61,7 +61,7 @@ export default function WindowSpotCard({
   spot, typeLabels, onOpen, openLabel = '◍ Open on map →',
   onMouseEnter, onMouseLeave, onFocus, onBlur,
 }) {
-  const starred = useIsStarredPlace(spot.locationId);
+  const bookmarked = useIsStarredPlace(spot.locationId);
   // Outside the reader's sub-regions (S5b-1): no star, no badge, no unrated word — only where the place lies.
   const outside = spot.gated === true;
   const badge = outside ? null : spotBadgeStyle(spot.rating);
@@ -96,7 +96,7 @@ export default function WindowSpotCard({
         >
           <FavouriteMark id={spot.locationId} />
           {spot.locationName}
-          {starred && <span className="sr-only">, your place</span>}
+          {bookmarked && <span className="sr-only">, bookmarked</span>}
         </span>
         {/* Omitted, never shown as a dash: an unrated spot is one nothing has looked at,
             which is a different statement from a poor one. The window header omits its

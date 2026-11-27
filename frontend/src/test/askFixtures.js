@@ -196,7 +196,8 @@ export function readyResponse() {
       {
         id: 'RARE_EVENTS',
         text: 'Any rare events coming up?',
-        tabs: ['coming-up', 'map'],
+        // The Coming up tab folded into the plan view (one-screen-plan.md D8): the server offers it on plan and map.
+        tabs: ['plan', 'map'],
         generatedAt: '2026-10-05T05:02:11',
         runLabel: '06:02',
         answer: {

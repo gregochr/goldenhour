@@ -34,6 +34,7 @@ export function visibleDialogOpen() {
  *   <li>another dialog is open and visible (any {@code [role="dialog"]} or {@code [aria-modal="true"]} not inside a
  *       {@code [hidden]} ancestor; the panel is neither, and has buttons of its own),
  *   <li>something already took the key ({@code defaultPrevented}),
+ *   <li>the map view stands open over the page ({@code [data-map-screen]} not {@code hidden}), whose Escape it is,
  *   <li>the Operations pane is hidden (the reader is on Map or Plan: the panel is still mounted, a {@code hidden}
  *       ancestor away), because Esc there belongs to the Map's own rules,
  *   <li>focus is in a text field, except one inside the panel's edit form
@@ -56,6 +57,9 @@ export default function usePanelEscape({ active, panelRef, onEscape }) {
     const onKeyDown = (event) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       if (visibleDialogOpen()) return;
+      // The map view is over the screen (and over Operations): its Escape (the document fallback in `MapScreen`) owns
+      // the press, and a panel behind it is inert, so it never also closes it.
+      if (document.querySelector('[data-map-screen]:not([hidden])')) return;
       const panel = panelRef.current;
       if (!panel || panel.closest('[hidden]')) return;
       const target = event.target;

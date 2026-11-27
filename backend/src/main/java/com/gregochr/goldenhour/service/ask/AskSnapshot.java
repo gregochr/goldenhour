@@ -14,7 +14,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -22,6 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -1383,6 +1386,43 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
             byKindAndDay.merge(AskEventType.key(t.type()) + "|" + t.date(), t, Topic::foldedWith);
         }
         return List.copyOf(byKindAndDay.values());
+    }
+
+    /**
+     * The first {@code limit} items when every kind's first item is offered before any kind's second,
+     * the survivors returned in their original order.
+     *
+     * <p>A detector may emit one topic per day (snow lying for four days is four topics), and a plain
+     * cut to a tool's few result slots would let that one kind fill every slot and crowd aurora, dust
+     * or surge out. Ranking by how many of its own kind came before an item (stable otherwise) gives
+     * each kind its first day before any kind its second, while the dates stay intact, so an answer
+     * can still name a later day of a long spell when slots remain.
+     *
+     * @param items   the items, in the order they would be offered
+     * @param kindOf  the kind an item belongs to
+     * @param limit   how many to keep
+     * @param <T>     the item type
+     * @return at most {@code limit} items, in their original relative order
+     */
+    static <T> List<T> roundRobinLimit(List<T> items, Function<T, String> kindOf, int limit) {
+        Map<String, Integer> seenOfKind = new HashMap<>();
+        int[] rank = new int[items.size()];
+        for (int i = 0; i < items.size(); i++) {
+            rank[i] = seenOfKind.merge(kindOf.apply(items.get(i)), 1, Integer::sum) - 1;
+        }
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            order.add(i);
+        }
+        // List.sort is stable, so equal ranks keep their original order.
+        order.sort(Comparator.comparingInt(i -> rank[i]));
+        List<Integer> kept = new ArrayList<>(order.subList(0, Math.max(0, Math.min(limit, order.size()))));
+        Collections.sort(kept);
+        List<T> result = new ArrayList<>();
+        for (int i : kept) {
+            result.add(items.get(i));
+        }
+        return List.copyOf(result);
     }
 
     /**

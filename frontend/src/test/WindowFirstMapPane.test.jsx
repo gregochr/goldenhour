@@ -447,40 +447,10 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.planHandoff).toBeNull();
     });
 
-    it('forwards onReturnToPlan straight through, by identity', () => {
-      const onReturnToPlan = vi.fn();
-      renderPane({ onReturnToPlan });
-      expect(MapStub.lastProps.onReturnToPlan).toBe(onReturnToPlan);
-    });
-
-    it('onClearOrigin calls the SAME setOrigin the masthead\'s ⌂ and every "plan from a region" '
-        + 'action already call — resetting the whole app\'s shared origin, not a copy of it', () => {
-      const setOrigin = vi.fn();
-      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
-        heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
-        homePlace: null, todayStr: DATES[0], origin: null, setOrigin,
-        effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: null,
-      });
-      renderPane();
-      MapStub.lastProps.onClearOrigin();
-      expect(setOrigin).toHaveBeenCalledTimes(1);
-      expect(setOrigin).toHaveBeenCalledWith(null);
-    });
-
-    it('onClearOrigin keeps the SAME function identity across a re-render — a fresh arrow every '
-        + 'render would defeat MapView\'s React.memo, which this pane\'s own re-render cadence '
-        + '(every provider tick) makes a real cost, not a theoretical one', () => {
-      const { rerender } = renderPane();
-      const first = MapStub.lastProps.onClearOrigin;
-      rerender(
-        <WindowFirstMapPane
-          locations={[]}
-          dates={DATES}
-          selectedDate={DATES[0]}
-          onSelectDate={vi.fn()}
-        />,
-      );
-      expect(MapStub.lastProps.onClearOrigin).toBe(first);
+    it('forwards neither the breadcrumb\'s return nor its origin reset: the landing strip is gone with the tab', () => {
+      renderPane({ onReturnToPlan: vi.fn() });
+      expect(MapStub.lastProps).not.toHaveProperty('onReturnToPlan');
+      expect(MapStub.lastProps).not.toHaveProperty('onClearOrigin');
     });
 
     // unrated-verdict-plan.md U2, Codex review of #1140 round 2: the callout's fallback source for

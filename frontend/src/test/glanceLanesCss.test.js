@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /**
- * "The days ahead" lanes, and the slim empty slots and best-location name that ship with them, asserted as TEXT —
+ * The day lanes, and the slim empty slots and best-location name that ship with them, asserted as TEXT —
  * {@code vite.config.js} sets {@code css: false} and jsdom has no layout engine, so nothing here can measure a box
  * ({@code heatTokens.test.js} reads {@code index.css} the same way). What is pinned is the part a later edit could
  * quietly break (days-ahead-lanes-plan.md):
@@ -48,7 +48,7 @@ const mediaBlock = (query, from = 0) => {
   throw new Error('unbalanced');
 };
 
-const lanesStart = css.indexOf('/* "The days ahead" lanes (days-ahead-lanes-plan.md');
+const lanesStart = css.indexOf('/* The day lanes (days-ahead-lanes-plan.md');
 const lanesEnd = css.indexOf('/* An empty cell says why it is empty', lanesStart);
 const lanesCss = css.slice(lanesStart, lanesEnd);
 const phone = mediaBlock('(max-width: 639px)', lanesStart);
@@ -129,12 +129,12 @@ describe('the days-ahead lanes stylesheet', () => {
   });
 
   it('keeps the hover and focus border on the muted ink and the focus ring gold, on the button itself', () => {
-    expect(ruleBody('.wf-lane:hover::before,\n.wf-lane:focus-visible::before'))
+    expect(ruleBody('.wf-lane:where(button):hover::before,\n.wf-lane:focus-visible::before'))
       .toContain('border-color: var(--color-plex-text-muted);');
     const ring = ruleBody('.wf-lane:focus-visible');
     expect(ring).toContain('outline: 2px solid var(--color-plex-gold);');
     // The hover rule comes BEFORE the edge rules, so it cannot repaint the ends-after lane's transparent right edge.
-    expect(css.indexOf('.wf-lane:hover::before,'))
+    expect(css.indexOf('.wf-lane:where(button):hover::before,'))
       .toBeLessThan(css.indexOf(".wf-lane[data-ends-after='true']::before {"));
   });
 
@@ -247,5 +247,10 @@ describe('the best-location name', () => {
   it('keeps `.none` and `.beyond` on their own rules', () => {
     expect(ruleBody('.wf-hc-best.none')).toContain('color: var(--color-plex-text-secondary);');
     expect(ruleBody('.wf-hc-best.beyond')).toContain('font-size: 10px;');
+  });
+
+  it('highlights only the tappable lane on hover: a plain-text lane (a div) takes no hover border or outline', () => {
+    expect(css).not.toMatch(/\.wf-lane:hover/);
+    expect(css).toContain('.wf-lane:where(button):hover { outline: 1px solid Highlight; }');
   });
 });

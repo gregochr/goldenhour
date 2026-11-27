@@ -16,8 +16,7 @@ describe('guide tables', () => {
       index: 'Guide',
       'getting-started': 'Getting started',
       'reading-the-forecast': 'Reading the forecast',
-      'at-a-glance': 'At a Glance',
-      'coming-up': 'Coming up',
+      planning: 'Planning a shoot',
       map: 'Map',
       'weather-warnings': 'Weather warnings',
       'night-sky': 'Aurora and night sky',
@@ -28,22 +27,22 @@ describe('guide tables', () => {
     });
   });
 
-  it('maps each tab to its guide page', async () => {
+  it('maps each screen to its guide page', async () => {
     const mod = await loadGuide();
-    expect(mod.TAB_GUIDE).toEqual({ plan: 'at-a-glance', 'coming-up': 'coming-up', map: 'map' });
+    expect(mod.SCREEN_GUIDE).toEqual({ plan: 'planning', map: 'map' });
   });
 
   it('lists every page and section the app opens', async () => {
     const mod = await loadGuide();
     expect(mod.GUIDE_SECTIONS).toEqual({
-      lens: { page: 'at-a-glance', section: 'lens' },
-      bestBet: { page: 'at-a-glance', section: 'bestbet' },
+      lens: { page: 'planning', section: 'lens' },
+      bestBet: { page: 'planning', section: 'bestbet' },
       fixed: { page: 'reading-the-forecast', section: 'fixed' },
       colour: { page: 'reading-the-forecast', section: 'colour' },
       fiery: { page: 'reading-the-forecast', section: 'fiery' },
-      comingUpNew: { page: 'coming-up', section: 'new' },
-      comingUpTopics: { page: 'coming-up', section: 'topics' },
-      comingUpTides: { page: 'coming-up', section: 'tides' },
+      furtherAheadNew: { page: 'planning', section: 'new' },
+      furtherAheadTopics: { page: 'planning', section: 'topics' },
+      furtherAheadTides: { page: 'planning', section: 'tides' },
       mapWindow: { page: 'map', section: 'window' },
       mapFilters: { page: 'map', section: 'filters' },
       mapHotTopics: { page: 'map', section: 'hot-topics' },
@@ -62,7 +61,7 @@ describe('guide tables', () => {
   it('freezes the tables and every section entry', async () => {
     const mod = await loadGuide();
     expect(Object.isFrozen(mod.GUIDE_PAGES)).toBe(true);
-    expect(Object.isFrozen(mod.TAB_GUIDE)).toBe(true);
+    expect(Object.isFrozen(mod.SCREEN_GUIDE)).toBe(true);
     expect(Object.isFrozen(mod.GUIDE_SECTIONS)).toBe(true);
     for (const entry of Object.values(mod.GUIDE_SECTIONS)) {
       expect(Object.isFrozen(entry)).toBe(true);

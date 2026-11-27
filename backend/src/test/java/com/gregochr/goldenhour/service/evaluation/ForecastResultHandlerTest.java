@@ -1160,7 +1160,7 @@ class ForecastResultHandlerTest {
     // ── v2.13.2: sky-tide decomposition ──────────────────────────────────────
 
     @Test
-    @DisplayName("coastal aligned (regular) tide: sky 3 + tide 4 → averaged to 4")
+    @DisplayName("coastal aligned (regular) tide: sky 3 + tide 4 → stays 3 (tide never lifts a sub-4 sky)")
     void parseBatchResponse_coastalAlignedTide_averagesSkyAndTide() {
         LocationEntity location = coastalLocation(50L, "Berwick", "Northumberland");
         ForecastIdentity identity = new ForecastIdentity(50L, DATE, SUNRISE, null);
@@ -1179,8 +1179,8 @@ class ForecastResultHandlerTest {
                 ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
 
         assertThat(result).isPresent();
-        // avg(sky 3, tide 4) = 3.5 → 4 (half-up)
-        assertThat(result.get().result().rating()).isEqualTo(4);
+        // avg(sky 3, tide 4) = 3.5 → 4 (half-up), clamped to the sky (3): the tide only lifts 4★+ skies
+        assertThat(result.get().result().rating()).isEqualTo(3);
         assertThat(result.get().result().summary()).isEqualTo("sky-only summary");
     }
 

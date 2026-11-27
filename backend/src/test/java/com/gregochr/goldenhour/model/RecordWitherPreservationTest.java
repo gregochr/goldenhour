@@ -103,7 +103,9 @@ class RecordWitherPreservationTest {
             Wither.of(BriefingWindow.class, "withPick", "pick"),
             Wither.of(BriefingWindow.class, "withBestRating", "bestRating"),
             Wither.of(BriefingWindow.class, "withBadges", "badges"),
-            Wither.of(BriefingWindow.class, "withWarnings", "warningIds", "warningPlaceCounts"));
+            Wither.of(BriefingWindow.class, "withWarnings", "warningIds", "warningPlaceCounts"),
+            Wither.of(BriefingWindow.class, "withCoverage", "coverageReason", "fog"),
+            Wither.of(BriefingSlot.class, "withDisposition", "disposition"));
 
     /**
      * Withers deliberately outside the table: {@code BriefingSlot.withClaudeScores} is overloaded
@@ -233,7 +235,7 @@ class RecordWitherPreservationTest {
                 .filter(m -> isWither(BriefingWindow.class, m)).map(java.lang.reflect.Method::getName))
                 .as("BriefingWindow gained a wither: add it to WITHERS")
                 .containsExactlyInAnyOrder("withTide", "withTideFacts", "withPick", "withBestRating", "withBadges",
-                        "withWarnings");
+                        "withWarnings", "withCoverage");
 
         Object built = Sentinels.record(BriefingWindow.class, 1, Map.of());
         Object[] values = new Object[BriefingWindow.class.getRecordComponents().length];
@@ -260,8 +262,9 @@ class RecordWitherPreservationTest {
         // constructor added later must be registered, which is the moment to state what it defaults.
         // The 8-arg form (every component but the warning overlay, W1b) keeps the pre-warnings sites compiling.
         Map<Integer, Set<String>> documentedDefaults = Map.of(
-                7, Set.of("tideFacts", "warningIds", "warningPlaceCounts"),
-                8, Set.of("warningIds", "warningPlaceCounts"));
+                7, Set.of("tideFacts", "warningIds", "warningPlaceCounts", "coverageReason", "fog"),
+                8, Set.of("warningIds", "warningPlaceCounts", "coverageReason", "fog"),
+                10, Set.of("coverageReason", "fog"));
 
         RecordComponent[] components = BriefingWindow.class.getRecordComponents();
         Object full = Sentinels.record(BriefingWindow.class, 1, Map.of());

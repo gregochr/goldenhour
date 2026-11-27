@@ -1,7 +1,7 @@
 import {
   useCallback, useEffect, useMemo, useReducer, useRef, useState,
 } from 'react';
-import { getSettings, saveMapTideMode } from '../api/settingsApi.js';
+import { getSettings, markPlacesHintDismissed, saveMapTideMode } from '../api/settingsApi.js';
 import { setMode, getMode, resolveMode } from '../utils/scoreRamp.js';
 import { createColourSaveQueue, keepColourSaveLineOpen, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
@@ -19,6 +19,8 @@ function homeFieldsOf(settings) {
     // STRICT: only a literal `true` from the server prompts. A response without the field (an older
     // server, a mock) never does, so nothing that predates the flag changes behaviour.
     postcodePromptDue: settings?.postcodePromptDue === true,
+    // STRICT, like the prompt's: only a literal `true` shows the one-time Bookmark hint (screen-spec.md D8).
+    placesHintDue: settings?.placesHintDue === true,
   };
 }
 
@@ -78,7 +80,8 @@ export function recordReducer(record, action) {
     || !sameStamp(prev.driveTimesCalculatedAt, next.driveTimesCalculatedAt);
   // The prompt flag is part of the record too: a dismissal's answer changes nothing else (same home,
   // same stamp, no place name), so without this test the early return would drop it.
-  const promptChanged = prev !== undefined && prev.postcodePromptDue !== next.postcodePromptDue;
+  const promptChanged = prev !== undefined
+    && (prev.postcodePromptDue !== next.postcodePromptDue || prev.placesHintDue !== next.placesHintDue);
   if (!moved && !drivesChanged && !promptChanged && prev.homePlaceName === next.homePlaceName) {
     return record;
   }
@@ -167,7 +170,8 @@ export function recordReducer(record, action) {
  * response carries no place name, which the reducer already keeps from the record for the same home.
  *
  * @returns {{homePlace: (?string|undefined), homeCoords: (?{lat: number, lon: number}|undefined),
- *           postcodePromptDue: boolean, comingUpLastSeenDate: (?string|undefined), setComingUpLastSeenDate: function,
+ *           postcodePromptDue: boolean, placesHintDue: boolean, dismissPlacesHint: function, settlePlacesHint: function,
+ *           comingUpLastSeenDate: (?string|undefined), setComingUpLastSeenDate: function,
  *           homeSettingsVersion: number, driveTimesVersion: number, mapColourScale: string,
  *           startSettingsRead: function, homeSaved: function,
  *           driveTimesRecalculated: function, colourSaved: function,
@@ -345,6 +349,20 @@ export default function useReaderSettings() {
   // Unknown (the mount read unanswered or failed) is false: a prompt is raised on an answer, never
   // on silence.
   const postcodePromptDue = known && settings.postcodePromptDue === true;
+  // The one-time "Bookmark places and watch dates" hint (screen-spec.md D8): due while the server says so, and hidden at
+  // once by a dismissal here (the write follows). Unknown is false, as the prompt's is.
+  const [placesHintGone, setPlacesHintGone] = useState(false);
+  const placesHintDue = known && settings.placesHintDue === true && !placesHintGone;
+  /** The hint's ✕: hide it at once, then write the flag. A failed write leaves it hidden for this session only. */
+  const dismissPlacesHint = useCallback(() => {
+    setPlacesHintGone(true);
+    markPlacesHintDismissed().catch(() => {});
+  }, []);
+  /**
+   * The reader saved a favourite while the hint was due: the server has stamped the flag (the first favourite of any kind
+   * does), so patch it down here with no write, and a remount of the shell can never bring the hint back.
+   */
+  const settlePlacesHint = useCallback(() => setPlacesHintGone(true), []);
 
   return {
     homePlace,
@@ -352,6 +370,9 @@ export default function useReaderSettings() {
     comingUpLastSeenDate,
     setComingUpLastSeenDate,
     postcodePromptDue,
+    placesHintDue,
+    dismissPlacesHint,
+    settlePlacesHint,
     homeSettingsVersion: record.homeSettingsVersion,
     driveTimesVersion: record.driveTimesVersion,
     mapColourScale,

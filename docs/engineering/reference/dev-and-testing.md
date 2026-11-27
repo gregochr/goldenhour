@@ -200,15 +200,15 @@ window from T-3 to T+4 (T-4 is left empty on purpose, so the window control reac
 
 | Spec | What it asserts |
 |---|---|
-| `tabs.spec.js` | The tab bar is Plan, Coming up, Map, Operations (waits for the Map tab, which appears only once the forecast has loaded); each tab renders (heat cards, the almanac list, a Leaflet container, Operations). Never the desktop's opening tab: Map is preferred only if `/api/forecast` lands within 1.5 s, so every spec clicks its tab. |
-| `phone.spec.js` | At 390 px the four tabs are there and Plan is selected. |
+| `screen.spec.js` | The one screen (one-screen-plan.md O3): no tab list and no Map button, and every device opens on This week; This week renders its heat cards, Further ahead its almanac list, and a card opens a Leaflet map view. The ☰ menu: the admin's has Operations, a Pro and a Lite reader's have no such row at all; Escape closes it with focus on its button. Operations opens from the menu, hides the screen, closes with "‹ PhotoCast" (focus back on ☰), Back steps out of a sub-view and then out of the view, an admin's `#manage/runs` link opens it on load, and a non-admin's is cleared without ever fetching the `ManageView` chunk. Rewritten from `tabs.spec.js`, which went with the tabs. |
+| `phone.spec.js` | At 390 px there is no tab bar, This week is on screen, and the ☰ menu holds Settings and Sign out. |
 | `map-phone-overflow.spec.js` | At 360, 375 and 390 (Chromium mobile emulation, not a real phone) the Map states (default, Best bet reason, Regions, Filters, windows, List, callout) keep every shown element inside the viewport and add no inner horizontal scroller or clipped overflow. It measures boxes, not `documentElement.scrollWidth` (the Map root and sheets clip). 320 is report-only (`M1_REPORT=1`, known debt); `M1_SHOTS=<dir>` saves screenshots. |
 | `map.spec.js` | Leaflet draws and tiles are requested (a counter, polled); every visible chip's star equals the served star for the active window; a chip opens the callout whose score agrees; the close button and Escape both close it. Chips are the visible ones **by role** and polled, after `data-placed="true"` on `map-labels` (the placement-settled signal, a one-line frontend seam). |
 | `window-stepping.spec.js` | From the current window forward to the last (`›` disables, no wrap), back through today into the past (`wf-win-past` appears), the keyboard with the pill focused, then `‹` loading the two older days (T-3 with rows, T-4 empty) and stopping at the floor, where `‹` is disabled and the status line explains why. At each step the pill changes and every chip present in both windows changes star. A phone leg uses the peek sheet. |
 | `drilldown-map.spec.js` | Chip, callout, "Four days here", the location sheet (one row opens expanded; its detail response is awaited from a waiter registered before the click), a second row's lazily fetched detail, and the Escape order back out (sheet, focus to the reason line, selection). |
 | `drilldown-plan.spec.js` | A heat card opens the Map on that window (by click, by Enter from the card's one tab stop, and by the legend's overhang), with no dialog left open; a place from Find opens its location sheet one dialog deep (a MutationObserver installed before load records the maximum concurrent `.app-safe-modal` and `aria-modal`). Bamburgh Beach shows the rising-tide fact; an inland place does not. Escape closes the sheet; the close button works. |
 | `map-glance.spec.js` | The Glance-to-Map doors: a Plan card opens the Map on its window; Map to List to a row lands on the callout and Escape peels one layer; the Best bet reason opens and closes; and the warning chip on the T+1 sunset window (opened by its `data-ev-id`, never the first window) has a `map-warning-toggle` that expands and collapses the full warning (`aria-expanded`, `Details`/`Hide`, the panel in its host, the attribution, no stale line), closes by the toggle, the panel's close button and one Escape. |
-| `roles.spec.js` | Read-only role gating, signed in as `lite` and `pro` (not the admin, so the sign-out hazard does not apply). Every non-admin: no Operations tab, and `GET /api/admin/scheduler/jobs` is 403 through `page.request` (the page's hygiene never sees it), with the admin's 200 as the control. LITE: Pro doors (`wf-heat-bestbets-upsell-*` on the Plan, `wf-scores-upsell-*` in a location sheet) open a worded popover with a Pro pill and no link; Ask is locked (`ask-field[data-locked]`, the Pro lens, the upsell) and no `/api/ask*` request is made; "How was it?" is locked (`pro-pill`, "Rating is part of Pro.", no write); chips outside the picks carry `data-gated`, the callout says "Outside your sub-regions" and the sheet shows `location-sheet-outside`; and the served `/api/forecast`, `/api/briefing/evaluate/scores` and `/api/briefing` carry no Red Sky/Golden Hour scores, no written why and no picks, with the gated places unrated, against PRO's full bodies as the contrast. PRO: none of the locks. |
+| `roles.spec.js` | Read-only role gating, signed in as `lite` and `pro` (not the admin, so the sign-out hazard does not apply). Every non-admin: (no Operations menu row: `screen.spec.js`), and `GET /api/admin/scheduler/jobs` is 403 through `page.request` (the page's hygiene never sees it), with the admin's 200 as the control. LITE: Pro doors (`wf-heat-bestbets-upsell-*` on the Plan, `wf-scores-upsell-*` in a location sheet) open a worded popover with a Pro pill and no link; Ask is locked (`ask-field[data-locked]`, the Pro lens, the upsell) and no `/api/ask*` request is made; "How was it?" is locked (`pro-pill`, "Rating is part of Pro.", no write); chips outside the picks carry `data-gated`, the callout says "Outside your sub-regions" and the sheet shows `location-sheet-outside`; and the served `/api/forecast`, `/api/briefing/evaluate/scores` and `/api/briefing` carry no Red Sky/Golden Hour scores, no written why and no picks, with the gated places unrated, against PRO's full bodies as the contrast. PRO: none of the locks. |
 | `roles-write.spec.js` | The Pro reader rates one past window (`outcome-rating-block`): the `PUT /api/outcome/ratings` is 200, the block reads rated, and the row reads back from `GET /api/outcome/ratings`. The only spec that writes shared state, so it is its own serial project, `roles-write` (`dependencies: ['smoke']`, `workers: 1`), before `logout`. |
 | `nginx.spec.js` | The production nginx config, read FROM the mounted file (`E2E_NGINX_CONF`; each parse asserts it matched). **Skips unless `E2E_WEB=nginx`.** The document's CSP equals the config's `$csp` (the mode guard: a silent fall back to `vite preview` fails here); the seven `add_header ... always` names of `location /`, each once with the configured value, on the shell, a hashed asset and a deep link (`page.request` and `headersArray()`); caching (`no-cache` on the shell and a deep link, `public` and `immutable` plus a far `Expires` on assets); the SPA fallback (`try_files` only: the app has no client router); `/assets/missing.js` is a 404 that still carries the headers; the sha256 of the `<script nomodule>` body is in the CSP (Chromium skips that script before CSP, so a stale hash logs nothing); the first `/api/status/stream` event arrives within 8 s through the proxy (measured at about 20 ms; a buffering nginx would hold it to the 30 s heartbeat); no inline `<style>` on any tab or in the window sheet. Not covered: `worker-src` (service workers are blocked). |
 | `ask.spec.js`, `scheduler.spec.js`, `auth.spec.js`, `logout.spec.js` | As in Phase 2. Ask asserts the box and its allowance only: nothing runs `AskReadyPrecompute`, so no Ready answers exist. |
@@ -358,12 +358,13 @@ the distribution with `./mvnw -v`, up to 3 attempts with a 10 s / 20 s backoff, 
 that download warm-up retries; the real Maven command that follows is never retried. A new workflow job that calls
 `./mvnw` must add the same step. `backend/Dockerfile` uses Alpine's `apk` Maven, not the wrapper, so it is unaffected.
 
-### Prompt regression in CI (approval-gated, never required)
+### Prompt regression in CI (runs automatically, never required)
 
 `Prompt regression (approval-gated)` (`.github/workflows/prompt-regression.yml`, Phase 5b) runs the real-Claude
 `prompt-regression` classes on pull requests that change prompt or evaluation code. It is **its own workflow**, never a job in
-`ci.yml`, and **never a required check**: a run that is waiting for approval, skipped or expired is normal and is not awaited
-before a merge (CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and `Prompt regression — ask`).
+`ci.yml`, and **never a required check**: a skipped run is normal, and a red run is reported, never awaited, before a merge
+(CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and `Prompt regression — ask`). The workflow's name still says
+"approval-gated" because it is the check name and `prompt-regression-workflow.test.sh` pins it; the gate itself is off (below).
 
 - **How it triggers.** `pull_request` (opened, synchronize, reopened, ready_for_review) and `workflow_dispatch`. A `changes` job
   (no secrets, no environment) takes a three-dot `git diff` against the merge base (`fetch-depth: 0`) and feeds it to
@@ -373,21 +374,30 @@ before a merge (CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and
   Fork PRs and Dependabot never reach the paid jobs; for an SDK bump the owner runs the workflow manually.
 - **What runs.** `sky`: `SkyRatingRegressionTest` and `SystemPromptTokenCountTest` with
   `SKY_MODEL=SONNET_55` and `SKY_RUNS` (1 on a PR; 1 or 8 by the dispatch input). `ValleyMistPromptRegressionTest` runs in its own
-  `continue-on-error` step and is reported, never failing, until the owner approves its assertions. `ask`: `Ask*RegressionTest`
+  `continue-on-error` step and is reported, never failing, until the owner approves its assertions. That step passes
+  `-Dregression.model="$SKY_MODEL"`, so it runs on the same model as the sky step (before 2026-11-27 it silently ran on the
+  test's HAIKU default). `ask`: `Ask*RegressionTest`
   with `-DforkCount=1`; any skipped Ask test is shown red in the summary, because a skipped paid test checked nothing.
   `PromptReplayHarnessTest` never runs. The step summary (`scripts/prompt-regression-summary.py`, read from the surefire
   `TEST-*.xml`) and the uploaded reports use `if: ${{ !cancelled() }}`, so a red test step still produces them.
-- **Approval.** Both jobs run in the `prompt-regression` GitHub environment, whose required reviewer is the owner; nothing spends
-  money without a click. The key is the environment secret `PROMPT_REGRESSION_ANTHROPIC_API_KEY`, a separate, spend-capped key
-  (never the production or smoke key), and a run fails fast when it is empty. ⚠️ **The approval is a cost gate, not a sandbox.**
-  Once approved, the PR head's workflow, tests, pom plugins and Maven wrapper all run with the key.
-- **Owner's pre-approval checklist (B3).** Before clicking Approve, read the PR's diff of `.github/**`, `backend/pom.xml`, `.mvn/**`,
-  `mvnw` and `backend/src/test/**`. Anything there that is not obviously about the prompt under test is a reason to reject the run.
+- **No approval gate (owner's choice, 2026-11-27).** Both jobs run in the `prompt-regression` GitHub environment, which holds the
+  key but has **no required reviewer**: a prompt-changing PR runs the paid jobs as soon as it is opened or pushed (observed on
+  PR #1967 and on the `main` run before it: each job started about 3 s after it was queued). The original design (2026-11-08)
+  had the owner as required reviewer, so nothing spent money without a click; to restore that, tick Required reviewers on the
+  environment and update this section and CLAUDE.md step 6. The key is the environment secret
+  `PROMPT_REGRESSION_ANTHROPIC_API_KEY`, a separate, spend-capped key (never the production or smoke key), and a run fails fast
+  when it is empty; the spend cap is now the only cost limit. ⚠️ **Same-repository PRs only, and that is the security boundary.**
+  A same-repository PR's head workflow, tests, pom plugins and Maven wrapper all run with the key, with no click in between;
+  fork PRs and Dependabot never reach the paid jobs.
+- **Owner's review checklist (B3, was the pre-approval checklist).** On a prompt-changing PR, read its diff of `.github/**`,
+  `backend/pom.xml`, `.mvn/**`, `mvnw` and `backend/src/test/**` as part of reviewing it. Anything there that is not obviously about
+  the prompt under test is a reason to look hard at what the paid run did with the key.
 - **Costs** (estimates): sky quick (k=1) about 25 calls on Sonnet 5.5, roughly $0.10-0.30 and 5 minutes; sky eval (k=8, dispatch
   only) 80+ calls, roughly $1-2 and 20-40 minutes; ask about 145 asks on Haiku, roughly $1.50-3.60 and 30-50 minutes. A newer push
-  to the same branch cancels a stale run (`concurrency` per job), so an unapproved run costs nothing.
-- **Manual runs.** Actions, Prompt regression, Run workflow: choose `suite` (`sky`, `ask`, `both`) and `sky_runs` (`1` or `8`). The
-  same environment approval applies.
+  to the same branch cancels a stale run (`concurrency` per job). With no gate, every prompt-changing PR and every push to one
+  pays for a run.
+- **Manual runs.** Actions, Prompt regression, Run workflow: choose `suite` (`sky`, `ask`, `both`) and `sky_runs` (`1` or `8`). They
+  start at once, like PR runs.
 - **Tests.** `scripts/test/prompt-regression-{paths,summary,workflow}.test.sh` run in `Shell — script tests`; the scripts are
   ShellChecked by `Shell — ShellCheck`. `actionlint` is not part of CI.
 

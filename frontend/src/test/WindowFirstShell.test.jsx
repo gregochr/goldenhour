@@ -4,6 +4,7 @@ import React from 'react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
+import { pressMenuRow } from './shellMapDoor.js';
 
 describe('WindowFirstShell', () => {
   const renderShell = (props = {}) => {
@@ -20,37 +21,32 @@ describe('WindowFirstShell', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'PhotoCast' })).toBeInTheDocument();
   });
 
-  it('carries the cog and Sign out — the masthead\'s route to either', () => {
+  it('carries Settings and Sign out in the ☰ menu — the masthead\'s route to either', () => {
     // Both are lifted handlers, not new state. Losing either would strand a user with no route to
     // settings or to signing out while the Plan is healthy — the crash fallback offers its own
     // Sign-out separately (PlanErrorBoundary).
     const { onOpenSettings, onSignOut } = renderShell();
 
     // By ROLE AND NAME, not test-id: a test-id keeps passing while the accessible name rots.
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    pressMenuRow('window-first-settings');
+    pressMenuRow('window-first-signout');
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it('renders two tabs, Plan selected, and no tab whose pane does not exist', () => {
-    // The design draws four. Coming up landed at P13 WITH its pane; Map and Manage arrive when this
-    // subtree takes over view state. A tab that renders nothing is a demo control and §6 bans those
-    // from the shipped build — so this pins that each tab lands with its pane rather than ahead of
-    // it, and it is the count that does the pinning: an added tab has to be argued for here.
+  it('renders no tab at all: one screen, This week over Further ahead (one-screen-plan.md O3)', () => {
+    // The tab bar is gone, and so is the tab-count argument it carried: a view arrives with its pane (the map, Operations),
+    // and neither is a tab. This pins that nothing tab-shaped creeps back.
     renderShell();
 
-    const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(2);
-    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
-    expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
-    // The pair of label spans and nothing else: the ◉ is decorative and must not leak into the name.
-    expect(tabs[0]).toHaveAccessibleName('At a GlanceGlance');
-    expect(tabs[1]).toHaveAccessibleName('Coming up');
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    expect(screen.getByTestId('further-ahead')).toBeInTheDocument();
   });
 
-  it('carries exactly the five masthead controls, so no build/health pill creeps in', () => {
+  it('carries exactly the three masthead controls, so no build/health pill creeps in', () => {
     // The mock shows "● UP v2.17.7" unconditionally; §7 drops it, because build version and
     // service health are not a pilot user's business and HealthIndicator is admin-only. Asserting
     // the ABSENCE of that string would pass whether or not anything was ever built — this names
@@ -61,12 +57,11 @@ describe('WindowFirstShell', () => {
     // labels that vary with state (the origin's place name, the nudge's swap) and a text list would
     // then be a fixture detail rather than an inventory.
     //
-    // ⚠️ Five since the guide (user-guide-plan.md G2): the `?` between the cog and Sign out.
+    // ⚠️ Three since one-screen-plan.md D14: the cog, the `?` and Sign out folded into the ☰ menu button.
     renderShell();
     const masthead = screen.getByTestId('window-first-masthead');
     const ids = within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid'));
-    expect(ids).toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
-      'window-first-origin-chip', 'window-first-search']);
+    expect(ids).toEqual(['masthead-menu-button', 'window-first-origin-chip', 'window-first-search']);
   });
 
   it('renders the masthead + tab bar at the design\'s 1080px frame', () => {
@@ -100,16 +95,16 @@ describe('WindowFirstShell', () => {
     expect(screen.getByTestId('window-first-pane').className).toContain('pointer-events-none');
     expect(screen.getByTestId('window-first-masthead').className)
       .not.toContain('pointer-events-none');
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    pressMenuRow('window-first-signout');
   });
 
-  it('never greys the tab bar, which is navigation rather than forecast data', () => {
+  it('never greys the masthead, which is navigation rather than forecast data', () => {
     // The day rail used to need this treatment applied to it EXPLICITLY, because it sat outside the
     // pane. Its replacement — the heat strip — is inside the pane and inherits it (plan D1, §1.1),
     // so what is left to pin here is the boundary: the treatment stops at the chrome.
     renderShell({ contentDisabled: true });
 
-    expect(screen.getByTestId('window-first-tabs').className).not.toContain('pointer-events-none');
+    expect(screen.getByTestId('window-first-masthead').className).not.toContain('pointer-events-none');
     expect(screen.getByTestId('window-first-tickline').className)
       .not.toContain('pointer-events-none');
   });
@@ -279,7 +274,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('puts the heat strip INSIDE the Plan pane, below the tab bar — the recorded reversal', async () => {
+  it('puts the heat strip INSIDE the screen\'s pane, below the masthead — the recorded reversal', async () => {
     // Until P2 a day rail sat ABOVE the tab bar and this file pinned it there, on the reasoning
     // that the rail was the whole screen's date context rather than one pane's. Decision D1
     // (owner-confirmed 2026-08-18, plan §1.1) reverses that: the strip is a Plan-pane element,
@@ -295,9 +290,9 @@ describe('WindowFirstShell — the strip it hosts', () => {
     // why (a static import would put `d3-geo` in the entry chunk for every reader).
     const strip = await screen.findByTestId('wf-heat-strip');
     const pane = screen.getByTestId('window-first-pane');
-    const tabs = screen.getByTestId('window-first-tabs');
+    const masthead = screen.getByTestId('window-first-masthead');
     expect(pane).toContainElement(strip);
-    expect(tabs.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(masthead.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('wires picksLocked from the context to the strip: LITE gets the Best bets door in the key row, PRO none', async () => {
@@ -332,9 +327,10 @@ describe('WindowFirstShell — the strip it hosts', () => {
 
     const heat = await screen.findByTestId('wf-heat-strip');
     const status = screen.getByTestId('window-first-pane-status');
-    const pane = screen.getByTestId('window-first-pane');
+    // The first section's own children: Further ahead is a second section after it (one-screen-plan.md O2).
+    const pane = screen.getByTestId('this-week');
     const children = [...pane.children];
-    // Both must be the pane's OWN children for the adjacency to mean anything — an index of
+    // Both must be the section's OWN children for the adjacency to mean anything — an index of
     // -1 would make the assertion vacuously satisfiable from either end.
     expect(children).toContain(heat);
     expect(children).toContain(status);
@@ -361,7 +357,8 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(screen.queryByTestId('window-first-conflict')).toBeNull();
     const status = screen.getByTestId('window-first-lens-verdict-status');
     expect(status).toBeEmptyDOMElement();
-    expect(screen.getByTestId('window-first-lens')).toContainElement(status);
+    // A sibling of the lens, outside its `inert` subtree (so a verdict arriving past This week is announced).
+    expect(screen.getByTestId('window-first-lens').nextElementSibling).toBe(status);
     expect(screen.getByTestId('window-first-lens-readout')).not.toHaveAttribute('data-variant', 'verdict');
   });
 
@@ -681,10 +678,10 @@ describe('WindowFirstShell — the strip it hosts', () => {
   });
 
   describe('the reach lens bar', () => {
-    it('sits between the tab rule and the pane, where the design puts it', () => {
+    it('sits between the masthead and the pane, where the design puts it', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
 
-      const rule = screen.getByTestId('window-first-tabrule');
+      const rule = screen.getByTestId('window-first-masthead');
       const lens = screen.getByTestId('window-first-lens');
       const pane = screen.getByTestId('window-first-pane');
       expect(rule.compareDocumentPosition(lens) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -717,24 +714,21 @@ describe('WindowFirstShell — the strip it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       expect(screen.getByTestId('window-first-lens-readout'))
-        .toHaveTextContent('45 min · weekday default · any rating · 3 spots across 2 windows');
+        .toHaveTextContent(/^3 spots · 2 windows$/);
     });
 
-    it('states the rating floor as well, so the summary names both controls', () => {
-      // A summary that names one of two lenses reads as though the page had only one — which was
-      // true until the floor arrived, and is exactly the misreading worth the twelve characters.
+    it('does not restate the rating floor: the pressed chip beside the count says it (screen-spec.md D7)', () => {
       renderWithBriefing({
         ...briefingWith('2026-08-04T12:00:00'),
         ratingLens: { ...RATING_LENS, floorId: '4', minRating: 4, floor: { id: '4', min: 4, label: '4★+' } },
       });
 
-      expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('4★+');
+      expect(screen.getByTestId('window-first-lens-readout')).not.toHaveTextContent('4★+');
     });
 
-    it('⚠️ drops "within reach" from the page’s ONE count when nothing measured a drive', () => {
-      // §4 A7 names this readout as the one count statement on the page, which makes it the most
-      // load-bearing place the reach claim could have been wrong. Same two numbers, no claim about
-      // which set they count. Found by an adversarial review of M5 after the popup was fixed.
+    it('⚠️ drops "within reach" from the page\'s ONE count when nothing measured a drive', () => {
+      // §4 A7 names this readout as the one count statement on the page, so it is the most load-bearing place the
+      // reach claim could be wrong. Same numbers and windows, no claim about which set the denominator is.
       const first = {
         ...CARD, reachTotal: 12, reachedTotal: 5, reachMeasured: false,
       };
@@ -745,7 +739,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       const readout = screen.getByTestId('window-first-lens-readout');
-      expect(readout).toHaveTextContent('3 of 9 spots across 2 windows');
+      expect(readout).toHaveTextContent(/^3 of 9 spots · 2 windows$/);
       expect(readout).not.toHaveTextContent('within reach');
     });
 
@@ -754,9 +748,6 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // this project's own qualifier from `browseCountLine`: with nothing trimmed, `3 of 3` is a
       // count dressed as a comparison. `reachedTotal` is the denominator, so the two cards below
       // drew 3 of the 9 that reach left.
-      // `reachMeasured` is what licenses the words "within reach" on the readout — the reader has a
-      // postcode and drive times, so the tier really did gate. Without it the count is the same and
-      // the clause is not, which is the §6 clause 7 fix M5 made across six surfaces.
       const first = {
         ...CARD, reachTotal: 12, reachedTotal: 5, reachMeasured: true,
       };
@@ -767,7 +758,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       expect(screen.getByTestId('window-first-lens-readout'))
-        .toHaveTextContent('3 of 9 spots within reach across 2 windows');
+        .toHaveTextContent(/^3 of 9 spots within reach · 2 windows$/);
     });
 
     it('renders the plan\'s own conflict message, built where both thresholds are known', async () => {
@@ -968,7 +959,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       });
       expect(screen.queryByText('Edit reach')).toBeNull();
 
-      fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      pressMenuRow('window-first-settings');
       fireEvent.click(screen.getByTestId('masthead-set-postcode'));
       expect(onOpenSettings).toHaveBeenCalledTimes(2);
     });
@@ -986,7 +977,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       expect(screen.getByTestId('window-first-pane').className)
         .toContain('pointer-events-none');
       // Both survivors, so this cannot pass on a masthead the tick line has fallen out of.
-      expect(dimmedAncestorOf(screen.getByRole('button', { name: 'Settings' }))).toBeNull();
+      expect(dimmedAncestorOf(screen.getByTestId('masthead-menu-button'))).toBeNull();
       expect(dimmedAncestorOf(screen.getByTestId('window-first-tickline'))).toBeNull();
     });
 

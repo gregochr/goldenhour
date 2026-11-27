@@ -296,7 +296,7 @@ export function isUnroutableDropped(spot, limitMinutes, measured) {
 
 /**
  * Whether one spot is within a tier: the predicate {@link gateSpotsByReach} filters with, extracted so the
- * At a Glance field's reach split reads the same test as {@code card.pool}.
+ * This week field's reach split reads the same test as {@code card.pool}.
  *
  * @param {object}  spot         a descriptor with {@code driveMinutes} and {@code driveStatus}
  * @param {?number} limitMinutes the tier's threshold, null for "Any" (everything passes)
@@ -334,106 +334,53 @@ export function gateSpotsByReach(spots, limitMinutes, { measured = false } = {})
 }
 
 /**
- * How much is on screen, and what the rating floor cost to get there — split so the leading number
- * can be emphasised on its own.
+ * The lens bar's readout (screen-spec.md D7, amended by the owner 2026-11-24 for honesty): the count, the windows it
+ * spans and, when the rating floor removed some, the set the count is out of. {@code N spots · W windows}, or
+ * {@code N of M spots within reach · W windows}. Split so the leading number can be emphasised on its own and the
+ * {@code ·} separator can be hidden from assistive tech.
  *
- * <p>The second number appears <b>only when the floor actually removed something</b>, which is the
- * rule {@code browseCountLine} already holds one surface down: with nothing trimmed, {@code 138 of
- * 138} is a count dressed as a comparison. The handoff asks the strip to "state what it cost"
- * whenever a filter is on, and a floor that cost nothing has nothing to state — the pressed chip is
- * already on screen saying what is set.
+ * <p><b>Why the windows are named.</b> The cards across the windows count one place more than once (a spot that is good
+ * at sunrise and sunset is two), so a bare {@code 6 spots} would read as six distinct places. "W windows" says what the
+ * number counts. The tier, default and rating words stay gone: the pressed chips beside the count already say them
+ * ({@code formatLensReadout} is deleted).
  *
- * <p>The word is "spots across N windows", never "within reach": plan §2.5's rule 2 keeps
- * <em>reach</em> for a set that was actually gated on distance, and this pair of numbers is gated on
- * two axes at once. "across N windows" is also what makes the count honest when one location appears
- * in several of them — it means cards, and there are exactly that many on the page.
+ * <p><b>Why the denominator is named.</b> {@code M} is the spots that cleared the DRIVE limit; the numerator has
+ * cleared the drive limit AND the rating floor. Unqualified, {@code 42 of 138 spots} invites "138 spots exist" and "96
+ * were hidden by my rating", when some of those 96 are simply further out than the tier allows, while a window card's
+ * footer reads {@code 3 of 12}, where 12 IS every spot at that window. Both are true and nothing on screen said they
+ * counted different things, so the line says {@code within reach}.
+ *
+ * <p>The second number appears <b>only when the floor actually removed something</b>, which is the rule
+ * {@code browseCountLine} already holds one surface down: with nothing trimmed, {@code 138 of 138} is a count dressed
+ * as a comparison.
+ *
+ * <p>⚠️ <b>"within reach" is withheld where the reach axis cannot have acted</b>: a reader with no home postcode has no
+ * drive time, an unknown drive passes every tier (plan §2.5, absence means unknown, never out of reach), so
+ * {@code reachedCount} is simply everything and naming a gate that gated nothing is §6 clause 7's own sentence ("no
+ * count describes a set that was never filtered"). The two NUMBERS are unchanged; what goes is the assertion about
+ * which set the denominator is.
  *
  * @param {object} args
- * <p>⚠️ <b>The "within reach" wording is withheld where the reach axis cannot have acted</b>, which
- * is a reader with no home postcode: every drive time is unknown, an unknown drive passes every tier
- * (plan §2.5 — absence means unknown, never out of reach), and so {@code reachedCount} is simply
- * everything. Naming a gate that gated nothing is §6 clause 7's own sentence ("no count describes a
- * set that was never filtered"), and this is the page's ONE count statement (§4 A7), so it is the
- * most load-bearing place the claim could have been wrong. Found by an adversarial review of M5,
- * which had fixed the same claim in one place and stopped there. The two NUMBERS are
- * unchanged — what goes is the assertion about which set the denominator is.
- *
  * @param {number} args.spotCount    spots drawn across every window, after both gates
- * @param {number} args.reachedCount spots the rating floor chose from — after reach, before rating
+ * @param {number} args.reachedCount spots the rating floor chose from, after reach and before rating
  * @param {number} args.windowCount  windows drawn
- * @param {boolean} [args.reachMeasured] whether any drive time exists for the tier to gate on.
- *        Defaults {@code true}, the pre-M5 wording, for a caller that cannot answer
- * @returns {?{lead: string, rest: string}} the number to emphasise and the rest, or null when there
- *          are no windows to count across
+ * @param {boolean} [args.reachMeasured] whether any drive time exists for the tier to gate on. Defaults {@code true}
+ *        for a caller that cannot answer
+ * @returns {?{lead: string, rest: string, tail: string}} the number to emphasise, the words after it, and the window
+ *          clause after the separator; null when there are no windows to count across
  */
 export function formatLensCount({
   spotCount, reachedCount, windowCount, reachMeasured = true,
 }) {
   if (!(windowCount > 0)) return null;
-  const windows = `${windowCount} window${windowCount === 1 ? '' : 's'}`;
+  const tail = `${windowCount} window${windowCount === 1 ? '' : 's'}`;
   if (spotCount < reachedCount) {
-    // "within reach" is not decoration — it names WHICH SET the denominator counts, and without it
-    // this line and a window card's footer are two different claims wearing one shape.
-    //
-    // `reachedCount` is the spots that cleared the DRIVE limit; the numerator has cleared the drive
-    // limit AND the rating floor. So "42 of 138 spots" invited the reading "138 spots exist" and
-    // the arithmetic "96 were hidden by your rating" — when some of those 96 are simply further out
-    // than the tier allows. Meanwhile a card's footer reads "3 of 12", where 12 IS every spot at
-    // that window. Both were true; nothing on screen said they counted different things.
-    //
-    // Naming the gate here rather than qualifying the footer keeps the fix to the line whose
-    // denominator is the surprising one, and leaves the footer's unqualified count meaning what an
-    // unqualified count should mean: everything there is.
     const spots = `spot${reachedCount === 1 ? '' : 's'}`;
     return {
       lead: `${spotCount}`,
-      rest: reachMeasured
-        ? `of ${reachedCount} ${spots} within reach across ${windows}`
-        : `of ${reachedCount} ${spots} across ${windows}`,
+      rest: `of ${reachedCount} ${spots}${reachMeasured ? ' within reach' : ''}`,
+      tail,
     };
   }
-  return {
-    lead: `${spotCount}`,
-    rest: `spot${spotCount === 1 ? '' : 's'} across ${windows}`,
-  };
-}
-
-/**
- * The bar's readout — what both lenses are set to and how much is on screen because of them.
- *
- * <p>Every clause is checked against §6. The tier label is the control's own word. The default
- * clause appears only when the active tier <em>is</em> the default, and names which of the two days
- * derived it, so the reader can tell a deliberate choice from an inherited one.
- *
- * <p><b>The rating clause is stated even when it is "any rating".</b> This line is a summary of the
- * two controls, and a summary that names one of them and silently drops the other reads as though
- * the page had only one lens — which was true until this change and is the misreading worth
- * spending twelve characters to prevent. It is the same reasoning that keeps the tier label on
- * screen while it says "Any".
- *
- * @param {object}  args
- * @param {string}  args.tierLabel   the active tier's label
- * @param {boolean} args.isDefault   whether the active tier is today's derived default
- * @param {boolean} args.weekend     whether today derived the weekend default
- * @param {string}  [args.ratingLabel] the active floor's label, e.g. {@code 4★+}
- * @param {number}  args.spotCount   spots drawn across every window
- * @param {number}  args.reachedCount spots the rating floor chose from
- * @param {number}  args.windowCount windows drawn
- * @returns {string} the readout
- */
-export function formatLensReadout({
-  tierLabel, isDefault, weekend, originDefault, ratingLabel, spotCount, reachedCount, windowCount,
-  reachMeasured = true,
-}) {
-  const parts = [tierLabel];
-  // ⚠️ The day word is only true while the default IS the day's. With an away origin the default
-  // comes from the origin (`useReachLens`'s `defaultOverrideId`), so "weekday default" would name a
-  // rule that is not in force — on a Tuesday, beside a caption reading "Drive from Keswick", it
-  // would be the one line on the bar contradicting the one above it. "here" is the caption's own
-  // subject, so the two read as one sentence rather than as two claims.
-  if (isDefault) parts.push(originDefault ? 'default here' : `${weekend ? 'weekend' : 'weekday'} default`);
-  if (ratingLabel) parts.push(ratingLabel.toLowerCase());
-  const count = formatLensCount({ spotCount, reachedCount, windowCount, reachMeasured });
-  if (count) parts.push(`${count.lead} ${count.rest}`);
-  return parts.join(' · ');
+  return { lead: `${spotCount}`, rest: `spot${spotCount === 1 ? '' : 's'}`, tail };
 }

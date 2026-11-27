@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   compareNames, regionPickSummaries, pickedLineText, countWord, picksNoteText,
 } from '../utils/pickGeography.js';
@@ -6,7 +6,6 @@ import {
   buildRegionGlossIndex, regionGlossFor, regionGlossEntry, glossLead,
 } from '../utils/regionGloss.js';
 import { subRegionAction } from '../utils/subRegionAction.js';
-import { scrollToEntry } from '../utils/scrollToEntry.js';
 import { LOCKED_FULL, OPEN } from './subRegionFixtures.js';
 
 describe('pickGeography compareNames', () => {
@@ -159,27 +158,5 @@ describe('subRegionAction edges', () => {
 
   it('offers no button and no line for a locked reader at the limit with no server date', () => {
     expect(subRegionAction({ ...LOCKED_FULL, nextChangeOn: undefined })).toEqual({ label: null, line: null });
-  });
-});
-
-describe('scrollToEntry reduced-motion guard', () => {
-  afterEach(() => {
-    document.body.innerHTML = '';
-    delete Element.prototype.scrollIntoView;
-    vi.unstubAllGlobals();
-  });
-
-  it('scrolls smoothly when matchMedia throws', () => {
-    const wrap = document.createElement('div');
-    wrap.setAttribute('data-entry-id', 'e9');
-    document.body.appendChild(wrap);
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
-    vi.stubGlobal('matchMedia', () => {
-      throw new Error('boom');
-    });
-
-    expect(scrollToEntry('e9')).toBe(true);
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
   });
 });

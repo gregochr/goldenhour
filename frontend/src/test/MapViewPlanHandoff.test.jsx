@@ -98,7 +98,7 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
 
 /** Every filter/scope figure the effect writes, read straight off what `MapView` hands the REAL
  *  filter popover — never re-derived, so this file cannot disagree with the production wiring
- *  about which prop carries which state. `DRIVE_TIME_TIERS` re-exported because `MapBreadcrumb`
+ *  about which prop carries which state. `DRIVE_TIME_TIERS` re-exported because the filter chrome
  *  imports it from this same module. */
 const filtersPopoverCalls = [];
 vi.mock('../components/map/FiltersPopover.jsx', () => ({
@@ -237,9 +237,9 @@ afterEach(() => {
 });
 
 describe('MapView — the door-landing effect applies the WHOLE payload atomically', () => {
-  it('event: sets eventType — the crumb\'s window clause names the carried kind, not the initial one', async () => {
+  it('event: sets eventType — the window control names the carried kind, not the initial one', async () => {
     await renderTab({ planHandoff: { ...DOOR_BASE, eventType: 'SUNRISE', nonce: 1 } });
-    expect(screen.getByTestId('wf-map-breadcrumb-window')).toHaveTextContent('Tonight sunrise');
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/Sunrise Tonight/);
   });
 
   it('event: marks the door\'s window as the reader\'s OWN choice (userHasOverriddenEvent=true), '
@@ -247,7 +247,7 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
       + 'copied `false` silently clobbers (2026-09-04 review, plan §4 #12)', async () => {
     // Mount on SUNRISE via auto-follow (flag starts false).
     const { rerender } = await renderTab({ autoEventType: 'SUNRISE', planHandoff: null });
-    expect(screen.queryByTestId('wf-map-breadcrumb')).toBeNull();
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
 
     // The reader manually steps the window control — `selectEvRow` sets the flag true, exactly
     // like a click on any row. This is the "has used the window control before" precondition.
@@ -273,7 +273,7 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
     // screens up, re-running it on the NEXT commit and silently pulling the event back onto
     // `autoEventType` — this assertion is what catches that, not the shallower "did SUNRISE ever
     // appear" check the first test above makes.
-    expect(screen.getByTestId('wf-map-breadcrumb-window')).toHaveTextContent('sunrise');
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
 
     // A LATER autoEventType prop change must not move it either — the door's choice is sticky,
     // the same way a manual window-control press already is.
@@ -289,7 +289,7 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
         />,
       );
     });
-    expect(screen.getByTestId('wf-map-breadcrumb-window')).toHaveTextContent('sunrise');
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
   });
 
   it('floor: minRating null lands as minStars=1 — NEVER null — and never touches showUnrated', async () => {
@@ -321,7 +321,7 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
   it('region: a region OUTSIDE "My area" jumps AND flips scope to the whole catalogue', async () => {
     await renderTab({ planHandoff: { ...DOOR_BASE, region: 'Lake District', nonce: 1 } });
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('Lake District');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Lake District');
     // Far's own spot is only in the whole-catalogue pool, never in AREA_SPOTS — its presence in
     // what MapLabels was handed proves the scope really flipped, not just the crumb's own claim.
     expect(mapLabelsCalls.at(-1).spots.some((s) => s.name === 'Far')).toBe(true);
@@ -330,7 +330,7 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
   it('region: a region ALREADY inside "My area" jumps WITHOUT flipping scope', async () => {
     await renderTab({ planHandoff: { ...DOOR_BASE, region: 'North East', nonce: 1 } });
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('North East');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('North East');
   });
 
   it('no region: resets to My area (resetToMyArea, never FitBoundsController) — proven by first '
@@ -360,7 +360,7 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
       );
     });
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
-    expect(screen.queryByTestId('wf-map-breadcrumb-carrying')).toBeNull();
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
     // The scope really did narrow back — Far (Lake District) is out of the pool again.
     expect(mapLabelsCalls.at(-1).spots.some((s) => s.name === 'Far')).toBe(false);
   });
@@ -387,7 +387,7 @@ describe('MapView — the door-landing effect is nonce-guarded, not payload-guar
     const { rerender } = await renderTab({
       planHandoff: { ...DOOR_BASE, eventType: 'SUNRISE', minRating: null, nonce: 1 },
     });
-    expect(screen.getByTestId('wf-map-breadcrumb-window')).toHaveTextContent('sunrise');
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
     expect(filtersPopoverCalls.at(-1).minStars).toBe(1);
 
     await act(async () => {
@@ -403,7 +403,7 @@ describe('MapView — the door-landing effect is nonce-guarded, not payload-guar
         />,
       );
     });
-    expect(screen.getByTestId('wf-map-breadcrumb-window')).toHaveTextContent('sunrise');
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
     expect(filtersPopoverCalls.at(-1).minStars).toBe(1);
   });
 
@@ -423,7 +423,7 @@ describe('MapView — the door-landing effect is nonce-guarded, not payload-guar
         />,
       );
     });
-    expect(screen.getByTestId('wf-map-breadcrumb-window')).toHaveTextContent('sunset');
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
     expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
   });
 });
@@ -462,7 +462,7 @@ describe('MapView — a `source: \'map\'` handoff moves the window and the selec
 
   it('mounts NO landing strip — "Where you came from · ← Plan" would be false on this route', async () => {
     await renderTab({ planHandoff: { ...IN_PLACE, nonce: 1 } });
-    expect(screen.queryByTestId('wf-map-breadcrumb')).toBeNull();
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
   });
 
   it('⚠️ keeps the window it names, against a DIFFERENT autoEventType — the P1 the hatch route lost', async () => {
@@ -494,149 +494,12 @@ describe('MapView — a `source: \'map\'` handoff moves the window and the selec
   });
 });
 
-describe('MapView — the crumb never mounts without a live, tab-mode door handoff', () => {
+describe('MapView — the lens note never mounts without a live, tab-mode door handoff', () => {
   it('is absent with no handoff at all', async () => {
     await renderTab({ planHandoff: null });
-    expect(screen.queryByTestId('wf-map-breadcrumb')).toBeNull();
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
     // And the map's own default floor (3★) is left untouched — proof the effect is a true no-op.
     expect(filtersPopoverCalls.at(-1).minStars).toBe(3);
-  });
-});
-
-describe('MapView — the crumb\'s clear button really resets the map (integration, not just the callback wiring)', () => {
-  it('resets the floor to the map\'s own default, the tier to Any, and scope to My area', async () => {
-    const onClearOrigin = vi.fn();
-    // A STATEFUL shared lens (the real contract: selectTier moves the tier the Map reads back), so this integrates the
-    // crumb, the shared state and what the Map then shows, not just the callback wiring.
-    function SharedLensHost(props) {
-      const [id, setId] = React.useState('150');
-      const lens = { tier: tierById(id), tierId: id, selectTier: setId };
-      return (
-        <MapView
-          locations={ALL_LOCATIONS}
-          date={TODAY}
-          autoEventType="SUNSET"
-          forecastDates={[TODAY]}
-          heat={HEAT}
-          reachLens={lens}
-          reachMeasured
-          {...props}
-        />
-      );
-    }
-    await act(async () => {
-      render(
-        <SharedLensHost
-          origin={{ id: 'lakes', name: 'Lake District', baseName: 'Keswick' }}
-          onClearOrigin={onClearOrigin}
-          planHandoff={{
-            ...DOOR_BASE, minRating: 4, limitMinutes: 150, region: 'Lake District', nonce: 1,
-          }}
-        />,
-      );
-    });
-    expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
-    expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
-    expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('within');
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'clear' }));
-    });
-
-    expect(filtersPopoverCalls.at(-1).minStars).toBe(3); // DEFAULT_MIN_STARS
-    // The tier is the SHARED one: clearing writes Any to it, and the Map reads Any back.
-    expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(0);
-    expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
-    // `onClearOrigin` is called — asserted directly, rather than through the `origin` prop
-    // changing, because THIS component receives `origin` as a plain prop from its caller (the
-    // context live-value plumbing is `WindowFirstMapPane`'s job, not `MapView`'s own); a real
-    // click would flow `setOrigin(null)` back through the provider and re-render this component
-    // with `origin=null` on the next tick, which is exactly what this callback stands in for.
-    expect(onClearOrigin).toHaveBeenCalledTimes(1);
-    // The crumb itself survives clear — only the RATING/REACH/REGION clauses empty (plan §5 rule
-    // 4); the origin clause stays because `origin` itself is unchanged in this isolated render.
-    expect(screen.getByTestId('wf-map-breadcrumb')).toBeInTheDocument();
-    const carrying = screen.getByTestId('wf-map-breadcrumb-carrying');
-    expect(carrying).not.toHaveTextContent('★+');
-    expect(carrying).not.toHaveTextContent('within');
-    expect(carrying).not.toHaveTextContent('Lake District');
-  });
-});
-
-describe('MapView — the crumb\'s clear keeps a keyboard reader inside the pane', () => {
-  // A door carrying a 4★ floor and a location: `clear` resets the floor to 3★, which ends the only
-  // clause and takes `clear` with it, while `Near` (5★) stays selected — a selection the pane's own
-  // Escape rule is there to clear, and so the proof that a key pressed after the press reaches it.
-  const DOOR = { ...DOOR_BASE, minRating: 4, locationName: 'Near', nonce: 1 };
-
-  async function pressClear() {
-    const clear = screen.getByRole('button', { name: 'clear' });
-    // `fireEvent.click` does not move focus, so a keyboard reader's focus is put there first.
-    clear.focus();
-    expect(clear).toHaveFocus();
-    await act(async () => {
-      fireEvent.click(clear);
-    });
-  }
-
-  it('lands the reader on the crumb when the press takes clear away', async () => {
-    await renderTab({ planHandoff: DOOR });
-
-    await pressClear();
-
-    expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole('navigation', { name: 'Where you came from' }));
-  });
-
-  it('lets an Escape pressed straight after it reach the pane, which clears the selection', async () => {
-    await renderTab({ planHandoff: DOOR });
-    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Near');
-
-    await pressClear();
-    // The premise, asserted: an Escape pressed while `clear` itself still held focus would reach the
-    // pane too, so this test proves nothing unless the press really took `clear` away.
-    expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole('navigation', { name: 'Where you came from' }));
-    // At the FOCUSED node, as a keyboard sends it — from `<body>` the pane's `onKeyDown` never runs.
-    await act(async () => {
-      fireEvent.keyDown(document.activeElement, { key: 'Escape' });
-    });
-
-    expect(screen.queryByTestId('probe-callout')).toBeNull();
-  });
-
-  it('lands the reader on the crumb with a dialog from outside the pane open over it — no foreign-modal '
-      + 'guard, by decision', async () => {
-    // The four-day sheet is exactly this to the pane: an `aria-modal` dialog outside it, holding no
-    // trap, so a keyboard reader can Tab back onto `clear` and press it. `MapBreadcrumb`'s class
-    // comment records why the handoff does not stand down for it, as `useRowFocusRescue` would.
-    await renderTab({ planHandoff: DOOR });
-    const sheet = document.createElement('div');
-    sheet.setAttribute('role', 'dialog');
-    sheet.setAttribute('aria-modal', 'true');
-    document.body.appendChild(sheet);
-    try {
-      await pressClear();
-
-      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
-      expect(document.activeElement).toBe(screen.getByRole('navigation', { name: 'Where you came from' }));
-    } finally {
-      sheet.remove();
-    }
-  });
-
-  it('leaves clear standing, with the reader on it, when the carried floor is the map\'s own 3★ default', async () => {
-    // The premise is asserted, not assumed: if the map's default floor ever moves, `clear` no longer
-    // survives this press and the test must say so rather than pass on the other branch.
-    await renderTab({ planHandoff: { ...DOOR_BASE, minRating: 3, nonce: 1 } });
-    const clear = screen.getByRole('button', { name: 'clear' });
-
-    await pressClear();
-
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('carrying 3★+ clear');
-    expect(screen.getByRole('button', { name: 'clear' })).toBe(clear);
-    expect(document.activeElement).toBe(clear);
   });
 });
 
@@ -670,21 +533,71 @@ async function rerenderWith(rerender, props = {}) {
   });
 }
 
-describe('MapView — the door\'s headline (title · caption)', () => {
-  it('prints title and caption in the crumb when the door carries them', async () => {
-    await renderTab({
-      planHandoff: {
-        ...DOOR_BASE, title: 'Tyne and Wear', caption: 'Tomorrow sunrise · 06:12', nonce: 1,
-      },
-    });
-    expect(screen.getByTestId('wf-map-breadcrumb-title')).toHaveTextContent(
-      'Tyne and Wear · Tomorrow sunrise · 06:12',
+describe('MapView — the lens note carries the retired breadcrumb\'s clauses (one-screen-plan D12)', () => {
+  // A STATEFUL shared lens (the real contract: selectTier moves the tier the Map reads back).
+  function SharedLensHost(props) {
+    const [id, setId] = React.useState('150');
+    const lens = { tier: tierById(id), tierId: id, selectTier: setId };
+    return (
+      <MapView
+        locations={ALL_LOCATIONS}
+        date={TODAY}
+        autoEventType="SUNSET"
+        forecastDates={[TODAY]}
+        heat={HEAT}
+        reachLens={lens}
+        reachMeasured
+        {...props}
+      />
     );
+  }
+
+  it('states the rating floor the door carried, and the clause goes when the reader moves the floor (a live claim)', async () => {
+    await renderTab({ planHandoff: { ...DOOR_BASE, minRating: 4, nonce: 1 } });
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Carrying 4★+');
+    await act(async () => { filtersPopoverCalls.at(-1).onSelectMinStars(5); });
+    expect(filtersPopoverCalls.at(-1).minStars).toBe(5);
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
   });
 
-  it('prints no headline when the door carries neither', async () => {
-    await renderTab({ planHandoff: { ...DOOR_BASE, nonce: 1 } });
-    expect(screen.queryByTestId('wf-map-breadcrumb-title')).toBeNull();
+  it('states the reach tier the door carried while the shared tier still equals it', async () => {
+    await act(async () => {
+      render(<SharedLensHost planHandoff={{ ...DOOR_BASE, limitMinutes: 150, nonce: 1 }} />);
+    });
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Carrying within 2h 30');
+  });
+
+  it('Clear is ONE control: floor to the map\'s default, tier to Any, scope to My area, then the door\'s lenses', async () => {
+    await act(async () => {
+      render(
+        <SharedLensHost
+          planHandoff={{
+            ...DOOR_BASE, minRating: 4, limitMinutes: 150, region: 'Lake District', nonce: 1,
+          }}
+        />,
+      );
+    });
+    expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
+    expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
+    expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('within');
+
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
+
+    expect(filtersPopoverCalls.at(-1).minStars).toBe(3); // DEFAULT_MIN_STARS
+    // The tier is the SHARED one: clearing writes Any to it, and the Map reads Any back.
+    expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(0);
+    expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
+  });
+
+  it('a Clear that leaves a clause standing (the carried floor IS the default 3★) keeps the note and its button', async () => {
+    // The premise is asserted, not assumed: if the map's default floor moves, the note no longer survives this press.
+    await renderTab({ planHandoff: { ...DOOR_BASE, minRating: 3, nonce: 1 } });
+    const clear = screen.getByTestId('map-lens-note-clear');
+    await act(async () => { fireEvent.click(clear); });
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Carrying 3★+');
+    expect(screen.getByTestId('map-lens-note-clear')).toBe(clear);
   });
 });
 
@@ -701,7 +614,7 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     // The field paints ONLY the named spots - proven on the points the kernel is handed.
     expect(fieldNames()).toEqual(['Far', 'Near']);
     // The floor the door lands on is 1★ (no minRating), so both named spots are in the pool.
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 2 spots');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Showing 2 spots');
   });
 
   it('narrows the "not rated yet" hatch by the same lens as the colour (thin-sample F4)', async () => {
@@ -755,7 +668,7 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     });
     expect(heatLayerCalls.at(-1).points).toHaveLength(2);
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
 
     expect(heatLayerCalls.at(-1).points).toHaveLength(before);
     expect(fieldNames()).toEqual(['Excluded Unselected', 'Far', 'Filtered Out', 'Near']);
@@ -771,8 +684,8 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     });
     // The 1★ spot is named by the door but the 4★ floor still decides the pool; the crumb counts
     // the pool actually drawn, so "showing 1 spot" can never outrun the filters.
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 1 spot');
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).not.toHaveTextContent('showing 1 spots');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Carrying 4★+ · showing 1 spot');
+    expect(screen.getByTestId('map-lens-note')).not.toHaveTextContent('showing 1 spots');
   });
 
   it('⚠️ clears a selection OUTSIDE the incoming lens: no callout, no label for it, and the count matches the drawn pool', async () => {
@@ -790,7 +703,7 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
 
     expect(screen.queryByTestId('probe-callout')).toBeNull();
     expect(mapLabelsCalls.at(-1).spots.map((s) => s.name)).not.toContain('Far');
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 1 spot');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Showing 1 spot');
   });
 
   it('...but a selection INSIDE the lens survives it', async () => {
@@ -843,7 +756,7 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     expect(screen.queryByText(/showing/)).toBeNull();
   });
 
-  it('⚠️ a map-sourced handoff (the banner or the sheet footer, over the map) is a window change only: the lens and its breadcrumb STAND (C4, S1)', async () => {
+  it('⚠️ a map-sourced handoff (the banner or the sheet footer, over the map) is a window change only: the lens and its note STAND (C4, S1)', async () => {
     const { rerender } = await renderTab({
       heat: HEAT_WITH_POINTS,
       planHandoff: { ...DOOR_BASE, focusNames: ['Near'], nonce: 1 },
@@ -855,12 +768,11 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     });
 
     // The strip is still mounted, still naming the lens, and the field is still the named spot's.
-    expect(screen.getByTestId('wf-map-breadcrumb')).toBeInTheDocument();
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 1 spot');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Showing 1 spot');
     expect(heatLayerCalls.at(-1).points).toHaveLength(1);
   });
 
-  it('a NEW plan door after a map-sourced one replaces the lens and the strip\'s door', async () => {
+  it('a NEW plan door after a map-sourced one replaces the lens', async () => {
     const { rerender } = await renderTab({
       heat: HEAT_WITH_POINTS,
       planHandoff: { ...DOOR_BASE, focusNames: ['Near'], title: 'First', nonce: 1 },
@@ -872,7 +784,7 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
       planHandoff: { ...DOOR_BASE, title: 'Second', nonce: 3 },
     });
 
-    expect(screen.getByTestId('wf-map-breadcrumb-title')).toHaveTextContent('Second');
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
     expect(heatLayerCalls.at(-1).points).toHaveLength(4);
   });
 
@@ -910,7 +822,6 @@ describe('MapView — a REGION door frames the region AND selects its top spot (
       planHandoff: { ...DOOR_BASE, region: 'Lake District', locationName: 'Far', nonce: 1 },
     });
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('Lake District');
     expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Far');
     expect(mapLabelsCalls.at(-1).spots.some((sp) => sp.name === 'Far')).toBe(true);
   });
@@ -967,7 +878,7 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
       locations: WITH_UNRATED,
       planHandoff: { ...DOOR_BASE, focusNames: ['Unrated A', 'Unrated B'], nonce: 1 },
     });
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 2 spots');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Showing 2 spots');
   });
 
   it('a STOOD-DOWN named spot is drawn too, and an unnamed stood-down one is not', async () => {
@@ -979,7 +890,7 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
       locations: [...ALL_LOCATIONS, stood(7, 'Stood A'), stood(8, 'Stood B')],
       planHandoff: { ...DOOR_BASE, focusNames: ['Stood A', 'Near'], nonce: 1 },
     });
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 2 spots');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Showing 2 spots');
     expect(mapLabelsCalls.at(-1).spots.map((sp) => sp.name)).not.toContain('Stood B');
   });
 
@@ -988,11 +899,11 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
       locations: WITH_UNRATED,
       planHandoff: { ...DOOR_BASE, focusNames: ['Unrated A', 'Near'], nonce: 1 },
     });
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 2 spots');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Showing 2 spots');
     expect(mapLabelsCalls.at(-1).spots.map((sp) => sp.name)).not.toContain('Unrated B');
   });
 
-  it('the reader\'s own filters still apply to it: a reach tier with no drive time drops it, and the crumb says WHY, never "showing 0"', async () => {
+  it('the reader\'s own filters still apply to it: a reach tier with no drive time drops it, and the note says WHY, never "showing 0"', async () => {
     await renderTab({
       locations: WITH_UNRATED,
       reachLens: reachLensStub(45),
@@ -1001,8 +912,8 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
         ...DOOR_BASE, limitMinutes: 45, focusNames: ['Unrated A', 'Unrated B'], nonce: 1,
       },
     });
-    const carrying = screen.getByTestId('wf-map-breadcrumb-carrying');
-    expect(carrying).toHaveTextContent('none of the 2 named spots is rated for this day');
+    const carrying = screen.getByTestId('map-lens-note');
+    expect(carrying).toHaveTextContent(/none of the 2 named spots is rated for this day/i);
     expect(carrying).not.toHaveTextContent(/showing 0/);
   });
 
@@ -1013,8 +924,8 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
       reachMeasured: true,
       planHandoff: { ...DOOR_BASE, limitMinutes: 45, focusNames: ['Unrated A'], nonce: 1 },
     });
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying'))
-      .toHaveTextContent('the named spot is not rated for this day');
+    expect(screen.getByTestId('map-lens-note'))
+      .toHaveTextContent(/the named spot is not rated for this day/i);
   });
 
   it('when the named spots ARE rated but the reader\'s filters hold them back, it says so instead', async () => {
@@ -1022,37 +933,8 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
       heat: HEAT_WITH_POINTS,
       planHandoff: { ...DOOR_BASE, minRating: 4, focusNames: ['Excluded Unselected', 'Filtered Out'], nonce: 1 },
     });
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying'))
-      .toHaveTextContent('none of the 2 named spots passes your filters');
-  });
-});
-
-describe('MapView — the breadcrumb\'s return names the tab the door came from (C4, S2)', () => {
-  it.each([
-    ['coming-up', 'Coming up'],
-    ['operations', 'Operations'],
-    [undefined, /^At a Glance/],
-  ])('a door from %s returns there', async (from, label) => {
-    const onReturnToPlan = vi.fn();
-    await renderTab({
-      onReturnToPlan,
-      planHandoff: { ...DOOR_BASE, ...(from ? { from } : {}), nonce: 1 },
-    });
-    fireEvent.click(screen.getByRole('button', { name: label }));
-    expect(onReturnToPlan).toHaveBeenCalledExactlyOnceWith(from ?? 'plan');
-  });
-
-  it('keeps naming the door\'s tab after a map-sourced handoff arrives (the return is the last PLAN door\'s)', async () => {
-    const onReturnToPlan = vi.fn();
-    const { rerender } = await renderTab({
-      onReturnToPlan, planHandoff: { ...DOOR_BASE, from: 'coming-up', nonce: 1 },
-    });
-    await rerenderWith(rerender, {
-      onReturnToPlan,
-      planHandoff: { source: 'map', eventType: 'SUNSET', date: TODAY, locationName: null, nonce: 2 },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Coming up' }));
-    expect(onReturnToPlan).toHaveBeenCalledExactlyOnceWith('coming-up');
+    expect(screen.getByTestId('map-lens-note'))
+      .toHaveTextContent(/none of the 2 named spots passes your filters/i);
   });
 });
 
@@ -1092,9 +974,9 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
   it('filterAction switches the subject filter on and the crumb names it; clear takes it off again', async () => {
     await renderTab({ planHandoff: { ...DOOR_BASE, filterAction: 'SEASCAPE', nonce: 1 } });
     expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['SEASCAPE']);
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('coastal spots');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Coastal spots');
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
 
     expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
   });
@@ -1102,9 +984,9 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
   it('darkSky switches the toggle on and the crumb names it; clear switches it off', async () => {
     await renderTab({ planHandoff: { ...DOOR_BASE, darkSky: true, nonce: 1 } });
     expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(true);
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('dark-sky spots');
+    expect(screen.getByTestId('map-lens-note')).toHaveTextContent('Dark-sky spots');
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
 
     expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
   });
@@ -1150,7 +1032,7 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     // A chip the reader adds AFTER the door is theirs too.
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
 
     expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(true);
     expect([...filtersPopoverCalls.at(-1).activeTypeFilters].sort()).toEqual(['LANDSCAPE', 'SEASCAPE']);
@@ -1162,7 +1044,7 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     await rerenderWith(rerender, {
       heat: HEAT, planHandoff: { ...DOOR_BASE, darkSky: true, nonce: 1 },
     });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
     expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(true);
   });
 
@@ -1176,7 +1058,7 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['LANDSCAPE']);
   });
 
-  it('⚠️ Clear all ends the door\'s filter lens: the breadcrumb\'s clear does not resurrect a filter the reader cleared', async () => {
+  it('⚠️ Clear all ends the door\'s filter lens: the note\'s clear does not resurrect a filter the reader cleared', async () => {
     const { rerender } = await renderTab({ planHandoff: null });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleDarkSky(); });
@@ -1186,7 +1068,7 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     await act(async () => { filtersPopoverCalls.at(-1).onClearAll(); });
     expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
 
     expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
     expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
@@ -1205,7 +1087,7 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
   });
 
-  it('⚠️ SEASCAPE on before a coastal door, switched off under it: the breadcrumb\'s clear leaves it off', async () => {
+  it('⚠️ SEASCAPE on before a coastal door, switched off under it: the note\'s clear leaves it off', async () => {
     const { rerender } = await renderTab({ planHandoff: null });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
     await rerenderWith(rerender, {
@@ -1214,7 +1096,7 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
     expect(filtersPopoverCalls.at(-1).activeTypeFilters.has('SEASCAPE')).toBe(false);
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
 
     expect(filtersPopoverCalls.at(-1).activeTypeFilters.has('SEASCAPE')).toBe(false);
   });
@@ -1233,7 +1115,7 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
   });
 
-  it('⚠️ LANDSCAPE + SEASCAPE on, coastal door, SEASCAPE switched off: the breadcrumb\'s clear brings LANDSCAPE back', async () => {
+  it('⚠️ LANDSCAPE + SEASCAPE on, coastal door, SEASCAPE switched off: the note\'s clear brings LANDSCAPE back', async () => {
     const { rerender } = await renderTab({ planHandoff: null });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
@@ -1243,7 +1125,7 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['SEASCAPE']);
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
 
     expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['LANDSCAPE']);
   });
@@ -1271,19 +1153,19 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(true);
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
 
     expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
     expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
   });
 
-  it('control: LANDSCAPE on before a coastal door, untouched under it: the breadcrumb\'s clear restores it', async () => {
+  it('control: LANDSCAPE on before a coastal door, untouched under it: the note\'s clear restores it', async () => {
     const { rerender } = await renderTab({ planHandoff: null });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
     await rerenderWith(rerender, {
       heat: HEAT, planHandoff: { ...DOOR_BASE, filterAction: 'SEASCAPE', nonce: 1 },
     });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('map-lens-note-clear')); });
     expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['LANDSCAPE']);
   });
 
@@ -1502,7 +1384,7 @@ describe('MapView — night: select the night\'s row, but not until the row exis
     });
     expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
     expect(onSelectDate).toHaveBeenCalledWith(TODAY, { isNight: true });
-    // A map-sourced handoff is a window change and nothing more: no breadcrumb, no lens.
-    expect(screen.queryByTestId('wf-map-breadcrumb')).toBeNull();
+    // A map-sourced handoff is a window change and nothing more: no lens note, no lens.
+    expect(screen.queryByTestId('map-lens-note')).toBeNull();
   });
 });

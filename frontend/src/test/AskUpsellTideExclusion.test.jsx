@@ -1,3 +1,4 @@
+import { openMapView } from './shellMapDoor.js';
 /**
  * The Ask upsell and the tide upsell are never open together (docs/engineering/ask-upsell-plan.md §3.2 step 6).
  *
@@ -219,7 +220,8 @@ afterEach(() => {
 describe.each([[800, 'the tablet'], [1280, 'the desktop']])('on %i px (%s), a LITE reader\'s Map tab', (width) => {
   async function openMapTab() {
     renderAskShell({ width, ctx: LITE, props: { mapPane } });
-    await act(async () => { fireEvent.click(await screen.findByRole('tab', { name: 'Map' })); });
+    await screen.findByTestId('ask-field');
+    openMapView();
     await screen.findByTestId('wf-tide-strip-locked');
   }
 

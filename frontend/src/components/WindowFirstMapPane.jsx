@@ -211,11 +211,6 @@ function subscribeForeignModalDom(onChange) {
  *                                         `(spot) => void`, forwarded from `App.jsx`'s
  *                                         `openLocationSheet`; `spot.inPlan` says whether the Plan
  *                                         tab is the destination or the map stays behind the sheet
- * @param {Function} [props.onReturnToPlan] the breadcrumb's `← Plan` (doors D2,
- *                                         `plan-to-map-doors-plan.md` §3 D2 task 5) — `App.jsx`'s
- *                                         `returnToPlan`, forwarded straight through to `MapView`;
- *                                         this pane needs no `tabRequest`/`selectTab` plumbing of
- *                                         its own, since App already owns that channel
  */
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
@@ -223,7 +218,7 @@ export default function WindowFirstMapPane({
   briefingScores = new Map(),
   seasonalFeatures = [], homeCoords,
   mapColourScale = null, mapTideMode = 'auto', saveTideMode = null,
-  onOpenSettings = null, onOpenLocationSheet = null, onReturnToPlan = null,
+  onOpenSettings = null, onOpenLocationSheet = null,
   onLoadOlderDay = null, olderDayLoading = null, loadedPastDays = NO_LOADED_DAYS,
   emptyPastDays = NO_LOADED_DAYS,
 }) {
@@ -323,7 +318,7 @@ export default function WindowFirstMapPane({
   useEffect(() => { import('./LocationFourDaySheet.jsx').catch(() => {}); }, []);
   const {
     heatSpots, heatPointSets, heatStripCards, upcomingEvents, reachById, homePlace, todayStr,
-    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions, tideLocked, driveLocked,
+    origin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions, tideLocked, driveLocked,
     allowedLocationIds, reachLens = null, reachVerdicts = null, reachMeasured, windowCards = null,
   } = useWindowFirstBriefing();
   /**
@@ -428,18 +423,6 @@ export default function WindowFirstMapPane({
    */
   const isStructuredHandoff = handoff?.source === 'plan' || handoff?.source === 'map';
   const planHandoff = isStructuredHandoff ? handoff : null;
-
-  /**
-   * The breadcrumb's `clear` origin reset (D2) — `useCallback`'d, not a fresh arrow literal at the
-   * `<MapView>` call site below. `MapView` is `React.memo`'d and this pane re-renders on every
-   * provider tick (the `heat` `useMemo`'s own doc block a few screens down states the same
-   * pressure for the same reason) — an inline `() => setOrigin?.(null)` would hand it a new
-   * function identity every render, which is exactly the kind of prop `React.memo` cannot see past
-   * and defeats the memo for every one of MapView's other unchanged props too. `[setOrigin]` is
-   * the only real dependency; `setOrigin` itself is a `useState` setter (or the context's stable
-   * default no-op), so this identity is effectively permanent for the life of the provider.
-   */
-  const onClearOrigin = useCallback(() => setOrigin?.(null), [setOrigin]);
 
   /**
    * The selection callout's per-location per-window index (map-tab-v2-plan.md §3 P9) — the SAME
@@ -955,12 +938,6 @@ export default function WindowFirstMapPane({
         eclipseIndex={eclipseIndex}
         reachById={reachById}
         onOpenLocationSheet={onOpenLocationSheet}
-        // The breadcrumb's `clear` origin reset (D2) — the SAME `setOrigin` the masthead's ⌂ and
-        // every plan-from-a-region action already call, so the crumb can never disagree with them
-        // about what "clear the origin" means. Resets the whole app's shared origin (plan §4 #4).
-        // `useCallback`'d above, not an inline literal — see that declaration's own doc note.
-        onClearOrigin={onClearOrigin}
-        onReturnToPlan={onReturnToPlan}
         askPicks={askPicks}
         askSelectedRank={selectedPick}
         onSelectAskPick={selectAskPick}
@@ -1036,7 +1013,6 @@ WindowFirstMapPane.propTypes = {
   saveTideMode: PropTypes.func,
   onOpenSettings: PropTypes.func,
   onOpenLocationSheet: PropTypes.func,
-  onReturnToPlan: PropTypes.func,
   /** {@code (date) => void}: fetches one older stored day (`useForecasts.loadOlderDay`). Null offers none. */
   onLoadOlderDay: PropTypes.func,
   /** The older day being fetched now, YYYY-MM-DD, or null. */

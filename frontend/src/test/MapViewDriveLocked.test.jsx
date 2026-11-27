@@ -2,7 +2,7 @@
  * The Map's drive-time filter under `driveLocked` (docs/engineering/pro-features-gate-plan.md §9 D1):
  * a LITE reader sees the segment greyed with a real `disabled` and a Pro pill, and the filter is
  * forced to "Any" where it is APPLIED, so a Plan handoff's limit (or any stale value) can never hide
- * a spot for them. The badge and the breadcrumb read the effective value. Unlocked is unchanged.
+ * a spot for them. The badge reads the effective value. Unlocked is unchanged.
  */
 import React from 'react';
 import {
@@ -244,14 +244,13 @@ describe('MapView — the drive-time filter for a locked reader', () => {
     expect(screen.getByTestId('drive-time-filter-0')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('a shared 45-minute tier does not hide spots, and the badge and breadcrumb read Any', async () => {
+  it('a shared 45-minute tier does not hide spots, and the badge reads Any', async () => {
     await renderTab({
       driveLocked: true, reachById: REACH, heat: heat(), planHandoff: DOOR, reachLens: reachLensStub(45),
     });
     // 100 minutes is beyond the shared 45-minute tier, yet nothing is hidden.
     expect(drawnSpotCount()).toBe(2);
     expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent(/^Filters(?! \()/);
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying').textContent).not.toMatch(/within/);
   });
 
   it('an away origin with region-base minutes and a shared tier still hides nothing', async () => {
@@ -273,7 +272,6 @@ describe('MapView — the drive-time filter for a locked reader', () => {
     });
     expect(drawnSpotCount()).toBe(1);
     expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent('Filters (1)');
-    expect(screen.getByTestId('wf-map-breadcrumb-carrying').textContent).toMatch(/within/);
     fireEvent.click(screen.getByTestId('wf-filters-chip'));
     expect(screen.getByTestId('drive-time-filter-45')).not.toBeDisabled();
     expect(screen.queryByTestId('drive-time-filter-upsell')).toBeNull();

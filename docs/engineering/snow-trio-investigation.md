@@ -1,5 +1,9 @@
 # Snow trio — Step 0 reconnaissance
 
+> **Superseded (2026-11-25).** The F1 depth-only definition (§3.1) and the SNOW_TOPS freezing-level margin (§3.2) described here
+> were replaced by the point snowpack and white-summit rules of `docs/engineering/snow-topics-truth-plan.md` (built S1 to S3).
+> Kept as the record of the original data-plumbing reconnaissance only.
+
 Read-only investigation. **No code was changed.** Deliverable only.
 
 Scope: the snow trio (`SNOW_FRESH`, `SNOW_TOPS`, `SNOW_MIST`) needs new data

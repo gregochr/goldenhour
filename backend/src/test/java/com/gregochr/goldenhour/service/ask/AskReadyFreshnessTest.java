@@ -239,18 +239,34 @@ class AskReadyFreshnessTest {
     }
 
     @Test
-    @DisplayName("a SNOW_TOPS row whose snow topic has gone while another snow topic keeps the question offered "
-            + "is withheld because the event is no longer live (rule 5)")
+    @DisplayName("a SNOW_TOPS row whose snow topic has gone while a SNOW_TOPS topic on another day keeps the "
+            + "question offered is withheld because the event is no longer live (rule 5)")
     void snowEventNoLongerLive() {
         AskSnapshot base = at(ReadyFixtures.FRIDAY_NOON, both(oct(10), northumberland()));
         AskEvent snow = new AskEvent("SNOW_TOPS", "Snow", oct(12), "Snow.", null);
         AskSnapshot live = withEvents(base, List.of(
-                new AskSnapshot.Topic("SNOW_FRESH", "Fresh snow", "d", oct(13), List.of(), null)), List.of());
+                new AskSnapshot.Topic("SNOW_TOPS", "Snow on the fells", "d", oct(13), List.of(), null)),
+                List.of());
 
         AskReadyFreshness.Verdict verdict = check(events("SNOW_TOPS", "Is there snow on the tops?", snow), live);
 
         assertThat(verdict.fresh()).isFalse();
         assertThat(verdict.reason()).contains("no longer live");
+    }
+
+    @Test
+    @DisplayName("a live SNOW_FRESH alone no longer offers the snow-on-the-tops question: the row is "
+            + "withheld as no longer offered (snow underfoot is not snow on the tops)")
+    void snowFreshAloneDoesNotKeepTheQuestionOffered() {
+        AskSnapshot base = at(ReadyFixtures.FRIDAY_NOON, both(oct(10), northumberland()));
+        AskEvent snow = new AskEvent("SNOW_TOPS", "Snow", oct(12), "Snow.", null);
+        AskSnapshot live = withEvents(base, List.of(
+                new AskSnapshot.Topic("SNOW_FRESH", "Fresh snow", "d", oct(12), List.of(), null)), List.of());
+
+        AskReadyFreshness.Verdict verdict = check(events("SNOW_TOPS", "Is there snow on the tops?", snow), live);
+
+        assertThat(verdict.fresh()).isFalse();
+        assertThat(verdict.reason()).doesNotContain("no longer live");
     }
 
     @Test

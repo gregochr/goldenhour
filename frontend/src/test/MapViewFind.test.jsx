@@ -506,24 +506,24 @@ describe('an area picked in Find (F2)', () => {
       source: 'plan', eventType: 'SUNSET', date: TODAY, region: null, minRating: null, limitMinutes: null,
       locationName: null, focusNames: ['Near'], title: 'Coast door', nonce: 1,
     };
-    const breadcrumb = () => screen.queryByTestId('wf-map-breadcrumb')?.textContent ?? '';
+    const breadcrumb = () => screen.queryByTestId('map-lens-note')?.textContent ?? '';
 
-    it('⚠️ the area replaces the door\'s named set, the breadcrumb never describes it, and clear leaves no door state', async () => {
+    it('⚠️ the area replaces the door\'s named set, the lens note never describes it, and clear leaves no door state', async () => {
       await renderTab({ planHandoff: door });
       expect(lastLabelNames()).toEqual(['Near']);
-      expect(breadcrumb()).toContain('showing 1 spot');
+      expect(breadcrumb()).toContain('Showing 1 spot');
 
       await rerenderTab({ planHandoff: door, findPick: areaPick() });
 
       expect(lastLabelNames()).toEqual(['Far']);
       expect(screen.getByTestId('map-find-area')).toBeInTheDocument();
-      expect(breadcrumb()).not.toContain('showing');
+      expect(breadcrumb()).not.toContain('Showing');
 
       await act(async () => { fireEvent.click(screen.getByTestId('map-find-area-clear')); });
 
       // Neither the area's set nor the door's own set is left standing.
       expect(lastLabelNames()).toEqual(expect.arrayContaining(['Near', 'Far']));
-      expect(breadcrumb()).not.toContain('showing');
+      expect(breadcrumb()).not.toContain('Showing');
     });
   });
 
@@ -548,7 +548,7 @@ describe('an area picked in Find (F2)', () => {
 describe('Your places in the Regions list (find-and-favourites-plan.md F4)', () => {
   const openRegions = async () => { await act(async () => { fireEvent.click(screen.getByTestId('wf-jump-chip')); }); };
 
-  it('★ My places frames the served merged ids as the named-spot lens, with the chip and a clear', async () => {
+  it('My places frames the served merged ids as the named-spot lens, with the chip and a clear', async () => {
     favourites = favouritesValue({ places: [FAR.id], locationIds: [FAR.id] });
     await renderTab();
     expect(lastLabelNames()).toEqual(['Near']);
@@ -566,10 +566,10 @@ describe('Your places in the Regions list (find-and-favourites-plan.md F4)', () 
     expect(screen.queryByTestId('map-find-area')).toBeNull();
   });
 
-  it('a starred area is its own entry, framing only that area\'s members', async () => {
+  it('a bookmarked area is its own entry, framing only that area\'s members', async () => {
     favourites = favouritesValue({
       places: [], areas: [9], locationIds: [NEAR.id, FAR.id],
-      starredAreas: [{ id: 9, name: 'Lake District', locationIds: [FAR.id] }],
+      bookmarkedAreas: [{ id: 9, name: 'Lake District', locationIds: [FAR.id] }],
     });
     await renderTab();
     await openRegions();
@@ -578,7 +578,7 @@ describe('Your places in the Regions list (find-and-favourites-plan.md F4)', () 
     expect(lastLabelNames()).toEqual(['Far']);
   });
 
-  it('a Lite reader\'s ★ My places is the Pro door and frames nothing', async () => {
+  it('a Lite reader\'s My places is the Pro door and frames nothing', async () => {
     favourites = favouritesValue({ status: 'locked' });
     await renderTab();
     await openRegions();
