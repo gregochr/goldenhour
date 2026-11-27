@@ -482,8 +482,10 @@ class AskPromptBuilderTest {
     void rulesBanGameOnAndStandDownWording() {
         String rules = flat(AskPromptBuilder.RULES);
 
-        assertThat(rules).contains("Never write \"game on\", \"game-on\", \"stand down\", \"standing down\" "
-                        + "or \"stood down\" in the summary or a pick's why")
+        assertThat(rules).contains("Never write \"game on\", \"game-on\", \"stand down\", \"standing down\", "
+                        + "\"stood down\" or \"marginal\" in the summary or a pick's why")
+                .contains("Say instead that places are worth going to, that a window is a stay-home one, or that "
+                        + "most places are not worth going out for")
                 .contains("field gameOn counts the places rated 4★ or better")
                 .contains("field stoodDown counts the regions or places the weather ruled out")
                 .doesNotContain("4★ is game on");
@@ -641,7 +643,8 @@ class AskPromptBuilderTest {
         String clause = "For a named area or a stretch of coast, pass it to rank_night_spots as areaName.";
 
         assertThat(withUser).contains(clause)
-                .contains("rank_night_spots for a night question. " + clause + " A number of minutes");
+                .contains("rank_night_spots for a night question. A number of minutes")
+                .contains("and never say within reach. " + clause + " Quote a drive time");
         for (String shared : List.of(AskPromptBuilder.RULES, AskPromptBuilder.USER_LESS)) {
             assertThat(flat(shared)).doesNotContain("areaName");
         }

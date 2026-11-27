@@ -142,6 +142,7 @@ call pays for them (read `docs/engineering/claude-cost-ledger.md` first, and rec
 - A typed question, and an offer with no such date, add nothing. The line cannot balloon on a quiet week,
   because it names only days with no candidate at all. It also names the weekday, not "tomorrow".
 - If the covered set holds more than two such dates, emit one line listing them, capped at the first three.
+- Revised after review (Codex P1): emptiness is read from the spread (gameOn 0, mostly scored), never from the offer's candidate ids, which COASTAL_HIGH and BEST_* filter further.
 
 **B3 — favourites: the right call, and the companion said.**
 - In `WITH_USER`, replace "pass favourites true only for a question about their own places." with:

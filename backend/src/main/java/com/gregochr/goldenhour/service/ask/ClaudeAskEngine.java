@@ -220,46 +220,66 @@ public class ClaudeAskEngine implements AskEngine {
     }
 
     /**
-     * The covered dates of a Ready conversation's question with no candidate window, which its prompt names so
-     * the answer says there is nothing that day (ask regression triage, B2). The BEST BET's date is left out,
-     * and a typed question or a night one has none.
+     * The covered dates of a Ready conversation's question with no place rated 4★ or better in scope, and
+     * mostly scored, which its prompt names so the answer says there is nothing that day (ask regression
+     * triage, B2). The BEST BET's date is left out, and a typed question or a night one has none.
      */
     private static List<LocalDate> emptyCoveredDates(AskConversation conversation, AskSnapshot snapshot) {
         AskAnswerValidator.ReadyBasis basis = conversation.options().readyBasis();
         if (basis == null || basis.question().nightBound()) {
             return List.of();
         }
-        return emptyCoveredDates(basis.offer().coveredWindowIds(), basis.offer().windowIds(), snapshot);
+        return emptyCoveredDates(basis.offer().coveredWindowIds(), snapshot, conversation.scope());
     }
 
     /**
-     * The dates of the covered windows that have no candidate window, in date order, leaving out the date of
-     * the window that carries the BEST BET.
+     * The dates of the covered windows that have no place rated 4★ or better in scope, in date order,
+     * leaving out the date of the window that carries the BEST BET. A date is empty only when every covered
+     * window on it has a spread over {@code scope} with no game-on place and mostly scored regions: the
+     * thin and not-scored regions are fewer than half of the in-scope regions (a region the weather stood
+     * down counts as scored and poor). A covered window with no spread makes its date not empty. The
+     * offer's candidate ids are not read: a question's candidates are filtered further than "worth going
+     * to" (a coastal-high one keeps only high-water windows, a best one drops thin regions), so absence
+     * from them says nothing about the day.
      *
      * @param coveredWindowIds the windows the question is about
-     * @param candidateIds     the covered windows that have candidates
      * @param snapshot         the snapshot the windows are read from
+     * @param scope            the regions the conversation is about
      * @return the dates, earliest first
      */
-    static List<LocalDate> emptyCoveredDates(List<String> coveredWindowIds, List<String> candidateIds,
-            AskSnapshot snapshot) {
-        Set<LocalDate> withCandidates = new HashSet<>();
-        Set<LocalDate> bestBet = new HashSet<>();
-        for (String id : candidateIds) {
-            snapshot.window(id).ifPresent(w -> withCandidates.add(w.date()));
-        }
+    static List<LocalDate> emptyCoveredDates(List<String> coveredWindowIds, AskSnapshot snapshot,
+            AskScope scope) {
+        Set<LocalDate> notEmpty = new HashSet<>();
+        Set<LocalDate> seen = new HashSet<>();
         for (String id : coveredWindowIds) {
-            snapshot.window(id).filter(w -> w.pick() != null && w.pick().kind() == BriefingWindow.PickKind.BEST)
-                    .ifPresent(w -> bestBet.add(w.date()));
+            Optional<AskSnapshot.Window> window = snapshot.window(id);
+            if (window.isEmpty()) {
+                continue;
+            }
+            LocalDate date = window.get().date();
+            seen.add(date);
+            boolean bestBet = window.get().pick() != null
+                    && window.get().pick().kind() == BriefingWindow.PickKind.BEST;
+            if (bestBet || !isEmptySpread(snapshot.spread(id, scope))) {
+                notEmpty.add(date);
+            }
         }
-        return coveredWindowIds.stream()
-                .map(snapshot::window)
-                .flatMap(Optional::stream)
-                .map(AskSnapshot.Window::date)
-                .distinct()
-                .filter(d -> !withCandidates.contains(d) && !bestBet.contains(d))
-                .sorted()
-                .toList();
+        return seen.stream().filter(d -> !notEmpty.contains(d)).sorted().toList();
+    }
+
+    /** Whether a window's spread holds no game-on place and is mostly scored; a missing spread is not empty. */
+    private static boolean isEmptySpread(Optional<AskSnapshot.Spread> spread) {
+        if (spread.isEmpty() || spread.get().gameOn() != 0) {
+            return false;
+        }
+        AskSnapshot.Spread.Regions regions = spread.get().regions();
+        int unlooked = orZero(regions.thin()) + orZero(regions.notScored());
+        int total = regions.counted() + orZero(regions.stoodDown()) + unlooked;
+        return total > 0 && unlooked * 2 < total;
+    }
+
+    private static int orZero(Integer n) {
+        return n == null ? 0 : n;
     }
 
     /** The model for one conversation: the Ready run's pinned model, else the run type's row. */

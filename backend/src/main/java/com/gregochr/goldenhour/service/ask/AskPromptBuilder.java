@@ -29,7 +29,7 @@ public class AskPromptBuilder {
      */
     private static final DateTimeFormatter DAY_MONTH = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH);
 
-    /** Up to this many covered days with no candidate each get their own line in a Ready prompt. */
+    /** Up to this many covered days with no place worth going to each get their own line in a Ready prompt. */
     private static final int MAX_EMPTY_DAY_LINES = 2;
 
     /** More than {@link #MAX_EMPTY_DAY_LINES} such days share one line that lists at most this many. */
@@ -142,9 +142,10 @@ public class AskPromptBuilder {
             spread says otherwise. Picks are the places worth going to, best first, up to three at \
             different spots: on a stay-home window only the exceptions worth going to (one is fine, \
             none is fine), each named as an exception.
-            - Never write "game on", "game-on", "stand down", "standing down" or "stood down" in the \
-            summary or a pick's why. Say instead that places are worth going to, or that most places \
-            are not worth going out for, or that the weather rules most places out.
+            - Never write "game on", "game-on", "stand down", "standing down", "stood down" or "marginal" in \
+            the summary or a pick's why. Say instead that places are worth going to, that a window is a \
+            stay-home one, or that most places are not worth going out for, or that the weather rules \
+            most places out.
             - A good investigation usually runs: list_windows; if none of the windows the question \
             is about holds a place worth going to, say so and stop; if one of them is broadly worth \
             going, rank_spots there; if they have pockets, even a couple of exceptions on a stay-home \
@@ -196,12 +197,12 @@ public class AskPromptBuilder {
     static final String WITH_USER = """
             The reader may have a home saved; you never need to know where it is. 'Close to home', \
             'near', 'nearby' or 'local' with no number: pass nearHome true to rank_spots, or to \
-            rank_night_spots for a night question. For a named area or a stretch of coast, pass it to \
-            rank_night_spots as areaName. A number of minutes: pass it as maxDriveMinutes. \
+            rank_night_spots for a night question. A number of minutes: pass it as maxDriveMinutes. \
             'Closer' in a follow-up: pass a maxDriveMinutes smaller than the earlier \
             picks' drive, or nearHome true if it was not used. When nearHome was used, say in the \
             summary that the places are within N miles of home, with N the radius the result returned, and \
-            never say within reach. Quote a drive time for a spot only when a tool returned it. A 3★ \
+            never say within reach. For a named area or a stretch of coast, pass it to \
+            rank_night_spots as areaName. Quote a drive time for a spot only when a tool returned it. A 3★ \
             place is worth considering only close to the reader's home; say so when you offer one. \
             When you quote the spread, say which area it counts, as the result's over says. The \
             spread counts the whole area, not the places within the reader's drive; a drive filter \
@@ -395,7 +396,7 @@ public class AskPromptBuilder {
     }
 
     /**
-     * The two-part system prompt, which also names the covered days that hold no candidate window at all, so a
+     * The two-part system prompt, which also names the covered days that hold no place rated 4★ or better, so a
      * Ready answer says so for each (ask regression triage, B2). With none it is byte for byte the prompt of
      * the overload above; the cached static part never changes.
      *
@@ -408,8 +409,8 @@ public class AskPromptBuilder {
      * @param hasThread     whether the question follows earlier exchanges
      * @param coveredWindowIds the windows a Ready question is about; empty for a typed question
      * @param warningsInForce whether a Met Office warning covers a place the question is about
-     * @param emptyDates    the covered dates with no candidate window, the BEST BET's date left out; empty for
-     *                      a typed question
+     * @param emptyDates    the covered dates with no place rated 4★ or better in scope, and mostly scored,
+     *                      the BEST BET's date left out; empty for a typed question
      * @return the two parts
      */
     public SystemPrompt systemPromptBlocks(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,

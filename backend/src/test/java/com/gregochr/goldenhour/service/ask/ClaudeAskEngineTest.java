@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -1695,15 +1696,26 @@ class ClaudeAskEngineTest {
                 AskFixtures.sunsetDay(TODAY.plusDays(1), null, northumberland(), teesdale())), List.of()));
     }
 
+    /** Today has game-on places; tomorrow holds the given regions. */
+    private static AskSnapshot todayThenDay2(BriefingWindow.Pick todayPick, BriefingRegion... tomorrow) {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, todayPick, northumberland(), teesdale()),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, tomorrow)), List.of()));
+    }
+
+    private static BriefingRegion weatherRuledOut(String name) {
+        return AskFixtures.blankedRegion(name, CoverageReason.STOOD_DOWN);
+    }
+
     @Test
-    @DisplayName("a Ready conversation's prompt names a covered day with no candidate window, by its weekday")
+    @DisplayName("a Ready conversation's prompt names a covered day the weather ruled out, by its weekday")
     void readyPromptNamesACoveredDayWithNothing() {
         ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot this weekend?", List.of(WINDOW), null,
                 List.of(WINDOW, "2026-10-06_sunset"));
         when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
 
-        engine.run(question(), twoDaySnapshot(null), AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID,
-                ReadyQuestion.BEST_WEEKEND, offer));
+        engine.run(question(), todayThenDay2(null, weatherRuledOut("Northumberland"), weatherRuledOut("Teesdale")),
+                AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID, ReadyQuestion.BEST_WEEKEND, offer));
 
         assertThat(systemText(sentParams().getFirst())).contains(
                 "Tuesday 6 October has no place worth going to: say so in the summary, naming the day.");
@@ -1720,22 +1732,68 @@ class ClaudeAskEngineTest {
     }
 
     @Test
-    @DisplayName("the empty covered dates: only a day with no candidate window, never the BEST BET's, earliest "
-            + "first, and an id the snapshot lacks adds nothing")
+    @DisplayName("the empty covered dates: a day with no 4-star place in scope and mostly scored, never the BEST "
+            + "BET's, earliest first, and an id the snapshot lacks adds nothing")
     void emptyCoveredDates() {
         BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland", "A", 1L);
-        AskSnapshot withBestToday = twoDaySnapshot(best);
-        AskSnapshot noBest = twoDaySnapshot(null);
+        BriefingRegion ruledOutA = weatherRuledOut("Northumberland");
+        BriefingRegion ruledOutB = weatherRuledOut("Teesdale");
         List<String> covered = List.of("2026-10-06_sunset", WINDOW, "2099-01-01_sunset");
 
-        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, List.of(WINDOW), noBest))
+        // Tomorrow is ruled out by the weather: scored and poor, so it is named.
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, todayThenDay2(null, ruledOutA, ruledOutB),
+                AskScope.ALL)).containsExactly(TODAY.plusDays(1));
+        // A day with a 4-star place in scope is never named.
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, twoDaySnapshot(null), AskScope.ALL)).isEmpty();
+        // Today is ruled out too, but its window carries the BEST BET: left out.
+        AskSnapshot bothOut = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, best, ruledOutA, ruledOutB),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, ruledOutA, ruledOutB)), List.of()));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, bothOut, AskScope.ALL))
                 .containsExactly(TODAY.plusDays(1));
-        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, List.of(), noBest))
+        AskSnapshot bothOutNoBest = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, null, ruledOutA, ruledOutB),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, ruledOutA, ruledOutB)), List.of()));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, bothOutNoBest, AskScope.ALL))
                 .containsExactly(TODAY, TODAY.plusDays(1));
-        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, List.of(), withBestToday))
+        assertThat(ClaudeAskEngine.emptyCoveredDates(List.of(), bothOutNoBest, AskScope.ALL)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a covered day is not empty when a game-on place sits in a window the offer's candidates omit "
+            + "(the coastal-high case): the spread, not the candidate ids, decides")
+    void gameOnPlaceNotInOfferCandidatesIsNotEmpty() {
+        AskSnapshot snapshot = todayThenDay2(null,
+                AskFixtures.region("Teesdale", true, AskFixtures.slot(10L, "Hamsterley", 4)));
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot at high tide?", List.of(WINDOW), null,
+                List.of(WINDOW, "2026-10-06_sunset"));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), snapshot, AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID,
+                ReadyQuestion.COASTAL_HIGH, offer));
+
+        assertThat(systemText(sentParams().getFirst())).doesNotContain("has no place worth going to");
+    }
+
+    @Test
+    @DisplayName("a mostly thin or not-scored day with no game-on place is unlooked-at, not empty; so is a "
+            + "window with no spread")
+    void mostlyUnlookedDayOrNoSpreadIsNotEmpty() {
+        List<String> covered = List.of("2026-10-06_sunset");
+        BriefingRegion thin = AskFixtures.region("Teesdale", false, AskFixtures.slot(10L, "Hamsterley", 2));
+        // Two of three in-scope regions are thin or not scored; one is ruled out by the weather.
+        AskSnapshot mostlyUnlooked = todayThenDay2(null, thin,
+                AskFixtures.blankedRegion("Cumbria", CoverageReason.UNKNOWN), weatherRuledOut("Northumberland"));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, mostlyUnlooked, AskScope.ALL)).isEmpty();
+        // Half unlooked is not "mostly scored" either.
+        AskSnapshot halfUnlooked = todayThenDay2(null, thin, weatherRuledOut("Northumberland"));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, halfUnlooked, AskScope.ALL)).isEmpty();
+        // Fewer than half (one thin, two ruled out) is.
+        AskSnapshot mostlyScored = todayThenDay2(null, thin, weatherRuledOut("Northumberland"),
+                weatherRuledOut("Cumbria"));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, mostlyScored, AskScope.ALL))
                 .containsExactly(TODAY.plusDays(1));
-        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, List.of("2026-10-06_sunset", WINDOW), noBest))
-                .isEmpty();
-        assertThat(ClaudeAskEngine.emptyCoveredDates(List.of(), List.of(), noBest)).isEmpty();
+        // A window with no spread (an id the snapshot lacks, or no region in scope) is not empty.
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, todayThenDay2(null), AskScope.ALL)).isEmpty();
     }
 }
