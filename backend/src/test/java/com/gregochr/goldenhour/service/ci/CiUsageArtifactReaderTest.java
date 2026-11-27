@@ -35,8 +35,8 @@ class CiUsageArtifactReaderTest {
 
     private static String doc(String schema, String suite, String runId, String attempt, String models) {
         return "{\"schema\":" + schema + ",\"suite\":\"" + suite + "\",\"runId\":" + runId + ",\"runAttempt\":"
-                + attempt + ",\"headSha\":\"abc\",\"pr\":1912,\"startedAt\":\"2026-11-27T10:00:00Z\","
-                + "\"finishedAt\":\"2026-11-27T10:05:00Z\",\"complete\":true,\"cases\":42,\"failed\":3,\"models\":["
+                + attempt + ",\"headSha\":\"abc\",\"pr\":1912,\"startedAt\":\"2025-03-14T10:00:00Z\","
+                + "\"finishedAt\":\"2025-03-14T10:05:00Z\",\"complete\":true,\"cases\":42,\"failed\":3,\"models\":["
                 + models + "]}";
     }
 
@@ -92,7 +92,7 @@ class CiUsageArtifactReaderTest {
     @DisplayName("an artifact with no models and no case counts is valid (the suite recorded nothing)")
     void readsEmptyModelsAndNullCases() throws InvalidArtifactException {
         String json = "{\"schema\":1,\"suite\":\"ask\",\"runId\":123456789,\"runAttempt\":2,\"headSha\":null,"
-                + "\"pr\":null,\"startedAt\":null,\"finishedAt\":\"2026-11-27T10:05:00Z\",\"complete\":false,"
+                + "\"pr\":null,\"startedAt\":null,\"finishedAt\":\"2025-03-14T10:05:00Z\",\"complete\":false,"
                 + "\"cases\":null,\"failed\":null,\"models\":[]}";
 
         CiUsageArtifactReader.Usage usage = reader.read(zip(CiUsageArtifactReader.entryName("ask"), json), "ask",

@@ -41,21 +41,21 @@ final class CiSpendFixtures {
     static String attemptJson(String status, String event, String sha, String displayTitle, String pullRequests) {
         return "{\"id\":1,\"status\":\"" + status + "\",\"conclusion\":\"success\",\"event\":\"" + event
                 + "\",\"head_sha\":\"" + sha + "\",\"display_title\":\"" + displayTitle + "\",\"pull_requests\":"
-                + pullRequests + ",\"run_started_at\":\"2026-11-27T09:00:00Z\","
-                + "\"updated_at\":\"2026-11-27T11:30:00Z\"}";
+                + pullRequests + ",\"run_started_at\":\"2025-03-14T09:00:00Z\","
+                + "\"updated_at\":\"2025-03-14T11:30:00Z\"}";
     }
 
     /** The same attempt with an explicit last-updated time. */
     static String attemptJsonUpdatedAt(String updatedAt, String pullRequests) {
         return attemptJson("completed", "pull_request", "0123456789abcdef0123456789abcdef01234567", "feat: a title",
-                pullRequests).replace("2026-11-27T11:30:00Z", updatedAt);
+                pullRequests).replace("2025-03-14T11:30:00Z", updatedAt);
     }
 
     /** One job with a paid step; {@code stepStartedAt} may be null (the step never started). */
     static String jobJson(String name, int runAttempt, String conclusion, String stepName, String stepStartedAt) {
         return "{\"name\":\"" + name + "\",\"run_attempt\":" + runAttempt + ",\"conclusion\":\"" + conclusion
-                + "\",\"started_at\":\"2026-11-27T10:00:00Z\",\"completed_at\":\"2026-11-27T10:05:00Z\","
-                + "\"steps\":[{\"name\":\"Set up JDK 25\",\"started_at\":\"2026-11-27T10:00:30Z\"},"
+                + "\",\"started_at\":\"2025-03-14T10:00:00Z\",\"completed_at\":\"2025-03-14T10:05:00Z\","
+                + "\"steps\":[{\"name\":\"Set up JDK 25\",\"started_at\":\"2025-03-14T10:00:30Z\"},"
                 + "{\"name\":\"" + stepName + "\",\"started_at\":"
                 + (stepStartedAt == null ? "null" : "\"" + stepStartedAt + "\"") + "}]}";
     }
@@ -87,8 +87,8 @@ final class CiSpendFixtures {
     /** The artifact document for a suite, run and attempt, with the given models array content. */
     static String artifactDoc(String suite, long runId, int attempt, String models) {
         return "{\"schema\":1,\"suite\":\"" + suite + "\",\"runId\":" + runId + ",\"runAttempt\":" + attempt
-                + ",\"headSha\":\"abc\",\"pr\":1912,\"startedAt\":\"2026-11-27T10:00:00Z\","
-                + "\"finishedAt\":\"2026-11-27T10:05:00Z\",\"complete\":true,\"cases\":42,\"failed\":3,"
+                + ",\"headSha\":\"abc\",\"pr\":1912,\"startedAt\":\"2025-03-14T10:00:00Z\","
+                + "\"finishedAt\":\"2025-03-14T10:05:00Z\",\"complete\":true,\"cases\":42,\"failed\":3,"
                 + "\"models\":[" + models + "]}";
     }
 

@@ -87,14 +87,14 @@ class CiSpendPollServiceTest {
     private static final String OWNER = "gregochr";
     private static final String REPO = "goldenhour";
     private static final String WORKFLOW = "prompt-regression.yml";
-    private static final String CREATED = ">=2026-11-13";
+    private static final String CREATED = ">=2025-02-28";
     private static final long RUN = 5551L;
     private static final long ARTIFACT = 777L;
     private static final String LOCATION = "https://blob.test/a?sig=SECRETSIG";
     private static final String TOKEN = "github_pat_TOKENVALUE1234567890";
     private static final String SHA = "0123456789abcdef0123456789abcdef01234567";
-    private static final LocalDate JOB_DAY = LocalDate.of(2026, 11, 27);
-    private static final String STEP_START = "2026-11-27T10:01:00Z";
+    private static final LocalDate JOB_DAY = LocalDate.of(2025, 3, 14);
+    private static final String STEP_START = "2025-03-14T10:01:00Z";
     private static final int MAX = CiSpendPollService.MAX_ARTIFACT_BYTES;
     private static final String SONNET_MODEL = modelJson(SONNET_55_ID, 42, 1, 612_000, 38_000, 434_000, 21_000,
             9_000);
@@ -117,7 +117,7 @@ class CiSpendPollServiceTest {
 
     private final CostCalculator costCalculator = new CostCalculator(new CostProperties());
     private final CiSpendProperties properties = new CiSpendProperties();
-    private final Clock clock = Clock.fixed(Instant.parse("2026-11-27T12:00:00Z"), ZoneOffset.UTC);
+    private final Clock clock = Clock.fixed(Instant.parse("2025-03-14T12:00:00Z"), ZoneOffset.UTC);
     private CiSpendPollService service;
     private Logger logger;
     private ListAppender<ILoggingEvent> logs;
@@ -237,9 +237,9 @@ class CiSpendPollServiceTest {
         row.setRunAttempt(1);
         row.setSuite("sky");
         row.setUsageState(state);
-        row.setStartedAt(Instant.parse("2026-11-20T10:00:00Z"));
+        row.setStartedAt(Instant.parse("2025-03-07T10:00:00Z"));
         row.setHtmlUrl("https://github.com/gregochr/goldenhour/actions/runs/" + RUN + "/attempts/1");
-        row.setFetchedAt(Instant.parse("2026-11-20T11:00:00Z"));
+        row.setFetchedAt(Instant.parse("2025-03-07T11:00:00Z"));
         if (modelId != null) {
             CiSpendModelUsageEntity m = new CiSpendModelUsageEntity();
             m.setModel(modelId);
@@ -318,13 +318,13 @@ class CiSpendPollServiceTest {
         assertThat(row.getPrNumber()).isEqualTo(1912);
         assertThat(row.getPrTitle()).isEqualTo("feat: a title");
         assertThat(row.getHtmlUrl()).isEqualTo("https://github.com/gregochr/goldenhour/actions/runs/5551/attempts/1");
-        assertThat(row.getStartedAt()).isEqualTo(Instant.parse("2026-11-27T10:00:00Z"));
-        assertThat(row.getFinishedAt()).isEqualTo(Instant.parse("2026-11-27T10:05:00Z"));
+        assertThat(row.getStartedAt()).isEqualTo(Instant.parse("2025-03-14T10:00:00Z"));
+        assertThat(row.getFinishedAt()).isEqualTo(Instant.parse("2025-03-14T10:05:00Z"));
         assertThat(row.getConclusion()).isEqualTo("success");
         assertThat(row.getCases()).isEqualTo(42);
         assertThat(row.getFailed()).isEqualTo(3);
         assertThat(row.getErroredCalls()).isEqualTo(1);
-        assertThat(row.getFetchedAt()).isEqualTo(Instant.parse("2026-11-27T12:00:00Z"));
+        assertThat(row.getFetchedAt()).isEqualTo(Instant.parse("2025-03-14T12:00:00Z"));
         assertThat(row.getModels()).hasSize(1);
         CiSpendModelUsageEntity m = row.getModels().get(0);
         CostCalculator.ModelRates rates = costCalculator.ratesFor(EvaluationModel.SONNET_55);
@@ -708,7 +708,7 @@ class CiSpendPollServiceTest {
         CiSpendRunEntity row = existingRow(9L, "UNPRICED", SONNET_55_ID);
         when(runRepository.findByUsageStateOrderByStartedAtAsc("UNPRICED")).thenReturn(List.of(row));
         when(runRepository.findById(9L)).thenReturn(Optional.of(row));
-        when(exchangeRateService.getRate(LocalDate.of(2026, 11, 20))).thenReturn(0.79);
+        when(exchangeRateService.getRate(LocalDate.of(2025, 3, 7))).thenReturn(0.79);
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
 
         SchedulerFireOutcome.Report report = poll();
@@ -722,7 +722,7 @@ class CiSpendPollServiceTest {
         assertThat(row.getModels()).hasSize(1);
         assertThat(row.getModels().get(0).getInputUsdPerMtok())
                 .isEqualTo(costCalculator.ratesFor(EvaluationModel.SONNET_55).inputUsdPerMtok());
-        assertThat(row.getFetchedAt()).isEqualTo(Instant.parse("2026-11-27T12:00:00Z"));
+        assertThat(row.getFetchedAt()).isEqualTo(Instant.parse("2025-03-14T12:00:00Z"));
         assertThat(report.summary()).contains("1 repriced");
     }
 
@@ -890,7 +890,7 @@ class CiSpendPollServiceTest {
     void agedArtifactlessAttemptSettlesAndThenCostsNothing() {
         stubList(RUN, 1);
         when(attemptRepository.existsById(new CiSpendAttemptEntity.Key(RUN, 1))).thenReturn(false, true);
-        stubAttempt(RUN, 1, attemptJsonUpdatedAt("2026-11-27T10:30:00Z", PR_ARRAY));
+        stubAttempt(RUN, 1, attemptJsonUpdatedAt("2025-03-14T10:30:00Z", PR_ARRAY));
         stubJobs(RUN, 1, skyJob(1));
         stubArtifacts(RUN, 1, "sky", noArtifactsJson());
 
@@ -910,7 +910,7 @@ class CiSpendPollServiceTest {
     @DisplayName("an attempt updated exactly an hour ago is still inside the grace; a missing time counts as old")
     void graceBoundaryAndMissingTime() {
         stubList(RUN, 1);
-        stubAttempt(RUN, 1, attemptJsonUpdatedAt("2026-11-27T11:00:00Z", PR_ARRAY));
+        stubAttempt(RUN, 1, attemptJsonUpdatedAt("2025-03-14T11:00:00Z", PR_ARRAY));
         stubJobs(RUN, 1, skyJob(1));
         stubArtifacts(RUN, 1, "sky", noArtifactsJson());
 
@@ -918,8 +918,8 @@ class CiSpendPollServiceTest {
 
         verify(attemptRepository, never()).save(argThat(a -> true));
         service = newService();
-        stubAttempt(RUN, 1, attemptJsonUpdatedAt("2026-11-27T11:00:00Z", PR_ARRAY)
-                .replace(",\"updated_at\":\"2026-11-27T11:00:00Z\"", ""));
+        stubAttempt(RUN, 1, attemptJsonUpdatedAt("2025-03-14T11:00:00Z", PR_ARRAY)
+                .replace(",\"updated_at\":\"2025-03-14T11:00:00Z\"", ""));
         poll();
         assertThat(savedAttempt().getSuitesRan()).isEqualTo("sky");
     }
@@ -958,7 +958,7 @@ class CiSpendPollServiceTest {
     void jobStartFallsBackToTheStep() throws Exception {
         stubList(RUN, 1);
         stubAttempt(RUN, 1, pullRequestAttempt());
-        stubJobs(RUN, 1, skyJob(1).replace("\"started_at\":\"2026-11-27T10:00:00Z\",", ""));
+        stubJobs(RUN, 1, skyJob(1).replace("\"started_at\":\"2025-03-14T10:00:00Z\",", ""));
         stubArtifacts(RUN, 1, "sky", artifactsJson("prompt-regression-usage-sky-1", ARTIFACT, false, 100));
         stubZipRedirect(ARTIFACT, LOCATION);
         stubDownload(LOCATION, skyZip(RUN, 1, ""));
@@ -974,11 +974,11 @@ class CiSpendPollServiceTest {
     void exchangeRateUsesTheUtcDate() throws Exception {
         stubList(RUN, 1);
         stubAttempt(RUN, 1, pullRequestAttempt());
-        stubJobs(RUN, 1, skyJob(1).replace("2026-11-27T10:00:00Z", "2026-07-01T23:30:00Z"));
+        stubJobs(RUN, 1, skyJob(1).replace("2025-03-14T10:00:00Z", "2025-07-01T23:30:00Z"));
         stubArtifacts(RUN, 1, "sky", artifactsJson("prompt-regression-usage-sky-1", ARTIFACT, false, 100));
         stubZipRedirect(ARTIFACT, LOCATION);
         stubDownload(LOCATION, skyZip(RUN, 1, ""));
-        when(exchangeRateService.getRate(LocalDate.of(2026, 7, 1))).thenReturn(0.77);
+        when(exchangeRateService.getRate(LocalDate.of(2025, 7, 1))).thenReturn(0.77);
 
         poll();
 

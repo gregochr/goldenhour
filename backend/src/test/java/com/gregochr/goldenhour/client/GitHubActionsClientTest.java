@@ -171,7 +171,7 @@ class GitHubActionsClientTest {
     void apiCallsCarryTheStandardHeaders() {
         GitHubActionsClient client = GitHubActionsConfig.create(base, TOKEN);
 
-        assertThat(client.listWorkflowRuns("o", "r", "prompt-regression.yml", ">=2026-11-13", 100, 2))
+        assertThat(client.listWorkflowRuns("o", "r", "prompt-regression.yml", ">=2025-02-28", 100, 2))
                 .isEqualTo("{\"ok\":true}");
         client.getRunAttempt("o", "r", 5L, 2);
         client.listAttemptJobs("o", "r", 5L, 2, 100);

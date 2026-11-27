@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class CiSpendRunMigrationTest extends IntegrationTestBase {
 
-    private static final Instant T = Instant.parse("2026-11-27T10:00:00Z");
+    private static final Instant T = Instant.parse("2025-03-14T10:00:00Z");
 
     @Autowired
     private JdbcTemplate jdbc;
