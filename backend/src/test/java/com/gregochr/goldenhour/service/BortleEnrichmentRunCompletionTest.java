@@ -59,7 +59,7 @@ class BortleEnrichmentRunCompletionTest {
         public synchronized void send(SseEventBuilder builder) throws IOException {
             StringBuilder text = new StringBuilder();
             builder.build().forEach(part -> text.append(part.getData()));
-            events.add(text.toString().replace("event:", "").replace("\ndata:", "|").replace("\n\n", ""));
+            events.add(text.toString().replaceFirst("event: ?", "").replaceFirst("\ndata: ?", "|").replace("\n\n", ""));
             super.send(builder);
         }
     }
