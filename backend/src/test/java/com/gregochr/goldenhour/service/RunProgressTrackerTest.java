@@ -300,7 +300,7 @@ class RunProgressTrackerTest {
         /** The sent events, each as {@code name|payload}. */
         List<String> sent() {
             return events.stream()
-                    .map(e -> e.replace("event:", "").replace("\ndata:", "|").replace("\n\n", ""))
+                    .map(e -> e.replaceFirst("event: ?", "").replaceFirst("\ndata: ?", "|").replace("\n\n", ""))
                     .toList();
         }
     }
