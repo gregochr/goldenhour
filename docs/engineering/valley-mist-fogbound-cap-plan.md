@@ -46,6 +46,9 @@ For NONE, POSSIBLE and LIKELY the block stays byte-identical, and `VALLEY_MIST_S
 ` MAXIMUM 2 when the VALLEY MIST CONDITIONS block's band is FOGBOUND.` Append to the `mist_potential`
 description: ` FOGBOUND caps rating at 2.`
 
+> **Amended 2026-11-27 (`haiku-local-caps-plan.md` §2A): B was removed.** The schema clauses made Haiku
+> rate a clear sky 1 star; the cap now lives only in the FOGBOUND user message.
+
 **Not changed: the system prompt.** `PromptBuilderValleyMistTest.systemPrompt_isUntouched` pins it, and the
 MIST AND VISIBILITY GUIDANCE stays as it is. The schema is part of the cached prefix, so B already costs
 one cache re-warm for every site. A clause in the system prompt's field list therefore remains the cheap next

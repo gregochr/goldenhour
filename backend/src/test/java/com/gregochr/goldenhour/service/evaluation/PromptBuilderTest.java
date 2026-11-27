@@ -1361,6 +1361,54 @@ public class PromptBuilderTest {
         assertThat(message).contains("[THICK MID CLOUD — rate 4 (worth the trip), not 3, not 5]");
     }
 
+    private static final String BLOCKED_LABEL = "[BLOCKED \u2014 light cannot reach the canvas: "
+            + "rating 1-2, fiery_sky \u226420, golden_hour \u226430; this overrides any rate-4 label]";
+
+    @Test
+    @DisplayName("solar low cloud 61% with no far reading carries the BLOCKED label")
+    void buildUserMessage_solarLow61_carriesBlockedLabel() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(61, 20, 10, 5, 45, 30, null)).build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).contains(BLOCKED_LABEL);
+    }
+
+    @Test
+    @DisplayName("solar low cloud exactly 60% carries no BLOCKED label")
+    void buildUserMessage_solarLow60_noBlockedLabel() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(60, 20, 10, 5, 45, 30, null)).build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("[BLOCKED");
+    }
+
+    @Test
+    @DisplayName("a confirmed thin strip (near 70, far 20) carries no BLOCKED label")
+    void buildUserMessage_thinStrip_noBlockedLabel() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(70, 20, 10, 5, 45, 30, 20)).build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("[BLOCKED");
+    }
+
+    @Test
+    @DisplayName("no directional data carries no BLOCKED label")
+    void buildUserMessage_noDirectionalCloud_noBlockedLabel() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("[BLOCKED");
+    }
+
+    @Test
+    @DisplayName("BLOCKED and THICK MID labels both appear when near 70 and mid 90")
+    void buildUserMessage_blockedAndThickMid_bothLabels() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(70, 90, 10, 5, 45, 30, null)).build();
+
+        assertThat(promptBuilder.buildUserMessage(data))
+                .contains("[THICK MID CLOUD").contains(BLOCKED_LABEL);
+    }
+
     @Test
     @DisplayName("buildUserMessage with thin strip detection includes THIN STRIP annotation")
     void buildUserMessage_thinStrip_includesAnnotation() {
