@@ -300,6 +300,9 @@ same slot: 16,233 re-ratings, $44.36.
   moved off in October.
 - In Operations → Sky Eval → Weekly run, Opus 4.6 and Sonnet 4.6 should be unticked.
 - Optional: an index on `api_call_log.called_at` for the 30-day cost query.
+- CI prompt regression (2026-11-27): the CI key hit its spend cap after four pushes each ran both full suites (access returns
+  2026-12-01). The paid suites are now a label-triggered smoke, once per PR (about $0.25: sky 13 Sonnet calls, one Ask class);
+  the full suites run only from a manual `scope=full` dispatch. See "Prompt regression in CI" in `reference/dev-and-testing.md`.
 
 ## Remaining levers, ranked
 

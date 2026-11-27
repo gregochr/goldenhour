@@ -54,9 +54,10 @@ plans and this file may be written by the planning session.)
    **One exception (owner, 2026-11-07):** the `E2E — accessibility (advisory)` workflow (`.github/workflows/a11y.yml`)
    never blocks a merge until the owner makes it a required check; report a red run in the PR summary instead.
    **Second exception (owner, 2026-11-08; amended 2026-11-27):** the `Prompt regression — sky` and `Prompt regression — ask`
-   jobs (`.github/workflows/prompt-regression.yml`) are never required. They run automatically on prompt-changing PRs (the
-   `prompt-regression` environment has no required reviewer, by the owner's choice) and spend real Anthropic money; skipped
-   is normal. Never block a merge on them; report a red run in the PR summary.
+   jobs (`.github/workflows/prompt-regression.yml`) are never required. They run only when the `run-prompt-regression` label is added
+   (the session adds it as the last step, once Codex is clean on the head), as a smoke (sky quick check +
+   `AskPromptRegressionTest`); the full suites run from a manual `workflow_dispatch` with `scope=full`. They spend real
+   Anthropic money; skipped is normal. Never block a merge on them; report a red run in the PR summary.
 7. **Multi-phase plans repeat steps 2–6 for each phase**: one PR per phase, each branched from the
    updated `main` after the previous phase merged.
 

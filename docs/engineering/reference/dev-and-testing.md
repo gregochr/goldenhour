@@ -358,30 +358,38 @@ the distribution with `./mvnw -v`, up to 3 attempts with a 10 s / 20 s backoff, 
 that download warm-up retries; the real Maven command that follows is never retried. A new workflow job that calls
 `./mvnw` must add the same step. `backend/Dockerfile` uses Alpine's `apk` Maven, not the wrapper, so it is unaffected.
 
-### Prompt regression in CI (runs automatically, never required)
+### Prompt regression in CI (a label-triggered smoke, never required)
 
 `Prompt regression (approval-gated)` (`.github/workflows/prompt-regression.yml`, Phase 5b) runs the real-Claude
-`prompt-regression` classes on pull requests that change prompt or evaluation code. It is **its own workflow**, never a job in
+`prompt-regression` classes on pull requests that change prompt or evaluation code, as a **smoke test once per PR** (below). It is **its own workflow**, never a job in
 `ci.yml`, and **never a required check**: a skipped run is normal, and a red run is reported, never awaited, before a merge
 (CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and `Prompt regression — ask`). The workflow's name still says
 "approval-gated" because it is the check name and `prompt-regression-workflow.test.sh` pins it; the gate itself is off (below).
 
-- **How it triggers.** `pull_request` (opened, synchronize, reopened, ready_for_review) and `workflow_dispatch`. A `changes` job
+- **The smoke (owner, 2026-11-27).** The paid jobs run only when the `run-prompt-regression` label is added to the PR (remove and
+  re-add it to rerun); never on a push. The session adds the label once, as the last step before merge, when Codex is clean on
+  the PR head (the same moment auto-merge is enabled), then reports the result and never awaits it. A PR smoke is the sky quick
+  check (`SKY_RUNS=1`) plus `AskPromptRegressionTest`, about $0.25 a run from measured usage (sky 13 Sonnet calls, one Ask
+  class). The full suites (every `Ask*RegressionTest`, the ValleyMist advisory step, and `sky_runs=8` if chosen) run from a
+  manual `workflow_dispatch` with `scope=full` (the default for a manual run; `scope=smoke` gives the PR shape). This replaced
+  full runs on every push, which exhausted the CI key's cap on 2026-11-27.
+- **How it triggers.** `pull_request` (opened, synchronize, reopened, ready_for_review, labeled) and `workflow_dispatch`. A `changes` job
   (no secrets, no environment) takes a three-dot `git diff` against the merge base (`fetch-depth: 0`) and feeds it to
   `scripts/prompt-regression-paths.sh`, which prints `sky=` and `ask=`. The globs are written out in that script and pinned by
   `scripts/test/prompt-regression-paths.test.sh`; shared files (the Anthropic client, `PromptUtils`, `AppConfig`, `DayLabels` and
   so on) set both, and `backend/pom.xml` sets both only when its diff mentions `anthropic`, `prompt-regression` or `surefire`.
-  Fork PRs and Dependabot never reach the paid jobs; for an SDK bump the owner runs the workflow manually.
+  Fork PRs and Dependabot never reach the paid jobs; for an SDK bump the owner runs the workflow manually. The job's `paid` output is
+  true only on a manual run or when the added label is exactly `run-prompt-regression`; both paid jobs also require it.
 - **What runs.** `sky`: `SkyRatingRegressionTest` and `SystemPromptTokenCountTest` with
-  `SKY_MODEL=SONNET_55` and `SKY_RUNS` (1 on a PR; 1 or 8 by the dispatch input). `ValleyMistPromptRegressionTest` runs in its own
+  `SKY_MODEL=SONNET_55` and `SKY_RUNS` (1 on a PR; 1 or 8 by the dispatch input). On `scope=full` only, `ValleyMistPromptRegressionTest` runs in its own
   `continue-on-error` step and is reported, never failing, until the owner approves its assertions. That step passes
   `-Dregression.model="$SKY_MODEL"`, so it runs on the same model as the sky step (before 2026-11-27 it silently ran on the
-  test's HAIKU default). `ask`: `Ask*RegressionTest`
+  test's HAIKU default). `ask`: `AskPromptRegressionTest` in the smoke, `Ask*RegressionTest` on `scope=full`,
   with `-DforkCount=1`; any skipped Ask test is shown red in the summary, because a skipped paid test checked nothing.
   `PromptReplayHarnessTest` never runs. The step summary (`scripts/prompt-regression-summary.py`, read from the surefire
   `TEST-*.xml`) and the uploaded reports use `if: ${{ !cancelled() }}`, so a red test step still produces them.
 - **No approval gate (owner's choice, 2026-11-27).** Both jobs run in the `prompt-regression` GitHub environment, which holds the
-  key but has **no required reviewer**: a prompt-changing PR runs the paid jobs as soon as it is opened or pushed (observed on
+  key but has **no required reviewer**: a labelled PR runs the paid jobs at once (before the smoke change, on every open or push; observed on
   PR #1967 and on the `main` run before it: each job started about 3 s after it was queued). The original design (2026-11-08)
   had the owner as required reviewer, so nothing spent money without a click; to restore that, tick Required reviewers on the
   environment and update this section and CLAUDE.md step 6. The key is the environment secret
@@ -394,9 +402,8 @@ that download warm-up retries; the real Maven command that follows is never retr
   the prompt under test is a reason to look hard at what the paid run did with the key.
 - **Costs** (estimates): sky quick (k=1) about 25 calls on Sonnet 5.5, roughly $0.10-0.30 and 5 minutes; sky eval (k=8, dispatch
   only) 80+ calls, roughly $1-2 and 20-40 minutes; ask about 145 asks on Haiku, roughly $1.50-3.60 and 30-50 minutes. A newer push
-  to the same branch cancels a stale run (`concurrency` per job). With no gate, every prompt-changing PR and every push to one
-  pays for a run.
-- **Manual runs.** Actions, Prompt regression, Run workflow: choose `suite` (`sky`, `ask`, `both`) and `sky_runs` (`1` or `8`). They
+  to the same branch cancels a stale run (`concurrency` per job). The smoke costs one run per labelled PR.
+- **Manual runs.** Actions, Prompt regression, Run workflow: choose `suite` (`sky`, `ask`, `both`), `sky_runs` (`1` or `8`) and `scope` (`smoke` or `full`, default `full`). They
   start at once, like PR runs.
 - **Tests.** `scripts/test/prompt-regression-{paths,summary,workflow}.test.sh` run in `Shell — script tests`; the scripts are
   ShellChecked by `Shell — ShellCheck`. `actionlint` is not part of CI.
