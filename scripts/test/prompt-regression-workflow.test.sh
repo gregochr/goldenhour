@@ -145,6 +145,7 @@ else
         assert_eq "$job maps the separate key" '${{ secrets.PROMPT_REGRESSION_ANTHROPIC_API_KEY }}' "$(fact ${job}_key)"
         assert_eq "$job cancels stale runs" "True" "$(fact ${job}_cancel)"
         assert_contains "$job concurrency group uses the head ref" "$(fact ${job}_group)" "github.head_ref || github.ref"
+        assert_contains "$job concurrency group includes the paid flag" "$(fact ${job}_group)" "-${job}-\${{ needs.changes.outputs.paid }}"
         assert_eq "$job summary survives a red step" '${{ !cancelled() }}' "$(fact ${job}_summarise_if)"
         assert_eq "$job surefire upload survives a red step" '${{ !cancelled() }}' "$(fact ${job}_upload_if)"
         # C1 (docs/engineering/ci-spend-plan.md): the usage steps run even when the job is cancelled mid-run.

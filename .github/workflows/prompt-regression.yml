@@ -131,9 +131,9 @@ jobs:
     environment: prompt-regression
     # Eval mode (8 runs per fixture) takes 20-40 minutes; the quick check about 5.
     timeout-minutes: ${{ inputs.sky_runs == '8' && 60 || 30 }}
-    # B10: a newer push cancels a stale run, so it is not paid for twice.
+    # B10: a newer labelled run cancels a stale one. The paid flag is in the group so a push never cancels a labelled smoke.
     concurrency:
-      group: prompt-regression-${{ github.head_ref || github.ref }}-sky
+      group: prompt-regression-${{ github.head_ref || github.ref }}-sky-${{ needs.changes.outputs.paid }}
       cancel-in-progress: true
     env:
       ANTHROPIC_API_KEY: ${{ secrets.PROMPT_REGRESSION_ANTHROPIC_API_KEY }}
@@ -240,7 +240,7 @@ jobs:
     # About 145 asks on Haiku, 30-50 minutes.
     timeout-minutes: 75
     concurrency:
-      group: prompt-regression-${{ github.head_ref || github.ref }}-ask
+      group: prompt-regression-${{ github.head_ref || github.ref }}-ask-${{ needs.changes.outputs.paid }}
       cancel-in-progress: true
     env:
       # A PR runs the smoke; a manual run uses the chosen scope (default full).
