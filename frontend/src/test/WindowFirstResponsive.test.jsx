@@ -2,7 +2,6 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
-import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
 
 /**
  * P14 — the responsive pass.
@@ -36,8 +35,6 @@ import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
  * should be read as if it did.
  */
 
-const TODAY = '2026-08-09';
-
 function renderShell(props = {}) {
   const handlers = { onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
   render(<WindowFirstShell {...handlers} />);
@@ -52,7 +49,6 @@ describe('P14 responsive hooks — shell chrome', () => {
     ['window-first-shell', 'wf-shell'],
     ['window-first-masthead', 'wf-mast'],
     ['window-first-tickline', 'wf-tick'],
-    ['window-first-tabs', 'wf-tabs'],
     ['window-first-pane', 'wf-body'],
   ])('%s carries %s, the class its phone rule selects', (testId, className) => {
     renderShell();
@@ -65,61 +61,31 @@ describe('P14 responsive hooks — shell chrome', () => {
   it('declares the gutter on an ancestor of everything that consumes it', () => {
     renderShell();
     const shell = screen.getByTestId('window-first-shell');
-    ['window-first-masthead', 'window-first-tickline', 'window-first-tabs', 'window-first-pane']
+    ['window-first-masthead', 'window-first-tickline', 'window-first-pane']
       .forEach((testId) => expect(shell).toContainElement(screen.getByTestId(testId)));
   });
 
-  it('gives every tab the class its phone type scale selects', () => {
+  // The tabs and their classes are gone (one-screen-plan.md O3); what the phone rules still hang off is the shell and the pane.
+  it('draws no tab, so no `.wf-tab` rule has an element to select', () => {
     renderShell();
-    const tabs = within(screen.getByTestId('window-first-tabs')).getAllByRole('tab');
-    expect(tabs).toHaveLength(2);
-    tabs.forEach((tab) => expect(tab).toHaveClass('wf-tab'));
-  });
-
-  // Both halves, because `.wf-tab[aria-selected='true']` is now the ONLY carrier of the selected
-  // weight and the gold top rule — a state that used to be an inline ternary. Asserting only the
-  // true half would pass if the attribute were hard-coded.
-  it('marks exactly one tab selected, which is what the selected paint hangs off', () => {
-    renderShell();
-    const tabs = within(screen.getByTestId('window-first-tabs')).getAllByRole('tab');
-    const selected = tabs.filter((t) => t.getAttribute('aria-selected') === 'true');
-    const unselected = tabs.filter((t) => t.getAttribute('aria-selected') === 'false');
-    expect(selected).toHaveLength(1);
-    expect(unselected).toHaveLength(1);
-    expect(selected[0]).toHaveAttribute('data-testid', 'window-first-tab-plan');
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    expect(document.querySelector('.wf-tab, .wf-tabs, .wf-tabrow')).toBeNull();
   });
 
   // §5h handed P14 a literal `14px 18px 20px` duplicated across two files with a comment asking the
   // next reader to keep them in step. One class replaces the comment; this is the test that makes
   // the coupling real, and it fails if either pane drops it.
-  it('gives both panes the same inset class, so the frame cannot move on a tab change', () => {
+  it('draws Further ahead inside the Plan pane, so one inset frames both sections and the frame cannot move', () => {
     renderShell();
-    expect(screen.getByTestId('window-first-pane')).toHaveClass('wf-body');
-    expect(screen.getByTestId('window-first-coming-up')).toHaveClass('wf-body');
-  });
-
-  it('keeps the inset class on the Coming up pane when it is the hidden one', () => {
-    render(
-      <WindowFirstComingUp
-        id="p"
-        labelledBy="t"
-        hidden
-        status="ready"
-        events={[]}
-        todayStr={TODAY}
-        onRetry={vi.fn()}
-        onGoToPlan={vi.fn()}
-        onShowOnMap={vi.fn()}
-      />,
-    );
-    const pane = screen.getByTestId('window-first-coming-up', { hidden: true });
+    const pane = screen.getByTestId('window-first-pane');
     expect(pane).toHaveClass('wf-body');
-    expect(pane).toHaveClass('hidden');
+    expect(pane).toContainElement(screen.getByTestId('further-ahead'));
+    expect(pane).toContainElement(screen.getByTestId('this-week'));
   });
 
   // The mock hides ⚙ and Sign out on phone (`.wrap.mob .ghost{display:none}`). This arm declines
-  // that, because they are its only route to settings and its only route out — see §5i. The rule is
-  // unconditional on purpose: a CSS-only hide would leave this green while pinning nothing, so if
+  // that, because they are its only route to settings and its only route out — see §5i (they are the ☰ menu's rows now, and
+  // the one menu button is drawn at every width). The rule is unconditional on purpose: a CSS-only hide would leave this green while pinning nothing, so if
   // this ever needs to become "two at desktop" it must be a JS branch, and this test must fail.
   //
   // ⚠️ M3 added the tick line's two controls to the same band, so the row is asserted as an EXACT
@@ -130,8 +96,7 @@ describe('P14 responsive hooks — shell chrome', () => {
     renderShell();
     const masthead = screen.getByTestId('window-first-masthead');
     expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
-      .toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
-        'window-first-origin-chip', 'window-first-search']);
+      .toEqual(['masthead-menu-button', 'window-first-origin-chip', 'window-first-search']);
   });
 
   // Same argument one row down. "Edit reach" was the rail footer's escape hatch and M3 deleted the

@@ -151,7 +151,7 @@ describe('with Ask\'s sheet open, nothing else can open', () => {
     await screen.findByTestId('wf-heat-strip');
     fireEvent.click(await screen.findByTestId('ask-bar'));
     await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
-    fireEvent.click(screen.getByRole('tab', { name: 'Coming up' }));
+    fireEvent.click(screen.getByTestId('further-ahead-jump'));
     expect(askDialog()).toBeNull();
     expect(modalCount()).toBe(0);
   });
@@ -182,7 +182,7 @@ const mountOnMap = () => {
   const report = vi.fn();
   renderAskShell({
     width: 800,
-    props: { mapPane: <MapProbe report={report} />, initialTab: 'map' },
+    props: { mapPane: <MapProbe report={report} />, loadMapRoute: { preferred: true } },
   });
   return report;
 };

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildDateRail, chipCounts, buildEntryView, groupEntriesByMonth, buildChronology, FOOTER,
+  buildDateRail, chipCounts, chipCountsOf, buildEntryView, groupEntriesByMonth, buildChronology, FOOTER,
   FILTER_CHIPS, formatArrivalDate, MAX_CHIP_DAYS,
 } from '../utils/comingUpFeed.js';
 
@@ -91,6 +91,38 @@ describe('buildDateRail — the countdown', () => {
 
   it('says nothing when there is no usable today', () => {
     expect(buildDateRail('2026-08-16', '2026-08-18', '').countdown).toBeNull();
+  });
+});
+
+describe('chipCountsOf — the chips over what a section actually lists (one-screen-plan.md D5)', () => {
+  const coast = entry({ id: 'c', family: 'coastal' });
+  const night = entry({ id: 'n', family: 'night-sky' });
+  const merged = entry({ id: 'm', family: 'coastal', coincidence: [{ family: 'sun-moon', type: 'supermoon' }] });
+  const eclipse = entry({ id: 'e', family: 'eclipse' });
+  const air = entry({ id: 'a', family: 'air' });
+  const count = (chips, id) => chips.find((c) => c.id === id).count;
+
+  it('counts each chip by the list\'s own membership rule, so a chip and its rows agree', () => {
+    const chips = chipCountsOf([coast, night, eclipse, air]);
+    expect(chips.map((c) => c.id)).toEqual(FILTER_CHIPS.map((c) => c.id));
+    expect(count(chips, 'all')).toBe(4);
+    expect(count(chips, 'coastal')).toBe(1);
+    expect(count(chips, 'night-sky')).toBe(1);
+    expect(count(chips, 'sun-moon')).toBe(1);
+    expect(count(chips, 'air-dust')).toBe(1);
+  });
+
+  it('counts a merged card under every family it holds, and once in All', () => {
+    const chips = chipCountsOf([merged, night]);
+    expect(count(chips, 'all')).toBe(2);
+    expect(count(chips, 'coastal')).toBe(1);
+    expect(count(chips, 'sun-moon')).toBe(1);
+  });
+
+  it('is all zeros for an empty list, and for a list that has not arrived', () => {
+    for (const none of [[], undefined, null]) {
+      expect(chipCountsOf(none).every((c) => c.count === 0)).toBe(true);
+    }
   });
 });
 
@@ -851,7 +883,7 @@ describe('FOOTER', () => {
   it('is the one fixed note, naming what the list shows and where weather topics live', () => {
     expect(FOOTER).toBe(
       'This list shows dates fixed in advance, from today on. '
-      + "Weather-driven topics can't be known that far out, so they appear only under the next four days on At a Glance, "
+      + "Weather-driven topics can't be known that far out, so they appear only under the next four days in This week, "
       + 'except Met Office weather warnings, which are listed here when they run past those four days.',
     );
   });
@@ -911,5 +943,17 @@ describe('buildEntryView — inNext4Days (coming-up-glance-plan §2.3)', () => {
 
   it('yields false before a usable "today" exists', () => {
     expect(buildEntryView(entry({ startDate: '2026-08-12' }), '', null, null).inNext4Days).toBe(false);
+  });
+});
+
+describe('buildEntryView — what the watch match reads (one-screen-plan.md D16)', () => {
+  it('passes the entry\'s own end date through, and the tide\'s own days on a merged entry', () => {
+    const view = buildEntryView(entry({ dayRanges: [{ date: '2026-08-16' }] }), TODAY, null, null);
+    expect(view.endDate).toBe('2026-08-18');
+    expect(view.dayRanges).toEqual([{ date: '2026-08-16' }]);
+  });
+
+  it('an unmerged entry has no day ranges', () => {
+    expect(buildEntryView(entry(), TODAY, null, null).dayRanges).toBeNull();
   });
 });

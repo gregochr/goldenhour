@@ -748,7 +748,7 @@ class LitePickShaperTest {
                         "goldenHourPotential", "claudeSummary", "displayVerdict", "claudeHeadline",
                         "neighbourOutlier"),
                 Set.of("locationId", "locationName", "solarEventTime", "weather", "tide", "canopy",
-                        "eclipse", "forced", "triaged"));
+                        "eclipse", "forced", "triaged", "disposition"));
     }
 
     @Test
@@ -847,7 +847,7 @@ class LitePickShaperTest {
         BriefingWindow shaped = window.withBestRating(null);
         assertThat(names(BriefingWindow.class)).containsExactlyInAnyOrderElementsOf(
                 union(Set.of("bestRating"), Set.of("eventTime", "verdict", "confidence", "pick", "badges",
-                        "tide", "tideFacts", "warningIds", "warningPlaceCounts")));
+                        "tide", "tideFacts", "warningIds", "warningPlaceCounts", "coverageReason", "fog")));
         for (RecordComponent c : BriefingWindow.class.getRecordComponents()) {
             if (c.getName().equals("bestRating")) {
                 assertThat(get(c, window)).isNotNull();
@@ -874,7 +874,7 @@ class LitePickShaperTest {
                 "regionTemperatureCelsius", "regionApparentTemperatureCelsius", "regionWindSpeedMs",
                 "regionWeatherCode", "glossHeadline", "glossDetail", "displayVerdict", "scoredLocationCount",
                 "verdictLabel", "confidence", "sampleSufficient", "forcedSample",
-                "coverageReason");
+                "coverageReason", "fog");
         assertThat(names(BriefingRegion.class)).as("classify every BriefingRegion component")
                 .containsExactlyInAnyOrderElementsOf(union(stripped, computed, shapedPerSlot, kept));
         for (RecordComponent c : BriefingRegion.class.getRecordComponents()) {

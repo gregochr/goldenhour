@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.StormSurgeDetails;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SnowStateEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
@@ -17,6 +18,7 @@ import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SnowStateRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.repository.TopicDailyLogRepository;
 import com.gregochr.goldenhour.util.ForecastHorizon;
@@ -95,15 +97,18 @@ import java.util.Map;
  *       highest score, nothing for an unmeasured region. The name carries the population, so a
  *       rarity computation reads {@value #TYPE_MIST} alone. Nothing reads it yet: it is
  *       kept as a measurement record for a future rarity computation.</li>
- *   <li><b>SNOW</b> — {@code slot_atmosphere} (survivor-only; the only source — the
- *       {@code forecast_evaluation} snow columns were dropped in V116). The plan's candidate list
- *       names one "SNOW" topic, but the codebase has two live snow strategies:
- *       {@link SnowFreshHotTopicStrategy} (lying-depth threshold, a plain column reading) and
- *       {@link SnowTopsHotTopicStrategy} (a derived, fell-summit condition gated on freezing level
- *       against a location's elevation). This job logs {@code SnowFreshHotTopicStrategy}'s reading:
- *       it is the direct presence/intensity pair the table's two columns were shaped for, where
- *       "tops" is a compositional variant of the same underlying reading rather than a second
- *       independent phenomenon. Revisit if a future phase wants fell-summit snow logged as its own
+ *   <li><b>SNOW</b> — {@code snow_state} (snow-topics-truth-plan §3.6): the modelled snowpack at each
+ *       enabled place's own sunrise (the S2 point snowpack; {@code slot_atmosphere.snow_depth_m} is a 9 km grid
+ *       value and is no longer read here). The log is a census of what happened, so
+ *       {@code present} means any place in the region had its own snow lying
+ *       ({@link SnowRows#isLying}: modelled snow water at or above {@code PointSnowpack.LYING_MM}), at any
+ *       height, and {@code intensity} is the region's highest modelled snow water in <b>millimetres</b>.
+ *       ⚠️ <b>Unit change:</b> rows logged before the snow-topics S3 deploy (2026-11-25) carry grid depth in
+ *       <em>metres</em>; rows from then on carry snow water in <em>mm</em>. {@code topic_type} is unchanged, so
+ *       a rarity computation must split the series at that date (recorded in
+ *       {@code docs/engineering/reference/conditions.md}). A region with no snow row logs nothing for the
+ *       night: unmeasured, never "no snow". Rows are read straight from the repository (a census is not
+ *       subject to the 36 h serve freshness rule). SNOW_TOPS (white summits in view) is not logged as its own
  *       topic type.</li>
  *   <li><b>SPRING_TIDE, KING_TIDE</b> — {@code tide_extreme} + each location's spring-tide height
  *       threshold ({@code TideService.getTideStats}), the same unbiased, ephemeris-and-measurement
@@ -191,6 +196,7 @@ public class TopicDailyLogJob {
 
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final SlotAtmosphereRepository slotAtmosphereRepository;
+    private final SnowStateRepository snowStateRepository;
     private final TideExtremeRepository tideExtremeRepository;
     private final TideService tideService;
     private final LunarPhaseService lunarPhaseService;
@@ -206,7 +212,8 @@ public class TopicDailyLogJob {
      * Constructs the job.
      *
      * @param forecastEvaluationRepository  the complete-population source for DUST and STORM_SURGE
-     * @param slotAtmosphereRepository      the readings source for INVERSION_CALC and SNOW
+     * @param slotAtmosphereRepository      the readings source for INVERSION_CALC and MIST_CALC
+     * @param snowStateRepository           the modelled point snowpack for SNOW
      * @param tideExtremeRepository         stored tide extremes for SPRING_TIDE/KING_TIDE
      * @param tideService                   per-location spring-tide height threshold
      * @param lunarPhaseService             decides the SPRING_TIDE vs KING_TIDE label (never height)
@@ -220,6 +227,7 @@ public class TopicDailyLogJob {
      */
     public TopicDailyLogJob(ForecastEvaluationRepository forecastEvaluationRepository,
             SlotAtmosphereRepository slotAtmosphereRepository,
+            SnowStateRepository snowStateRepository,
             TideExtremeRepository tideExtremeRepository,
             TideService tideService,
             LunarPhaseService lunarPhaseService,
@@ -232,6 +240,7 @@ public class TopicDailyLogJob {
             Clock clock) {
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.slotAtmosphereRepository = slotAtmosphereRepository;
+        this.snowStateRepository = snowStateRepository;
         this.tideExtremeRepository = tideExtremeRepository;
         this.tideService = tideService;
         this.lunarPhaseService = lunarPhaseService;
@@ -414,22 +423,26 @@ public class TopicDailyLogJob {
 
     private boolean logSnow(LocalDate date) {
         try {
-            List<SlotAtmosphereEntity> rows = slotAtmosphereRepository.findInDateRange(date, date);
+            Map<String, LocationEntity> placesByKey = new HashMap<>();
+            for (LocationEntity place : locationRepository.findAllByEnabledTrueOrderByNameAsc()) {
+                if (place.getId() != null) {
+                    placesByKey.put(SnowStateEntity.locationKey(place.getId()), place);
+                }
+            }
             Map<Long, Reading> byRegion = new LinkedHashMap<>();
-
-            for (SlotAtmosphereEntity row : rows) {
-                RegionEntity region = regionOf(row.getLocation());
-                if (region == null || region.getId() == null) {
+            for (SnowStateEntity row : snowStateRepository.findByEvaluationDateBetween(date, date)) {
+                LocationEntity place = placesByKey.get(row.getPointKey());
+                RegionEntity region = regionOf(place);
+                if (row.getEventType() != TargetType.SUNRISE || region == null || region.getId() == null) {
                     continue;
                 }
                 Reading reading = byRegion.computeIfAbsent(region.getId(), id -> new Reading());
-                Double depth = row.getSnowDepthMetres();
-                if (SnowFreshHotTopicStrategy.isFreshSnow(depth)) {
+                if (SnowRows.isLying(row)) {
                     reading.present = true;
                     reading.landedOnWindow = Boolean.TRUE;
                 }
-                if (depth != null) {
-                    reading.maxIntensity = maxOf(reading.maxIntensity, BigDecimal.valueOf(depth));
+                if (row.getSnowWaterMm() != null) {
+                    reading.maxIntensity = maxOf(reading.maxIntensity, BigDecimal.valueOf(row.getSnowWaterMm()));
                 }
             }
 

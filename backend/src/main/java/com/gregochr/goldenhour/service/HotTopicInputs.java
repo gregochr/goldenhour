@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.SnowStateEntity;
 import com.gregochr.goldenhour.model.SlotSignals;
 
 import java.time.LocalDate;
@@ -33,12 +34,14 @@ public final class HotTopicInputs {
     private final Supplier<List<LocationEntity>> darkSkySource;
     private final Supplier<List<LocationEntity>> bluebellSource;
     private final Predicate<LocalDate> travelDaySource;
+    private final Supplier<List<SnowStateEntity>> snowSource;
 
     private List<SlotSignals> slotSignals;
     private List<LocationEntity> coastal;
     private List<LocationEntity> enabled;
     private List<LocationEntity> darkSky;
     private List<LocationEntity> bluebell;
+    private List<SnowStateEntity> snowRows;
     private final Map<LocalDate, Boolean> travelDays = new HashMap<>();
 
     /**
@@ -58,12 +61,36 @@ public final class HotTopicInputs {
             Supplier<List<LocationEntity>> darkSkySource,
             Supplier<List<LocationEntity>> bluebellSource,
             Predicate<LocalDate> travelDaySource) {
+        this(slotSignalSource, coastalSource, enabledSource, darkSkySource, bluebellSource, travelDaySource,
+                null);
+    }
+
+    /**
+     * Builds inputs from every source a pass can draw on, snow rows included. A source the caller will
+     * never use may be {@code null}.
+     *
+     * @param slotSignalSource the slot signals for the pass's date range
+     * @param coastalSource    enabled coastal locations
+     * @param enabledSource    enabled locations, ordered by name
+     * @param darkSkySource    enabled locations with a Bortle class
+     * @param bluebellSource   enabled bluebell locations
+     * @param travelDaySource  whether a date is a travel day
+     * @param snowSource       the fresh {@code snow_state} rows for the pass's date range
+     */
+    public HotTopicInputs(Supplier<List<SlotSignals>> slotSignalSource,
+            Supplier<List<LocationEntity>> coastalSource,
+            Supplier<List<LocationEntity>> enabledSource,
+            Supplier<List<LocationEntity>> darkSkySource,
+            Supplier<List<LocationEntity>> bluebellSource,
+            Predicate<LocalDate> travelDaySource,
+            Supplier<List<SnowStateEntity>> snowSource) {
         this.slotSignalSource = slotSignalSource;
         this.coastalSource = coastalSource;
         this.enabledSource = enabledSource;
         this.darkSkySource = darkSkySource;
         this.bluebellSource = bluebellSource;
         this.travelDaySource = travelDaySource;
+        this.snowSource = snowSource;
     }
 
     /**
@@ -104,6 +131,21 @@ public final class HotTopicInputs {
      */
     public static HotTopicInputs ofDarkSky(Supplier<List<LocationEntity>> source) {
         return new HotTopicInputs(null, null, null, source, null, null);
+    }
+
+    /**
+     * Inputs for a snow strategy's own two-argument {@code detect}: the enabled roster, the fresh snow
+     * rows and (for the mist join) the slot signals.
+     *
+     * @param slotSignalSource the slot signals for the range, or {@code null} when the caller never asks
+     * @param enabledSource    the enabled locations, ordered by name
+     * @param snowSource       the fresh {@code snow_state} rows for the range
+     * @return inputs whose other sources are absent
+     */
+    public static HotTopicInputs ofSnow(Supplier<List<SlotSignals>> slotSignalSource,
+            Supplier<List<LocationEntity>> enabledSource,
+            Supplier<List<SnowStateEntity>> snowSource) {
+        return new HotTopicInputs(slotSignalSource, null, enabledSource, null, null, null, snowSource);
     }
 
     /**
@@ -180,6 +222,19 @@ public final class HotTopicInputs {
             bluebell = List.copyOf(require(bluebellSource, "bluebell locations").get());
         }
         return bluebell;
+    }
+
+    /**
+     * The fresh {@code snow_state} rows for the pass's range, read once and shared by the three snow
+     * strategies (a missing or stale row is simply absent: unknown, never "no snow").
+     *
+     * @return unmodifiable rows
+     */
+    public List<SnowStateEntity> snowRows() {
+        if (snowRows == null) {
+            snowRows = List.copyOf(require(snowSource, "snow rows").get());
+        }
+        return snowRows;
     }
 
     /**

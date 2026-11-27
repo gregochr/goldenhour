@@ -63,7 +63,7 @@ export const FADE_MS = 500;
 export default function WindowControl({
   events, activeIndex, onSelect, open: openProp, onOpenChange = null,
   verdicts = null, scopeIsArea = true,
-  onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
+  onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null, registerStep = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null, betterNext = null, auroraDoor = null,
   shaped = false, auroraAlertNight = null, auroraAlertLevel = null, flashKey = 0,
@@ -394,6 +394,13 @@ export default function WindowControl({
     setOpen(false);
     onSelect(events[next]);
   }
+
+  // The control's own step, offered to a caller that wants the arrow keys elsewhere (the map view's header), so every
+  // guard above (loading, either end, the older-day fetch, closing the menu) is this control's and never re-derived.
+  useEffect(() => {
+    registerStep?.(step);
+    return () => { registerStep?.(null); };
+  });
 
   function onKeyDown(e) {
     // ⚠️ Stand down entirely while a dialog from OUTSIDE the map pane is over it — the same
@@ -871,6 +878,8 @@ WindowControl.propTypes = {
   onOpenWindowPanel: PropTypes.func,
   /** A ref the caller attaches to the pill, to return focus to it from a route it owns. */
   pillRef: PropTypes.object,
+  /** Called with this control's own `step(delta)` (-1 or 1) after every render, and with null when it unmounts. */
+  registerStep: PropTypes.func,
   /**
    * Whether one more stored past day can be fetched (outcome-rating-plan.md §2 #2, O3b) — derived in
    * `WindowFirstMapPane` from the dates it holds against the T-4 floor, and false under a rewind.

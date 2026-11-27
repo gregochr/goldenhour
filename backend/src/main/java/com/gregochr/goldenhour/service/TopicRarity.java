@@ -70,12 +70,16 @@ public final class TopicRarity {
             Map.entry("BLUEBELL", 15),
             Map.entry("NLC", 16),
             Map.entry("SPRING_TIDE", 17),
+            // Frost & mist (frost-mist-plan): a strict subset of valley mist (sub-zero air on a LIKELY mist
+            // sunrise), so it must outrank its superset. That is why this one renumbers: MIST and SEA_MIST
+            // each move down a rank to make room, where earlier additions took the next free rank.
+            Map.entry("FROST_MIST", 18),
             // Valley mist at a flagged site: no census yet (the MIST_CALC log starts with M1b), so
-            // it takes the commonest rank rather than renumbering the table on a guess.
-            Map.entry("MIST", 18),
+            // it takes the commonest rank.
+            Map.entry("MIST", 19),
             // Sea mist (coastal-mist-plan Phase 2): about 12 mornings a year per east-coast site, so as common
-            // as valley mist; it takes the next rank rather than renumbering the table on a guess.
-            Map.entry("SEA_MIST", 19));
+            // as valley mist; it takes the next rank.
+            Map.entry("SEA_MIST", 20));
 
     private TopicRarity() {
     }

@@ -121,7 +121,7 @@ describe('filterCalloutTopics', () => {
 
 describe('the topic type sets', () => {
   it('treats every region-scoped type as not whole-sky, and everything else as whole-sky', () => {
-    const regional = ['KING_TIDE', 'SPRING_TIDE', 'STORM_SURGE', 'INVERSION', 'MIST', 'SEA_MIST', 'DUST',
+    const regional = ['KING_TIDE', 'SPRING_TIDE', 'STORM_SURGE', 'INVERSION', 'MIST', 'SEA_MIST', 'FROST_MIST', 'DUST',
       'SNOW_TOPS', 'SNOW_MIST', 'SNOW_FRESH', 'CLEARANCE', 'BLUEBELL'];
     regional.forEach((type) => expect(isWholeSkyTopic(type)).toBe(false));
     ['AURORA', 'NLC', 'METEOR', 'SUPERMOON', 'EQUINOX', 'ECLIPSE', 'LUNAR_ECLIPSE', 'UNKNOWN']

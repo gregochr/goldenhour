@@ -50,7 +50,7 @@ export const SETTLED_ATTRIBUTE = 'data-back-depth';
 /** The value of {@link SETTLED_ATTRIBUTE} while a traversal or reconcile is outstanding. */
 export const BUSY_VALUE = 'busy';
 
-/** More stacked layers than this is a bug in the caller: two dialogs plus the Map arrival layer the shell registers after a Glance card or Find door (glance-to-map-plan.md G2a). */
+/** More stacked layers than this is a bug in the caller: the map view plus two (a sheet or Find, and one over it). */
 export const MAX_LAYER_DEPTH = 3;
 
 /** How long an issued `go` may stay unanswered before the store re-reads the history. */
@@ -73,6 +73,18 @@ let reconcileScheduled = false;
 let scrollManual = false;
 let booted = false;
 let listenedWindow = null;
+/** Resolvers of {@link whenSettled} promises, drained by {@link syncSettled} once nothing is outstanding. */
+let settledWaiters = [];
+/**
+ * True when an entry-less layer's address was cleared while entries of ours stood above the base entry, so the base
+ * entry (which carried the address) still shows it; rewritten bare once the history next lands at depth 0.
+ */
+let baseAddressStale = false;
+/**
+ * Every address this engine itself wrote (a push or a replace). Only these are ever taken down again: a `#map/...`
+ * the page LOADED on (a deep link the gated layer has not adopted yet) is not ours until a layer writes it.
+ */
+let ownAddresses = new Set();
 
 const getWindow = () => seam.win || (typeof window === 'undefined' ? null : window);
 const getHistory = () => seam.history || getWindow()?.history;
@@ -149,11 +161,16 @@ function navIndex() {
 /** Publishes `committedDepth` on `<html>` once nothing is outstanding. */
 function syncSettled() {
   if (!enabled || !booted) return;
+  const busy = reconcileScheduled || inFlight || shrinkTimer;
   try {
-    const busy = reconcileScheduled || inFlight || shrinkTimer;
     getWindow().document.documentElement.setAttribute(SETTLED_ATTRIBUTE, busy ? BUSY_VALUE : String(committedDepth));
   } catch {
     // No document: nothing to publish to.
+  }
+  if (!busy && settledWaiters.length) {
+    const waiting = settledWaiters;
+    settledWaiters = [];
+    waiting.forEach((resolve) => resolve());
   }
 }
 
@@ -167,6 +184,70 @@ function hasActivation() {
   return getWindow()?.navigator?.userActivation?.isActive === true;
 }
 
+/** The address the stack wants shown: the topmost layer's `url` that has one, or undefined. */
+function effectiveUrl() {
+  for (let i = stack.length - 1; i >= 0; i -= 1) {
+    if (stack[i].url) return stack[i].url;
+  }
+  return undefined;
+}
+
+/** The hash the browser shows now ('' when none or unreadable). */
+function currentHash() {
+  return getWindow()?.location?.hash ?? '';
+}
+
+/**
+ * Whether the engine may write the address: only over an empty hash or its own map hash, so a route someone else
+ * owns (`#manage/...`, a token) is never clobbered.
+ */
+function addressIsOurs() {
+  const hash = currentHash();
+  return hash === '' || hash.startsWith('#map');
+}
+
+/**
+ * Writes the stack's address onto the CURRENT entry (copying its state) when it differs. Skipped while a
+ * traversal is outstanding (the location is in transit) and over a foreign hash.
+ */
+function syncUrl() {
+  if (!enabled || inFlight || shrinkTimer) return;
+  const want = effectiveUrl();
+  if (!want) {
+    // No layer wants an address, yet our own map hash is still showing: a layer with an address gave its entry to one
+    // without (a same-depth swap), or the base entry kept the address of an entry-less layer that closed above it.
+    const lingering = ownAddresses.has(currentHash()) && addressIsOurs();
+    if (lingering && (stack.length > 0 || (baseAddressStale && committedDepth === 0))) writeBareAddress();
+    if (committedDepth === 0) baseAddressStale = false;
+    return;
+  }
+  baseAddressStale = false;
+  if (currentHash() === want) {
+    // Already showing it (a layer adopting the address the page loaded on): from now on it is this engine's to clear.
+    ownAddresses.add(want);
+    return;
+  }
+  if (!addressIsOurs()) return;
+  try {
+    const h = getHistory();
+    h.replaceState(h.state, '', want);
+    ownAddresses.add(want);
+  } catch {
+    // The address is a nicety; the layers still work without it.
+  }
+}
+
+/** Replaces the current entry's address with the bare path, copying its state. */
+function writeBareAddress() {
+  try {
+    const loc = getWindow().location;
+    const h = getHistory();
+    h.replaceState(h.state, '', `${loc.pathname}${loc.search}`);
+  } catch {
+    // The address is a nicety; the layers still work without it.
+  }
+}
+
 /** Pushes one entry for the next ordinal. Returns false (and pushes nothing) when the browser refuses. */
 function pushEntry() {
   try {
@@ -175,7 +256,12 @@ function pushEntry() {
       h.scrollRestoration = 'manual';
       scrollManual = true;
     }
-    h.pushState({ ...stateObject(), [MARKER_KEY]: { session: session(), depth: committedDepth + 1 } }, '');
+    const state = { ...stateObject(), [MARKER_KEY]: { session: session(), depth: committedDepth + 1 } };
+    const url = effectiveUrl();
+    if (url && addressIsOurs()) {
+      h.pushState(state, '', url);
+      ownAddresses.add(url);
+    } else h.pushState(state, '');
     committedDepth += 1;
     return true;
   } catch {
@@ -256,6 +342,7 @@ function reconcile(shrinkNow = false) {
     });
   }
   resetScrollIfIdle();
+  syncUrl();
   syncSettled();
 }
 
@@ -328,6 +415,7 @@ function handleArrival(arrived, canGo) {
     closeDownTo(arrived);
   }
   resetScrollIfIdle();
+  syncUrl();
   syncSettled();
 }
 
@@ -344,6 +432,8 @@ function onPop() {
       clearFlight();
       committedDepth = arrived;
       reconcile();
+      // A traversal landed on an older entry of ours: its address may be stale (the window stepped meanwhile).
+      syncUrl();
       return;
     }
     handleArrival(arrived, false);
@@ -401,10 +491,10 @@ const INERT_LAYER = Object.freeze({ update() {}, release() {} });
  * @param {{onBack: Function, mode?: 'close'|'cancel'|'block'}} options `block` absorbs Back.
  * @returns {{update: Function, release: Function}}
  */
-export function registerBackLayer({ onBack, mode = 'close' } = {}) {
+export function registerBackLayer({ onBack, mode = 'close', url = undefined } = {}) {
   if (!enabled) return INERT_LAYER;
   bootDialogHistory();
-  const layer = { seq: (seq += 1), onBack, mode, hasEntry: false, placed: false, released: false };
+  const layer = { seq: (seq += 1), onBack, mode, url, hasEntry: false, placed: false, released: false };
   stack.push(layer);
   warnIfTooDeep();
   scheduleReconcile();
@@ -412,6 +502,11 @@ export function registerBackLayer({ onBack, mode = 'close' } = {}) {
     update(next = {}) {
       if (next.onBack !== undefined) layer.onBack = next.onBack;
       if (next.mode !== undefined) layer.mode = next.mode;
+      if (next.url !== undefined && next.url !== layer.url) {
+        layer.url = next.url;
+        // A placed layer shows its new address at once; one still waiting to push carries it into the push.
+        if (layer.placed) syncUrl();
+      }
     },
     release() {
       if (layer.released) return;
@@ -419,10 +514,41 @@ export function registerBackLayer({ onBack, mode = 'close' } = {}) {
       const at = stack.indexOf(layer);
       if (at >= 0) {
         stack.splice(at, 1);
+        clearOwnAddress(layer);
         scheduleReconcile();
       }
     },
   };
+}
+
+/**
+ * A closing layer that wrote an address but owns no entry (the load-time open, a refused push) puts the bare path
+ * back, copying the state, unless another layer still owns an address or the hash is no longer the one it wrote.
+ */
+function clearOwnAddress(layer) {
+  if (layer.hasEntry || !layer.url || effectiveUrl() || currentHash() !== layer.url) return;
+  // Entries of ours stand above the base entry: the address was written on the base, which this cannot reach, so it
+  // is rewritten when a traversal next lands there (`syncUrl`).
+  if (committedDepth > 0) baseAddressStale = true;
+  writeBareAddress();
+}
+
+/**
+ * Resolves once no traversal, deferred shrink or reconcile is outstanding, i.e. the history has caught up with
+ * every layer that closed. A caller about to write a hash of its own (Operations' `#manage`, plan D4/D9) awaits
+ * this so its entry is never taken for the engine's. Resolves immediately when the engine is off or idle.
+ *
+ * @returns {Promise<void>}
+ */
+export function whenSettled() {
+  return new Promise((resolve) => {
+    const busy = enabled && (reconcileScheduled || inFlight || shrinkTimer);
+    if (!busy) {
+      resolve();
+      return;
+    }
+    settledWaiters.push(resolve);
+  });
 }
 
 function listen(win) {
@@ -439,6 +565,9 @@ function listen(win) {
  */
 export function __resetForTests({ history = null, win = null, enabled: on = BACK_CLOSES_DIALOGS_ENABLED } = {}) {
   epoch += 1;
+  const waiting = settledWaiters;
+  settledWaiters = [];
+  waiting.forEach((resolve) => resolve());
   clearFlight();
   clearTimeout(shrinkTimer);
   shrinkTimer = null;
@@ -448,6 +577,8 @@ export function __resetForTests({ history = null, win = null, enabled: on = BACK
   stack = [];
   seq = 0;
   committedDepth = 0;
+  baseAddressStale = false;
+  ownAddresses = new Set();
   reconcileScheduled = false;
   scrollManual = false;
   booted = false;

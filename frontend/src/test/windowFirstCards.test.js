@@ -260,6 +260,7 @@ describe('buildWindowCards', () => {
         detail: 'Low cloud clears.',
         locationName: 'Malham Cove',
         locationId: 7,
+        rating: null,
       });
     });
 
@@ -288,6 +289,67 @@ describe('buildWindowCards', () => {
       expect(card.pick.detail).toBeNull();
       expect(card.pick.locationName).toBeNull();
       expect(card.pick.locationId).toBeNull();
+    });
+
+    describe('the pick place\'s own rating (screen-spec.md D3)', () => {
+      const slot = (id, name, claudeRating) => ({
+        locationId: id, locationName: name, ...(claudeRating === undefined ? {} : { claudeRating }),
+      });
+      const withSlots = (pick, regions) => {
+        const es = summary('SUNSET', { pick });
+        es.regions = regions;
+        return build({ events: events([TODAY, 'SUNSET']), days: [day(TODAY, [es])] })[0].pick;
+      };
+      const PICK = {
+        kind: 'BEST', regionName: 'North East', headline: 'H', locationName: 'Crimdon Beach', locationId: 7,
+      };
+
+      it('is the claudeRating of the slot in the pick\'s own region with the pick\'s location id', () => {
+        const pick = withSlots(PICK, [
+          { regionName: 'Other', slots: [slot(7, 'Crimdon Beach', 5)] },
+          { regionName: 'North East', slots: [slot(3, 'Elsewhere', 5), slot(7, 'Crimdon Beach', 3)] },
+        ]);
+
+        // Read, never ranked: the region holds a 5 and the pick's own place is the 3.
+        expect(pick.rating).toBe(3);
+      });
+
+      it('falls back to the location name when the pick carries no id', () => {
+        const pick = withSlots({ ...PICK, locationId: undefined }, [
+          { regionName: 'North East', slots: [slot(3, 'Elsewhere', 5), slot(7, 'Crimdon Beach', 4)] },
+        ]);
+
+        expect(pick.rating).toBe(4);
+      });
+
+      it('is null with no slot for the place, no rating on it (a gated slot), or no place named', () => {
+        expect(withSlots(PICK, [{ regionName: 'North East', slots: [slot(3, 'Elsewhere', 5)] }]).rating).toBeNull();
+        expect(withSlots(PICK, [{ regionName: 'North East', slots: [slot(7, 'Crimdon Beach')] }]).rating).toBeNull();
+        expect(withSlots(PICK, [{ regionName: 'Other', slots: [slot(7, 'Crimdon Beach', 4)] }]).rating).toBeNull();
+        expect(withSlots(PICK, undefined).rating).toBeNull();
+        expect(withSlots({ ...PICK, locationName: undefined, locationId: undefined }, [
+          { regionName: 'North East', slots: [slot(7, 'Crimdon Beach', 4)] },
+        ]).rating).toBeNull();
+      });
+
+      it('rides the strip descriptor with the place, never the card\'s own best rating', () => {
+        const es = summary('SUNSET', { pick: PICK, bestRating: 5 });
+        es.regions = [{ regionName: 'North East', slots: [slot(7, 'Crimdon Beach', 3)] }];
+        const cards = build({ events: events([TODAY, 'SUNSET']), days: [day(TODAY, [es])] });
+        const [strip] = buildHeatStripCards(events([TODAY, 'SUNSET']), cards, new Set(), [day(TODAY, [es])], TODAY, TOMORROW);
+
+        expect(strip).toMatchObject({
+          pickKind: 'best', pickRegion: 'North East', pickLocationId: 7, pickLocationName: 'Crimdon Beach',
+          pickRating: 3,
+        });
+      });
+
+      it('is null on the strip descriptor of a window with no pick', () => {
+        const cards = build(oneWindow());
+        const [strip] = buildHeatStripCards(events([TODAY, 'SUNSET']), cards, new Set(), [], TODAY, TOMORROW);
+
+        expect(strip).toMatchObject({ pickLocationId: null, pickLocationName: null, pickRating: null });
+      });
     });
 
     it('is null on the windows that are neither pick, which is most of them', () => {
@@ -1004,6 +1066,7 @@ describe('badgeChannel', () => {
     ['SNOW_FRESH', 'snow'],
     ['SNOW_TOPS', 'snow'],
     ['FROST', 'snow'],
+    ['FROST_MIST', 'snow'],
     ['SEA_MIST', 'plain'],
     ['MIST', 'plain'],
   ])('routes %s to the %s channel', (type, channel) => {
@@ -1267,7 +1330,79 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
     });
   });
 
-  describe('verdictBlanked — a STAND_DOWN word over a blanked region (verdict-honesty H4)', () => {
+  describe('blankedReason read from the served window (unscored-reason-card C2)', () => {
+    const served = (window, regions = [], verdict = 'AWAITING') => ({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET', regions, unregioned: [], window: { verdict, badges: [], ...window },
+      }])],
+    });
+
+    it.each([
+      ['STOOD_DOWN', undefined, 'STOOD_DOWN'],
+      ['STOOD_DOWN', true, 'FOG'],
+      ['STOOD_DOWN', false, 'STOOD_DOWN'],
+      ['NOT_ATTEMPTED', undefined, 'NOT_ATTEMPTED'],
+      ['FAILED', undefined, 'FAILED'],
+      ['AWAY', undefined, null],
+      ['UNKNOWN', undefined, null],
+      ['SOMETHING_NEW', undefined, null],
+    ])('%s (fog %s) on the window gives %s', (coverageReason, fog, expected) => {
+      const [card] = build(served({ coverageReason, ...(fog === undefined ? {} : { fog }) }));
+      expect(card.blankedReason).toBe(expected);
+    });
+
+    it('is null when the window carries no reason and the word is AWAITING (legacy payload)', () => {
+      const [card] = build(served({}, [{ regionName: 'North', displayVerdict: 'AWAITING', slots: [] }]));
+      expect(card.blankedReason).toBeNull();
+    });
+
+    it('prefers the served reason over the legacy slots rule', () => {
+      const [card] = build(served(
+        { coverageReason: 'NOT_ATTEMPTED' },
+        [{ regionName: 'North', displayVerdict: 'STAND_DOWN', slots: [] }],
+        'STAND_DOWN',
+      ));
+      expect(card.blankedReason).toBe('NOT_ATTEMPTED');
+    });
+
+    it('an origin-scoped RATED region with no reason never borrows the served window\'s reason', () => {
+      const [card] = buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'Rated', displayVerdict: 'WORTH_IT', slots: [{ locationName: 'X', canopy: false }], meanRating: 4,
+          }],
+          unregioned: [],
+          window: { verdict: 'AWAITING', badges: [], coverageReason: 'NOT_ATTEMPTED' },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Rated' } },
+      );
+      expect(card.blankedReason).toBeNull();
+    });
+
+    it('reads the origin region\'s own reason when the page is scoped to a region', () => {
+      const [card] = buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Blank', displayVerdict: 'AWAITING', slots: [], coverageReason: 'FAILED' },
+            { regionName: 'Other', displayVerdict: 'AWAITING', slots: [], coverageReason: 'NOT_ATTEMPTED' },
+          ],
+          unregioned: [],
+          window: { verdict: 'AWAITING', badges: [], coverageReason: 'NOT_ATTEMPTED' },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Blank' } },
+      );
+      expect(card.blankedReason).toBe('FAILED');
+    });
+  });
+
+  describe('blankedReason — a STAND_DOWN word over a blanked region (verdict-honesty H4, legacy fallback)', () => {
     // The honesty filter empties a blanked region's `slots`, and since it words an unknown reason
     // AWAITING a blanked STAND_DOWN can only be weather triage. The card then qualifies "Poor".
     const windowOf = (regions, verdict = 'STAND_DOWN') => ({
@@ -1283,7 +1418,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'North', displayVerdict: 'STAND_DOWN', slots: [] },
       ]));
       expect(card.verdict).toBe('STAND_DOWN');
-      expect(card.verdictBlanked).toBe(true);
+      expect(card.blankedReason).toBe('STOOD_DOWN');
     });
 
     it('is false for a STAND_DOWN region that still carries slots (a triage stand-down below the gate)', () => {
@@ -1291,7 +1426,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'North', displayVerdict: 'STAND_DOWN', slots: [slot], meanRating: 2, sampleSufficient: false },
       ]));
       expect(card.verdict).toBe('STAND_DOWN');
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('is false for a blanked AWAITING region, whose word is not Poor', () => {
@@ -1299,12 +1434,12 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'North', displayVerdict: 'AWAITING', slots: [] },
       ], 'AWAITING'));
       expect(card.verdict).toBe('AWAITING');
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('is false for a region payload that carries no slots field at all (legacy)', () => {
       const [card] = build(windowOf([{ regionName: 'North', displayVerdict: 'STAND_DOWN' }]));
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('reads the region the word came from: a blanked stand-down beside a region WITH slots is false', () => {
@@ -1314,7 +1449,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'A-blank', displayVerdict: 'STAND_DOWN', slots: [] },
         { regionName: 'B-live', displayVerdict: 'STAND_DOWN', slots: [slot] },
       ]));
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('a real blanked stand-down outranks a blanked AWAITING region, whatever the names', () => {
@@ -1322,7 +1457,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'A-awaiting', displayVerdict: 'AWAITING', slots: [] },
         { regionName: 'Z-stood-down', displayVerdict: 'STAND_DOWN', slots: [] },
       ]));
-      expect(card.verdictBlanked).toBe(true);
+      expect(card.blankedReason).toBe('STOOD_DOWN');
     });
 
     it('at home scope a RATED top region speaks for the window, whatever blanked sibling it has', () => {
@@ -1333,7 +1468,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { regionName: 'Z-rated', displayVerdict: 'STAND_DOWN', slots: [slot], meanRating: 2.4 },
       ]));
       expect(card.verdict).toBe('STAND_DOWN');
-      expect(card.verdictBlanked).toBe(false);
+      expect(card.blankedReason).toBeNull();
     });
 
     it('under an origin the SCOPED region decides, not the roster', () => {
@@ -1352,8 +1487,8 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
         { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: originName } },
       )[0];
 
-      expect(away('Blank').verdictBlanked).toBe(true);
-      expect(away('Live').verdictBlanked).toBe(false);
+      expect(away('Blank').blankedReason).toBe('STOOD_DOWN');
+      expect(away('Live').blankedReason).toBeNull();
     });
   });
 

@@ -245,6 +245,85 @@ class AskToolsFavouritesTest {
         assertThat(result.companionKind()).isNull();
     }
 
+    // -- the stored pairing (Part C, B6) ------------------------------------------------------
+
+    @Test
+    @DisplayName("the pairing of the last rank_spots is stored read-only; none before any call")
+    void theLastPairingIsStored() {
+        AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 5),
+                AskFixtures.slot(MARYS, "Mary's Lighthouse", 4));
+        AskTools tools = tools(snapshot, reader(MARYS));
+        assertThat(tools.lastCompanionPairing()).isEmpty();
+
+        tools.rankSpots(plain(null));
+
+        AskTools.CompanionPairing pairing = tools.lastCompanionPairing().orElseThrow();
+        assertThat(pairing.lead().locationId()).isEqualTo(BAMBURGH);
+        assertThat(pairing.companion().locationId()).isEqualTo(MARYS);
+        assertThat(pairing.companionKind()).isEqualTo(CompanionKind.YOUR_FAVOURITE);
+    }
+
+    @Test
+    @DisplayName("a later rank_spots replaces the pairing, and one with no companion clears it")
+    void aLaterResultReplacesOrClearsThePairing() {
+        AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 5),
+                AskFixtures.slot(MARYS, "Mary's Lighthouse", 4), AskFixtures.slot(AMBLE, "Amble", 4));
+        AskTools tools = tools(snapshot, reader(MARYS));
+        tools.rankSpots(plain(null));
+        assertThat(tools.lastCompanionPairing().orElseThrow().companion().locationId()).isEqualTo(MARYS);
+
+        tools.rankSpots(favourites(null));
+        AskTools.CompanionPairing second = tools.lastCompanionPairing().orElseThrow();
+        assertThat(second.companionKind()).isEqualTo(CompanionKind.HIGHER_ELSEWHERE);
+        assertThat(second.lead().locationId()).isEqualTo(MARYS);
+
+        RankSpotsArgs coastal = new RankSpotsArgs(null, null, true, null, null, null, null);
+        tools.rankSpots(coastal);
+        assertThat(tools.lastCompanionPairing()).as("a result with no companion clears it").isEmpty();
+    }
+
+    @Test
+    @DisplayName("early exits and failures clear the pairing: no favourites, an empty pool, a bad argument")
+    void earlyExitsClearThePairing() {
+        AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 5),
+                AskFixtures.slot(MARYS, "Mary's Lighthouse", 4));
+        AskTools tools = tools(snapshot, reader(MARYS));
+        RankSpotsArgs badTide = new RankSpotsArgs(null, null, null, "SIDEWAYS", null, null, null);
+
+        tools.rankSpots(plain(null));
+        assertThat(tools.lastCompanionPairing()).isPresent();
+        assertThat(tools.rankSpots(badTide).error()).isTrue();
+        assertThat(tools.lastCompanionPairing()).as("a failure clears it").isEmpty();
+
+        tools.rankSpots(plain(null));
+        assertThat(tools.lastCompanionPairing()).isPresent();
+        tools.rankSpots(new RankSpotsArgs(List.of("no-such-window"), null, null, null, null, null, null));
+        assertThat(tools.lastCompanionPairing()).as("an unknown window clears it").isEmpty();
+
+        tools.rankSpots(plain(null));
+        AskTools noStars = tools(snapshot, reader());
+        noStars.rankSpots(favourites(null));
+        assertThat(noStars.lastCompanionPairing()).as("no favourites to show").isEmpty();
+
+        AskTools starsElsewhere = tools(snapshot, reader(99L));
+        starsElsewhere.rankSpots(plain(null));
+        assertThat(starsElsewhere.lastCompanionPairing()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an unknown region (a failure) clears the pairing")
+    void anUnknownRegionClearsThePairing() {
+        AskSnapshot snapshot = snapshotOf(AskFixtures.slot(BAMBURGH, "Bamburgh", 5),
+                AskFixtures.slot(MARYS, "Mary's Lighthouse", 4));
+        AskTools tools = tools(snapshot, reader(MARYS));
+        tools.rankSpots(plain(null));
+        assertThat(tools.lastCompanionPairing()).isPresent();
+
+        tools.rankSpots(new RankSpotsArgs(null, List.of("Nowhere"), null, null, null, null, null));
+
+        assertThat(tools.lastCompanionPairing()).isEmpty();
+    }
+
     // -- an unchanged order keeps the shared result (D4b, F4b) --------------------------------
 
     @Test

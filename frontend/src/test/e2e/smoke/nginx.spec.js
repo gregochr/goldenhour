@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { test, expect, loginAndWaitForForecast, openTab, openMapTab, tokenOf } from './fixture.js';
+import {
+  test, expect, loginAndWaitForForecast, openOperations, openFurtherAhead, openMapView, closeMapView, tokenOf,
+} from './fixture.js';
 
 /**
  * The production nginx config under a real browser (docs/engineering/engineering-gaps-plan.md, Phase 3b).
@@ -176,21 +178,22 @@ test.describe('The production nginx config', () => {
     expect(result.ms).toBeLessThan(STATUS_STREAM_FIRST_EVENT_MS);
   });
 
-  test('no inline <style> element appears on any main tab (style-src is self only)', async ({ page }) => {
+  test('no inline <style> element appears on any screen (style-src is self only)', async ({ page }) => {
     const styleCount = () => page.evaluate(() => document.querySelectorAll('style').length);
     await loginAndWaitForForecast(page);
     expect(await styleCount(), 'on sign-in').toBe(0);
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     expect(await styleCount(), 'on the Plan').toBe(0);
     await page.getByTestId('wf-heat-card').nth(2).click();
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
     expect(await styleCount(), 'after a card opens the Map').toBe(0);
-    await openTab(page, 'coming-up');
-    expect(await styleCount(), 'on Coming up').toBe(0);
-    await openMapTab(page);
+    await closeMapView(page);
+    await openFurtherAhead(page);
+    expect(await styleCount(), 'on Further ahead').toBe(0);
+    await openMapView(page);
     expect(await styleCount(), 'on the Map').toBe(0);
-    await openTab(page, 'operations');
+    await closeMapView(page);
+    await openOperations(page);
     expect(await styleCount(), 'on Operations').toBe(0);
   });
 });

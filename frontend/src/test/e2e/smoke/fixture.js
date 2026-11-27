@@ -260,19 +260,41 @@ export function starsOf(rows, evId) {
 }
 
 /**
- * Selects a tab by its id and waits for it to read as selected.
+ * Opens the ☰ menu and waits for its rows. The menu is one mount at every width (one-screen-plan.md D9, D14).
  *
  * @param {import('@playwright/test').Page} page
- * @param {string} id 'plan' | 'coming-up' | 'map' | 'operations'
  */
-export async function openTab(page, id) {
-  const tab = page.getByTestId(`window-first-tab-${id}`);
-  await tab.click();
-  await expect(tab).toHaveAttribute('aria-selected', 'true');
+export async function openMenu(page) {
+  await page.getByTestId('masthead-menu-button').click();
+  await expect(page.getByTestId('masthead-menu')).toBeVisible();
 }
 
 /**
- * Signs in, waits for the shell, and waits for the Map tab (it is offered only once the forecast has arrived).
+ * Opens Operations through the ☰ menu's row (admin only) and waits for the view and its content.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function openOperations(page) {
+  await openMenu(page);
+  await page.getByTestId('masthead-menu-operations').click();
+  await expect(page.getByTestId('operations-screen')).toBeVisible();
+}
+
+/**
+ * Goes to Further ahead, the bottom section of the screen, by the "Further ahead ↓" jump at the top of This week, and
+ * waits until its heading is the focused element (one-screen-plan.md O2). The Coming up tab no longer shows a panel: it
+ * is a door onto this section, and nothing else links to it.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function openFurtherAhead(page) {
+  await page.getByTestId('further-ahead-jump').click();
+  await expect(page.getByTestId('further-ahead-heading')).toBeFocused();
+}
+
+/**
+ * Signs in, waits for the shell, and waits for the forecast to land: the heat strip's window cards are what the map
+ * view's doors hang from (every device opens on This week, one-screen-plan.md §7 Q1, so there is no landing to settle).
  *
  * @param {import('@playwright/test').Page} page
  * @param {'admin'|'lite'|'pro'} [role] which seeded account
@@ -280,7 +302,7 @@ export async function openTab(page, id) {
 export async function loginAndWaitForForecast(page, role = 'admin') {
   await loginAs(page, role);
   await expect(page.getByTestId('window-first-shell')).toBeVisible();
-  await expect(page.getByTestId('window-first-tab-map')).toBeVisible();
+  await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
 }
 
 /** The guide site's origin, which the app frames. Stubbed by {@link stubGuideFrame}: the suite never reaches it. */
@@ -331,16 +353,38 @@ export function visibleChips(page) {
 }
 
 /**
- * Opens the Map tab and waits until its label layer has measured and placed its chips (`data-placed`), the
- * fonts have loaded and at least one chip is visible, so no spec reads a position mid-placement.
+ * Opens the map VIEW through a This week card (the third, never the first: it may be the window about to pass) and waits
+ * until its label layer has measured and placed its chips (`data-placed`), the fonts have loaded and at least one chip is
+ * visible, so no spec reads a position mid-placement. (The Map is a view, not a tab, and has no button of its own:
+ * one-screen-plan.md D1.)
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {number} [index] which window card to press
+ * @param {{plain?: boolean}} [options] `plain` presses the lens note's Clear, so the map reads as it did when its own
+ *        button opened it: no card's reach tier or rating floor carried over (a few specs assert on the whole roster)
+ */
+export async function openMapView(page, index = 2, { plain = false } = {}) {
+  // Visible cards only: a card inside a folded quiet day is mounted but hidden, and is not a card the reader can press.
+  await page.getByTestId('wf-heat-card').filter({ visible: true }).nth(index).click();
+  await expect(page.getByTestId('map-screen')).toBeVisible();
+  await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
+  if (plain) {
+    // Only once the pane has placed its chips is the lens note drawn or absent for good: a check earlier would skip it.
+    const clear = page.getByTestId('map-lens-note-clear');
+    if (await clear.isVisible()) await clear.click();
+  }
+  await page.evaluate(() => document.fonts.ready);
+  await expect.poll(() => visibleChips(page).count()).toBeGreaterThan(0);
+}
+
+/**
+ * Closes the map view with its close button and waits for it to be gone.
  *
  * @param {import('@playwright/test').Page} page
  */
-export async function openMapTab(page) {
-  await openTab(page, 'map');
-  await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
-  await page.evaluate(() => document.fonts.ready);
-  await expect.poll(() => visibleChips(page).count()).toBeGreaterThan(0);
+export async function closeMapView(page) {
+  await page.getByTestId('map-screen-close').click();
+  await expect(page.getByTestId('map-screen')).toBeHidden();
 }
 
 /**
@@ -415,21 +459,29 @@ export async function activeWindowId(page) {
 }
 
 /**
- * Clicks the visible chip nearest the vertical middle of the viewport. A Map callout opens beside its chip and
- * cannot scroll, so a chip low on the map can leave the callout's lower controls (the "How was it?" stars) below
- * the fold, and which chip is first in the DOM varies with how the label layer culled them. A middle chip always
- * leaves room both ways.
+ * Clicks the visible chip nearest the vertical middle of the viewport and waits for its callout. A Map callout
+ * opens beside its chip and cannot scroll, so a chip low on the map can leave the callout's lower controls (the
+ * "How was it?" stars) below the fold, and which chip is first in the DOM varies with how the label layer culled
+ * them. A middle chip always leaves room both ways.
+ *
+ * ⚠️ The label layer re-places its chips a frame or two after a window change or a close (see `settledChipStars`),
+ * so this first waits for the chips to settle, then clicks the chosen chip by its accessible name rather than by
+ * index: a repaint between measuring and clicking can re-order or drop chips, and an index would then land the
+ * click on bare map (the roles.spec.js "no LITE locks" flake, which saw no callout at all). It finishes by
+ * asserting the callout opened, which every caller expects.
  *
  * @param {import('@playwright/test').Page} page
  */
 export async function clickMiddleChip(page) {
-  const chips = visibleChips(page);
+  await settledChipStars(page);
   const middle = page.viewportSize().height / 2;
-  const distances = await chips.evaluateAll((els, mid) => els.map((el) => {
+  const measured = await visibleChips(page).evaluateAll((els, mid) => els.map((el) => {
     const box = el.getBoundingClientRect();
-    return Math.abs(box.top + box.height / 2 - mid);
+    return { label: el.getAttribute('aria-label'), distance: Math.abs(box.top + box.height / 2 - mid) };
   }), middle);
-  await chips.nth(distances.indexOf(Math.min(...distances))).click();
+  const nearest = measured.reduce((best, chip) => (chip.distance < best.distance ? chip : best));
+  await page.getByRole('button', { name: nearest.label, exact: true }).first().click();
+  await expect(page.getByTestId('map-callout')).toBeVisible();
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import React from 'react';
 import PlanSearch from '../components/PlanSearch.jsx';
 
@@ -484,6 +484,54 @@ describe('PlanSearch', () => {
         // run to 16px above the PHYSICAL bottom edge, which `viewport-fit=cover` moved into the
         // home-indicator zone.
         expect(panel.style.maxHeight).toBe('calc(100dvh - 112px - var(--safe-b))');
+      } finally {
+        tick.remove();
+      }
+    });
+
+    it('on a phone anchors to the masthead\'s brand row, whether or not a tick line is drawn', () => {
+      const realMatchMedia = window.matchMedia;
+      window.matchMedia = (query) => ({
+        matches: query === '(max-width: 639px)', media: query, addEventListener() {}, removeEventListener() {},
+      });
+      const row = document.createElement('div');
+      row.className = 'wf-mast-row';
+      row.getBoundingClientRect = () => ({ top: 8, bottom: 42, left: 14, width: 362, height: 34 });
+      const tick = document.createElement('div');
+      tick.className = 'wf-tick';
+      tick.getBoundingClientRect = () => ({ top: 80, bottom: 110, left: 14, width: 362, height: 30 });
+      document.body.append(row, tick);
+      try {
+        setup();
+        expect(screen.getByTestId('plan-search-panel').style.top).toBe('8px');
+        tick.remove();
+        cleanup();
+        setup();
+        expect(screen.getByTestId('plan-search-panel').style.top).toBe('8px');
+      } finally {
+        window.matchMedia = realMatchMedia;
+        row.remove();
+        tick.remove();
+      }
+    });
+
+    it.each([
+      ['scrolled out of view above the viewport', { top: -1400, bottom: -1370 }, '8px'],
+      ['only just off the top', { top: -40, bottom: 4 }, '8px'],
+      ['still on screen', { top: 96, bottom: 126 }, '96px'],
+    ])('with the tick line %s the panel sits at %s', (_name, box, top) => {
+      const tick = document.createElement('div');
+      tick.className = 'wf-tick';
+      tick.getBoundingClientRect = () => ({ ...box, left: 40, width: 1000, height: 30 });
+      document.body.appendChild(tick);
+      try {
+        setup();
+        const panel = screen.getByTestId('plan-search-panel');
+        expect(panel.className).toContain('wf-search-anchored');
+        expect(panel.style.top).toBe(top);
+        // Sideways it still follows the tick line, and the height cap follows the placed top.
+        expect(panel.style.left).toBe('40px');
+        expect(panel.style.maxHeight).toBe(`calc(100dvh - ${Number.parseInt(top, 10) + 16}px - var(--safe-b))`);
       } finally {
         tick.remove();
       }

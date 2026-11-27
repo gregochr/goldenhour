@@ -162,6 +162,18 @@ class HotTopicEventEnricherTest {
     }
 
     @Test
+    @DisplayName("FROST_MIST keeps the SUNRISE its detector stamped and gains the sunrise clock time")
+    void frostMist_detectorStampedEvent_gainsItsTime() {
+        HotTopic stamped = enrichOne(topic("FROST_MIST", null).withEvent("SUNRISE", null));
+        HotTopic unstamped = enrichOne(topic("FROST_MIST", null));
+
+        assertThat(stamped.eventType()).isEqualTo("SUNRISE");
+        assertThat(stamped.eventTime()).isEqualTo("04:43");
+        assertThat(unstamped.eventType()).isEqualTo("SUNRISE");
+        assertThat(unstamped.eventTime()).isEqualTo("04:43");
+    }
+
+    @Test
     @DisplayName("a type whose detector does not stamp its event is not completed: an event set "
             + "with no time stays as it was")
     void otherTypes_eventWithoutTime_unchanged() {
@@ -297,6 +309,32 @@ class HotTopicEventEnricherTest {
         HotTopic pre = topic("INVERSION", null).withLocations(List.of("Malham"));
         HotTopic result = enrichOne(pre);
         assertThat(result.locationNames()).containsExactly("Malham");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0} carrying its snowy places is never widened to the region")
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"SNOW_FRESH", "SNOW_MIST"})
+    @DisplayName("a snow topic that names its places keeps exactly them, whatever else the region holds")
+    void snowTopics_withLocations_neverWidenedByRegionFillIn(String type) {
+        LocationEntity snowy = inRegion(1L, "Malham", 54.06, -2.15, "Yorkshire Dales");
+        LocationEntity bare = inRegion(2L, "Gordale", 54.07, -2.13, "Yorkshire Dales");
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(snowy, bare));
+
+        HotTopic result = enrichOne(topic(type, null).withLocations(List.of("Malham")));
+
+        assertThat(result.locationNames()).containsExactly("Malham");
+    }
+
+    @Test
+    @DisplayName("a BLUEBELL topic that names its woods keeps exactly them, whatever else the region holds")
+    void bluebellTopic_withLocations_neverWidenedByRegionFillIn() {
+        LocationEntity qualifying = inRegion(1L, "Rannerdale Knotts", 54.55, -3.29, "Lake District");
+        LocationEntity belowThreshold = inRegion(2L, "Gowbarrow", 54.60, -2.93, "Lake District");
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .thenReturn(List.of(qualifying, belowThreshold));
+
+        HotTopic result = enrichOne(topic("BLUEBELL", null).withLocations(List.of("Rannerdale Knotts")));
+
+        assertThat(result.locationNames()).containsExactly("Rannerdale Knotts");
     }
 
     @Test

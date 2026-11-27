@@ -1,3 +1,4 @@
+import { openMapWhenOffered } from './shellMapDoor.js';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
@@ -72,7 +73,7 @@ const mockDates = { yesterday: '', twoAgo: '', tomorrow: '', t4: '' };
 // The real shell, plus a probe printing the `forecastDates` it is handed (the Coming up and day-tile
 // Map doors withhold on it). Wrapping leaves what every other test here sees untouched.
 vi.mock('../components/WindowFirstShell.jsx', async (importActual) => {
-  const actual = await importActual();
+  const actual = (await import('./shellMapDoor.js')).withMapDoors(await importActual());
   const RealShell = actual.default;
   return {
     ...actual,
@@ -167,8 +168,7 @@ function renderApp() {
 }
 
 async function openMapTab() {
-  const tab = await screen.findByRole('tab', { name: 'Map' });
-  await act(async () => { fireEvent.click(tab); });
+  await openMapWhenOffered();
   return screen.findByTestId('map-pane-stub');
 }
 
@@ -250,7 +250,7 @@ describe('App — the past-window selection licence (selectedDateIsPast)', () =>
   });
 
   /**
-   * The Map ends at T+3 (whole-day-horizon-plan.md §5), the last day At a Glance shows. `App.allDates`
+   * The Map ends at T+3 (whole-day-horizon-plan.md §5), the last day This week shows. `App.allDates`
    * is `colourForecastDates` bounded above at `lastPlanDateStr(today)` (past dates kept), except that
    * it never cuts a date the briefing SERVES a window for. The pane stub prints the `dates` it is
    * handed and the wrapped shell prints its own `forecastDates` (what the Coming up and day-tile Map

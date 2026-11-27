@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
@@ -113,15 +113,27 @@ const ctx = () => ({
 
 /** The observers the shell installed, so a test can drive them. */
 let intersections;
+/**
+ * The lens bar's sentinel observer, found by what it observes. Further ahead's heading installs one of its own (the NEW
+ * badge's bootstrap) and the This week section another (the phone's lens collapse), and every one of them is built with a
+ * `rootMargin`, so neither "the last observer built" nor "the one with a rootMargin" is the sentinel's.
+ */
+const lensObserver = () => [...intersections].reverse()
+  .find((observer) => observer.element?.dataset?.testid === 'window-first-lens-sentinel');
 let resizeCallbacks;
 
 const renderShell = (extraProps = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
-  return render(<WindowFirstShell
-    onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
-    locations={[]}
-    {...extraProps}
-  />);
+  const ui = (next = {}) => (
+    <WindowFirstShell
+      onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
+      locations={[]}
+      {...extraProps}
+      {...next}
+    />
+  );
+  const view = render(ui());
+  return { ...view, rerenderShell: (next) => view.rerender(ui(next)) };
 };
 
 beforeEach(() => {
@@ -150,7 +162,7 @@ beforeEach(() => {
       intersections.push(this);
     }
 
-    observe() {}
+    observe(element) { this.element = element; }
 
     disconnect() {}
   });
@@ -192,11 +204,11 @@ describe('WindowFirstShell — the measured sticky chrome', () => {
   });
 
   it('drops the reservation when the bar goes', () => {
-    // The bar is unmounted on Coming up. With no bar there is nothing on the pane to reserve
+    // The bar is unmounted on Operations. With no bar there is nothing on the pane to reserve
     // against at all, and the stylesheet's own fallback is the right answer — which only works if
     // the property is REMOVED rather than frozen at its last value.
-    renderShell();
-    fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
+    rerenderShell({ operationsOpen: true });
     // The bar's removal is a layout change, which is what the observer on the SHELL exists to
     // catch — the hook looks the bar up on each callback rather than watching it, precisely so a
     // removal is observable. jsdom fires nothing on its own, so the callback is driven here.
@@ -223,13 +235,66 @@ describe('WindowFirstShell — the measured sticky chrome', () => {
     // rail with no bar above it floats the row-rails matrix over open space. `bar ?? 0` is still a
     // real measurement — of an absent element's rendered height — never the banned zero fallback
     // baked into the stylesheet.
-    renderShell();
-    fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
+    rerenderShell({ operationsOpen: true });
     act(() => resizeCallbacks.forEach((cb) => cb()));
 
     const shell = screen.getByTestId('window-first-shell');
     expect(screen.queryByTestId('window-first-lens')).toBeNull();
     expect(shell.style.getPropertyValue('--wf-lens-h')).toBe('0px');
+  });
+});
+
+describe('WindowFirstShell — the section heading bar under the lens (one-screen-plan.md O2)', () => {
+  const shellStyle = (name) => screen.getByTestId('window-first-shell').style.getPropertyValue(name);
+
+  beforeEach(() => { HEIGHTS['wf-sec-bar-week'] = 36; });
+  afterEach(() => { delete HEIGHTS['wf-sec-bar-week']; });
+
+  it('adds the This week bar to what the tiles and the reservation sit below, and keeps the lens bar alone for the headings', () => {
+    renderShell();
+
+    expect(shellStyle('--wf-bar-h')).toBe('54px');
+    expect(shellStyle('--wf-lens-h')).toBe('90px');
+    // 54 + 36 + the focus ring's 6.
+    expect(shellStyle('--wf-lens-reserve')).toBe('96px');
+  });
+
+  it('measures the heading bar through the same observer, so a wrapped heading moves everything with it', () => {
+    renderShell();
+    HEIGHTS['wf-sec-bar-week'] = 62;
+    act(() => resizeCallbacks.forEach((cb) => cb()));
+
+    expect(shellStyle('--wf-lens-h')).toBe('116px');
+    expect(shellStyle('--wf-bar-h')).toBe('54px');
+  });
+
+  it('is zero while the Plan pane is not showing, because a hidden bar has no box', () => {
+    // A hidden element measures nothing: stand that in by dropping the fixture height.
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
+    rerenderShell({ operationsOpen: true });
+    delete HEIGHTS['wf-sec-bar-week'];
+    act(() => resizeCallbacks.forEach((cb) => cb()));
+
+    expect(shellStyle('--wf-lens-h')).toBe('0px');
+    expect(shellStyle('--wf-bar-h')).toBe('0px');
+  });
+
+  it('adds nothing when the heading bar is not in the document, rather than throwing on a missing element', () => {
+    renderShell();
+    document.querySelector('.wf-sec-bar-week').remove();
+    act(() => resizeCallbacks.forEach((cb) => cb()));
+
+    expect(shellStyle('--wf-lens-h')).toBe('54px');
+    expect(shellStyle('--wf-lens-reserve')).toBe('60px');
+  });
+
+  it('removes --wf-bar-h with the shell, like the other two', () => {
+    const { unmount } = renderShell();
+    const shell = screen.getByTestId('window-first-shell');
+    unmount();
+
+    expect(shell.style.getPropertyValue('--wf-bar-h')).toBe('');
   });
 });
 
@@ -244,8 +309,8 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
   });
 
   it('unmounts the sentinel with the bar, so it cannot report a stick for an absent element', () => {
-    renderShell();
-    fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
+    rerenderShell({ operationsOpen: true });
 
     expect(screen.queryByTestId('window-first-lens-sentinel')).toBeNull();
   });
@@ -257,7 +322,7 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
     // until the reader had scrolled a masthead's height past the point the bar actually stuck.
     renderShell();
 
-    const last = intersections[intersections.length - 1];
+    const last = lensObserver();
     expect(last.options.rootMargin).toBe('-0px 0px 0px 0px');
     expect(last.options.threshold).toBe(0);
   });
@@ -289,17 +354,17 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
     expect(screen.getByTestId('window-first-lens-sentinel')).toBeInTheDocument();
     expect(intersections.length, 'the sentinel arriving must attach an observer')
       .toBeGreaterThan(before);
-    act(() => intersections[intersections.length - 1].cb([{ isIntersecting: false }]));
+    act(() => lensObserver().cb([{ isIntersecting: false }]));
     expect(screen.getByTestId('window-first-lens').className).toContain('wf-lens-stuck');
   });
 
   it('⚠️ resets to unstuck when the bar goes, so the next one does not mount already shadowed', () => {
-    renderShell();
-    act(() => intersections[intersections.length - 1].cb([{ isIntersecting: false }]));
+    const { rerenderShell } = renderShell({ operationsPane: <p>operations</p> });
+    act(() => lensObserver().cb([{ isIntersecting: false }]));
     expect(screen.getByTestId('window-first-lens').className).toContain('wf-lens-stuck');
 
-    fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
-    fireEvent.click(screen.getByTestId('window-first-tab-plan'));
+    rerenderShell({ operationsOpen: true });
+    rerenderShell({ operationsOpen: false });
 
     expect(screen.getByTestId('window-first-lens').className).not.toContain('wf-lens-stuck');
   });
@@ -309,7 +374,7 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
     const bar = screen.getByTestId('window-first-lens');
     expect(bar.className).not.toContain('wf-lens-stuck');
 
-    const observer = intersections[intersections.length - 1];
+    const observer = lensObserver();
     act(() => observer.cb([{ isIntersecting: false }]));
     expect(screen.getByTestId('window-first-lens').className).toContain('wf-lens-stuck');
 
@@ -413,14 +478,16 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     // A whole-file `toContain` was the first shape here and it cannot see a breakpoint sweep: move
     // this declaration into the adjacent `max-width: 899px` block and the string is still present,
     // the test still passes, and every phone falls back to the desktop 98px against a bar that is
-    // 130-153.5px tall there. 160 = the stacked bar's 153.5px with a non-default tier's two marks,
+    // ~122px tall there. 128 = the phone bar's tallest state (~122px, the override marks fold into the count row),
     // plus the ring — the state a returning reader gets on the FIRST paint, since `useReachLens`
     // restores the tier from `localStorage` in a lazy initialiser.
     const css = readCss();
     const at = css.indexOf('@media (max-width: 639px) {');
     expect(at, 'the phone media query must exist').toBeGreaterThan(-1);
     const phoneShell = css.slice(at, css.indexOf('\n  }', at));
-    expect(phoneShell).toContain('--wf-lens-reserve: 160px');
+    expect(phoneShell).toContain('--wf-lens-reserve: 128px');
+    // The lens bar alone, for the first frame (screen-spec.md P1): the phone's tallest state is ~122px.
+    expect(phoneShell).toContain('--wf-bar-h: 122px');
   });
 
   it('⚠️ keeps EVERY fallback site equal to the declaration, whatever the site count', () => {
@@ -437,10 +504,9 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     fallbacks.forEach((value) => expect(value).toBe('98px'));
   });
 
-  it('reserves for the matrix cards and the tab bar, which are the pane\'s primary controls', () => {
-    // `.wf-hc` is six focusable cards, any of which can sit above the fold; `.wf-tab`'s roving
-    // arrow handler calls `scrollIntoView`. Neither was on the list when the reservation was a
-    // literal.
+  it('reserves for the matrix cards, which are the pane\'s primary controls (and no longer for a tab bar)', () => {
+    // `.wf-hc` is six focusable cards, any of which can sit above the fold. It was not on the list when the reservation
+    // was a literal; `.wf-tab` left it with the tabs.
     // The pane's own list, which is the LAST `scroll-margin-top` rule in the file. Sliced back from the declaration to the previous rule's
     // closing brace, so what is searched is that rule's selector list (and the comments interleaved
     // in it) and nothing else.
@@ -453,7 +519,7 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     const at = css.lastIndexOf('scroll-margin-top: calc(var(--wf-lens-reserve');
     const selectors = css.slice(css.lastIndexOf('\n}', at), at);
     expect(selectors).toContain('.wf-hc,');
-    expect(selectors).toContain('.wf-tab,');
+    expect(selectors).not.toContain('.wf-tab,');
     // …and it really is the list, not a comment that happens to name them.
     expect(selectors).toContain('.wf-spot,');
   });
@@ -573,5 +639,44 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     expect(rowsBody).toMatch(/var\(--safe-t\) \+ 1px\)/);
     // And the card's own two rules are untouched: the hit button is in neither shared list.
     expect(css).not.toMatch(/\.wf-hc-hit,\n/);
+  });
+});
+
+describe('the section bars\' stylesheet half (one-screen-plan.md O2)', () => {
+  it('pins each bar at the lens bar alone, over the tiles and under the lens', () => {
+    const bar = decls(block('.wf-sec-bar'));
+    expect(bar).toContain('position: sticky');
+    expect(bar).toContain('top: calc(var(--safe-t) + var(--wf-bar-h, 54px) - 1px)');
+    // Above the day tiles (15) and the rails (14) it sits over, below the lens bar (20).
+    const z = Number(/z-index:\s*(\d+)/.exec(bar)[1]);
+    expect(z).toBeGreaterThan(15);
+    expect(z).toBeLessThan(20);
+  });
+
+  it('lands a jump under the lens bar, and gives the heading no flex container to trim its separator', () => {
+    const heading = decls(block('.wf-sec-h'));
+    expect(heading).toContain('scroll-margin-top: calc(var(--safe-t) + var(--wf-bar-h, 54px) + 2px)');
+    expect(heading).toContain('display: block');
+  });
+
+  it('reserves for the sticky stack on every focusable thing in Further ahead and Your places', () => {
+    const css = decls(readCss());
+    // Your places reserves against the full lens; Further ahead has its own pair (the lens is not drawn over it).
+    const yp = css.indexOf('.wf-yp :is(button, a, [tabindex])');
+    expect(yp).toBeGreaterThanOrEqual(0);
+    expect(css.slice(yp, css.indexOf('}', yp)))
+      .toContain('scroll-margin-top: calc(var(--safe-t) + var(--wf-lens-reserve, 98px) + 2px)');
+    const at = css.indexOf('.wf-further-ahead :is(button, a, [tabindex])');
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(css.slice(at, css.indexOf('}', at)))
+      .toContain('scroll-margin-top: calc(var(--safe-t) + var(--wf-ahead-reserve, 44px) + 2px)');
+    // The heading (a [tabindex] element) keeps its own, smaller margin: the sum above would override it.
+    expect(css.slice(at, css.indexOf('{', at))).toContain('.wf-further-ahead :is(button, a, [tabindex]):not(.wf-sec-h)');
+  });
+
+  it('does not touch the matrix\'s own sticky declarations: the bar rides --wf-lens-h instead', () => {
+    const css = readCss();
+    expect(css.match(/top: calc\(var\(--safe-t\) \+ var\(--wf-lens-h, 54px\) - 1px\);/g)).toHaveLength(1);
+    expect(css).not.toContain('--wf-sec-h');
   });
 });

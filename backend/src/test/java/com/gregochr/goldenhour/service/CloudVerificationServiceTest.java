@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.CloudVerificationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.ArchiveBatchResult;
+import com.gregochr.goldenhour.model.BackfillBatch;
 import com.gregochr.goldenhour.model.CloudVerificationBucket;
 import com.gregochr.goldenhour.model.CloudVerificationPair;
 import com.gregochr.goldenhour.model.CloudVerificationReport;
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Limit;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -29,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,6 +49,10 @@ class CloudVerificationServiceTest {
     private static final LocalDate DATE = LocalDate.of(2026, 5, 10);
     private static final Clock CLOCK =
             Clock.fixed(Instant.parse("2026-05-31T09:00:00Z"), ZoneOffset.UTC);
+    /** The cutoff the service computes from CLOCK: today minus the archive lag. */
+    private static final LocalDate CUTOFF = LocalDate.of(2026, 5, 25);
+    private static final String ARCHIVE_HOURLY =
+            "cloud_cover_low,cloud_cover_mid,cloud_cover_high,temperature_2m,dew_point_2m";
     /** Forecast overhead mid cloud a corridor fixture carries unless it states its own. */
     private static final int DEFAULT_FORECAST_CANVAS_MID = 60;
     /** Forecast overhead high cloud a corridor fixture carries unless it states its own. */
@@ -69,11 +76,11 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("backfill samples the cone, the observer and the far-solar point, at the event hour")
     void backfill_samplesAllPoints() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
         // Cone bearings read 60/85/95, the observer the default, the far-solar point 20 — so the
         // mean, the extremes and the far reading are all distinguishable in the saved row.
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), archive(20)));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), archive(), archive(20))));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
 
@@ -98,13 +105,13 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("backfill records the far point's mid and high, and all three layers on the dark side")
     void backfill_recordsFarMidHighAndDarkSide() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
         // Sunset 21:37 -> event slot 21:00 (index 1); the dark side is 22:00 (index 2).
         // The far archive's mid/high/dark values differ from every other point's, so a read from the
         // wrong archive cannot pass.
         OpenMeteoForecastResponse far = farArchive(20);
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), archive(), far)));
 
         service.backfill(10);
 
@@ -120,12 +127,12 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("backfill leaves a far layer null when the archive omits it, and keeps the others")
     void backfill_missingFarLayers_recordNull() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
         OpenMeteoForecastResponse far = farArchive(20);
         far.getHourly().setCloudCoverMid(null);
         far.getHourly().setCloudCoverHigh(null);
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), archive(), far)));
 
         service.backfill(10);
 
@@ -141,7 +148,7 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("backfill records null dark-side values when the dark-side slot is past the array's edge")
     void backfill_darkSideAtArrayEdge_recordsNull() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
         // The sunset slot (21:00) is the last hour served, so index 2 does not exist.
         OpenMeteoForecastResponse far = new OpenMeteoForecastResponse();
         OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
@@ -150,8 +157,8 @@ class CloudVerificationServiceTest {
         hourly.setCloudCoverMid(List.of(71, 72));
         hourly.setCloudCoverHigh(List.of(81, 82));
         far.setHourly(hourly);
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), archive(), far)));
 
         service.backfill(10);
 
@@ -167,13 +174,13 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("backfill records no far values when the far archive is empty")
     void backfill_emptyFarArchive_recordsNoFarValues() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
         OpenMeteoForecastResponse empty = new OpenMeteoForecastResponse();
         OpenMeteoForecastResponse.Hourly noTimes = new OpenMeteoForecastResponse.Hourly();
         noTimes.setTime(List.of());
         empty.setHourly(noTimes);
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), empty));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), archive(), empty)));
 
         service.backfill(10);
 
@@ -190,12 +197,12 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("backfill for a sunrise takes the dark-side values from the hour before the event slot")
     void backfill_sunrise_darkSideIsThePreviousHour() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(sunriseCandidate()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(sunriseCandidate()));
         // Sunrise 05:47 -> earliest slot at or after it is 06:00 (index 2); the dark side is 05:00.
         OpenMeteoForecastResponse far = sunriseFarArchive(List.of("2026-05-10T04:00", "2026-05-10T05:00",
                 "2026-05-10T06:00", "2026-05-10T07:00"));
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), archive(), far)));
 
         service.backfill(10);
 
@@ -211,12 +218,12 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("backfill for a sunrise whose event slot is the first hour records null dark-side values")
     void backfill_sunriseAtFirstHour_darkSideIsNull() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(sunriseCandidate()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(sunriseCandidate()));
         // Event slot 06:00 is index 0, so the dark side (index -1) does not exist.
         OpenMeteoForecastResponse far = sunriseFarArchive(List.of("2026-05-10T06:00", "2026-05-10T07:00",
                 "2026-05-10T08:00", "2026-05-10T09:00"));
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), archive(), far)));
 
         service.backfill(10);
 
@@ -232,9 +239,9 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("backfill records no far values when the far archive fetch failed (null)")
     void backfill_nullFarArchive_recordsNoFarValues() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(Arrays.asList(archive(60), archive(85), archive(95), archive(), null));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(Arrays.asList(archive(60), archive(85), archive(95), archive(), null)));
 
         service.backfill(10);
 
@@ -250,9 +257,9 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("backfill records a row even when the archive has no data, so it is not retried")
     void backfill_archiveFailure_stillRecordsRow() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(Arrays.asList(null, null, null, null, null));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(Arrays.asList(null, null, null, null, null)));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
 
@@ -271,7 +278,7 @@ class CloudVerificationServiceTest {
     @DisplayName("V187: backfill records the observer's temperature and dew point at the event hour, "
             + "from the OBSERVER point and not the cone or far point")
     void backfill_recordsObserverSaturationProxy() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
         OpenMeteoForecastResponse observer = archive();
         // Sunset 21:37 -> event slot 21:00 (index 1). The neighbouring hours differ so an off-by-one
         // read cannot pass; the cone and far archives carry their own values so a read from the wrong
@@ -284,8 +291,8 @@ class CloudVerificationServiceTest {
         OpenMeteoForecastResponse far = farArchive(20);
         far.getHourly().setTemperature2m(List.of(2.0, 2.1, 2.2));
         far.getHourly().setDewPoint2m(List.of(0.5, 0.6, 0.7));
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(cone, cone, cone, observer, far));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(cone, cone, cone, observer, far)));
 
         service.backfill(10);
 
@@ -298,9 +305,9 @@ class CloudVerificationServiceTest {
     @DisplayName("V187: an observer archive without temperature or dew point records null for both and "
             + "still writes the row - recorded, never required")
     void backfill_missingSaturationProxy_recordsNullAndKeepsTheRow() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), archive(20)));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), archive(), archive(20))));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
 
@@ -313,12 +320,12 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("V187: a series shorter than the event hour records null rather than throwing")
     void backfill_shortSaturationSeries_recordsNull() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
         OpenMeteoForecastResponse observer = archive();
         observer.getHourly().setTemperature2m(List.of(9.0));
         observer.getHourly().setDewPoint2m(List.of());
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(60), archive(85), archive(95), observer, archive(20)));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), observer, archive(20))));
 
         service.backfill(10);
 
@@ -330,14 +337,14 @@ class CloudVerificationServiceTest {
     @DisplayName("V187: the archive request carries temperature_2m and dew_point_2m beside the three "
             + "cloud layers, and never a pressure-level variable")
     void backfill_requestsTheSaturationVariables() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(), archive(), archive(), archive(), archive()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate()));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(), archive(), archive(), archive(), archive())));
 
         service.backfill(10);
 
         ArgumentCaptor<String> hourly = ArgumentCaptor.forClass(String.class);
-        verify(archiveClient).fetchArchiveBatch(any(), any(), hourly.capture());
+        verify(archiveClient).fetchArchiveBatch(points(5), eq(DATE), hourly.capture());
         assertThat(hourly.getValue().split(","))
                 .containsExactlyInAnyOrder("cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
                         "temperature_2m", "dew_point_2m");
@@ -349,10 +356,10 @@ class CloudVerificationServiceTest {
         VerificationCandidate first = candidate();
         VerificationCandidate second = new VerificationCandidate(43L, 55.0, -2.0, 250,
                 LocalDateTime.of(2026, 5, 10, 21, 40), TargetType.SUNSET);
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(first, second));
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(), archive(), archive(), archive(), archive(),
-                        archive(), archive(), archive(), archive(), archive()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(first, second));
+        when(archiveClient.fetchArchiveBatch(points(10), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(), archive(), archive(), archive(), archive(),
+                        archive(), archive(), archive(), archive(), archive())));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(2);
 
@@ -360,7 +367,7 @@ class CloudVerificationServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<double[]>> points = ArgumentCaptor.forClass(List.class);
         verify(archiveClient).fetchArchiveBatch(
-                points.capture(), eq(LocalDate.of(2026, 5, 10)), anyString());
+                points.capture(), eq(LocalDate.of(2026, 5, 10)), eq(ARCHIVE_HOURLY));
 
         // Five points per candidate: the three solar-cone bearings, the observer, then the
         // far-solar corridor point. The cone matters because the forecast's own solar reading is
@@ -376,26 +383,116 @@ class CloudVerificationServiceTest {
     }
 
     @Test
+    @DisplayName("five evaluations of one event ask the archive for five points, and each row gets the answer")
+    void backfill_sameEventFetchedOnce() {
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(
+                sameEvent(1L), sameEvent(2L), sameEvent(3L), sameEvent(4L), sameEvent(5L)));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(60), archive(85), archive(95), archive(), archive(20))));
+
+        BackfillBatch batch = service.backfill(10);
+
+        assertThat(batch.rowsWritten()).isEqualTo(5);
+        assertThat(batch.withObservations()).isEqualTo(5);
+        assertThat(batch.archiveCalls()).isEqualTo(5);
+        assertThat(batch.quotaExhausted()).isFalse();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<CloudVerificationEntity>> saved = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(saved.capture());
+        assertThat(saved.getValue()).extracting(CloudVerificationEntity::getForecastEvaluationId)
+                .containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(saved.getValue()).extracting(CloudVerificationEntity::getHorizonLowCloud)
+                .containsOnly(80);
+        assertThat(saved.getValue()).extracting(CloudVerificationEntity::getFarLowCloud)
+                .containsOnly(20);
+    }
+
+    @Test
+    @DisplayName("two events ask for ten points, and duplicates interleaved between them map back correctly")
+    void backfill_interleavedDuplicates_mapBackByIndex() {
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(
+                sameEvent(1L), otherEvent(2L), sameEvent(3L), otherEvent(4L), sameEvent(5L)));
+        // First event's five points are returned first (cone 60/85/95, far 20), then the other
+        // event's (cone all 10, far 5), so a mapping slip would swap the two events' readings.
+        when(archiveClient.fetchArchiveBatch(points(10), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(
+                        archive(60), archive(85), archive(95), archive(), archive(20),
+                        archive(10), archive(10), archive(10), archive(), archive(5))));
+
+        BackfillBatch batch = service.backfill(10);
+
+        assertThat(batch.archiveCalls()).isEqualTo(10);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<CloudVerificationEntity>> saved = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(saved.capture());
+        assertThat(saved.getValue()).extracting(CloudVerificationEntity::getForecastEvaluationId)
+                .containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(saved.getValue()).extracting(CloudVerificationEntity::getHorizonLowCloud)
+                .containsExactly(80, 10, 80, 10, 80);
+        assertThat(saved.getValue()).extracting(CloudVerificationEntity::getFarLowCloud)
+                .containsExactly(20, 5, 20, 5, 20);
+    }
+
+    @Test
+    @DisplayName("a spent allowance is reported on the batch and rows without observations are not saved")
+    void backfill_quotaExhausted_savesOnlyRowsWithObservations() {
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10))))
+                .thenReturn(List.of(sameEvent(1L), otherEvent(2L)));
+        when(archiveClient.fetchArchiveBatch(points(10), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(new ArchiveBatchResult(Arrays.asList(
+                        archive(60), archive(85), archive(95), archive(), archive(20),
+                        null, null, null, null, null), "Daily API request limit exceeded"));
+
+        BackfillBatch batch = service.backfill(10);
+
+        assertThat(batch.quotaExhausted()).isTrue();
+        assertThat(batch.rowsWritten()).isEqualTo(1);
+        assertThat(batch.withObservations()).isEqualTo(1);
+        assertThat(batch.archiveCalls()).isEqualTo(10);
+        assertThat(savedRow().getForecastEvaluationId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("a spent allowance with nothing fetched saves nothing and stops asking about later dates")
+    void backfill_quotaExhausted_stopsAtTheFirstDate() {
+        VerificationCandidate may11 = new VerificationCandidate(43L, 55.0, -2.0, 250,
+                LocalDateTime.of(2026, 5, 11, 21, 40), TargetType.SUNSET);
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(candidate(), may11));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(DATE), eq(ARCHIVE_HOURLY)))
+                .thenReturn(new ArchiveBatchResult(Arrays.asList(null, null, null, null, null),
+                        "Hourly API request limit exceeded"));
+
+        BackfillBatch batch = service.backfill(10);
+
+        assertThat(batch.quotaExhausted()).isTrue();
+        assertThat(batch.rowsWritten()).isZero();
+        assertThat(batch.archiveCalls()).isEqualTo(5);
+        verify(archiveClient, never()).fetchArchiveBatch(
+                points(5), eq(LocalDate.of(2026, 5, 11)), eq(ARCHIVE_HOURLY));
+    }
+
+    @Test
     @DisplayName("backfill issues one request per distinct date")
     void backfill_separateRequestPerDate() {
         VerificationCandidate may10 = candidate();
         VerificationCandidate may11 = new VerificationCandidate(43L, 55.0, -2.0, 250,
                 LocalDateTime.of(2026, 5, 11, 21, 40), TargetType.SUNSET);
-        when(repository.findUnverified(any(), any())).thenReturn(List.of(may10, may11));
-        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(), archive(), archive(), archive(),
-                        archive(), archive(), archive(), archive()));
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of(may10, may11));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(LocalDate.of(2026, 5, 10)), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(), archive(), archive(), archive(), archive())));
+        when(archiveClient.fetchArchiveBatch(points(5), eq(LocalDate.of(2026, 5, 11)), eq(ARCHIVE_HOURLY)))
+                .thenReturn(archived(List.of(archive(), archive(), archive(), archive(), archive())));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(2);
 
-        verify(archiveClient).fetchArchiveBatch(any(), eq(LocalDate.of(2026, 5, 10)), anyString());
-        verify(archiveClient).fetchArchiveBatch(any(), eq(LocalDate.of(2026, 5, 11)), anyString());
+        verify(archiveClient).fetchArchiveBatch(points(5), eq(LocalDate.of(2026, 5, 10)), eq(ARCHIVE_HOURLY));
+        verify(archiveClient).fetchArchiveBatch(points(5), eq(LocalDate.of(2026, 5, 11)), eq(ARCHIVE_HOURLY));
     }
 
     @Test
     @DisplayName("backfill excludes dates the archive has not caught up with yet")
     void backfill_appliesArchiveLagCutoff() {
-        when(repository.findUnverified(any(), any())).thenReturn(List.of());
+        when(repository.findUnverified(eq(CUTOFF), eq(Limit.of(10)))).thenReturn(List.of());
 
         assertThat(service.backfill(10).rowsWritten()).isZero();
 
@@ -1138,6 +1235,27 @@ class CloudVerificationServiceTest {
     private VerificationCandidate candidate() {
         return new VerificationCandidate(42L, 54.7753, -1.5849, 250,
                 LocalDateTime.of(2026, 5, 10, 21, 37), TargetType.SUNSET);
+    }
+
+    /** The same sunset event as {@link #candidate()}, as another evaluation with its own id. */
+    private VerificationCandidate sameEvent(long id) {
+        return new VerificationCandidate(id, 54.7753, -1.5849, 250,
+                LocalDateTime.of(2026, 5, 10, 21, 37), TargetType.SUNSET);
+    }
+
+    /** A different sunset event (another location), on the same date. */
+    private VerificationCandidate otherEvent(long id) {
+        return new VerificationCandidate(id, 55.0, -2.0, 250,
+                LocalDateTime.of(2026, 5, 10, 21, 40), TargetType.SUNSET);
+    }
+
+    private static ArchiveBatchResult archived(List<OpenMeteoForecastResponse> responses) {
+        return new ArchiveBatchResult(responses, null);
+    }
+
+    /** Matches an archive request for exactly {@code count} coordinates. */
+    private static List<double[]> points(int count) {
+        return argThat(points -> points != null && points.size() == count);
     }
 
     private VerificationCandidate sunriseCandidate() {

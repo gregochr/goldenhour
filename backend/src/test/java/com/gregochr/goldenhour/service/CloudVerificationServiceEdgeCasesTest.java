@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.CloudVerificationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.ArchiveBatchResult;
 import com.gregochr.goldenhour.model.CloudVerificationBucket;
 import com.gregochr.goldenhour.model.CloudVerificationPair;
 import com.gregochr.goldenhour.model.CloudVerificationReport;
@@ -92,7 +93,7 @@ class CloudVerificationServiceEdgeCasesTest {
         when(repository.findUnverified(LocalDate.of(2026, 5, 25), Limit.of(10))).thenReturn(List.of(candidate()));
         when(archiveClient.fetchArchiveBatch(org.mockito.ArgumentMatchers.argThat(points -> points != null
                 && points.size() == 5), eq(DATE), org.mockito.ArgumentMatchers.contains("cloud_cover_low")))
-                .thenReturn(responses);
+                .thenReturn(new ArchiveBatchResult(responses, null));
     }
 
     private CloudVerificationEntity backfillOne() {

@@ -5,14 +5,14 @@ name: Prompt regression (approval-gated)
 # docs/engineering/reference/dev-and-testing.md).
 #
 # ⚠️ Its own workflow and NEVER a required check, like the advisory a11y workflow. The `sky` and `ask` jobs run in the
-# `prompt-regression` GitHub environment, whose required reviewer is the owner: nothing spends money without a click.
-# A run waiting for approval shows as a pending check, an unapproved run expires red after 30 days, and a skipped
-# run (no prompt code changed) is normal. None of those is ever awaited before a merge.
+# `prompt-regression` GitHub environment, which holds the key and has NO required reviewer (owner's choice, 2026-11-27): a
+# prompt-changing PR runs the paid jobs as soon as it is opened or pushed. A skipped run (no prompt code changed) is normal;
+# a red run is reported, never awaited, before a merge. The name above still says "approval-gated" because it is the check name.
 #
-# ⚠️ The approval is a COST gate, not a sandbox. Once approved, the PR head's workflow file, tests, pom plugins and
-# Maven wrapper all run with the key, so the key is a separate, spend-capped one (PROMPT_REGRESSION_ANTHROPIC_API_KEY)
-# and the owner reads the pre-approval checklist before clicking. Same-repository PRs only: a fork PR never reaches
-# the paid jobs, and neither does Dependabot (for an SDK bump, run this manually).
+# ⚠️ There is no click between a PR and the key. The PR head's workflow file, tests, pom plugins and Maven wrapper all run
+# with it, so the key is a separate, spend-capped one (PROMPT_REGRESSION_ANTHROPIC_API_KEY) and the spend cap is the only
+# cost limit. Same-repository PRs only: a fork PR never reaches the paid jobs, and neither does Dependabot (for an SDK
+# bump, run this manually).
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -156,6 +156,7 @@ jobs:
         run: |
           ./mvnw -B --no-transfer-progress test -Pprompt-regression \
             -Dtest='ValleyMistPromptRegressionTest' \
+            -Dregression.model="$SKY_MODEL" \
             -DfailIfNoSpecifiedTests=true
 
       - name: Summarise

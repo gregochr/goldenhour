@@ -78,7 +78,7 @@ function useKeepFocusAlive(ref, inert, fallbackFocus) {
  * @param {boolean} props.sticky Plan and Coming up (the document scrolls: stick to the viewport); false
  *        on the Map, where the dock is the frame's own height
  * @param {boolean} props.inert a shell dialog, search or settings is open
- * @param {'map'|'plan'|'coming-up'} props.view the tab the suggestions are offered for and the view the
+ * @param {'map'|'plan'} props.view the screen the suggestions are offered for and the view the
  *        question is sent with
  * @param {string} props.viewLabel the view chip's text, e.g. "Plan · all regions"
  * @param {string} props.contextLabel what the header says the dock is beside, e.g. "on Plan"
@@ -187,7 +187,7 @@ AskDock.propTypes = {
   band: PropTypes.oneOf(['desktop', 'wide']).isRequired,
   sticky: PropTypes.bool.isRequired,
   inert: PropTypes.bool.isRequired,
-  view: PropTypes.oneOf(['map', 'plan', 'coming-up']).isRequired,
+  view: PropTypes.oneOf(['map', 'plan']).isRequired,
   viewLabel: PropTypes.string.isRequired,
   contextLabel: PropTypes.string.isRequired,
   inputRef: refShape.isRequired,

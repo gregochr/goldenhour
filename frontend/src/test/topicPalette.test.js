@@ -5,22 +5,22 @@ import {
 
 /**
  * The one hot-topic palette (hot-topics-by-day-plan §1.7). This file holds its OWN literal copy of
- * the backend's nineteen types — the {@code windowFirstTopics.test.js} precedent — so adding a name
+ * the backend's twenty types — the {@code windowFirstTopics.test.js} precedent — so adding a name
  * to the module cannot satisfy the test on its own, and neither can adding it to this list.
  */
-const NINETEEN = [
-  'KING_TIDE', 'SPRING_TIDE', 'STORM_SURGE', 'INVERSION', 'MIST', 'SEA_MIST', 'DUST',
+const TWENTY = [
+  'KING_TIDE', 'SPRING_TIDE', 'STORM_SURGE', 'INVERSION', 'MIST', 'SEA_MIST', 'FROST_MIST', 'DUST',
   'SNOW_TOPS', 'SNOW_MIST', 'SNOW_FRESH', 'CLEARANCE', 'BLUEBELL',
   'AURORA', 'NLC', 'METEOR', 'SUPERMOON', 'EQUINOX', 'ECLIPSE', 'LUNAR_ECLIPSE',
 ];
 
 describe('topicStyle', () => {
-  it('has an explicit entry for every one of the nineteen types, and no others', () => {
-    expect(NINETEEN).toHaveLength(19);
-    expect(Object.keys(SWATCH_COLOR).sort()).toEqual([...NINETEEN].sort());
+  it('has an explicit entry for every one of the twenty types, and no others', () => {
+    expect(TWENTY).toHaveLength(20);
+    expect(Object.keys(SWATCH_COLOR).sort()).toEqual([...TWENTY].sort());
   });
 
-  it.each(NINETEEN)('%s has a real colour, glyph, name — never the fallback', (type) => {
+  it.each(TWENTY)('%s has a real colour, glyph, name — never the fallback', (type) => {
     const style = topicStyle(type);
     expect(style.colour).toBe(SWATCH_COLOR[type]);
     expect(style.colour).toMatch(/^#[0-9a-fA-F]{6}$/);
@@ -43,7 +43,7 @@ describe('topicStyle', () => {
   });
 
   it('gives placeNoun "coastal" to the tide and surge types, and no other type one', () => {
-    const coastal = NINETEEN.filter((type) => topicStyle(type).placeNoun === 'coastal');
+    const coastal = TWENTY.filter((type) => topicStyle(type).placeNoun === 'coastal');
     expect(coastal.sort()).toEqual(['KING_TIDE', 'SPRING_TIDE', 'STORM_SURGE']);
     expect(topicStyle('AURORA').placeNoun).toBeUndefined();
   });
@@ -110,7 +110,7 @@ describe('the Map\'s topic strip name', () => {
   });
 
   it('carries no phone-only chipName key', () => {
-    for (const type of NINETEEN) {
+    for (const type of TWENTY) {
       expect(topicStyle(type), type).not.toHaveProperty('chipName');
     }
     expect(topicStyle('WEIRD')).not.toHaveProperty('chipName');
@@ -156,5 +156,30 @@ describe('SEA_MIST swatch', () => {
 
   it('reads on the dark background at 4.5:1 or better', () => {
     expect(contrast(SWATCH_COLOR.SEA_MIST, '#181210')).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('FROST_MIST swatch', () => {
+  const OTHERS = Object.entries(SWATCH_COLOR).filter(([type]) => type !== 'FROST_MIST');
+  const VISIONS = { normal: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], ...CVD };
+
+  it('is not the colour of any other topic', () => {
+    expect(OTHERS.map(([, hex]) => hex.toLowerCase())).not.toContain(SWATCH_COLOR.FROST_MIST.toLowerCase());
+  });
+
+  it.each(OTHERS)('stays at least 10 delta-E from %s under normal vision, deuteranopia and protanopia', (type, hex) => {
+    for (const [vision, matrix] of Object.entries(VISIONS)) {
+      expect(deltaE76(SWATCH_COLOR.FROST_MIST, hex, matrix), `${type} ${vision}`).toBeGreaterThanOrEqual(10);
+    }
+  });
+
+  it('reads on the dark background at 4.5:1 or better', () => {
+    expect(contrast(SWATCH_COLOR.FROST_MIST, '#181210')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('has its own glyph, never the valley mist glyph, and the planned name', () => {
+    expect(topicStyle('FROST_MIST').glyph).toBe('🧊');
+    expect(topicStyle('FROST_MIST').glyph).not.toBe(topicStyle('MIST').glyph);
+    expect(topicStyle('FROST_MIST').name).toBe('Frost and mist');
   });
 });

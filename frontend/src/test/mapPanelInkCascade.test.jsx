@@ -54,8 +54,8 @@ function declared(body, prop) {
 }
 
 describe('map panel ink — increment §6', () => {
-  it('overrides the recessive token ONCE, on the map frame’s own wrapper', () => {
-    const value = declared(ruleBody('.wf-body.wf-body--map'), '--color-plex-text-muted');
+  it('overrides the recessive token ONCE, on the map view’s own root', () => {
+    const value = declared(ruleBody('.wf-map-screen'), '--color-plex-text-muted');
     expect(value).not.toBeNull();
   });
 
@@ -68,7 +68,7 @@ describe('map panel ink — increment §6', () => {
     const secondary = declared(theme, '--color-plex-text-secondary');
     expect(panelInk).not.toBeNull();
     expect(panelInk).toBe(secondary);
-    expect(declared(ruleBody('.wf-body.wf-body--map'), '--color-plex-text-muted'))
+    expect(declared(ruleBody('.wf-map-screen'), '--color-plex-text-muted'))
       .toBe('var(--color-panel-ink)');
   });
 
@@ -91,14 +91,14 @@ describe('map panel ink — increment §6', () => {
       .toBe('var(--color-panel-ink)');
   });
 
-  it('is scoped to the map TAB, never to MapView — the frozen overlay must not move', () => {
-    // The compound `.wf-body.wf-body--map` is the selected Map tab's own panel wrapper. The Plan
-    // tab's overlay mounts `MapView` inside the PLAN body, which this selector cannot reach.
+  it('is scoped to the map VIEW, never to MapView itself', () => {
+    // `.wf-map-screen` is the map view's own root (it replaced the Map tab's `.wf-body.wf-body--map` wrapper, one-screen-plan.md
+    // D1); a `MapView` rendered anywhere else is not under it.
     const source = css();
-    expect(source).toMatch(/\.wf-body\.wf-body--map\s*\{[^}]*--color-plex-text-muted/);
+    expect(source).toMatch(/\.wf-map-screen\s*\{[^}]*--color-plex-text-muted/);
     // No second, broader home for the same override.
     const overrides = source.match(/--color-plex-text-muted\s*:/g) || [];
-    // Three: the `@theme` definition, the map tab's override, and the bottom-sheet host's.
+    // Three: the `@theme` definition, the map view's override, and the bottom-sheet host's.
     expect(overrides).toHaveLength(3);
   });
 

@@ -3,7 +3,7 @@ import { shiftDateStr } from './mapDates.js';
 import { topicStyle } from './topicPalette.js';
 
 /**
- * The "Next four days" topic tiles' model — now the source of At a Glance's "The days ahead" lanes, which
+ * The "Next four days" topic tiles' model — now the source of This week's day lanes, which
  * {@link buildGlanceLanes} re-buckets and {@code WindowGlanceLanes} draws through {@code WindowFirstHeatStrip}
  * (days-ahead-lanes-plan.md; it began as the stacked day-header pills of glance-topic-strip-plan.md). It began as
  * the Coming up tab's block of the same name (coming-up-glance-plan §3 T1), which that plan moved here, and
@@ -113,7 +113,7 @@ function dayNum(dateStr) {
 }
 
 /** Whether an almanac entry is, or carries (in a coincidence line), one of these almanac types. */
-function holdsType(entry, wanted) {
+export function holdsType(entry, wanted) {
   return wanted.includes(entry?.type)
     || (entry?.coincidence ?? []).some((line) => wanted.includes(line?.type));
 }
@@ -132,7 +132,7 @@ function holdsType(entry, wanted) {
  * @param {object} entry a served almanac entry that holds a tide
  * @returns {?{first: string, last: string}} the tide's days, or null when the entry offers no evidence
  */
-function tideSpan(entry) {
+export function tideSpan(entry) {
   if ((entry.coincidence ?? []).length === 0) {
     return entry.startDate && entry.endDate ? { first: entry.startDate, last: entry.endDate } : null;
   }
@@ -295,7 +295,7 @@ export function buildFourDayTiles({
 }
 
 /**
- * The At a Glance "days ahead" lanes (days-ahead-lanes-plan.md §2): the four days' chips re-bucketed into one lane
+ * The This week "days ahead" lanes (days-ahead-lanes-plan.md §2): the four days' chips re-bucketed into one lane
  * per RUN of an event. It re-buckets served chips and derives no fact — every printed string is a served
  * {@code glance} field, and the edges read only served topic dates (never the almanac, D14).
  *

@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openTab, tokenOf, stubGuideFrame, openMapTab, visibleChips, CHIP_NAME,
+  test, expect, loginAndWaitForForecast, openOperations, tokenOf, stubGuideFrame, openMapView, visibleChips, CHIP_NAME,
   installDialogDepthObserver, dialogDepth,
 } from './fixture.js';
 
@@ -58,11 +58,14 @@ async function expectBaseline(page, index) {
 }
 
 const settingsDialog = (page) => page.getByTestId('settings-modal');
-const cog = (page) => page.getByTestId('window-first-settings');
+/** Settings is a row of the ☰ menu; the menu is no layer, and it hands focus back to its own button. */
+const menuButton = (page) => page.getByTestId('masthead-menu-button');
+const settingsRow = (page) => page.getByTestId('window-first-settings');
 
-/** Opens Settings from the cog and waits for the dialog and the store. */
+/** Opens Settings from the menu and waits for the dialog and the store. */
 async function openSettings(page, depth = 1) {
-  await cog(page).click();
+  await menuButton(page).click();
+  await settingsRow(page).click();
   await expect(settingsDialog(page)).toBeVisible();
   await expect(page.getByTestId('settings-body')).toBeVisible();
   await settled(page, depth);
@@ -81,7 +84,7 @@ test.describe('Back closes the top dialog: Settings', () => {
     await page.goBack();
 
     await expect(settingsDialog(page)).toHaveCount(0);
-    await expect(cog(page)).toBeFocused();
+    await expect(menuButton(page)).toBeFocused();
     await expectBaseline(page, base);
     expect(page.url()).toBe(url);
   });
@@ -123,7 +126,7 @@ test.describe('Back closes the top dialog: Settings', () => {
     await page.reload();
 
     await expect(page.getByTestId('window-first-shell')).toBeVisible();
-    await expect(page.getByTestId('window-first-tab-map')).toBeVisible();
+    await expect(page.getByTestId('masthead-menu-button')).toBeVisible();
     await expect(settingsDialog(page)).toHaveCount(0);
     await expect.poll(() => marker(page)).toBeNull();
     await settled(page, 0);
@@ -145,7 +148,7 @@ test.describe('Back closes the top dialog: a confirm over an Operations panel', 
     const admin = (await users.json()).find((user) => user.username === 'admin');
     expect(admin, 'the seeded admin').toBeTruthy();
 
-    await openTab(page, 'operations');
+    await openOperations(page);
     // The Users list, then the panel: each hash write is its own history entry (useHashSelection), so Back
     // already steps out of the panel to the list. (From a non-manage hash it would not: that is ignored.)
     await page.getByTestId('manage-tab-users').click();
@@ -236,7 +239,6 @@ test.describe('Back closes the top dialog: phone sheets', () => {
   test('goBack closes the Ask sheet, and the guide sheet over it first', async ({ page, hygiene }) => {
     await stubGuideFrame(page, hygiene);
     await loginAndWaitForForecast(page);
-    await openTab(page, 'plan');
     const base = await entryIndex(page);
 
     await page.getByTestId('ask-bar').click();
@@ -265,7 +267,6 @@ test.describe('Back closes the top dialog: phone sheets', () => {
 
   test('closing the Ask sheet with its x or Escape leaves no dead press', async ({ page }) => {
     await loginAndWaitForForecast(page);
-    await openTab(page, 'plan');
     const base = await entryIndex(page);
 
     await page.getByTestId('ask-bar').click();
@@ -285,7 +286,6 @@ test.describe('Back closes the top dialog: phone sheets', () => {
 
   test('the page behind keeps the scroll it was given while the sheet was up, after the x, Escape and goBack', async ({ page }) => {
     await loginAndWaitForForecast(page);
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     const room = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
     expect(room, 'the Plan page scrolls at 390 px').toBeGreaterThan(220);
@@ -329,7 +329,6 @@ test.describe('Back closes the top dialog: phone sheets', () => {
 test.describe('Back closes the top dialog: the Plan surfaces', () => {
   /** Opens the Plan and waits for the matrix. */
   async function openPlan(page) {
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
   }
 
@@ -342,8 +341,9 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     await settled(page, 1);
   }
 
-  // glance-to-map-plan.md G2a: a card opens the Map and Back returns to At a Glance (card and Find arrivals only).
-  test('a Glance card opens the Map: the first goBack returns to At a Glance, no dead press', async ({ page }) => {
+  // one-screen-plan.md O1: a card opens the map VIEW, which is itself the base Back layer (it carries a `#map/...`
+  // address on the layer); Back closes it and focus returns to the card. No arrival layer, no tab to return to.
+  test('a Glance card opens the map view: the first goBack closes it and returns focus to the card, no dead press', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
     await openPlan(page);
@@ -351,31 +351,37 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     const url = page.url();
 
     // Never the first card: it may be the window about to pass.
-    await page.getByTestId('wf-heat-card').nth(2).click();
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    // A pointer lands on the card, which hands focus to its inner button: that is where focus must return.
+    const card = page.getByTestId('wf-heat-card').nth(2);
+    const cardButton = card.getByTestId('wf-heat-card-button');
+    await card.click();
+    await expect(page.getByTestId('map-screen')).toBeVisible();
     await settled(page, 1);
-    expect(await entryIndex(page), 'the arrival owns one entry').toBe(base + 1);
+    expect(await entryIndex(page), 'the view owns one entry').toBe(base + 1);
+    expect(page.url(), 'the entry carries the view\'s address').toMatch(/#map\/\d{4}-\d{2}-\d{2}\/(sunrise|sunset)/);
 
     await page.goBack();
 
-    await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('window-first-tab-plan')).toBeFocused();
+    await expect(page.getByTestId('map-screen')).toBeHidden();
+    await expect(page.getByTestId('this-week-heading')).toBeVisible();
+    await expect(cardButton).toBeFocused();
     await expectBaseline(page, base);
-    expect(page.url(), 'the URL never changes').toBe(url);
+    expect(page.url(), 'closing returns the address to the bare path').toBe(url);
   });
 
-  test('a manual tab press after a card arrival leaves no entry behind', async ({ page }) => {
+  test('closing the view with its close button leaves no entry behind', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
     await openPlan(page);
     const base = await entryIndex(page);
     await page.getByTestId('wf-heat-card').nth(2).click();
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
     await settled(page, 1);
 
-    await page.getByTestId('window-first-tab-coming-up').click();
+    await page.getByTestId('map-screen-close').click();
 
-    await expect(page.getByTestId('window-first-tab-coming-up')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeHidden();
+    await expect(page.getByTestId('this-week-heading')).toBeVisible();
     await expectBaseline(page, base);
   });
 
@@ -385,13 +391,13 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
   test.describe('on a phone', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
-    test('Back after a card arrival leaves no Map bottom sheet over At a Glance', async ({ page }) => {
+    test('Back after a card opens the view leaves no Map bottom sheet over This week', async ({ page }) => {
       test.setTimeout(60_000);
       await loginAndWaitForForecast(page);
       await openPlan(page);
       const base = await entryIndex(page);
       await page.getByTestId('wf-heat-card').nth(2).click();
-      await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('map-screen')).toBeVisible();
       await settled(page, 1);
       await page.getByTestId('wf-map-peek-btn-lay').click();
       await page.getByTestId('wf-map-peek-lay-regions').click();
@@ -400,7 +406,8 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
 
       await page.goBack();
 
-      await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('map-screen')).toBeHidden();
+      await expect(page.getByTestId('this-week-heading')).toBeVisible();
       await expect(page.getByTestId('bottom-sheet-root')).toHaveCount(0);
       await expect(page.getByTestId('wf-jump-menu')).toHaveCount(0);
       await expectBaseline(page, base);
@@ -424,7 +431,7 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     await expect(page.getByTestId('window-first-search')).toBeFocused();
     await expectBaseline(page, base);
     expect(page.url(), 'the URL never changes').toBe(url);
-    await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('this-week-heading')).toBeVisible();
 
     const depth = await dialogDepth(page);
     expect(depth.maxModal, 'concurrent aria-modal elements').toBeLessThanOrEqual(1);
@@ -444,36 +451,35 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     await expectBaseline(page, base);
   });
 
-  test('the sheet, then the Map tab: the entry is consumed and a stale Forward reopens nothing', async ({ page }) => {
+  test('the sheet, then the map view: the sheet\'s entry is taken over by the view (one entry), and Back closes the view', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
     await openPlan(page);
     const base = await entryIndex(page);
     await openLocationSheet(page, 'Bamburgh Beach');
 
-    // The tab bar sits under the modal scrim, so the real route to `selectTab` with a layer up is the sheet's own
-    // "show on map" door, which closes it and moves the tab.
+    // The masthead sits under the modal scrim, so the real route is the sheet's own "show on map" door, which closes the
+    // sheet and opens the view in one commit: the engine's same-depth swap, no `go(0)` and no second push.
     await page.getByTestId('location-sheet-map').click();
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
 
     await expect(page.getByTestId('location-sheet')).toHaveCount(0);
-    await expectBaseline(page, base);
+    await settled(page, 1);
+    expect(await entryIndex(page), 'one entry, taken over').toBe(base + 1);
+    expect(page.url()).toMatch(/#map\//);
 
-    // The stale entry still sits ahead of the baseline. Forward lands on it: it is bounced, nothing reopens, and the
-    // page ends on the baseline again. (A goBack from the baseline would leave the origin, which is correct and is
-    // not what this asserts.)
-    expect(await page.evaluate(() => window.navigation.canGoForward), 'a stale entry ahead, so the bounce is exercised').toBe(true);
-    await page.goForward();
+    await page.goBack();
 
+    await expect(page.getByTestId('map-screen')).toBeHidden();
     await expectBaseline(page, base);
-    await expect(page.getByTestId('location-sheet')).toHaveCount(0);
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
   });
 
   test('over the Map: callout, "Four days here", the sheet; goBack closes the sheet and keeps the callout', async ({ page }) => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
+    // The view is the base layer: one entry, and everything below stacks over it.
+    await settled(page, 1);
     const base = await entryIndex(page);
     const chip = visibleChips(page).first();
     const [, name] = CHIP_NAME.exec(await chip.getAttribute('aria-label'));
@@ -482,14 +488,14 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     await expect(callout).toBeVisible();
     await expect(callout).toContainText(name);
     // The callout is not a layer: opening it makes no entry.
-    await settled(page, 0);
+    await settled(page, 1);
     expect(await entryIndex(page)).toBe(base);
 
     const reason = page.getByTestId('map-callout-reason');
     await reason.click();
     const sheet = page.getByTestId('location-sheet');
     await expect(sheet).toBeVisible();
-    await settled(page, 1);
+    await settled(page, 2);
 
     await page.goBack();
 
@@ -497,12 +503,13 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     await expect(callout).toBeVisible();
     await expect(callout).toContainText(name);
     await expect(reason).toBeFocused();
-    await expectBaseline(page, base);
+    // The sheet's entry went; the view's stays.
+    await settled(page, 1);
+    expect(await entryIndex(page)).toBe(base);
   });
 
   test('Plan search: goBack closes it', async ({ page }) => {
     await loginAndWaitForForecast(page);
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     const base = await entryIndex(page);
 

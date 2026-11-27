@@ -1,3 +1,4 @@
+import { registerMapDoor } from './shellMapDoor.js';
 import React from 'react';
 import { vi } from 'vitest';
 import { render } from '@testing-library/react';
@@ -166,6 +167,7 @@ export function renderAskShell({
     onSignOut: vi.fn(),
     onShowOnMap: vi.fn(),
     locations: [],
+    registerOpenMap: registerMapDoor,
     ...props,
   };
   const ui = (next = {}) => (

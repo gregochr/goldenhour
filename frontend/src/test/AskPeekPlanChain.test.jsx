@@ -1,3 +1,4 @@
+import { openMapView, registerMapDoor } from './shellMapDoor.js';
 /**
  * The phone Map's "Open in Plan ›" as ONE chain (F5, `docs/engineering/ask-photocast-plan.md` §2.8, and F4's
  * "For F5 (5)"): the real `WindowFirstShell` hosting the real Map pane and peek sheet, with a host that does
@@ -235,7 +236,7 @@ function Host({ onOpenSettings }) {
   return (
     <AskProvider>
       <Capture />
-      <WindowFirstShell
+      <WindowFirstShell registerOpenMap={registerMapDoor}
         onOpenSettings={onOpenSettings}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}
@@ -308,8 +309,6 @@ afterEach(() => {
   fakeMap?.container.remove();
 });
 
-// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
-const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 const sheet = () => screen.getByTestId('wf-map-peek');
 const mode = () => sheet().getAttribute('data-ask');
 /** The shell hiding (0 x 0) or showing the Map's panel: the pane's own ResizeObserver fires with its box. */
@@ -328,7 +327,7 @@ const openRowKey = () => screen.getAllByTestId('location-sheet-row')
 async function planOnTheMap(onOpenSettings = vi.fn()) {
   render(<Host onOpenSettings={onOpenSettings} />);
   await waitFor(() => expect(ask$?.availability).toBe('on'));
-  fireEvent.click(tab('Map'));
+  openMapView();
   await screen.findByTestId('wf-map-peek');
   await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-btn-ask')); });
   ask.mockResolvedValue(ownResponse({
@@ -358,8 +357,8 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
 
     expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
     expect(screen.getByTestId('location-sheet-title')).toHaveTextContent('Whitby');
-    expect(tab('At a Glance')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('window-first-panel-map')).toHaveAttribute('hidden');
+    expect(screen.getByTestId('this-week-heading')).toBeInTheDocument();
+    expect(screen.getByTestId('map-screen')).toHaveAttribute('hidden');
     expect(openRowKey()).toBe(`${TOMORROW}:SUNRISE`);
     expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(1);
     // The conversation survives the move — the plan view is still the plan view.
@@ -375,7 +374,7 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
 
     fireEvent.click(screen.getByTestId('location-sheet-close'));
     await waitFor(() => expect(screen.queryByTestId('location-sheet')).toBeNull());
-    fireEvent.click(tab('Map'));
+    openMapView();
     await paneBox(390, 500);
 
     expect(mode()).toBe('minimised');
@@ -402,7 +401,7 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
   it('a plain Map-callout "Open in Plan" (no Ask answer) returns focus to the Plan tab on close', async () => {
     render(<Host onOpenSettings={vi.fn()} />);
     await waitFor(() => expect(ask$?.availability).toBe('on'));
-    fireEvent.click(tab('Map'));
+    openMapView();
     await screen.findByTestId('wf-map-peek');
     act(() => openHandoff({
       id: SALTBURN, name: 'Saltburn', regionName: null, inPlan: true,
@@ -412,6 +411,6 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
     fireEvent.click(screen.getByTestId('location-sheet-close'));
 
     await waitFor(() => expect(screen.queryByTestId('location-sheet')).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(tab('At a Glance')));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('this-week-heading')));
   });
 });

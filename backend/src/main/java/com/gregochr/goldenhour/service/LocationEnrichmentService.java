@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -39,6 +40,9 @@ public class LocationEnrichmentService {
 
     private static final String ELEVATION_URL =
             "https://api.open-meteo.com/v1/elevation?latitude={lat}&longitude={lon}";
+
+    /** Most points one elevation request may carry (the API allows 100). */
+    public static final int ELEVATION_CHUNK_SIZE = 100;
 
     /** Compass sectors sampled around the location. */
     private static final int SECTORS = 8;
@@ -312,6 +316,31 @@ public class LocationEnrichmentService {
             throw new IllegalArgumentException(
                     "Latitude must be between -90 and 90 and longitude between -180 and 180");
         }
+    }
+
+    /**
+     * Looks up the surface height (Open-Meteo's 90 m DEM) of many points, in chunks of
+     * {@value #ELEVATION_CHUNK_SIZE} (the API's limit). Each chunk is its own call, and a failed chunk (any
+     * failure, a wrong-sized answer or a null entry) leaves {@code null} for its own points only. Never throws.
+     *
+     * @param points list of [lat, lon] pairs
+     * @return a list the size of {@code points}: the height in metres, or {@code null} where the lookup failed
+     */
+    public List<Double> lookupSurfaceHeights(List<double[]> points) {
+        List<Double> heights = new ArrayList<>(Collections.nCopies(points.size(), null));
+        for (int i = 0; i < points.size(); i += ELEVATION_CHUNK_SIZE) {
+            int end = Math.min(i + ELEVATION_CHUNK_SIZE, points.size());
+            try {
+                List<Double> chunk = fetchElevations(points.subList(i, end));
+                for (int j = 0; j < chunk.size(); j++) {
+                    heights.set(i + j, chunk.get(j));
+                }
+            } catch (UpstreamLookupException e) {
+                LOG.warn("Surface height lookup failed for {} point(s) from index {}: {}", end - i, i,
+                        e.getMessage());
+            }
+        }
+        return heights;
     }
 
     /**

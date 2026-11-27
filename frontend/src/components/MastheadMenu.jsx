@@ -2,15 +2,19 @@ import React, { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 
 /**
- * The phone masthead's ⋯ menu (compact-chrome plan D-2, R3–R5): Settings, Change home postcode and
- * Sign out, plus — for an admin — the status line that opens the health panel. On the phone these
- * replace the ⚙ cog and the Sign out button, which are not rendered there.
+ * The masthead's ☰ menu, one mount at every width (`docs/engineering/one-screen-plan.md` D9, D14): Settings, Change
+ * home postcode, Guide, Operations and Sign out, plus, on the phone and for an admin, the status line that opens the
+ * health panel. Desktop's old inline ⚙, `?` and Sign out controls fold into it.
+ *
+ * <p><b>Operations is an admin's row and no one else's.</b> It is drawn only when {@code onOperations} is passed, and
+ * {@code App} hands that to an admin alone: Pro and Lite get no row, no pill and no greyed stand-in. The backend's 403
+ * on {@code /api/admin/**} stays the real enforcement.
  *
  * <h2>A popover, not a dialog</h2>
  *
  * <p>The rows are plain buttons in a labelled group: {@code role="menu"} would promise arrow-key
  * behaviour this does not have. It is CONTROLLED ({@code open} / {@code onOpenChange}) because its
- * state lives in the shell, where {@code selectTab} closes it — every route out of the masthead
+ * state lives in the shell, where {@code closeShellLayers} closes it — every route out of the masthead
  * takes it down, and it is never open beside a dialog it opened.
  *
  * <h2>⚠️ It must not leak into the Map</h2>
@@ -25,25 +29,30 @@ import PropTypes from 'prop-types';
  *
  * <h2>Focus</h2>
  *
- * <p>Closing returns focus to the ⋯ button, which the shell also uses as its focus fallback. A row
+ * <p>Closing returns focus to the ☰ button, which the shell also uses as its focus fallback and as where Operations
+ * returns focus. A row
  * focuses that button BEFORE calling its handler (R5), synchronously, so the dialog the handler
  * opens records the button as its opener rather than a row that is about to unmount.
  *
  * @param {object} props
  * @param {boolean} props.open whether the popover is shown
  * @param {Function} props.onOpenChange called with the next open state
- * @param {{current: ?HTMLElement}} props.buttonRef the ⋯ button's ref, shared with the shell
+ * @param {{current: ?HTMLElement}} props.buttonRef the ☰ button's ref, shared with the shell
  * @param {React.ReactNode} [props.statusLine] the admin-only status line, or null
  * @param {Function} props.onSettings the Settings row's handler
  * @param {Function} props.onChangePostcode the Change home postcode row's handler
  * @param {Function} props.onSignOut the Sign out row's handler
  * @param {Function} [props.onWarmSettings] warms the settings chunk on hover and focus of its row
- * @param {Function} [props.onGuide] the Guide row's handler (G2); no row when omitted, which the shell
- *        does on Operations
+ * @param {Function} [props.onGoHome] the phone's away origin undo ("Plan from home again"); no row when omitted
+ * @param {?string} [props.awayFrom] the away origin's base town, named on that row
+ * @param {Function} [props.onGuide] the Guide row's handler (G2); no row when omitted
+ * @param {boolean} [props.guideOpen] whether the guide is showing: the row then reads "Close guide" and says expanded
+ * @param {string} [props.guideControls] the docked guide column's id, named by `aria-controls` while it is open
+ * @param {Function} [props.onOperations] the Operations row's handler; no row when omitted (everyone but an admin)
  */
 export default function MastheadMenu({
   open, onOpenChange, buttonRef, statusLine = null, onSettings, onChangePostcode, onSignOut,
-  onWarmSettings, onGuide = undefined,
+  onWarmSettings, onGuide = undefined, onGoHome = undefined, awayFrom = null, onOperations = undefined, guideOpen = false, guideControls = undefined,
 }) {
   const wrapRef = useRef(null);
 
@@ -92,7 +101,7 @@ export default function MastheadMenu({
         aria-controls="wf-mast-menu-pop"
         onClick={() => onOpenChange(!open)}
       >
-        <span aria-hidden="true">⋯</span>
+        <span aria-hidden="true">☰</span>
       </button>
       {open && (
         <>
@@ -105,7 +114,7 @@ export default function MastheadMenu({
           <div
             id="wf-mast-menu-pop"
             role="group"
-            aria-label="Account and settings"
+            aria-label="Menu"
             className="wf-mast-menu-pop"
             data-testid="masthead-menu"
           >
@@ -135,16 +144,44 @@ export default function MastheadMenu({
             >
               Change home postcode
             </button>
+            {onGoHome && (
+              // The phone's masthead has no origin chip (screen-spec.md P4), so an away origin is undone from here. The lens
+              // caption ("From Keswick") says where the plan is measured from. The press focuses the ☰ button first like
+              // every row, and that button outlives the origin it removes, so focus never falls to <body>.
+              <button
+                type="button"
+                className="wf-mast-menu-row"
+                data-testid="masthead-menu-home"
+                onClick={() => press(onGoHome)}
+              >
+                Plan from home again
+                {awayFrom && <span className="wf-mast-menu-sub">{` · from ${awayFrom}`}</span>}
+              </button>
+            )}
             {onGuide && (
-              // The phone's guide door (G2): a row here rather than a fourth control in the 34px right
-              // cluster. Absent when the shell passes none (Operations has no guide page).
+              // The guide's door (G2). Absent when the shell passes none (Operations has no guide page).
               <button
                 type="button"
                 className="wf-mast-menu-row"
                 data-testid="masthead-menu-guide"
+                // The row is a toggle, so it says which way it goes and whether the guide is up; `aria-controls` names the
+                // docked column while that is what is open (a dialog or sheet is not in this tree).
+                aria-expanded={guideOpen}
+                aria-controls={guideOpen ? guideControls : undefined}
                 onClick={() => press(onGuide)}
               >
-                Guide
+                {guideOpen ? 'Close guide' : 'Guide'}
+              </button>
+            )}
+            {onOperations && (
+              // An admin's only (D9): the full-screen Operations view, opened through the `#manage` address.
+              <button
+                type="button"
+                className="wf-mast-menu-row"
+                data-testid="masthead-menu-operations"
+                onClick={() => press(onOperations)}
+              >
+                Operations
               </button>
             )}
             <button
@@ -172,4 +209,9 @@ MastheadMenu.propTypes = {
   onSignOut: PropTypes.func.isRequired,
   onWarmSettings: PropTypes.func,
   onGuide: PropTypes.func,
+  onGoHome: PropTypes.func,
+  awayFrom: PropTypes.string,
+  onOperations: PropTypes.func,
+  guideOpen: PropTypes.bool,
+  guideControls: PropTypes.string,
 };

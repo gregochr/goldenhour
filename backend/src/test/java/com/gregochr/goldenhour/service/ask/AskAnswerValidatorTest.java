@@ -404,6 +404,25 @@ class AskAnswerValidatorTest {
         });
     }
 
+    @Test
+    @DisplayName("a later day of a per-day snow spell is still accepted: the validator matches type and date")
+    void event_laterSnowDay_accepted() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("SNOW_FRESH", "Fresh snow", TODAY),
+                new AskEvidence.EventFact("SNOW_FRESH", "Fresh snow", TODAY.plusDays(1)),
+                new AskEvidence.EventFact("SNOW_FRESH", "Fresh snow", TODAY.plusDays(2))), 1);
+        Raw raw = new Raw(true, "Snow on the third day.", null, List.of(
+                new RawEvent("SNOW_FRESH", TODAY.plusDays(2), "Still lying")), null);
+
+        Result result = validate(raw, snapshot, evidence);
+
+        assertThat(result.answer().events()).singleElement().satisfies(e -> {
+            assertThat(e.type()).isEqualTo("SNOW_FRESH");
+            assertThat(e.date()).isEqualTo(TODAY.plusDays(2));
+        });
+    }
+
     private static final String WARNING = "Certified solar filter on the lens — not only over your eye";
 
     @Test

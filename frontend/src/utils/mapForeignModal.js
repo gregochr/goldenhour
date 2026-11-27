@@ -48,6 +48,12 @@
 export const MAP_PANE_SELECTOR = '.wf-map-tab';
 
 /**
+ * The map VIEW's root (`components/MapScreen.jsx`): a region around the pane, deliberately not an `aria-modal` dialog
+ * (one-screen-plan.md D1), so neither predicate below ever counts it as foreign.
+ */
+export const MAP_SCREEN_SELECTOR = '[data-map-screen]';
+
+/**
  * @param {?Element} paneRoot the map pane's root node
  * @returns {boolean} true when a modal dialog outside that root is open
  */
@@ -68,13 +74,19 @@ export function foreignModalOver(paneRoot) {
  * component that resolves its own pane has no such mode.
  *
  * <p>Falls back to standing down when the pane cannot be found: not locating your own container is
- * not evidence that nothing is over you.
+ * not evidence that nothing is over you. A node in the map view's header (outside the pane) finds the pane through
+ * the view's root.
  *
  * @param {?Element} node any node inside the map pane
  * @returns {boolean} true when a modal dialog outside the pane is open
  */
 export function foreignModalOverPaneOf(node) {
-  return foreignModalOver(node?.closest?.(MAP_PANE_SELECTOR) ?? null);
+  // The map view's header sits OUTSIDE `.wf-map-tab` (the window control is portalled into it), so a node there
+  // resolves the pane through the view's own root (`[data-map-screen]`, one-screen-plan.md D12).
+  const pane = node?.closest?.(MAP_PANE_SELECTOR)
+    ?? node?.closest?.(MAP_SCREEN_SELECTOR)?.querySelector?.(MAP_PANE_SELECTOR)
+    ?? null;
+  return foreignModalOver(pane);
 }
 
 /** Subtrees whose churn (tiles, markers, panning) can never carry a dialog. */

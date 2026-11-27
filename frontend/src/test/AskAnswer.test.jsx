@@ -104,7 +104,8 @@ describe('AskConversation — a Ready answer', () => {
   });
 
   it('opens a Ready answer with events: the eclipse card shows its safety note', async () => {
-    await renderAsk({ view: 'coming-up', viewLabel: 'Coming up · all' });
+    // Offered on the plan view since Further ahead joined the screen (one-screen-plan.md D8).
+    await renderAsk();
     await tapReady('RARE_EVENTS');
     await finishOpening();
 

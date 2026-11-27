@@ -78,21 +78,28 @@ class AskWindowContextRegressionTest {
 
     /**
      * The owner's words for a stay-home window, and the plan's "not a weekend to go out for". {@code not
-     * worth} alone is deliberately not in it ("not worth missing" would match). Owner's to keep or strike
-     * (plan Q3).
+     * worth} alone is deliberately not in it ("not worth missing" would match). Owner-approved on 2026-11-27
+     * (ask-regression-triage plan A1): the separator may be a hyphen ("a stay-home window"), and the prompt's own
+     * sanctioned phrase "most places are not worth going out for" counts.
      */
-    private static final Pattern STAY_HOME = Pattern.compile(
-            "stay(ing)? (at )?home|not (a |the )?(weekend|window|morning|evening|day|night|one) (worth|to go)",
+    static final Pattern STAY_HOME = Pattern.compile(
+            "stay(ing)?[- ](at )?home|not (a |the )?(weekend|window|morning|evening|day|night|one) (worth|to go)"
+                    + "|most (places|spots) (are|is) not worth",
             Pattern.CASE_INSENSITIVE);
 
     /**
      * The mixed weekend's wording rule (plan §2.6, added at the owner's request on 2026-10-20): the summary must
      * not read the weekend as simply good, so it either calls Saturday poor or stood down in so many words, or
-     * says "mixed". It may instead match {@link #STAY_HOME}. Pending the owner's approval, like every assertion
-     * here; never run.
+     * says "mixed". It may instead match {@link #STAY_HOME}. Owner-approved on 2026-11-27 (plan A2): "tomorrow"
+     * counts as Saturday, which holds only while the fixture's {@code now} is Friday 2026-10-16, and "nowhere",
+     * "no place" and "no places" count as saying Saturday has nothing.
      */
-    private static final Pattern MIXED = Pattern.compile(
-            "saturday[^.]*(stay|poor|not worth|nothing|stood down|stand down)|mixed", Pattern.CASE_INSENSITIVE);
+    static final Pattern MIXED = Pattern.compile(
+            "(saturday|tomorrow)[^.]*(stay|poor|not worth|nothing|nowhere|no place|no places|stood down|stand down)"
+                    + "|mixed", Pattern.CASE_INSENSITIVE);
+
+    /** The summary names Saturday, or "tomorrow" (Saturday while the fixture's today is Friday 2026-10-16). */
+    static final Pattern NAMES_SATURDAY = Pattern.compile("saturday|tomorrow", Pattern.CASE_INSENSITIVE);
 
     private static final String SAT_SUNSET = "2026-10-17_sunset";
     private static final String SUN_SUNRISE = "2026-10-18_sunrise";
@@ -248,7 +255,7 @@ class AskWindowContextRegressionTest {
                         }, () -> faults.add("Saturday's spread is not carried"));
                 answer.picks().stream().filter(p -> !p.windowId().startsWith("2026-10-18"))
                         .forEach(p -> faults.add("a pick on a window that is not Sunday's: " + p.windowId()));
-                if (!Pattern.compile("saturday", Pattern.CASE_INSENSITIVE).matcher(answer.summary()).find()) {
+                if (!NAMES_SATURDAY.matcher(answer.summary()).find()) {
                     faults.add("the summary does not name Saturday: " + answer.summary());
                 }
                 if (!MIXED.matcher(answer.summary()).find() && !STAY_HOME.matcher(answer.summary()).find()) {
@@ -315,10 +322,20 @@ class AskWindowContextRegressionTest {
     private static List<String> doesNotSayStayHome(AskRun run) {
         AskAnswer answer = run.outcome().answer();
         List<String> faults = new ArrayList<>();
-        if (answer != null && STAY_HOME.matcher(answer.summary()).find()) {
+        if (answer != null && STAY_HOME.matcher(firstSentence(answer.summary())).find()) {
             faults.add("the summary calls a game-on window stay-home: " + answer.summary());
         }
         return faults;
+    }
+
+    /**
+     * The summary up to the first {@code ". "}, or the whole summary when there is none. Only the lead sentence is
+     * checked on a game-on weekend: in the game-on fixture Sunday is itself a stay-home window, so a correct
+     * answer may say so later in the summary (plan B1; owner-approved 2026-11-27).
+     */
+    static String firstSentence(String summary) {
+        int end = summary.indexOf(". ");
+        return end < 0 ? summary : summary.substring(0, end);
     }
 
     // -- running ----------------------------------------------------------------------------

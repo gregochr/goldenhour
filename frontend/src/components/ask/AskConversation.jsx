@@ -14,25 +14,12 @@ import AskThreadHistory from './AskThreadHistory.jsx';
 import AskThreadReset from './AskThreadReset.jsx';
 import { planActionsShape } from './askShapes.js';
 import { scrollToTopOfScroller } from '../../utils/askScroll.js';
-import { GLANCE_LABEL } from '../../utils/tabLabels.js';
 import {
   KIND, newestRunLabel, questionsForView, readyBusyLine, TYPED_BUSY_LINE,
 } from '../../utils/askModel.js';
 
 /** One shared empty list, so a Ready answer opened over the whole catalogue records the same array every time. */
 const NO_REGIONS = [];
-
-/**
- * What a Ready answer's chip says when the Ready list it came from is the WHOLE catalogue's: the
- * Map's "My area" across several regions is one (plan §6 Q8 — the list is fetched for a single region
- * in scope, else for ALL), and a chip reading "Map · My area" over an answer about every region would
- * claim a narrower scope than the answer has. The shell's own all-regions labels, by view.
- */
-const READY_ALL_LABEL = {
-  map: 'Map · all regions',
-  plan: `${GLANCE_LABEL} · all regions`,
-  'coming-up': 'Coming up · all regions',
-};
 
 /**
  * Ask PhotoCast's conversation, every phase of it (design README, States 1–3, 5 and 7), rendered
@@ -98,7 +85,7 @@ const READY_ALL_LABEL = {
  * owner decision (plan §1 #9) and is never rendered.
  *
  * @param {object} props
- * @param {'map'|'plan'|'coming-up'} props.view the tab the suggestions are offered for
+ * @param {'map'|'plan'} props.view the view the suggestions are offered for
  * @param {string} props.viewLabel the surface's own view chip text, e.g. "Plan · all regions" — used
  *        wherever the Map has published nothing to say instead
  * @param {function(object): React.ReactNode} [props.pickActions] controls for a pick card's own row,
@@ -179,9 +166,10 @@ export default function AskConversation({
     const wholeCatalogue = scope === 'all';
     ask.openReady(question, {
       view,
-      viewLabel: wholeCatalogue
-        ? (READY_ALL_LABEL[view] ?? requestContext.viewLabel)
-        : requestContext.viewLabel,
+      // A Ready answer over the WHOLE catalogue (the Map's "My area" across several regions is one: plan §6 Q8) must not
+      // wear a narrower chip than its answer has: the map's own label is spoken as "all regions"; the screen's own
+      // label already is (the shell's `ASK_VIEW`).
+      viewLabel: wholeCatalogue && view === 'map' ? 'Map · all regions' : requestContext.viewLabel,
       regionIds: wholeCatalogue ? NO_REGIONS : regionIds,
     });
   };
@@ -265,7 +253,7 @@ export default function AskConversation({
 }
 
 AskConversation.propTypes = {
-  view: PropTypes.oneOf(['map', 'plan', 'coming-up']).isRequired,
+  view: PropTypes.oneOf(['map', 'plan']).isRequired,
   viewLabel: PropTypes.string.isRequired,
   pickActions: PropTypes.func,
   planActions: planActionsShape,

@@ -143,10 +143,12 @@ describe('the phone: the scope words take the hidden region line\'s slot', () =>
   const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
 
   it('hides the region, its separator and the rated count at ≤639px, and never the scope', () => {
-    const block = css.slice(css.indexOf('.wf-map-tab .wf-win-verdict-region { display: none; }'));
-    const phone = block.slice(0, block.indexOf('.wf-map-tab .wf-win-pick {'));
-    expect(phone).toContain('.wf-map-tab .wf-win-verdict-count { display: none; }');
-    expect(phone).toContain('.wf-map-tab .wf-win-verdict-scope-sep { display: none; }');
+    // The window control lives in the map view's header now, so the phone rules reach it through `:is(...)` as well.
+    const scope = ':is(.wf-map-tab, .wf-map-screen-head)';
+    const block = css.slice(css.indexOf(`${scope} .wf-win-verdict-region { display: none; }`));
+    const phone = block.slice(0, block.indexOf(`${scope} .wf-win-pick {`));
+    expect(phone).toContain(`${scope} .wf-win-verdict-count { display: none; }`);
+    expect(phone).toContain(`${scope} .wf-win-verdict-scope-sep { display: none; }`);
     expect(phone).not.toMatch(/\.wf-win-verdict-scope\s*\{\s*display:\s*none/);
     expect(css).not.toMatch(/\.wf-map-tab \.wf-win-verdict-scope\s*\{\s*display:\s*none/);
   });
@@ -155,13 +157,13 @@ describe('the phone: the scope words take the hidden region line\'s slot', () =>
     // Default: the short spelling is hidden, so desktop and tablet above 811px print the full words.
     expect(css).toMatch(/\.wf-scope-short\s*\{\s*display:\s*none;\s*\}/);
     const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
-    const at = bare.indexOf('.wf-map-tab .wf-win-verdict-scope .wf-scope-full { display: none; }');
+    const at = bare.indexOf(':is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-scope .wf-scope-full { display: none; }');
     expect(at).toBeGreaterThan(-1);
     const block = bare.slice(bare.lastIndexOf('@media', at), bare.indexOf('\n}\n', at) + 3);
     expect(block).toContain('(max-width: 811px)');
-    expect(block).toContain('.wf-map-tab .wf-win-verdict-scope .wf-scope-short { display: inline; }');
+    expect(block).toContain(':is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict-scope .wf-scope-short { display: inline; }');
     // A squeezed scoped cell keeps its content width, so the short scope is never clipped under its word.
-    expect(block).toContain('.wf-map-tab .wf-win-verdict--scoped { min-width: max-content; }');
+    expect(block).toContain(':is(.wf-map-tab, .wf-map-screen-head) .wf-win-verdict--scoped { min-width: max-content; }');
   });
 
   it('clips the scoped line inside its cell, so nothing can paint into the caret', () => {

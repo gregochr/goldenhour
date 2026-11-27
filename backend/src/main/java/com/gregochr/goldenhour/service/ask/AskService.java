@@ -380,7 +380,7 @@ public class AskService {
             throw invalid("A request body is required.");
         }
         if (request.view() == null || !AskRequest.VIEWS.contains(request.view())) {
-            throw invalid("The view must be one of map, plan or coming-up.");
+            throw invalid("The view must be one of map or plan.");
         }
         AskQuestionSanitiser.Result cleaned = AskQuestionSanitiser.sanitiseTyped(request.question());
         if (!cleaned.ok()) {
@@ -390,8 +390,8 @@ public class AskService {
                 properties.getThread().getMaxExchanges());
         AskScope scope = AskScopes.resolve(regionRepository, request.regionIds())
                 .orElseThrow(() -> invalid(AskScopes.INVALID_REGIONS));
-        return new Validated(AskQuestion.of(cleaned, blankToNull(request.windowId()), scope, request.view()),
-                thread);
+        return new Validated(AskQuestion.of(cleaned, blankToNull(request.windowId()), scope,
+                AskRequest.canonicalView(request.view())), thread);
     }
 
     /**

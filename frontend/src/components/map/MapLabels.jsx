@@ -579,7 +579,8 @@ export default function MapLabels({
   // list, above), and `paintRef` is already pointed at the fresh closure by the layout effect
   // above by the time this runs. `repaintNow` rather than a bare call so a frame the throttle
   // already owes is not doubled.
-  // `starKey`: a ★ widens a chip, so starring or un-starring a place must produce a new frame to re-measure and re-place.
+  // `starKey`: the bookmark mark widens a chip, so bookmarking or un-bookmarking a place must produce a new frame
+  // to re-measure and re-place.
   useEffect(() => { repaintNow(); }, [paint, repaintNow, bottomInset, chromeKey, starKey]);
 
   /**
@@ -1009,13 +1010,13 @@ export default function MapLabels({
         // Extends the rating announcement rather than replacing it — an aria-label REPLACES the
         // rendered text entirely, so the glyph's own meaning has to be spelled out here or a
         // screen-reader user never hears it at all.
-        const starredPlace = favourites.status === 'ready' && spot.id != null && favourites.isPlaceStarred(spot.id);
+        const bookmarkedPlace = favourites.status === 'ready' && spot.id != null && favourites.isPlaceStarred(spot.id);
         const ariaLabel = outside
           ? `${spot.name}, ${OUTSIDE_PICKS_WORDS}`
           : [
             hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
             tideAccessibleClause(tideTier, spot.tideShortfall, spot.tideState),
-            starredPlace ? 'your place' : null,
+            bookmarkedPlace ? 'bookmarked' : null,
           ].filter(Boolean).join(', ') + (hasRatedBadge(spot) ? badgeAccessibleClause(spot.myRating) : '');
         return (
           <button
@@ -1055,7 +1056,7 @@ export default function MapLabels({
                 style={{ background: hasRating ? rampHex(spot.rating) : 'var(--color-plex-border-light)' }}
               />
             )}
-            {/* Your places (F4): a mark and nothing more, for a place the reader starred itself. No z-order, no
+            {/* Your places (F4): a mark and nothing more, for a place the reader bookmarked itself. No z-order, no
                 ranking: chip selection above never reads it. */}
             <FavouriteMark id={spot.id} />
             <b className="wf-maplab-chip-n">{spot.name}</b>

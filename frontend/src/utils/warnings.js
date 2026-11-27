@@ -294,7 +294,7 @@ export function warningsForCard(served, card) {
 }
 
 /**
- * The At a Glance warning lanes: one lane per run of consecutive live matrix columns in which a warning applies to a
+ * The This week warning lanes: one lane per run of consecutive live matrix columns in which a warning applies to a
  * window, most severe warning first (the style guide's order, so a Red takes the top row before span is considered).
  * Presentation only: which warning applies to which card is {@code warningsOfCard}'s answer.
  *
@@ -434,6 +434,31 @@ export function placeCountLines(counts, warningId) {
 export function validityText(warning) {
   if (!warning || Number.isNaN(instantMs(warning.validFrom)) || Number.isNaN(instantMs(warning.validTo))) return null;
   return `Valid ${formatDayClockUk(warning.validFrom)} to ${formatDayClockUk(warning.validTo)} (UK time)`;
+}
+
+/**
+ * A warning's validity in the shortest honest form, for the Map's collapsed warning row. UK time throughout; the
+ * caller says so (the row prints "UK time" for screen readers).
+ *
+ * <p>The same UK civil day prints once: {@code "Fri 27 Nov, 04:00–14:00"}. Two UK days print both:
+ * {@code "Fri 27 Nov, 04:00 – Sat 28 Nov, 09:00"}. The day is decided on the UK date, never the UTC one, so a
+ * 23:30Z summer instant is already the next UK day.
+ *
+ * @param {object} warning a served {@code WarningDto}
+ * @returns {?string} null when either instant is missing or unreadable
+ */
+export function validityShort(warning) {
+  if (!warning) return null;
+  const fromMs = instantMs(warning.validFrom);
+  const toMs = instantMs(warning.validTo);
+  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return null;
+  const from = formatDayClockUk(warning.validFrom);
+  const to = formatDayClockUk(warning.validTo);
+  if (from == null || to == null) return null;
+  if (ukDateStr(new Date(fromMs)) === ukDateStr(new Date(toMs))) {
+    return `${from}\u2013${to.slice(to.lastIndexOf(', ') + 2)}`;
+  }
+  return `${from} \u2013 ${to}`;
 }
 
 /**

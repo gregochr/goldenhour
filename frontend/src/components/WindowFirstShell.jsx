@@ -5,11 +5,16 @@ import PropTypes from 'prop-types';
 import { ASK_PROMPT } from '../utils/askModel.js';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
-import MastheadTickLine from './MastheadTickLine.jsx';
+import MastheadTickLine, { MastheadFind } from './MastheadTickLine.jsx';
 import MastheadMenu from './MastheadMenu.jsx';
+import OperationsScreen from './OperationsScreen.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
-import WindowFirstComingUp from './WindowFirstComingUp.jsx';
+import FurtherAhead from './FurtherAhead.jsx';
+import {
+  FURTHER_AHEAD_HEADING_ID, FURTHER_AHEAD_ID, THIS_WEEK_HEADING, THIS_WEEK_HEADING_ID, THIS_WEEK_ID,
+  focusSectionHeading,
+} from '../utils/screenSections.js';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
 import { MapListContext } from '../context/MapListContext.jsx';
 import { heatSpotKey } from '../utils/heatSpots.js';
@@ -22,7 +27,7 @@ import AskUpsellPopover from './ask/AskUpsell.jsx';
 import { useAsk } from '../context/AskContext.jsx';
 import { useGuide } from '../context/GuideContext.jsx';
 import GuideDock from './guide/GuideDock.jsx';
-import { TAB_GUIDE } from '../utils/guide.js';
+import { SCREEN_GUIDE } from '../utils/guide.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useSubRegionStatus } from '../context/SubRegionStatusContext.jsx';
 import { useWarnings } from '../context/WarningsContext.jsx';
@@ -39,22 +44,31 @@ import {
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
+import { closeWithMotion, openWithMotion, thumbnailOf } from '../utils/mapMotion.js';
+import MapScreen from './MapScreen.jsx';
+import useDockEdge from '../hooks/useDockEdge.js';
+import { formatMapRoute, routeWindowStatus } from '../utils/mapRoute.js';
 import { areaMapWindow } from '../utils/areaFind.js';
 import { normalizeMapTrigger, outlierKeysOf } from '../utils/mapDoor.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
 import { isFindKey, isTypingTarget } from '../utils/findKey.js';
-import { deriveBadge } from '../utils/comingUpArrivals.js';
+import useListedFeed from '../hooks/useListedFeed.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
 import useAreaFind from '../hooks/useAreaFind.js';
 import { useFavourites } from '../context/FavouritesContext.jsx';
-import ComingUpWatchlist from './ComingUpWatchlist.jsx';
+import YourPlacesRow from './YourPlacesRow.jsx';
+import GuideLink from './guide/GuideLink.jsx';
+import { weekBestOf } from '../utils/weekBest.js';
+import { NO_QUIET_OPEN } from '../utils/quietDays.js';
+import BookmarkMark from './shared/BookmarkMark.jsx';
+import StarFigure from './shared/StarFigure.jsx';
+import { watchedStillToCome } from '../utils/watchedDates.js';
 import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
+import useLensPastWeek from '../hooks/useLensPastWeek.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
-import { GLANCE_LABEL, GLANCE_SHORT_LABEL } from '../utils/tabLabels.js';
-import GlanceLabel from './GlanceLabel.jsx';
 
 /**
  * The Coming up pane's `onShowOnMap` when the shell was handed no Map door (no forecast to map). The
@@ -63,6 +77,8 @@ import GlanceLabel from './GlanceLabel.jsx';
  * (a card becomes a plain card, a chip is dimmed) - a control that opens nothing is banned.
  */
 const NO_MAP_DOOR = () => {};
+/** The camera a window door asks of the map: frame the reader's home and the window's best place together. */
+const HOME_AND_PLACE = 'home-and-place';
 /** "Known empty": the Coming up pane's way of withholding every map door. */
 const NO_FORECAST_DATES = Object.freeze([]);
 
@@ -192,42 +208,12 @@ const PENDING_SLOW_AFTER_MS = 10_000;
 
 /** The design's frame: 1080px. */
 const WRAP_MAX_WIDTH = '1080px';
+/** The lens's height before it is measured: a phone's two chip rows and a count line, and the single row from 640px. */
+const LENS_GUESS_PHONE = 94;
+const LENS_GUESS_WIDE = 54;
 
-/** The masthead `?`'s box, the cog's own (the two sit side by side and must read as a pair). */
-const MAST_CTRL_STYLE = { fontSize: '10.5px', borderRadius: '7px', padding: '5px 10px' };
-
-/**
- * How long the opening tab PREFERENCE stands undisturbed before it commits on its own
- * (default-tab-by-device-plan.md §4.3) — a reader who reads without touching anything is still
- * reading, and a tab switching under them several seconds in is the same jolt as switching it
- * under an active interaction. A one-shot timer from mount; cleared on unmount, and a no-op once
- * the reader has made an explicit or interaction-driven choice.
- */
-const PREFERRED_TAB_GRACE_MS = 1500;
-
-/**
- * The tab bar's contents, in order.
- *
- * <p><b>A tab with a {@code slot} appears only when the shell is handed that pane.</b> That is the
- * rule this file has always stated — "a tab that renders nothing is a demo control and §6 bans
- * those, so each tab lands with its pane" — now enforced by construction rather than by keeping the
- * list short. It is also how the admin gate works: {@code App} holds {@code isAdmin} and simply
- * does not pass {@code operationsPane}. No role and no
- * {@code isAdmin} crosses this boundary (derived booleans such as {@code reachLocked} and {@code isPro} are allowed) — which is what plan §5c
- * exists to protect, and it is a stronger guarantee than a gate the shell could get wrong.
- *
- * <p>The glyph is decorative and {@code aria-hidden}, so the accessible name stays the bare word.
- * Coming up has none, matching the mock. <b>Operations has none either, and that is a collision
- * rather than a preference:</b> {@code ⚙} is already the masthead's settings control a few pixels
- * away, so using it here would put the same glyph on a modal and on a tab. It also costs 17.84px
- * of a bar that has to fit a phone (measured).
- */
-const TABS = [
-  { id: 'plan', label: GLANCE_LABEL, shortLabel: GLANCE_SHORT_LABEL, glyph: '◉' },
-  { id: 'coming-up', label: 'Coming up', glyph: null },
-  { id: 'map', label: 'Map', glyph: '◍', slot: 'mapPane' },
-  { id: 'operations', label: 'Operations', glyph: null, slot: 'operationsPane', gated: true },
-];
+/** No lane carries an almanac entry: the starting value of the graduated set, shared so it costs no allocation. */
+const NO_ENTRY_IDS = new Set();
 
 /**
  * What the view chip says, and what the question is sent with, by tab. Map reads "all regions" here
@@ -236,33 +222,32 @@ const TABS = [
  * sheet OR the dock is sent with no region and no window.
  */
 const ASK_VIEW = {
-  plan: { view: 'plan', label: `${GLANCE_LABEL} · all regions` },
-  'coming-up': { view: 'coming-up', label: 'Coming up · all regions' },
+  plan: { view: 'plan', label: 'This week · all regions' },
   map: { view: 'map', label: 'Map · all regions' },
 };
+// (One-screen-plan.md D8: the view is 'map' while the map VIEW is open, otherwise the screen's own. Further ahead is
+// part of the screen now, so it asks as 'plan' and the Ready questions that were Coming up's are offered there.)
 
-/** What the dock's header says it is beside, by tab (the mock's "· on Plan" / "· on Map"; Plan is now At a Glance). */
+/** What the dock's header says it is beside: the screen, or the map view. */
 const ASK_DOCK_CONTEXT = {
-  plan: `on ${GLANCE_LABEL}`,
-  'coming-up': 'on Coming up',
+  plan: 'on This week',
   map: 'on Map',
 };
 
 /**
  * The field's width by band: 340px with the `/` hint from 1180px, 260px from 1024 to 1179 where the
- * dock (360px) leaves the tab row too little room for more, and the tablet's 260px below it.
+ * dock (360px) leaves the masthead too little room for more, and the tablet's 260px below it.
  */
 const ASK_FIELD_WIDTH = { tablet: 260, desktop: 260, wide: 340 };
 
-/** `window-first-tab-plan` — the id the panel points back at, and the existing test-id. */
-const tabDomId = (id) => `window-first-tab-${id}`;
-
-/** `window-first-panel-plan` — the id the tab's `aria-controls` points at. */
-const panelDomId = (id) => `window-first-panel-${id}`;
+/** The word a load-time route's event type is spoken as in "That sunrise has passed". */
+/** The served `targetType` a night trigger's `kind` stands for (a seed for the layer's address until the pane's own). */
+const NIGHT_KIND_TYPE = { aurora: 'AURORA', astro: 'ASTRO' };
+const LOAD_WORD = { SUNRISE: 'sunrise', SUNSET: 'sunset', ASTRO: 'night', AURORA: 'aurora' };
 
 
 /**
- * The window-first Plan tab's own shell — masthead, tab bar, and the frame both sit in.
+ * The one screen's shell — the masthead and the frame the screen sits in.
  *
  * <h2>It renders its own masthead because it is the app's only header</h2>
  *
@@ -290,53 +275,12 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * still sees no pill and no role and no isAdmin crosses this boundary; derived booleans such as reachLocked and isPro are allowed (plan §5c). The unconditional
  * pill the design draws is still not what ships — the design has no roles in it.
  *
- * <h2>The tab bar carries Plan and Coming up, and still not Map or Manage</h2>
+ * <h2>One screen, no tabs (`docs/engineering/one-screen-plan.md`)</h2>
  *
- * <p>The design draws four tabs. Two of their panes do not exist yet: Map and Manage arrive when
- * this subtree takes over view state. A tab that renders nothing is a demo control, and §6 bans
- * those from the shipped build — so each tab lands with its pane, which is why P13 adds the second
- * one and no more.
- *
- * <p>{@code border-bottom-width: 0} on the tab, never {@code border-bottom: none} — the shorthand
- * would also clear the colour the active state needs.
- *
- * <h2>The tab bar became a real ARIA tab widget at P13, and it was not one before</h2>
- *
- * <p>Through P12 the bar had {@code role="tablist"} and one {@code role="tab"} with a hard-coded
- * {@code aria-selected="true"}, no {@code aria-controls}, no {@code id} pairing and no
- * {@code role="tabpanel"} anywhere in the repo. With one tab that is inert rather than wrong. With
- * two it is a promise the markup does not keep: a screen-reader user is told there is a tab list
- * and then given no way to know what either tab controls. So P13 completes the pattern —
- * {@code aria-selected} on both, {@code aria-controls}/{@code aria-labelledby} pairing each tab to
- * its panel, a roving {@code tabIndex} so the bar is one stop rather than two, and Left/Right/Home/
- * End moving between them.
- *
- * <p><b>Selection follows focus</b>, which is the authoring-practices default and is right here
- * because both panes are already-mounted state rather than a fetch — arrowing onto Coming up does
- * trigger its one lazy request, which is exactly what the reader asked for by arrowing onto it.
- *
- * <p>This is the first roving-tabindex implementation in the codebase; there was nothing to copy —
- * {@code ManageView}'s tabs carry no roles at all.
- *
- * <h2>Tab selection is deliberately not persisted — but the OPENING tab is now device-aware</h2>
- *
- * <p>The arm persists two things — the reach lens and the rating floor — and both are settled
- * preferences. Which tab you last had open is not: the reader's question on opening the app is
- * almost always "what about tonight", and restoring a ninety-day almanac because they browsed it
- * yesterday answers a question they are not asking. It also spends the first paint on a fetch. No
- * {@code localStorage}, and the default is recomputed on every visit — nothing here is
- * per-session memory.
- *
- * <p>What changed (default-tab-by-device-plan.md) is which tab that reset lands ON, not whether it
- * resets: the app opens on Plan on a phone and on Map on anything larger, decided once per visit by
- * {@code App} ({@code utils/initialTab.js}, a pure viewport read) and handed down as
- * {@code initialTab}. This component stays device-agnostic — it never reads a media query itself —
- * and models the opening tab as a PREFERENCE that stands until the reader makes an actual choice,
- * because the Map pane does not exist at first render (`App.jsx`'s `hasForecastData` gate) and
- * so cannot simply be selected up front. {@code activeTab} is {@code null} until then; see its own
- * Javadoc, {@code commitTabInForce} and {@code PREFERRED_TAB_GRACE_MS} for how the preference is
- * allowed to resolve to Map once, and never moves the tab under a reader who has done anything at
- * all with the page. The cost of an opening tab being wrong is still one click.
+ * <p>The screen is the masthead and one scrolling column: This week, then Further ahead. The map is a VIEW over it
+ * ({@code openMap}, drawn by {@code MapScreen}) and Operations is an admin-only full-screen view ({@code operationsOpen},
+ * driven by the page's {@code #manage} address, drawn here around the node {@code App} hands over). There is no tab
+ * list, no roving tab index and no opening-tab preference: every device opens on This week.
  *
  * <h2>The day rail is GONE, and its replacement is a Plan-pane element</h2>
  *
@@ -436,10 +380,13 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  */
 export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onEvaluationScoresChange,
-  onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
-  healthDot = null, healthStatusLine = null, light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
-  locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false, initialTab = null,
+  onSeasonalFeaturesChange, locations, mapPane, operationsPane, operationsOpen = false, onOpenOperations = null,
+  onCloseOperations = null, healthPill,
+  healthDot = null, healthStatusLine = null, light, onSetPostcode, mapColourScale = null, homeCoords = null, onScreenChange = null,
+  locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false,
   forecastDates = null, registerCloseDialogs = null, onFindOnMap = null, onFindOpenChange = null,
+  registerOpenMap = null, loadMapRoute = null, onLoadMapRouteHandled = null,
+  placesHintDue = false, onDismissPlacesHint = null, onSettlePlacesHint = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets,
@@ -499,19 +446,16 @@ export default function WindowFirstShell({
   const [areaSheet, setAreaSheet] = useState(null);
   // The area directory and the reader's outlook, fetched lazily: nothing is requested until Find first opens.
   const areaFind = useAreaFind(searchSeed != null || areaSheet != null);
-  // The phone masthead (compact-chrome plan): whether the ⋯ menu is open, and its button, which is
-  // also the focus fallback for the tick line when its origin slot is empty. Both unused off the phone.
+  // The masthead's ☰ menu (one-screen-plan.md D9, D14), at every width: whether it is open, and its button, which is
+  // also the focus fallback for the tick line when its origin slot is empty and where Operations returns focus.
   const isMobile = useIsMobile();
   const [mastMenuOpen, setMastMenuOpen] = useState(false);
-  // Leaving the phone (rotating to a tablet width) ends the menu, so coming back does not reopen it.
-  // Adjusted during render, the supported way to derive state from a changed input.
-  if (!isMobile && mastMenuOpen) setMastMenuOpen(false);
   const menuBtnRef = useRef(null);
   /**
    * Whether Ask PhotoCast's sheet is open (plan §2.6: whether Ask is OPEN is SHELL state).
    *
-   * <p>The shell's own {@code useState}, and it must stay one: {@code selectTab} clears it, and
-   * {@code selectTab} runs during render on the settings edge, where it may call only this
+   * <p>The shell's own {@code useState}, and it must stay one: {@link closeShellLayers} clears it, and
+   * {@link closeShellLayers} runs during render on the settings edge, where it may call only this
    * component's own setters. A context value could not be cleared from there. Never set from
    * {@code AskContext}, which holds the conversation and nothing about a surface.
    */
@@ -523,8 +467,8 @@ export default function WindowFirstShell({
    * {@code askSheetOpen}/{@code askEntry}. {@code askSheetShown} drives the app container's {@code inert}, and
    * the dock is not modal: folding it in would make the dock inert itself and the page beside it dead.
    *
-   * <p>Not on {@code selectTab}'s list either, and that is the point of a dock: it survives a switch
-   * between Plan, Coming up and Map (the conversation chips and suggestions follow the tab). It goes
+   * <p>Not on {@link closeShellLayers}' list either, and that is the point of a dock: it survives a move
+   * between the screen and the map view (the conversation chips and suggestions follow the view). It goes
    * when nothing can draw it any more — Operations, a band below 1024px, Ask switched off — through the
    * same render-time release {@code askSheetOpen} uses.
    */
@@ -537,7 +481,7 @@ export default function WindowFirstShell({
    * {@code 'dock-field'} (the field from 1024px), or null when it is closed. The KIND is recorded, not a
    * bare boolean, because a breakpoint change swaps one entry for another and a state that only asked
    * "is there an entry" would carry the popover across to the wrong one. Let go during render below, and
-   * cleared by {@code selectTab}.
+   * cleared by {@link closeShellLayers}.
    */
   const [askUpsellFor, setAskUpsellFor] = useState(null);
   const askUpsellId = useId();
@@ -546,10 +490,9 @@ export default function WindowFirstShell({
   const askDockInputRef = useRef(null);
   const ask = useAsk();
   const askSurface = useAskSurface();
-  /** The in-app guide (G2): its doors here are the masthead `?` and the phone menu's Guide row. */
+  /** The in-app guide (G2): its door here is the ☰ menu's Guide row. */
   const guide = useGuide();
   const { guideModal } = guide;
-  const guideBtnRef = useRef(null);
   /**
    * The location whose four-day sheet is open, or null (P8).
    *
@@ -573,198 +516,72 @@ export default function WindowFirstShell({
   const [sheetWindowKey, setSheetWindowKey] = useState(null);
 
   /**
-   * {@code null} means the reader has not chosen a tab yet THIS VISIT — the opening preference
-   * (default-tab-by-device-plan.md §4.3) still applies, and a later pane arriving (the Map
-   * pane, handed over only once `GET /api/forecast` has returned rows) can still move the tab. Any
-   * tab selection, or any interaction with the shell at all, pins this non-null and the preference is
-   * dead from then on — see `commitTabInForce` below.
+   * The map VIEW (`docs/engineering/one-screen-plan.md` D1, D2, D3): {@code null} while closed, otherwise
+   * {@code {loadTime}}, where {@code loadTime} says the open came from the page's own address
+   * rather than a press (its Back layer is then activation-gated, so the first gesture pushes the
+   * entry). A view that is open while the shell has no map pane is let go during render, below.
    */
-  const [activeTab, setActiveTab] = useState(null);
-  /**
-   * How a reader reached the Map from a Glance card, a Find pick or a lane's tap-through (G2a, glance-to-map-plan.md
-   * "Back"): {@code {from, pending}} or null. The door writes {@code pending: true}; {@code selectTab('map')} (run by
-   * the tab request the same press raises) confirms it, and any other tab selection ends it, so a manual tab press or
-   * the breadcrumb's return never leaves a Back layer behind. While confirmed, one Back layer returns to {@code from}.
-   * State and not a ref, and updated only through a functional update: {@code selectTab} may run during render and
-   * from effects whose dependency lists omit it.
-   */
-  const [mapArrival, setMapArrival] = useState(null);
-  const mapArrivedFrom = mapArrival != null && !mapArrival.pending ? mapArrival.from : null;
-  /**
-   * The tabs this shell actually has, which is a function of the panes it was handed.
-   *
-   * <p>Depends on whether each pane is PRESENT, not on the node itself, because a parent that
-   * rebuilds its JSX every render hands over new node identities every render. The memo is the
-   * right shape; what it buys is a stable array rather than a fresh one per render — it does NOT
-   * prevent a remount, which an earlier version of this comment claimed. Nothing here feeds a
-   * dependency array, and the buttons rebuild each render regardless, keyed by a stable id.
-   */
+  const [mapView, setMapView] = useState(null);
+  /** Latched the first time the view opens: the pane mounts then, visible from its first commit (D10). */
+  const [mapMounted, setMapMounted] = useState(false);
+  /** The pane's current `{date, eventType, locationId}`, published through `MapScreenContext`; the layer's url. */
+  const [mapRoute, setMapRoute] = useState(null);
+  /** A one-line note under the view's header (a load-time window that has passed), or null. */
+  const [mapNote, setMapNote] = useState(null);
+  /** The element focus returns to when the view closes (a card, a button), kept out of state: nothing renders it. */
+  const mapFromRef = useRef(null);
+  /** 'skip' when the closer places focus itself (a route into a sheet on the screen); otherwise 'restore'. */
+  const mapFocusReturnRef = useRef('restore');
+  /** The view's title: initial focus on open, and the focus fallback for every surface that names the map. */
+  const mapTitleRef = useRef(null);
   const hasMapPane = mapPane != null;
-  const hasOperationsPane = operationsPane != null;
-  const tabs = useMemo(
-    () => TABS.filter((t) => (t.slot ? { mapPane: hasMapPane, operationsPane: hasOperationsPane }[t.slot] : true)),
-    [hasMapPane, hasOperationsPane],
-  );
+  /** Whether Operations is showing: the page's address says so and `App` handed over the pane (admin only). */
+  const operationsShown = operationsOpen && operationsPane != null;
+  /** Whether the map view is showing. A view left open when its pane is withdrawn (an aurora alert clearing) goes. */
+  const mapOpen = mapView != null && hasMapPane && !operationsShown;
+  if (mapView != null && (!hasMapPane || operationsShown)) setMapView(null);
+  if (mapOpen && !mapMounted) setMapMounted(true);
   /**
-   * The tab actually rendered, which is not always the one last selected.
-   *
-   * <p>Without this a selection can outlive its tab — a session that loses admin, or a stored id
-   * from a build that had one more pane. The bar would then have no tab holding
-   * {@code tabIndex={0}}, which is the whole keyboard entry point, and every panel would be hidden.
-   * Falling back to the first tab is the only state that is always coherent.
+   * The shell→App channel for the guide and the aurora door: {@code 'operations'} while Operations is open,
+   * {@code 'map'} while the map view is, otherwise {@code 'plan'}. Fired on mount too, so `App` learns the opening
+   * state rather than starting from a guess.
    */
-  /**
-   * The tab the reader would see if nothing overrode it — the opening preference while
-   * {@code activeTab} is still {@code null}, {@code activeTab} itself once a choice has been made.
-   * Falls back to Plan for a caller that hands no {@code initialTab} at all (every existing shell
-   * test), pinning the long-standing default.
-   */
-  const preferred = initialTab ?? TABS[0].id;
-  const requestedTab = activeTab ?? preferred;
-  /**
-   * The tab actually rendered, which is not always the one requested.
-   *
-   * <p>Without this a selection — or a preference — can outlive its tab: a session that loses
-   * admin, a stored id from a build that had one more pane, or (new here) a preference for Map
-   * while the map pane has not arrived yet. The bar would then have no tab holding
-   * {@code tabIndex={0}}, which is the whole keyboard entry point, and every panel would be hidden.
-   * Falling back to the first tab is the only state that is always coherent — and on a desktop this
-   * is exactly what gives the intended first-render Plan / later-render Map sequence (§4.3): the Map
-   * pane is absent at first paint (`App.jsx`'s `hasForecastData` gate), so this fallback lands
-   * on Plan until it arrives, then resolves to Map the moment it does — but only while
-   * {@code activeTab} is still {@code null}.
-   */
-  const effectiveTab = tabs.some((t) => t.id === requestedTab) ? requestedTab : tabs[0].id;
-  /**
-   * The shell→App channel the full-frame Map tab needs (map-tab-v2-plan.md §3 P7's first owner).
-   * `App` recasts its whole page as a flex column on the map tab (dropping `<main>`'s own padding
-   * and giving every ancestor down to `.wf-body.wf-body--map` `flex: 1; min-height: 0` instead of
-   * a computed height) — but `effectiveTab` is shell-internal state `App` has no other way to
-   * read. Fired on mount too (not only on change), so `App` learns the OPENING tab rather than
-   * starting from a guess and correcting one render late.
-   */
-  useEffect(() => { onTabChange?.(effectiveTab); }, [effectiveTab, onTabChange]);
-  /**
-   * While the reader has not chosen a tab, ANY interaction with the shell is a choice of the tab in
-   * force: pin it, so a map pane arriving later cannot move the tab under someone mid-task
-   * (default-tab-by-device-plan.md §4.3). Deliberately not a list of triggers — an earlier draft of
-   * that plan enumerated the dialog states that should commit, and review (PR #904) found the lens
-   * bar (`WindowFirstLensBar.jsx` calls `reachLens.selectTier`/`ratingLens.selectFloor` directly,
-   * never `selectTab`) slipping straight past it; any enumeration rots the same way as controls are
-   * added. So this commits on the EVENT, at the shell root, in the capture phase — wired onto
-   * `onPointerDownCapture`/`onKeyDownCapture`/`onWheelCapture` below.
-   *
-   * <p>`setActiveTab`, never `selectTab` — the point is to pin the tab CURRENTLY in force without
-   * touching anything else `selectTab` does (closing the deleted window popup, the sheet, search…), which would
-   * itself be the jolt this exists to prevent. A plain event handler, not an effect, so there is no
-   * set-state-in-effect suppression to write; capture phase so a child that stops propagation cannot
-   * hide the interaction, and React's synthetic events travel through portals, so a dialog rendered
-   * into `<body>` still reaches this root.
-   */
-  /**
-   * The tab in force, mirrored into a ref that stays current across renders — read by
-   * {@code commitTabInForce} at FIRE TIME rather than closed over at whatever render created the
-   * caller. This is load-bearing for the grace timer below: the timer is armed once, at mount,
-   * when {@code effectiveTab} is still Plan (the Map pane has not arrived yet — §4.3), and it must
-   * NOT commit that stale value if the preference has since resolved to Map. Updated in an effect
-   * with no dependency array, so it runs after every commit — mutating a ref directly in the render
-   * body is the pattern that trips this file's own "no side effects during render" convention
-   * elsewhere (the {@code settingsWasOpen}/{@code openedTabs} bailouts are `setState`, not a mutable
-   * write), and the timer fires so much later (1500 ms) that the one-render lag an effect adds here
-   * is immaterial.
-   */
-  const effectiveTabRef = useRef(effectiveTab);
-  useEffect(() => { effectiveTabRef.current = effectiveTab; });
-  const commitTabInForce = useCallback(() => {
-    setActiveTab((prev) => (prev == null ? effectiveTabRef.current : prev));
-  }, []);
-  /**
-   * The time bound on the opening preference (plan §4.3): a reader who reads without touching
-   * anything is still reading, and a switch several seconds into that is the same jolt as one mid
-   * interaction. A one-shot timer from mount, cleared on unmount, a no-op once `activeTab` is
-   * already set — so the late switch to Map happens only when forecasts arrive quickly AND the
-   * reader has not touched the page, i.e. when it reads as part of loading.
-   *
-   * <p>⚠️ Reads `effectiveTabRef`, not a closed-over `effectiveTab` — found in review. The timer is
-   * armed once at MOUNT, when `effectiveTab` is necessarily still Plan (the Map pane has not
-   * arrived — App.jsx's `hasForecastData` gate). A version that called a `commitTabInForce`
-   * closed over that mount-render value would commit PLAN at 1500 ms even after the Map pane
-   * arrived at, say, 300 ms and the preference had already resolved to Map — silently yanking the
-   * reader back to Plan a second and a half into reading it. Reading the ref at fire time is what
-   * makes the timer commit whatever is actually in force *then*, not whatever was in force when it
-   * was armed.
-   */
-  useEffect(() => {
-    const timer = setTimeout(() => { commitTabInForce(); }, PREFERRED_TAB_GRACE_MS);
-    return () => clearTimeout(timer);
-    // `commitTabInForce` deliberately absent: it is now referentially STABLE (`[]` deps, since it
-    // reads the ref rather than closing over `effectiveTab`), so listing it changes nothing — but
-    // the comment stays because the reason this effect itself still needs `[]` does not follow from
-    // that alone. Re-running this effect on every render (had it depended on anything that changes)
-    // would re-arm the timer every time, and a reader whose page keeps re-rendering (the ten-minute
-    // poll, a lens change) would never reach the deadline. The timer is meant to fire
-    // `PREFERRED_TAB_GRACE_MS` after MOUNT, once, full stop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  /**
-   * Panes mount on first selection and stay mounted; the panel ELEMENT is always present.
-   *
-   * <p>Seeded with Plan alone, same as before — a preference for Map is not a selection, and the
-   * mount check below (`openedTabs.has(tab.id) || tab.id === effectiveTab`) covers a Map pane shown
-   * by preference without needing it seeded here. The effect beneath keeps the set STICKY once a
-   * preference does resolve to Map: without it, a pane shown only via that mount-check's second arm
-   * would vanish the instant `effectiveTab` moved on (a later `selectTab`, or the reader leaving and
-   * returning), which is exactly the sticky-pane rule `WindowFirstShellSticky.test.jsx` pins.
-   */
-  const [openedTabs, setOpenedTabs] = useState(() => new Set([TABS[0].id]));
-  // Adjusted DURING RENDER, not in an effect — the same bailout shape `settingsWasOpen` below
-  // uses: the condition is false again the very next render (the set now has `effectiveTab`), so
-  // this cannot cascade. An effect here would be one more commit before a Map pane shown only by
-  // preference (never through `selectTab`, which already does this) picked up its sticky entry.
-  if (!openedTabs.has(effectiveTab)) {
-    setOpenedTabs((prev) => new Set(prev).add(effectiveTab));
-  }
-  /**
-   * The tab buttons, so an arrow key can move focus as well as selection.
-   *
-   * <p>Focus has to be moved imperatively: selection follows focus, so the newly selected tab is
-   * the only one with {@code tabIndex={0}} and a keyboard user who pressed Right would otherwise be
-   * left with focus on an element that has just become unreachable.
-   */
-  const tabRefs = useRef([]);
-  /**
-   * A Map tab WITHDRAWN while it is the tab in force (overlay convergence C3): the aurora-only tab
-   * stands on a live alert, and when the alert clears the pane is handed over as null. `effectiveTab`
-   * then falls back to Plan by itself, but silently — focus was inside the pane that just unmounted so
-   * it drops to {@code <body>}, and `activeTab` would stay `'map'`, so the NEXT alert would snap the
-   * reader back to a tab they had been moved off. So the withdrawal is made an explicit selection of
-   * Plan and focus goes to the Plan tab button, the tab bar's roving entry point. Focus is moved only
-   * when it has been lost (on {@code <body>}); a reader already typing elsewhere keeps it. No new live
-   * region: the existing ones belong to the Plan pane's own data states, and the selected tab changing
-   * under a focused tab button is announced by the tab pattern itself.
-   */
-  const mapInForceRef = useRef(false);
-  useEffect(() => {
-    const withdrawn = mapInForceRef.current && !hasMapPane;
-    mapInForceRef.current = effectiveTab === 'map';
-    if (!withdrawn) return;
-    (async () => setActiveTab('plan'))();
-    const active = document.activeElement;
-    if (!active || active === document.body) {
-      tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
-    }
-  }, [hasMapPane, effectiveTab, tabs]);
-  // `true`, unconditionally — the tab badge (plan D3/D4/D13) needs to know about arrivals whether
-  // or not the reader ever opens this pane, so the fetch fires after first paint for every reader
-  // rather than gating on the tab. See useComingUpFeed.js's own class doc for the reversal.
+  const reportedScreen = operationsShown ? 'operations' : (mapOpen ? 'map' : 'plan');
+  useEffect(() => { onScreenChange?.(reportedScreen); }, [reportedScreen, onScreenChange]);
+  // Gone (a crash under `PlanErrorBoundary`, a sign-out): the page behind must not stay inert or pinned for a view that
+  // no longer exists, so the shell reports no screen at all.
+  const onScreenChangeRef = useRef(onScreenChange);
+  useEffect(() => { onScreenChangeRef.current = onScreenChange; });
+  useEffect(() => () => { onScreenChangeRef.current?.(null); }, []);
+  // `true`, unconditionally — the "Further ahead" jump's badge (plan D3/D4/D13) needs to know about arrivals
+  // whether or not the reader ever scrolls there, so the fetch fires after first paint for every reader.
+  // See useComingUpFeed.js's own class doc for the reversal.
   // The polled warning set keys a silent refetch: the server merges the Met Office warning entries per request, and the
   // feed is otherwise fetched once a day, so without this a new or withdrawn warning could stay unseen for hours.
   const polledWarnings = useWarnings();
   const warningSetKey = useMemo(() => warningsKey(polledWarnings), [polledWarnings]);
   const comingUp = useComingUpFeed(true, todayStr, warningSetKey);
-  // A pending "open Coming up at this entry" request from At a Glance's topic pills (see `openComingUp`).
+  // A pending "focus Further ahead's heading" request (see `openFurtherAhead`).
   const [comingUpFocus, setComingUpFocus] = useState(null);
   const comingUpSeq = useRef(0);
+  // The almanac entries This week already draws as lanes, reported by the heat strip (one-screen-plan.md D5). Further
+  // ahead lists everything else. The strip reports only when the SET changes (it keys on the sorted ids), so a
+  // re-render that draws the same lanes writes nothing; the setter is stable, so it never re-fires the strip's effect.
+  const [graduatedIds, setGraduatedIds] = useState(NO_ENTRY_IDS);
+  /**
+   * The quiet days the reader has opened this session (screen-spec.md D5), by ISO date. The shell's own state, not the
+   * strip's: the strip is a lazy pane that remounts on a viewport flip, and an opened day stays opened for the session.
+   * A fold is a presentation choice, never persisted.
+   */
+  const [openQuietDays, setOpenQuietDays] = useState(NO_QUIET_OPEN);
+  const toggleQuietDay = useCallback((date) => {
+    setOpenQuietDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
+  }, []);
   // The ids Coming up lists under its All filter — every served entry, which is what the pills' jump may target
   // (glance-topic-strip-plan.md R1/R4). Empty unless the feed is READY: a stale `events` while a retry loads, or
   // after a failure, names rows that are not on screen.
@@ -780,10 +597,28 @@ export default function WindowFirstShell({
    * showing: the badge answers "is anything new anywhere in the feed", a question the active filter
    * must not narrow.
    */
-  const comingUpBadge = useMemo(
-    () => deriveBadge(comingUp.events?.entries, comingUp.events?.bands, comingUpLastSeenDate),
-    [comingUp.events, comingUpLastSeenDate],
-  );
+  const { badge: comingUpBadge } = useListedFeed(comingUp.events, graduatedIds, comingUpLastSeenDate);
+  /**
+   * The "Further ahead ↓" jump's accessible name (D6). With a badge it carries the badge's meaning, which the
+   * `aria-hidden` badge span cannot; without one the name computes from the button's own text. The two band names
+   * ({@code interrupt}, {@code announce}) are the surprise model's, not the reader's, so a screen-reader user hears
+   * only the difference they encode: one exceptional arrival versus several ordinary ones.
+   */
+  const favouritesState = useFavourites();
+  // The watched dates not yet past (screen-spec.md D2), drawn beside the jump. Only for a reader whose list has landed,
+  // and only above zero: a Lite reader or the error state never shows a "0".
+  const watchingCount = favouritesState.status === 'ready'
+    ? watchedStillToCome({ dates: favouritesState.dates, entries: comingUp.events?.entries, todayStr })
+    : 0;
+  const furtherAheadJumpLabel = (comingUpBadge || watchingCount > 0)
+    ? [
+      'Further ahead',
+      comingUpBadge && (comingUpBadge.band === 'interrupt'
+        ? 'one rare date added'
+        : `${comingUpBadge.count} new date${comingUpBadge.count === 1 ? '' : 's'}`),
+      watchingCount > 0 && `${watchingCount} watching`,
+    ].filter(Boolean).join(', ')
+    : undefined;
   /**
    * Marks the feed seen — both `Mark seen`'s own press and the quiet bootstrap write below share
    * this one function, because the service does not distinguish the two callers (plan D3).
@@ -817,165 +652,98 @@ export default function WindowFirstShell({
    * when something IS new — so without this, an account that has never opened the tab can never
    * reach the one control that would set the timestamp, and stays null permanently.
    *
-   * <p>Fires once, on the FIRST open of the Coming up tab while `comingUpLastSeenDate` is exactly
-   * {@code null} (not `undefined`, which means "not answered yet" — see the context's own class
-   * doc — and must not be mistaken for "never seen"). That first visit shows no badge and no NEW
-   * flags, matching D3's chosen quiet bias: the write happens silently, not as a visible "welcome"
-   * moment.
+   * <p>Fires once, the FIRST time Further ahead's heading reaches the viewport while `comingUpLastSeenDate` is
+   * exactly {@code null} (not `undefined`, which means "not answered yet" — see the context's own class
+   * doc — and must not be mistaken for "never seen"). It was "the first open of the Coming up tab"; the heading
+   * intersecting is the same moment on a screen with no tab (one-screen-plan.md D6). That first visit shows no badge
+   * and no NEW flags, matching D3's chosen quiet bias: the write happens silently, not as a visible "welcome"
+   * moment. ⚠️ Scrolling PAST the section does not clear the badge (owner, 2026-11-23); only "Mark seen" does.
    *
    * <p>The guard ref is reset on failure, not left permanently spent — a dropped request must retry
-   * on the NEXT visit rather than never again, but must not retry instantly either. Resetting the
-   * ref alone cannot cause a tight loop: this effect only re-runs when one of its dependencies
-   * actually changes value, and none of them change while the reader sits on an open tab — only
-   * leaving and returning (which moves `effectiveTab` away and back) gives the reset ref another
-   * chance, which is exactly "next visit, never loops".
+   * the NEXT time the heading reaches the viewport rather than never again, but must not retry
+   * instantly either: {@code FurtherAhead} calls this on each intersection, never on a timer, so a
+   * reader sitting still gives it no second chance and a scroll away and back gives it exactly one.
    */
   const bootstrapFiredRef = useRef(false);
-  useEffect(() => {
-    if (effectiveTab !== 'coming-up') return;
+  const handleFurtherAheadSeen = useCallback(() => {
     if (comingUpLastSeenDate !== null) return;
     if (bootstrapFiredRef.current) return;
     bootstrapFiredRef.current = true;
     markComingUpSeen()
       .then((settings) => setComingUpLastSeenAt(settings?.comingUpLastSeenDate ?? todayStr))
       .catch(() => { bootstrapFiredRef.current = false; });
-  }, [effectiveTab, comingUpLastSeenDate, todayStr, setComingUpLastSeenAt]);
+  }, [comingUpLastSeenDate, todayStr, setComingUpLastSeenAt]);
   /**
-   * Selects a tab, and takes any dialog down with it.
+   * Takes every dialog this shell owns down: the Map's spot list, the four-day sheet, the area sheet, search, Ask's
+   * sheet and upsell, and the ☰ menu. The shell's ONE list of what a dialog is
+   * (`docs/engineering/one-screen-plan.md` D17, which replaced the old tab selector): every caller — {@code openMap}, the menu's rows, the tick
+   * line's nudge, the settings edge, the aurora banner's closer — calls this and never inlines the list, so a dialog
+   * added later cannot reach one route and miss another. It does NOT close the map view: the view is the base layer
+   * the dialogs stack over, and a route that wants it gone says so ({@code closeMap}).
    *
-   * <p>Every dialog this shell owns — the Map's spot list, the four-day sheet, the area sheet and
-   * search — is rendered outside the pane and its state is independent of the tab, so
-   * without this a reader who opened a sheet and then pressed Coming up would be left with a modal
-   * about a place floating over the almanac feed — and {@code useDialogFocus} is explicitly not
-   * a focus trap, so closing it would hand focus back to a trigger that is no longer on screen.
-   * Arriving somewhere else ends the browsing.
+   * <p>Every dialog this shell owns is rendered outside the pane and its state is independent of the tab, so without
+   * this a reader who opened a sheet and then moved on would be left with a modal about a place floating over the next
+   * thing — and {@code useDialogFocus} is explicitly not a focus trap, so closing it would hand focus back to a
+   * trigger that is no longer on screen. Arriving somewhere else ends the browsing.
    *
-   * <p><b>Naming the tab already in force is the no-move form, and it is how every route that only
-   * needs the dialogs gone closes them</b> — the map handoff below, the ⚙ cog, the tick line's
-   * postcode nudge and the settings edge. One list, so a dialog added later cannot reach one of those
-   * routes and miss another.
+   * <p>⚠️ <b>Search is on the list since 2026-09-16, and was missing from it before.</b> A keyboard reader could Tab
+   * out of the search box (it is not a trap) and arrow to another tab with search still open.
    *
-   * <p>⚠️ <b>Search is on the list since 2026-09-16, and was missing from it before.</b> A keyboard
-   * reader could Tab out of the search box — it is not a trap, and only the tick line leaves the tab
-   * order under it — onto the tab bar and arrow to another tab with search still open; over the map,
-   * the callout then landed `inert` beneath it rather than as the only layer.
-   *
-   * <p>⚠️ <b>This runs DURING RENDER as well as in handlers and effects</b>: the settings edge below
-   * calls it. So the body must stay this component's own setters and nothing else. A focus move, a
-   * ref write, a parent callback or a request added here would run inside the shell's render on every
-   * opening of settings — and only the ref write is something lint catches.
+   * <p>⚠️ <b>This runs DURING RENDER as well as in handlers and effects</b>: the settings edge below calls it. So the
+   * body must stay this component's own setters and nothing else. A focus move, a ref write, a parent callback or a
+   * request added here would run inside the shell's render on every opening of settings — and only the ref write is
+   * something lint catches.
    */
-  const selectTab = (id) => {
-    setActiveTab(id);
-    // Leaving the Map ends an arrival; arriving on it (or re-selecting it) keeps the door's request.
-    setMapArrival((prev) => {
-      if (prev == null) return prev;
-      if (id !== 'map') return null;
-      return prev.pending ? { from: prev.from, pending: false } : prev;
-    });
-    // Sticky: a pane that has been opened stays mounted, so its state and its fetches survive a
-    // round trip through another tab. `ManageView` in particular reads the hash at mount and then follows
-    // `#manage/<known tab>` through its own `hashchange` listener, so an already-mounted Manage moves with it.
-    setOpenedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  const closeShellLayers = () => {
     setSheetKey(null);
     setSheetScope(null);
-    // The four-day sheet goes with them. Every dialog this shell owns is about the Plan tab, so arriving
-    // anywhere else ends the browsing.
+    // The four-day sheet goes with them.
     setSheetSpot(null);
     setSheetWindowKey(null);
     setSearchSeed(null);
-    // The area sheet is a Plan dialog like the rest: every route out of the Plan tab closes it.
+    // The area sheet is a dialog like the rest.
     setAreaSheet(null);
     // Ask's sheet is a layer like the rest: arriving anywhere ends it, and every route that only
     // wants the dialogs gone (the cog, the nudge, the settings edge) takes it down with them. The
     // CONVERSATION is not touched — it is context state, and this body may call only our own setters.
     setAskSheetOpen(false);
-    // ...and so is the LITE reader's Ask upsell: on 640px and up its field is drawn on Plan, Coming up
-    // and Map, so a tab press would otherwise leave the popover open over the next tab.
+    // ...and so is the LITE reader's Ask upsell: from 640px its field is drawn on every screen, so a route
+    // would otherwise leave the popover open over the next one.
     setAskUpsellFor(null);
     // The phone's ⋯ menu is a layer too (compact-chrome plan R4): every route out of the masthead
     // closes it, so settings never opens over it. Our own setter, as this body requires.
     setMastMenuOpen(false);
   };
   /**
-   * The Coming up tab's handoff row, going the other way (plan P1/D14).
-   *
-   * <p>{@code selectTab} hides the panel the pressed row lives in immediately, so without an
-   * imperative focus move afterwards, focus would fall to {@code <body>} — the same fall-to-body
-   * failure {@code WindowFirstComingUp}'s own retry-focus effect already argues against.
-   * {@code onGoToPlan} accepts a date already, though nothing reads it yet (§11.9): the handoff
-   * row has no single date to carry, but P3b's per-entry "plan" action will, and Plan cannot yet
-   * focus one, so the signature is settled now rather than grown again in that phase.
+   * A Further ahead entry's "plan" action: back up to This week. It is the same screen, so there is nothing to select;
+   * scrolling to and focusing This week's heading is what keeps focus from falling to {@code <body>} when the
+   * pressed card is no longer where the reader was (the failure {@code FurtherAhead}'s own retry-focus effect argues
+   * against). {@code onGoToPlan} accepts a date, which nothing reads yet (§11.9).
    */
   const goToPlan = (date) => {
     void date;
-    selectTab('plan');
-    tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
+    closeShellLayers();
+    focusSectionHeading(THIS_WEEK_HEADING_ID);
   };
   /**
-   * At a Glance's topic pills (and their door) opening Coming up (glance-topic-strip-plan.md R4) — the way back
-   * from {@link goToPlan}.
-   *
-   * <p>Stores a request {@code {entryId, seq}} and selects the tab. The request lives in this shell's state and
-   * not behind {@code selectTab}, which clears dialogs and not this, so it survives the tab change that makes
-   * the pane visible; {@code WindowFirstComingUp} answers it (resetting its filter if the entry is hidden,
-   * scrolling to the card) and reports back through {@link handleComingUpFocusHandled}. {@code seq} makes a
-   * second press on the same entry a new request.
-   *
-   * @param {?string} entryId the almanac entry to open at, or null for the tab as it ordinarily arrives
+   * Opens Further ahead (one-screen-plan.md O2): the "Further ahead ↓" jump. Stores a request {@code {seq}} and takes
+   * the dialogs down. The request lives in this shell's state, so it survives the commit that closes them;
+   * {@code FurtherAhead} answers it through {@link handleComingUpFocusHandled}. {@code seq} makes a second press a new
+   * request. (It once named an entry to open; nothing does any more, since a lane's entry is not listed and Your
+   * places lost its date chips, screen-spec.md D2.)
    */
-  const openComingUp = (entryId) => {
+  const openFurtherAhead = () => {
     comingUpSeq.current += 1;
-    setComingUpFocus({ entryId: entryId ?? null, seq: comingUpSeq.current });
-    selectTab('coming-up');
+    setComingUpFocus({ seq: comingUpSeq.current });
+    closeShellLayers();
   };
   /**
-   * The Coming up pane has answered the request. Found: the pane already scrolled to and focused the card.
-   * Not found (a null entry, or one that is not in the feed): the pressed pill's panel is hidden now, so the
-   * same fall-to-body failure {@link goToPlan} guards against applies — the window goes to the top and focus
-   * goes to the Coming up TAB.
-   *
-   * @param {boolean} found whether an entry was scrolled to
+   * Further ahead has answered the request: focus goes to the section's heading, scrolled into view, so it never falls
+   * to {@code <body>}.
    */
-  const handleComingUpFocusHandled = (found) => {
+  const handleComingUpFocusHandled = () => {
     setComingUpFocus(null);
-    if (found) return;
-    window.scrollTo?.({ top: 0 });
-    tabRefs.current[tabs.findIndex((t) => t.id === 'coming-up')]?.focus();
-  };
-  /**
-   * Left/Right/Home/End across the bar, wrapping at both ends.
-   *
-   * <p>Up/Down are deliberately not handled: this is a horizontal tab list, and binding the
-   * vertical keys would take them from the page scroll for no gain.
-   */
-  const handleTabKey = (event, index) => {
-    // A modified arrow or Home is somebody else's shortcut, and swallowing it is worse than not
-    // handling it: Alt+Left and Cmd+Left are the browser's Back, and Ctrl/Cmd+Home is "top of
-    // document". The bar's own bindings are the UNMODIFIED keys only.
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const last = tabs.length - 1;
-    let next = null;
-    if (event.key === 'ArrowRight') next = index === last ? 0 : index + 1;
-    else if (event.key === 'ArrowLeft') next = index === 0 ? last : index - 1;
-    else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = last;
-    if (next === null) return;
-    // Home and End scroll the page by default, and Left/Right scroll a horizontally overflowing
-    // one — either would move the view out from under the reader as they change tab.
-    event.preventDefault();
-    selectTab(tabs[next].id);
-    tabRefs.current[next]?.focus();
-    // Focus does NOT scroll a tab into view on its own — measured on the running app: `scrollLeft`
-    // stayed 0 through `.focus()` and moved only under `scrollIntoView`. Without this, arrowing to
-    // an off-screen tab at 320px focuses something the reader cannot see. `block: 'nearest'` is
-    // what keeps the page itself still.
-    // Optional CALL, not just optional chaining on the node: jsdom implements no layout and so
-    // provides no `scrollIntoView`, and the unguarded form threw a TypeError on every arrow press
-    // while the suite still reported green — seven unhandled errors and an exit code of 1 under a
-    // "3035 passed" summary. Guarding it here rather than stubbing it in `setup.js` keeps the
-    // absence honest: there is nothing to scroll in a document with no layout.
-    tabRefs.current[next]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    focusSectionHeading(FURTHER_AHEAD_HEADING_ID);
   };
   /**
    * The arm's root, and the element that hosts `--wf-lens-reserve` and `--wf-lens-h`.
@@ -987,7 +755,6 @@ export default function WindowFirstShell({
    * `ResizeObserver` callback for properties that affect no layout of their own.
    */
   const shellRef = useRef(null);
-  useLensReserve(shellRef);
   /**
    * Whether the lens bar has left its resting place, and the sentinel that answers it.
    *
@@ -1004,6 +771,19 @@ export default function WindowFirstShell({
    * in here, or the shadow arrives a masthead's worth of scroll late.
    */
   const [lensSentinelRef, lensStuck] = useStuckSentinel();
+  /**
+   * The This week section, watched by `useLensPastWeek` (screen-spec.md D6) to know the lens has been scrolled past: the
+   * lens belongs to This week and is not drawn below it.
+   *
+   * <p>⚠️ The watched element is the SECTION, not a 1px sentinel at its end, and that is deliberate. An IntersectionObserver
+   * reports only a change of "intersecting", so a 1px marker that starts below the viewport is missed whenever the page jumps
+   * over it in one frame (a fast fling, the Further ahead jump, scroll restoration): below and above are both "not
+   * intersecting". The section is taller than the viewport and intersects at the top of the page, so every jump from the top
+   * to past its end flips the state and is reported. The line it is measured against is the lens's own bottom edge (plus a
+   * little), not the viewport top: the Further ahead jump parks the next heading just under the lens, which is the case the
+   * viewport-top line missed. A state, not a ref: the observer is built when the node arrives.
+   */
+  const [weekNode, setWeekNode] = useState(null);
   /**
    * The drill-down's window, held by KEY rather than by the card object.
    *
@@ -1065,7 +845,7 @@ export default function WindowFirstShell({
    * reachable while a dialog of ours is up, because the four-day sheet opens OVER the map (O-18) and
    * the map under it is a whole interactive pane a keyboard reader can Tab onto (O-20 arm A). So
    * `App` says when its dialog is open, and the rising edge takes ours down — through
-   * {@code selectTab} naming the tab in force, so no tab moves: settings is not a destination, and
+   * {@link closeShellLayers}, which moves nothing: settings is not a destination, and
    * from the peek the reader must be left on the map they were back-tracking to.
    *
    * <p>During render rather than in an effect, which is what keeps it in the SAME commit as the
@@ -1073,8 +853,8 @@ export default function WindowFirstShell({
    * state during render, so no commit holds both. An effect's close would land in a second commit:
    * the DOM would hold both claiming the modal in between, and the settings dialog would already
    * have recorded its return address, so this route would send focus back somewhere different from
-   * the cog's and the nudge's, whose closes share a commit with the open. (Placed below every state
-   * {@code selectTab} writes, which calling it during render requires.)
+   * the menu's and the nudge's, whose closes share a commit with the open. (Placed below every state
+   * {@link closeShellLayers} writes, which calling it during render requires.)
    *
    * <p>Keyed on the edge, not the level. A dialog of ours opened WHILE settings stands — by Tabbing
    * out of it onto the page — is the reverse route, of the same family as the Tab-out residual
@@ -1084,149 +864,273 @@ export default function WindowFirstShell({
   const [settingsWasOpen, setSettingsWasOpen] = useState(settingsOpen);
   if (settingsOpen !== settingsWasOpen) {
     setSettingsWasOpen(settingsOpen);
-    if (settingsOpen) selectTab(effectiveTab);
+    if (settingsOpen) closeShellLayers();
+  }
+  // Operations opening by ANY route (the menu, the aurora banner, a typed or pasted `#manage` address, Forward) takes
+  // every dialog of the screen it covers down in the same commit (one-screen-plan.md D9). Same during-render edge.
+  const [operationsWasShown, setOperationsWasShown] = useState(operationsShown);
+  if (operationsShown !== operationsWasShown) {
+    setOperationsWasShown(operationsShown);
+    if (operationsShown) closeShellLayers();
   }
   /**
-   * The shared close-then-move-and-merge entry every map door calls (doors D2,
-   * `plan-to-map-doors-plan.md` §3 D2 task 1; D3 the sheet footer; D4's popup field is deleted) — a thin
-   * wrapper over {@link openMapDoor} (`utils/mapDoors.js`), supplying this shell's own closures.
-   * The logic itself — close-then-move, and the live lens-value merge — lives in that PURE
-   * function precisely so it is directly unit-tested (`test/mapDoors.test.js`) without a rendered
-   * caller. D3 is its first caller (the location sheet's own `onShowOnMap` prop, below).
-   *
-   * <p>Since overlay convergence C4 EVERY Plan-tab map producer goes through here (via
-   * {@link showOnMap} below), so close-then-move is one rule for all of them (the deleted pick dialog's two
-   * actions once included - they used to open the overlay first and close second).
+   * The map's address facts and load-time answers, memoised once: the served briefing's neighbour-outlier marks, for
+   * `resolveDoor` (App is outside the provider and the scores endpoint carries no flag). Rides every trigger to `App`,
+   * which moves it into the resolution context; `doorFromTrigger` never copies it into the door.
    */
-  const openMapTab = useCallback((door) => openMapDoor({
-    // Every map door takes the layers under it down too, the area sheet included (it can sit under a place sheet).
-    openSheetLayer: (next) => { setAreaSheet(null); openSheetLayer(next); },
-    onOpenMapTab,
-    ratingLens,
-    reachLens,
-    // ⚠️ `inPlace` — the one thing this wrapper adds that {@link openMapDoor} could not know. A
-    // "door onto the map" pressed from a sheet that is ALREADY over the map is not a door: `App`'s
-    // in-place branch explains what a full door payload would silently undo there (the map's own
-    // rating floor, its reach tier, its scope and its camera). It is answered here rather than in
-    // the pure function because only the shell knows which tab is in force.
-    //
-    // ⚠️ `from` - the tab the press came from (C4, an extension of plan section 5 D2): the breadcrumb
-    // names it and returns there. Absent for an in-place press, which never left the Map tab.
-    door: {
-      ...door,
-      inPlace: effectiveTab === 'map',
-      ...(effectiveTab === 'map' ? {} : { from: effectiveTab }),
-    },
-  }), [openSheetLayer, onOpenMapTab, ratingLens, reachLens, effectiveTab]);
+  const outlierKeys = useMemo(() => outlierKeysOf({ days: briefing?.days }), [briefing?.days]);
+  /** Whether the map view is open, readable from a callback that was made on an earlier render. */
+  const mapOpenRef = useRef(false);
+  // A layout effect, so a close's own layout effect (below) and any cleanup that runs after it read the new value.
+  useLayoutEffect(() => { mapOpenRef.current = mapOpen; });
   /**
-   * The Plan tab's "show this on the map" producers' ONE entry (overlay convergence C4,
-   * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the spot sheet's rows (the deleted pick dialog's two actions once among them) and the
-   * Coming up cards and day chips. Each used to hand `App` a trigger that opened the frozen map
-   * overlay; they now take the SAME structured door the location sheet footer takes -
-   * {@link normalizeMapTrigger} turns whatever the producer sends into the one trigger shape and
-   * {@link openMapTab} closes the Plan dialogs FIRST, merges the Plan's live lens (rating floor and
-   * reach tier) and hands it to `App.openMapTabFromPlan`, which resolves the window, region,
-   * location and spot-set lens and moves the tab. `undefined` when `App` offers no Map door (no
-   * forecast), so each producer's own `onShowOnMap && ...` gate withholds its control.
+   * The element a door was pressed on, for focus to return to when the view closes. Safari and Firefox on macOS do
+   * not focus a button on a click, so a door passes its own node when it has one; otherwise the focused element.
+   */
+  const resolveFrom = (from) => {
+    if (from instanceof HTMLElement) return from;
+    const active = document.activeElement;
+    return active instanceof HTMLElement && active !== document.body && active !== document.documentElement
+      ? active : null;
+  };
+  /**
+   * After a morph, focus is never on `<body>`: the pane was hidden while it ran, so a focus move into it (a door that
+   * focuses inside the callout) could not land. The view's title is the one target outside the pane.
+   */
+  const keepFocusInView = () => {
+    if (!mapOpenRef.current) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) {
+      mapTitleRef.current?.focus({ preventScroll: true });
+    }
+  };
+  /**
+   * Opens the map view, or re-targets it when it is already open: the ONE function behind every door onto the map
+   * (`docs/engineering/one-screen-plan.md` D2) — a Glance card or lane, a Coming up card or chip, a Find pick, a spot
+   * sheet row, the location sheet's footer, the area sheet's foot, Ask's "Show on map", the aurora banner, the
+   * and the page's own address at load.
+   *
+   * <p>Underneath it keeps today's handoff (`mapTabHandoff` → `planHandoff` → `MapView`'s `planDoor`), so the landing,
+   * lens, scope and camera are exactly what a door has always done. {@code window} and {@code focus} describe the
+   * request in the plan's terms; {@code trigger} is the older normalised trigger (`utils/mapDoor.js`), which the
+   * existing producers still hand over and which wins when both are given.
+   *
+   * <p>⚠️ <b>Takes the layers down first</b> ({@link closeShellLayers}): a sheet or Find unwinds and its Back entry
+   * goes before the view's is taken, so the same commit swaps one for the other (the engine's same-depth swap).
+   * Already open is {@code inPlace}: the window moves and the lens, scope and camera stay (`App`'s `source: 'map'`
+   * branch), and no layer is added, so no history entry is pushed.
+   *
+   * @param {object} [request]
+   * @param {?{date: string, eventType: string}} [request.window] null opens on the map's own window
+   * @param {?object} [request.focus] `{kind: 'location', id|name}`, `{kind: 'region', name}`,
+   *        `{kind: 'names', focusNames}`, `{kind: 'aurora'}` or null
+   * @param {?Element} [request.from] the element focus returns to; the focused element when omitted
+   * @param {?object} [request.trigger] a normalised trigger from `normalizeMapTrigger`
+   * @param {boolean} [request.loadTime] the open came from the page's own address, not a press
+   * @param {?string} [request.note] a line the view shows under its header
+   * @param {?string} [request.frame] `'home-and-place'` for a window door: the camera frames home and its best place
+   */
+  const openMap = (request = {}) => {
+    // The element the open was pressed on, read NOW: the body below may run a frame later, inside a view transition.
+    const pressed = resolveFrom(request.from ?? null);
+    const body = () => openMapBody({ ...request, from: pressed });
+    // A card thumbnail morphs into the view (screen-spec.md D4); every other door, and every browser without View
+    // Transitions, runs the body plainly. `inPlace` is decided again inside the body, at the moment it runs.
+    openWithMotion({
+      source: thumbnailOf(pressed),
+      update: body,
+      inPlace: mapOpen || mapOpenRef.current,
+      loadTime: request.loadTime === true,
+      onDone: keepFocusInView,
+    });
+  };
+  /** The whole open: the layers, the door, the route and the note. */
+  const openMapBody = (request) => {
+    const {
+      window: win = null, focus = null, from = null, trigger = null, loadTime = false, note = null, frame = null,
+    } = request;
+    // Read at the moment the body runs (a morph defers it): a press that finds the view already open re-targets it.
+    const inPlace = mapOpen || mapOpenRef.current;
+    let door = trigger;
+    if (!door && win?.date) {
+      const place = focus?.kind === 'location'
+        ? (focus.name ?? (Array.isArray(locations) ? locations.find((l) => l?.id === focus.id)?.name : null) ?? null)
+        : null;
+      if (focus?.kind === 'names') {
+        door = {
+          date: win.date,
+          targetType: win.eventType,
+          region: null,
+          locationName: null,
+          focusNames: focus.focusNames,
+        };
+      } else if (focus?.kind === 'aurora') {
+        door = normalizeMapTrigger({ kind: 'aurora', date: win.date });
+      } else if (focus?.kind === 'astro') {
+        door = normalizeMapTrigger({ kind: 'astro', date: win.date });
+      } else if (focus?.kind === 'region') {
+        door = normalizeMapTrigger({ date: win.date, eventType: win.eventType, region: focus.name });
+      } else if (place) {
+        door = normalizeMapTrigger(win.date, win.eventType, place);
+      } else {
+        door = normalizeMapTrigger({ kind: 'event', date: win.date, eventType: win.eventType });
+      }
+    }
+    // A WINDOW door's camera (`'home-and-place'`), set only by the callers that open a window (a Glance card, a lane,
+    // a Your places chip); a door about a place (the location sheet, Find, Ask, the area sheet) never passes one.
+    if (door) door = { ...door, outlierKeys, ...(frame ? { frame } : {}) };
+    if (door && onOpenMapTab) {
+      openMapDoor({
+        // Every map door takes the layers under it down too, the area sheet included (it can sit under a place sheet).
+        openSheetLayer: () => closeShellLayers(),
+        onOpenMapTab,
+        ratingLens,
+        reachLens,
+        // ⚠️ `inPlace`: a door pressed while the view is ALREADY open is not a door. `App`'s in-place branch explains
+        // what a full door payload would silently undo there (the map's own rating floor, its reach tier, its scope
+        // and its camera).
+        door: { ...door, inPlace },
+      });
+    } else {
+      closeShellLayers();
+    }
+    // With no map pane (nothing to map) the door's handoff still goes out and the layers still close, but there is no
+    // view to show: a control onto nothing is withheld upstream, so this is only reached by a caller that had none.
+    if (!inPlace && hasMapPane) {
+      setMapView({ loadTime, from: resolveFrom(from) });
+      // The layer's address, seeded from the request so it is right from the first commit; the pane publishes the
+      // live route from then on (`MapScreenContext.publishRoute`).
+      const placeName = focus?.kind === 'location' ? focus.name : (door?.kind === 'location' ? door.locationName : null);
+      const placeId = focus?.kind === 'location' && focus.id != null
+        ? focus.id
+        : (placeName && Array.isArray(locations) ? locations.find((l) => l?.name === placeName)?.id ?? null : null);
+      const routeDate = win?.date ?? door?.date ?? null;
+      setMapRoute(routeDate
+        ? {
+          date: routeDate,
+          eventType: win?.eventType ?? NIGHT_KIND_TYPE[door?.kind] ?? door?.eventType ?? door?.targetType ?? null,
+          locationId: placeId,
+        }
+        : null);
+      warmStackedChunks();
+    }
+    setMapNote(note);
+  };
+  /**
+   * Closes the map view. {@code restoreFocus: false} is for a route that places focus itself (the "Show in This week"
+   * routes, which open a sheet on the screen and return focus there when it closes). Scroll is untouched: the screen
+   * never unmounts under the view, it only goes inert, and the view locks the body's scroll while it stands (D11).
+   */
+  const closeMap = ({ restoreFocus = true } = {}) => {
+    mapFocusReturnRef.current = restoreFocus ? 'restore' : 'skip';
+    setMapView(null);
+    setMapNote(null);
+  };
+  /**
+   * ✕ and Escape: the view morphs back into the card it was opened from when that card is still on screen. Back, the
+   * scrim and every other close call {@link closeMap} and stay instant. Focus returns to the card through
+   * {@link closeMap}'s own layout effect, in the commit that closes the view.
+   */
+  const closeMapAnimated = () => {
+    closeWithMotion({
+      source: thumbnailOf(mapFromRef.current),
+      frame: document.querySelector('[data-map-screen]'),
+      update: () => closeMap(),
+    });
+  };
+  /** The latest {@link openMap} and {@link closeMap}, for the registration made once on mount. */
+  const mapDoorsRef = useRef(null);
+  useEffect(() => { mapDoorsRef.current = { open: openMap, close: closeMap }; });
+  /**
+   * The screen's focus target, for every focus fallback: the map view's title while the view is open, otherwise This
+   * week's heading (which carries {@code tabIndex=-1}). Read from the DOM and a ref, because it runs in a close's own
+   * cleanup, before a ref would have caught up.
+   */
+  const screenHeadingNode = useCallback(() => document.getElementById(THIS_WEEK_HEADING_ID), []);
+  const screenFocusNode = useCallback(() => {
+    const title = mapTitleRef.current;
+    // Only a title that is still on screen: a view that is closing has `hidden` set in the same commit.
+    const titleShown = mapOpenRef.current && title?.isConnected && !title.closest('[hidden]');
+    return titleShown ? title : screenHeadingNode();
+  }, [screenHeadingNode]);
+  /**
+   * Focus, when the view closes: back to the element that opened it if it is still on screen, otherwise the screen's
+   * target. A layout effect, so it runs in the commit that removes `inert` and sets `hidden`, before anything paints.
+   */
+  // The element the open was pressed on, kept by an effect (the close that needs it runs after the state is gone).
+  useEffect(() => { if (mapView) mapFromRef.current = mapView.from; }, [mapView]);
+  const mapWasOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (mapWasOpen.current && !mapOpen) {
+      const mode = mapFocusReturnRef.current;
+      mapFocusReturnRef.current = 'restore';
+      if (mode !== 'skip') {
+        const from = mapFromRef.current;
+        const usable = from?.isConnected && !from.closest('[inert]') && !from.closest('[hidden]');
+        // This week's heading, never the view's own (now hidden) title: this runs in the commit that hides it.
+        (usable ? from : screenHeadingNode())?.focus({ preventScroll: true });
+      }
+      mapFromRef.current = null;
+    }
+    mapWasOpen.current = mapOpen;
+  }, [mapOpen, screenHeadingNode]);
+  /**
+   * The Plan tab's "show this on the map" producers' ONE entry — the spot sheet's rows and the Coming up cards and
+   * day chips: {@link normalizeMapTrigger} turns whatever the producer sends into the one trigger shape and
+   * {@link openMap} does the rest. `undefined` when `App` offers no Map door (no forecast), so each producer's own
+   * `onShowOnMap && ...` gate withholds its control.
    *
    * @param {*}       dateOrHandoff either a plain date string or a handoff object naming its `kind`
    * @param {?string} eventType     SUNRISE/SUNSET for the plain-date call shapes
    * @param {?string} locationName  a specific location, for the location call shape
    */
-  const outlierKeys = useMemo(() => outlierKeysOf({ days: briefing?.days }), [briefing?.days]);
-  const showOnMap = useMemo(() => (onOpenMapTab
-    ? (dateOrHandoff, eventType, locationName = null) => openMapTab({
-      ...normalizeMapTrigger(dateOrHandoff, eventType, locationName),
-      // The served briefing's neighbour-outlier marks, for `resolveDoor` (App is outside the
-      // provider and the scores endpoint carries no flag). Rides the trigger to `App`, which moves
-      // it into the resolution context; `doorFromTrigger` never copies it into the door.
-      outlierKeys,
-    })
-    : undefined), [onOpenMapTab, openMapTab, outlierKeys]);
+  // Stable across renders: `openMap` is rebuilt every render, so the latest one is reached through the doors ref. Built
+  // once in a lazy state initialiser (not `useCallback`): the React Compiler lint rejects a callback that reads a ref
+  // when it is handed to JSX, and the initialiser's closure is the one place that read is invisible to it.
+  const [showOnMapStable] = useState(() => (dateOrHandoff, eventType, locationName = null) => mapDoorsRef.current?.open({
+    trigger: normalizeMapTrigger(dateOrHandoff, eventType, locationName),
+  }));
+  const showOnMap = onOpenMapTab ? showOnMapStable : undefined;
   /**
-   * A tab asked for from OUTSIDE the bar — the breadcrumb's return, and the aurora banner's door to
-   * Operations for a simulated alert.
-   *
-   * <p>Keyed on a NONCE rather than on the id, because the same destination can be asked for twice
-   * running and the second ask must still land. That is the idiom {@code App} already uses for map
-   * handoffs, for the same reason.
-   *
-   * <p>Goes through {@code selectTab} rather than {@code setActiveTab} so an arriving request gets
-   * everything a click gets — the pane marked as opened, and any open dialog taken down. Selecting
-   * a tab without mounting its pane would show an empty panel.
-   *
-   * <p><b>It sits here, below the dialog state, and not beside {@code selectTab} where it reads
-   * more naturally.</b> {@code selectTab} clears {@code sheetKey} and the sheet state, which are
-   * declared further down; calling it from an effect placed above them is a use-before-declaration
-   * the linter catches. Runtime would have been fine — an effect runs after render — which is
-   * exactly why this is worth a sentence rather than a silent move.
+   * Operations' focus (one-screen-plan.md D9). Closing returns focus to the ☰ menu button (the door it was opened
+   * through, in the commit that shows the screen again, whichever way it closed: "‹ PhotoCast", Back or Forward).
+   * Opening needs nothing here: {@code OperationsScreen} focuses its own heading on mount.
    */
-  const requestedNonce = tabRequest?.nonce ?? null;
-  const requestedId = tabRequest?.id ?? null;
-  const requestedOpener = tabRequest?.opener ?? null;
-  // Seeded with whatever nonce is already in flight at MOUNT, not with null. `App` holds
-  // `tabRequest` and never clears it, and it outlives this component — so a null seed on any
-  // remount would replay the last request rather than treating it as already handled, which
-  // contradicts this file's own rule that tab selection is not persisted.
-  const lastHandledRequest = useRef(tabRequest?.nonce ?? null);
-  useEffect(() => {
-    if (requestedNonce == null || requestedNonce === lastHandledRequest.current) return;
-    lastHandledRequest.current = requestedNonce;
-    // Ignored rather than obeyed: a request naming a tab this shell was handed no pane for would
-    // select an id `effectiveTab` then has to fall back from, i.e. a silent jump to Plan.
-    if (requestedId === 'map' && mapPane == null) return;
-    if (requestedId === 'operations' && operationsPane == null) return;
-    if (!TABS.some((t) => t.id === requestedId)) return;
-    // Responding to a request that arrives from OUTSIDE this component is the effect's whole
-    // purpose — the selected tab is not derivable from props — and the nonce guard means this runs
-    // once per ask rather than on every render, so there is no cascade to trigger.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    selectTab(requestedId);
-    // Focus follows the request, and only a request. A CLICK leaves focus on the tab the pointer or
-    // the keyboard already put it on, so the bar needs nothing; an external ask arrives with focus
-    // wherever the CALLER left it — and the caller here is a dialog that closes on the same press.
-    // Measured on the running app (when an overlay's "open the full map" hatch was the caller):
-    // `activeElement` was the document root, i.e. a keyboard reader was dropped at the top of the
-    // page having just asked to be taken somewhere specific. Deferred a frame because the tab it names may be
-    // rendering for the first time on this very commit.
-    // Reached by id rather than through `tabRefs`, which is index-based: the index depends on which
-    // panes were handed over, so it is the one thing that moves when a tab appears or disappears —
-    // exactly the case this effect exists for. The id is the component's own and is already what
-    // `aria-controls` resolves against.
-    //
-    // A request may carry the control that was pressed to come away (the breadcrumb's return does:
-    // `tabRequest.opener`). It is focused when it is still mounted and now focusable - a Coming up
-    // card, whose pane merely hid while the Map was up - and otherwise the tab's own button takes
-    // the focus, as above (a Plan dialog's button is gone with its dialog).
-    const domId = tabDomId(requestedId);
-    const opener = requestedOpener;
-    requestAnimationFrame(() => {
-      if (opener?.isConnected) {
-        opener.focus?.();
-        if (document.activeElement === opener) return;
-      }
-      document.getElementById(domId)?.focus();
-    });
-    // `selectTab` is deliberately absent from the list. It is rebuilt every render, so listing it
-    // would re-run this on every render with the nonce guard as the only thing stopping it. The
-    // nonce IS the trigger, and it is in the list.
-  }, [requestedNonce, requestedId, requestedOpener, mapPane, operationsPane]);
+  const operationsWasUp = useRef(false);
+  useLayoutEffect(() => {
+    if (operationsWasUp.current && !operationsShown) {
+      (menuBtnRef.current ?? screenHeadingNode())?.focus({ preventScroll: true });
+    }
+    operationsWasUp.current = operationsShown;
+  }, [operationsShown, screenHeadingNode]);
 
   /**
    * Registers a "close the dialogs this shell owns" callback with `App` (overlay convergence C4).
-   * The aurora banner sits OUTSIDE the shell and, pressed on the Map tab, changes no tab - so nothing
+   * The aurora banner sits OUTSIDE the shell and, pressed with the map view open, moves nothing - so nothing
    * would take a Map-hosted four-day sheet down before the window changed under it. The closer is
-   * `selectTab` naming the tab already in force, the shell's one list of what a dialog is. Kept in a
-   * ref refreshed every commit (it closes over this render's `effectiveTab`), and registered once.
+   * {@link closeShellLayers}, the shell's one list of what a dialog is. Kept in a
+   * ref refreshed every commit (it closes over this render's state), and registered once.
    */
   const closeOwnDialogs = useRef(null);
   useEffect(() => {
-    closeOwnDialogs.current = () => selectTab(effectiveTab);
+    closeOwnDialogs.current = () => closeShellLayers();
   });
   useEffect(() => {
     registerCloseDialogs?.(() => closeOwnDialogs.current?.());
     return () => registerCloseDialogs?.(null);
   }, [registerCloseDialogs]);
+  /**
+   * Registers {@code openMap} with `App` (one-screen-plan.md D2): the aurora banner sits OUTSIDE the shell, hands the
+   * map its own handoff, and then asks the shell to show the view. Through the ref, so the registration is made once
+   * and always reaches this render's closures.
+   */
+  useEffect(() => {
+    registerOpenMap?.({
+      open: (request) => mapDoorsRef.current?.open(request),
+      close: (options) => mapDoorsRef.current?.close(options),
+    });
+    return () => registerOpenMap?.(null);
+  }, [registerOpenMap]);
 
   /**
    * The Map tab callout's four-day-sheet handoff (map-tab-v2-plan.md §3 P9) — `openFullMapTab`'s
@@ -1239,32 +1143,15 @@ export default function WindowFirstShell({
    * the sheet returns the reader to the selection they opened it from (an owner ask — "I'd like it
    * to stay with the map behind, then I can back track on my user journey").
    *
-   * <p>⚠️ <b>The peek route goes through {@code selectTab} too, naming the tab already in force.</b>
-   * That is not a trick to read twice: {@code selectTab} is idempotent in everything except the
-   * dialog clearing ({@code setActiveTab} to the current id changes nothing, and {@code setOpenedTabs}
-   * returns {@code prev} for an id it already holds), and that clearing is the only thing making
-   * this sheet the only layer. Routing both ways through it keeps exactly ONE definition of "take
-   * every dialog this shell owns down", so a seventh dialog added later cannot reach one route and
-   * miss the other. (A {@code closeOwnDialogs()} helper called by {@code selectTab} and by this
-   * effect says the same thing and was tried first; it was dropped because splitting the body that
-   * way makes {@code react-hooks/exhaustive-deps} begin demanding {@code selectTab} in two
-   * unrelated effects' dependency lists — a real cost for no behavioural gain.)
+   * <p>⚠️ <b>Both routes go through {@link closeShellLayers}.</b> It is the shell's one list of "take every dialog
+   * this shell owns down", so a dialog added later cannot reach one route and miss the other.
    *
    * <p>⚠️ <b>The clearing and the {@code setSheetSpot} must stay in ONE synchronous body.</b>
-   * {@code selectTab} clears {@code sheetSpot} (along with
-   * the Map list's `sheetKey`), so the {@code setSheetSpot} call below
-   * survives only because it is in the SAME React batch: two calls to one setter inside one commit
-   * resolve to the LAST one, never the {@code null} made a line earlier. That is also why the tab
-   * move rides {@code inPlan} on this payload rather than a second {@code tabRequest} from `App` —
-   * a second channel would put the two writes in two effects and make the outcome depend on their
-   * declaration order.
+   * {@link closeShellLayers} clears {@code sheetSpot} (along with the Map list's `sheetKey`), so the
+   * {@code setSheetSpot} call below survives only because it is in the SAME React batch: two calls to one setter inside
+   * one commit resolve to the LAST one, never the {@code null} made a line earlier.
    *
-   * <p>Guarded by its own nonce and its own ref, mirroring the `tabRequest` effect immediately
-   * above — the identical protection against acting on a STALE handoff twice, which here is the
-   * §3 P9 test brief's own "hidden-pane" concern turned around: this shell's OWN Plan body is
-   * `hidden` rather than unmounted while another tab is active (the same sticky-pane idiom the Map
-   * pane itself relies on), so without a nonce guard a plain prop-identity check could refire on an
-   * unrelated re-render while the Plan tab sits hidden behind whatever tab the reader is actually on.
+   * <p>Guarded by its own nonce and its own ref, so a stale handoff is never acted on twice.
    */
   // Declared before the handoff effect that sets them (`react-hooks/immutability`).
   // True while the location sheet up was opened from Ask's SHEET (set by `askOpenInPlan`).
@@ -1280,8 +1167,15 @@ export default function WindowFirstShell({
   useEffect(() => {
     if (sheetHandoffNonce == null || sheetHandoffNonce === lastHandledSheetHandoff.current) return;
     lastHandledSheetHandoff.current = sheetHandoffNonce;
-    const toPlanTab = locationSheetHandoff.inPlan === true;
-    selectTab(toPlanTab ? 'plan' : effectiveTab);
+    const toScreen = locationSheetHandoff.inPlan === true;
+    // `inPlan`: close the map view and open the sheet on the screen (D12); focus returns to the screen when the sheet
+    // closes. Otherwise the sheet is layer 1 over the view, which stays.
+    if (toScreen) {
+      // A handoff arriving from OUTSIDE this component: responding to it is the effect's whole purpose.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (mapOpen) closeMap({ restoreFocus: false });
+    }
+    closeShellLayers();
     setSheetSpot({
       id: locationSheetHandoff.id ?? null,
       name: locationSheetHandoff.name ?? '',
@@ -1293,24 +1187,20 @@ export default function WindowFirstShell({
     setSheetWindowKey(locationSheetHandoff.date && locationSheetHandoff.targetType
       ? `${locationSheetHandoff.date}:${locationSheetHandoff.targetType}`
       : null);
-    // ⚠️ ONLY on the route that moves the tab. Same focus rule as the `tabRequest` effect above:
-    // an external ask arrives with focus wherever the caller (a callout button that is about to be
-    // hidden along with its whole panel) left it. On the peek route that panel is NOT hidden — the
-    // button is still on screen behind the sheet — so moving focus to a tab the reader did not
-    // press would both send them somewhere they did not ask to go and overwrite the very element
-    // `useDialogFocus` is about to capture as the sheet's return address.
-    if (toPlanTab) {
-      // The opener (on the Map pane) goes hidden and a browser refuses focus there: close returns to the tab.
+    // ⚠️ ONLY on the route that leaves the map view: an external ask arrives with focus wherever the caller (a callout
+    // button that is about to be hidden along with its whole view) left it. On the peek route the view is NOT hidden —
+    // the button is still on screen behind the sheet — so moving focus to the heading would both send the reader
+    // somewhere they did not ask to go and overwrite the very element `useDialogFocus` is about to capture as the
+    // sheet's return address.
+    if (toScreen) {
+      // The opener (on the map view) goes hidden and a browser refuses focus there: close returns to the screen.
       sheetTabReturnRef.current = true;
-      const domId = tabDomId('plan');
-      requestAnimationFrame(() => document.getElementById(domId)?.focus());
+      requestAnimationFrame(() => screenHeadingNode()?.focus());
     }
-    // `selectTab`/`setSheetSpot` deliberately absent from the dependency list — both are rebuilt
-    // every render, and the nonce is the trigger already in it. `effectiveTab` IS in the list (the
-    // linter asks for it and it is free): a tab change re-runs this, and the nonce guard on the
-    // first line returns immediately, exactly as `mapPane`/`operationsPane` do in the `tabRequest`
-    // effect above.
-  }, [sheetHandoffNonce, locationSheetHandoff, effectiveTab]);
+    // `setSheetSpot` is deliberately absent from the dependency list — it is rebuilt every render, and the nonce is
+    // the trigger already in it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetHandoffNonce, locationSheetHandoff]);
 
   // ⚠️ A key whose card has gone stops rendering but is not released, and the effect that would
   // release it is a `setState` inside `useEffect` that `react-hooks/set-state-in-effect` rejects.
@@ -1365,17 +1255,17 @@ export default function WindowFirstShell({
   useBackLayer({ open: sheetCard != null, onBack: () => openSheetLayer(null) });
   useBackLayer({ open: sheetSpot != null, onBack: () => openSheetLayer(null) });
   useBackLayer({ open: areaSheet != null, onBack: () => setAreaSheet(null) });
-  // The arrival's own layer (G2a): a Glance card or a Find pick put the reader on the Map, and Back returns them to
-  // the tab they left. It counts toward `MAX_LAYER_DEPTH` (raised to 3 for it) and registers only while the Map is
-  // the tab in force, so a rejected or lost door cannot leave it standing. `selectTab` ends it for every other tab.
-  const arrivalTab = mapArrivedFrom != null && effectiveTab === 'map' ? mapArrivedFrom : null;
+  // The map view is the BASE layer (one-screen-plan.md D3): it owns one history entry whose address is the layer's
+  // url (`#map/<date>/<event>[/<id>]`, written by the engine, D4), and a sheet, Find or the List stacks over it. Back
+  // closes the top layer first and the view last. A view opened from the page's own address is
+  // activation-gated: the first gesture pushes its entry, until then Back is the browser's.
+  const mapUrl = mapOpen ? formatMapRoute(mapRoute) : undefined;
   useBackLayer({
-    open: arrivalTab != null,
+    open: mapOpen,
     mode: 'close',
-    onBack: () => {
-      selectTab(arrivalTab);
-      requestAnimationFrame(() => document.getElementById(tabDomId(arrivalTab))?.focus());
-    },
+    url: mapUrl,
+    activationGated: mapView?.loadTime === true,
+    onBack: () => closeMap(),
   });
   useBackLayer({ open: searchSeed != null, onBack: () => setSearchSeed(null) });
   /**
@@ -1424,7 +1314,7 @@ export default function WindowFirstShell({
    * Ask PhotoCast's entry and sheet (plan §2.6, F1b).
    *
    * <h2>Where each entry shows</h2>
-   * <p>Below 640px the 48px bar, on Plan and Coming up ONLY — the phone Map gets its entry in the peek
+   * <p>Below 640px the 48px bar, on the screen ONLY — the phone Map gets its entry in the peek
    * sheet (F4) and Operations gets none. From 640 to 1023px the 260px field beside the tab list on
    * those two tabs and on Map (on a tablet the Map's controls are not a peek sheet, so the sheet is
    * the surface). From 1024px the same field (340px with the {@code /} hint from 1180px) opens the
@@ -1443,7 +1333,7 @@ export default function WindowFirstShell({
    * take-down), and {@code openAskSheet} refuses over a dialog this shell does not own; the whole React app
    * container is {@code inert} while the sheet is open (the layout effect below), so a keyboard
    * reader who Tabs out of the sheet reaches neither a card behind the scrim nor a banner above the
-   * shell; and {@code selectTab} closes the sheet on any tab change, from any route.
+   * shell; and {@link closeShellLayers} closes the sheet on any route off the screen.
    */
   // A reader who is not PRO or ADMIN sees every entry LOCKED: a live trigger with a "Pro" pill inside it that
   // opens the worded upsell (docs/engineering/ask-upsell-plan.md). `locked` draws wherever `on` and `down` do;
@@ -1451,16 +1341,17 @@ export default function WindowFirstShell({
   const askLocked = ask.availability === 'locked';
   const askEntry = (() => {
     if (ask.availability !== 'on' && ask.availability !== 'down' && !askLocked) return null;
-    const onSkyTab = effectiveTab === 'plan' || effectiveTab === 'coming-up';
-    if (askSurface === 'phone') return onSkyTab ? 'bar' : null;
-    if (askSurface === 'tablet') return onSkyTab || effectiveTab === 'map' ? 'field' : null;
+    // Operations has no Ask entry at all. The phone's map view has its own entry in the peek; the bar belongs to the
+    // screen under it.
+    if (askSurface === 'phone') return !operationsShown && !mapOpen ? 'bar' : null;
+    if (askSurface === 'tablet') return !operationsShown ? 'field' : null;
     return null;
   })();
   // The docked surface's entry: the same tabs as the tablet's field, from 1024px. "Is there a dock to
   // open" — `askDockOpen` is "is it open".
   const askDocked = askSurface === 'desktop' || askSurface === 'wide';
   const askDockEntry = (ask.availability === 'on' || ask.availability === 'down' || askLocked)
-    && askDocked && effectiveTab !== 'operations';
+    && askDocked && !operationsShown;
   // ⚠️ `askSheetOpen` would otherwise be held while NOTHING draws the sheet — the window crossing 1024px, a
   // phone Map, Ask switched off — and bring the sheet back by itself the next time an entry exists (an
   // iPad turned landscape and back reopened it, unasked, focus and all). So it is let go the render
@@ -1483,8 +1374,7 @@ export default function WindowFirstShell({
    * guide ({@code openAskDock}). On Operations there is no docked row, so the guide is not shown there
    * (GuideProvider closes it on entering the tab).
    */
-  const guideDockShown = guide.open && guide.presentation === 'docked' && askDocked
-    && effectiveTab !== 'operations';
+  const guideDockShown = guide.open && guide.presentation === 'docked' && askDocked && !operationsShown;
   const askDockShown = askDockOpen && askDockEntry && !guideDockShown;
   // The dock returns, after the docked guide closed, WITHOUT stealing focus from the guide's door: the
   // reader asked to leave the guide, not to type. (A door that lived in the dock is gone with it; that
@@ -1501,13 +1391,21 @@ export default function WindowFirstShell({
   }
   /** One flag for the layout: either docked occupant makes the shell root a row. */
   const dockedRow = askDockShown || guideDockShown;
-  /** The guide page the masthead door opens for the tab in force; none on Operations. */
-  const guideTabPage = TAB_GUIDE[effectiveTab] ?? null;
-  /** The masthead `?`: open the tab's page, or close the guide if it is already up. */
+  /** Where the dock column begins, so the map view ends there and leaves the dock beside it, interactive (D12). */
+  const dockEdge = useDockEdge(shellRef, mapOpen && dockedRow);
+  /** The pane's live `{date, eventType, locationId}`, kept as the same object while nothing changed. */
+  const handleMapRoute = useCallback((route) => {
+    setMapRoute((prev) => (prev && route
+      && prev.date === route.date && prev.eventType === route.eventType && prev.locationId === route.locationId
+      ? prev : route));
+  }, []);
+  /** The guide page the menu's Guide row opens for the screen in force; none on Operations. */
+  const guideScreenPage = operationsShown ? null : (SCREEN_GUIDE[mapOpen ? 'map' : 'plan'] ?? null);
+  /** The menu's Guide row: open the screen's page, or close the guide if it is already up. */
   const toggleGuide = () => {
     if (guide.open) guide.closeGuide();
-    // Safari does not focus a button on click, so there may be no focused door to return to: name it.
-    else if (guideTabPage) guide.openGuide(guideTabPage, '', { returnFocus: () => guideBtnRef.current });
+    // Safari does not focus a button on click, so there may be no focused door to return to: name the menu's.
+    else if (guideScreenPage) guide.openGuide(guideScreenPage, '', { returnFocus: () => menuBtnRef.current });
   };
   const askDialogOpen = modalOpenOverLayer || settingsOpen;
   // Two questions the old `askDisabled` answered at once. `askBlocked` is whether the CONTROL is really
@@ -1525,13 +1423,7 @@ export default function WindowFirstShell({
   const askEntryKind = askEntry ?? (askDockEntry ? 'dock-field' : null);
   const askUpsellOpen = askUpsellFor !== null && askUpsellFor === askEntryKind && askLocked && !askBlocked;
   if (askUpsellFor !== null && !askUpsellOpen) setAskUpsellFor(null);
-  const askViewSpec = ASK_VIEW[effectiveTab] ?? ASK_VIEW.plan;
-  // The tablet's Operations tab draws no field, but the tab list is `flex: 1` with Operations pinned
-  // to its right edge (`.wf-tab-gated`): without something holding the field's width, pressing
-  // Operations would widen the list and slide the button out from under the pointer.
-  // Held from 1024px too (F2), where Operations is the same admin-only tab pinned to the same edge.
-  const askGhost = (askSurface === 'tablet' || askDocked) && effectiveTab === 'operations'
-    && (ask.availability === 'on' || ask.availability === 'down' || askLocked);
+  const askViewSpec = mapOpen ? ASK_VIEW.map : ASK_VIEW.plan;
   const askFieldWidth = ASK_FIELD_WIDTH[askSurface] ?? 260;
   /**
    * Opens the sheet. The entry is {@code disabled} (a real attribute, so no press reaches this) while
@@ -1587,29 +1479,29 @@ export default function WindowFirstShell({
   const mapListDoor = useMemo(() => ({ openList: openMapList }), [openMapList]);
   /**
    * "Show on map ›" on a pick: select that pick, leave the sheet, land on the Map tab, keep the
-   * answer. {@code selectTab} is the route (it closes the sheet with the rest of the layers); the
+   * answer. {@link openMap} is the route (it closes the sheet with the rest of the layers); the
    * numbered markers are F3's, so until then the Map shows nothing extra, and F3 reads the selected
-   * pick this leaves. Focus goes to the Map tab button a frame later, the same idiom the
-   * {@code tabRequest} effect uses, because the bar that opened the sheet is unmounted by this very
-   * press and focus would otherwise fall to {@code <body>}.
+   * pick this leaves. The view's own title takes focus on open, because the bar that opened the sheet is unmounted by
+   * this very press and focus would otherwise fall to {@code <body>}.
    *
    * <p>From the DOCK the same route is right for the same reason and costs nothing extra: the dock is
-   * NOT on {@code selectTab}'s list, so it stays open beside the map with the conversation in it, and
+   * NOT on {@link closeShellLayers}'s list, so it stays open beside the map with the conversation in it, and
    * the pressed control — which is not offered on the Map — goes with the tab, so focus is moved
    * rather than left to fall.
    */
   const askShowOnMap = (card) => {
     ask.selectPick(card.rank);
-    if (effectiveTab === 'map') {
-      // The tablet's Ask sheet over the Map (F3): the map is already the tab, but a modal covers it.
+    if (mapOpen) {
+      // The tablet's Ask sheet over the map view (F3): the view is already open, but a modal covers it.
       // Closing the sheet is the whole of "show": the map's camera was holding for exactly this
       // (`AskCameraController` waits while a modal stands over the pane) and fits the moment it goes.
       // Focus returns through the sheet's own restore, so nothing is moved here.
       closeAskSheet();
       return;
     }
-    selectTab('map');
-    requestAnimationFrame(() => document.getElementById(tabDomId('map'))?.focus());
+    // The pressed control is not on the view, and the view's own title takes initial focus on open; the dock (which is
+    // not a layer) stays open beside the view with the conversation in it.
+    openMap({ from: null });
   };
   // The controls on a pick card's own row, AFTER the "Plan this ›" every card carries (that one is a move
   // of the conversation and `AskConversation` draws it on every surface, the phone's peek included). A
@@ -1617,7 +1509,7 @@ export default function WindowFirstShell({
   // somewhere: a Map pane exists, and the reader is not already on it.
   // ...and, since F3, on the tablet's Ask SHEET over the Map: the picks are numbered on a map the sheet
   // covers, and this is the press that uncovers it (the dock, which covers nothing, is not offered it).
-  const askCanShowOnMap = mapPane != null && (effectiveTab !== 'map' || askSheetShown);
+  const askCanShowOnMap = mapPane != null && (!mapOpen || askSheetShown);
   const askPickActions = (card) => (askCanShowOnMap ? (
     <button
       type="button"
@@ -1633,24 +1525,16 @@ export default function WindowFirstShell({
     </button>
   ) : null);
   /**
-   * The tab in force, read from the DOM — the one lookup behind both focus fallbacks below (a ref to the
-   * tab only catches up in a passive effect, and the close that needs it runs in its own cleanup).
-   */
-  const selectedTabNode = useCallback(
-    () => shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null,
-    [],
-  );
-  /**
    * Where focus goes on close when the trigger cannot take it back (a tap never focused it, it was
    * unmounted by the press, or it is disabled): the trigger if it is still there, else the tab in
-   * force — read from the DOM, since a ref to the tab only catches up in a passive effect and this
+   * force — read from the DOM, since a ref only catches up in a passive effect and this
    * runs in the close's own cleanup, before it.
    */
   const askRestoreFallback = useCallback(() => {
     const trigger = askTriggerRef.current;
     if (trigger?.isConnected && !trigger.disabled) return trigger;
-    return selectedTabNode();
-  }, [selectedTabNode]);
+    return screenFocusNode();
+  }, [screenFocusNode]);
   /**
    * Closes the Ask upsell. {@code restoreFocus} sends focus back to the trigger FIRST (the popover, or
    * the trigger itself, may be what held it and a focused node that unmounts takes focus to
@@ -1691,7 +1575,7 @@ export default function WindowFirstShell({
   // An outside press closes the upsell. A `document` listener in the CAPTURE phase so nothing on the page
   // (Leaflet stops some of its own pointer events) can hide the press; it swallows nothing, so a Plan card
   // still opens its popup on the same click. ⚠️ Not `useOutsideDismiss`: that ignores presses inside the map
-  // frame, and a press on the map must close this popover, which belongs to the tab row and not the map.
+  // frame, and a press on the map must close this popover, which belongs to the masthead and not the map.
   // It stands down over a dialog this shell does not own (the postcode prompt, the four-day sheet), where a
   // press would otherwise close the upsell invisibly behind it. The trigger's own press toggles, so it is
   // excluded here.
@@ -1738,9 +1622,9 @@ export default function WindowFirstShell({
     const active = document.activeElement;
     if (active && active !== document.body && active.isConnected) return;
     const trigger = askTriggerRef.current;
-    const target = trigger?.isConnected && !trigger.disabled ? trigger : selectedTabNode();
+    const target = trigger?.isConnected && !trigger.disabled ? trigger : screenFocusNode();
     target?.focus({ preventScroll: true });
-  }, [askUpsellOpen, askUpsellFor, askEntryKind, askLocked, askBlocked, askDialogOpen, selectedTabNode]);
+  }, [askUpsellOpen, askUpsellFor, askEntryKind, askLocked, askBlocked, askDialogOpen, screenFocusNode]);
   /**
    * The control in the DOCK that "Open in Plan ›" was pressed on, so closing the location sheet it opened
    * can put focus back there (null on every other host, where the pressed control went with its surface).
@@ -1761,15 +1645,15 @@ export default function WindowFirstShell({
         const find = shellRef.current?.querySelector('[data-testid="window-first-search"]');
         if (find?.isConnected) return find;
       }
-      return sheetTabReturnRef.current ? selectedTabNode() : null;
+      return sheetTabReturnRef.current ? screenFocusNode() : null;
     },
-    [askRestoreFallback, selectedTabNode],
+    [askRestoreFallback, screenFocusNode],
   );
   /**
    * "Open in Plan ›" on a pick's "Plan this" view (F5, plan §2.8): the Plan tab, the pick's own location
    * sheet, opened AT the pick's window.
    *
-   * <p><b>The two-deep rule, route by route.</b> {@code selectTab('plan')} is the one list that takes
+   * <p><b>The two-deep rule, route by route.</b> {@link closeShellLayers} is the one list that takes
    * every dialog this shell owns down, and it is where the ASK SHEET goes (it sets {@code askSheetOpen} false),
    * so the location sheet is the single modal on the tablet and the phone. The DOCK is not a layer and is
    * not on that list: it stays open beside the plan the reader asked to see, and turns {@code inert}
@@ -1779,7 +1663,7 @@ export default function WindowFirstShell({
    *
    * <p>The sheet is the Plan tab's own, with the window the handoff effect above gives the map's callout:
    * {@code sheetWindowKey} is {@code date:targetType}, so it opens on the pick's window rather than on its
-   * own best. {@code selectTab} clears {@code sheetSpot}, and the setter after it wins only because both
+   * own best. {@link closeShellLayers} clears {@code sheetSpot}, and the setter after it wins only because both
    * are in ONE batch — the reason that effect's own note records, and why this is a handler and not
    * an effect.
    *
@@ -1800,7 +1684,9 @@ export default function WindowFirstShell({
     askOpenerRef.current = askDockShown && opener instanceof HTMLElement ? opener : null;
     askSheetReturnRef.current = askSheetShown;
     warmStackedChunks();
-    selectTab('plan');
+    // The sheet opens on the screen: the view (if it was open) goes, and focus returns to the screen on close.
+    if (mapOpen) closeMap({ restoreFocus: false });
+    closeShellLayers();
     setSheetSpot({
       id: card.locationId ?? null,
       name: card.name,
@@ -1823,21 +1709,20 @@ export default function WindowFirstShell({
     askOpenerRef.current = null;
     const focused = document.activeElement;
     const nowhere = !focused || focused === document.body || focused === document.documentElement;
-    // Only a reader who was left where the sheet's own restore parks them — the PLAN tab, which the press
-    // moved to and the dock's rescue chose — or on nowhere is sent back. Another tab is a choice (arrowing
-    // along the tab bar closes the sheet too), and so is anywhere else they have Tabbed: the same rule
+    // Only a reader who was left where the sheet's own restore parks them — the screen's heading, which the
+    // dock's rescue chose — or on nowhere is sent back. Anywhere else they have Tabbed is a choice: the same rule
     // `useDialogFocus`'s own restore keeps.
-    if ((nowhere || focused === document.getElementById(tabDomId('plan')))
+    if ((nowhere || focused === screenHeadingNode())
       && opener.isConnected && !opener.closest('[inert]')) {
       opener.focus({ preventScroll: true });
     }
-  }, [sheetSpot]);
+  }, [sheetSpot, screenHeadingNode]);
   /**
    * The postcode nudge inside "Plan this": the tick line's own route (close what is open, then
    * settings on the postcode field), with the Ask return address as its restore target.
    */
   const askSetPostcode = () => {
-    selectTab(effectiveTab);
+    closeShellLayers();
     (onSetPostcode ?? onOpenSettings)?.(askRestoreFallback);
   };
   const askPlanActions = { openInPlan: askOpenInPlan, setPostcode: askSetPostcode };
@@ -1854,13 +1739,13 @@ export default function WindowFirstShell({
   const askHighlight = useMemo(() => {
     // Off the moment Ask is: a server that answered 404 hides every surface but keeps the conversation, and a
     // ring with no surface left to clear it would be stuck on the card for the session.
-    if (!askAvailable || effectiveTab !== 'plan' || askSheetShown || askActiveRank == null) return NO_HIGHLIGHT;
+    if (!askAvailable || operationsShown || mapOpen || askSheetShown || askActiveRank == null) return NO_HIGHLIGHT;
     const card = ask.pickCards.find((c) => c.rank === askActiveRank);
     // ⚠️ A NIGHT pick highlights no card: the matrix is a grid of solar windows, and no card of it is an
     // astro or aurora night (`docs/engineering/ask-night-plan.md` §2.6). Its `date:ASTRO` key would match
     // nothing and harm nothing — it is left out so that "nothing" is said here and not by a lookup that fails.
     return card && !card.night ? new Map([[card.windowKey, card.rank]]) : NO_HIGHLIGHT;
-  }, [askAvailable, effectiveTab, askSheetShown, askActiveRank, ask.pickCards]);
+  }, [askAvailable, operationsShown, mapOpen, askSheetShown, askActiveRank, ask.pickCards]);
   /**
    * Where the dock's focus goes if the dock stops being somewhere focus can be while it holds it
    * (it turns {@code inert} under a dialog or a dead backend, or is released because the window
@@ -1904,7 +1789,7 @@ export default function WindowFirstShell({
    * The page behind the sheet, dead while it is open: {@code inert} on the app's own container (the
    * ancestor of this shell that sits directly under {@code <body>} — {@code #root} in production).
    * The sheet is portalled to a different child of {@code <body>}, so it is not covered; the banners
-   * above the shell, the footer, the masthead, the tabs and every pane all are.
+   * above the shell, the footer, the masthead and the screen all are.
    *
    * <p>⚠️ <b>A layout effect, and an attribute set by hand, on purpose.</b> {@code useDialogFocus}
    * restores focus to the opener in a PASSIVE cleanup when the sheet closes, and a node inside an
@@ -1983,10 +1868,10 @@ export default function WindowFirstShell({
    * it and an adversarial review caught the consequence: a renamed location timed correctly and
    * rated as unscored, under a heat field that still painted its star.
    */
-  // Your places (F4): whether the Coming up watchlist is on screen (a Pro reader's list has landed, or a Lite reader's
-  // teaser, which needs no scores).
-  const favouritesState = useFavourites();
-  const watchlistShown = effectiveTab === 'coming-up' && favouritesState.status === 'ready';
+  // Your places (F4): whether the row at the top of This week holds anything to rate (a Pro reader's list has landed
+  // and is not empty; a Lite reader's teaser needs no scores).
+  const watchlistShown = favouritesState.status === 'ready'
+    && (favouritesState.placeIds.size > 0 || favouritesState.areaIds.size > 0);
   const detailScoreIndex = useMemo(
     // ⚠️ TWO readers since M3, and the gate widened with them: search's location rows print the
     // place's own best window from the same id-first index, so the box and the sheet it opens can
@@ -1994,7 +1879,7 @@ export default function WindowFirstShell({
     // nothing, which is the whole point of building it here rather than in the provider.
     // ⚠️ A THIRD reader since F2: the area sheet prints each of its spots' own best window from this index. It stays
     // open after Find has closed (`searchSeed` is null by then), so without it every row read "Not rated".
-    // ⚠️ A FOURTH reader since F4: the Coming up watchlist prints each starred place's own best window from it.
+    // ⚠️ A FOURTH reader since F4: the Coming up watchlist prints each bookmarked place's own best window from it.
     () => ((sheetSpot || searchSeed != null || areaSheet != null || watchlistShown) ? buildScoreIndex(scoreRows) : null),
     [sheetSpot, searchSeed, areaSheet, watchlistShown, scoreRows],
   );
@@ -2028,14 +1913,51 @@ export default function WindowFirstShell({
     [windowCards],
   );
   /**
+   * The map view at load (`docs/engineering/one-screen-plan.md` D4, D10): the page's own `#map/...` address (read
+   * once by `App`, which already rewrote the address bar to the bare path). Every device opens on This week; the view
+   * opens at load only for an address. Waits for the map pane and the briefing, so the window can be judged. A route
+   * names a window and optionally a place: a past or unforecast window opens the view on the map's own window with a
+   * one-line note, an unknown or disabled place opens with no focus (Lite is focused like anyone else: the roster is
+   * role-free). An address is a request and is always honoured. Its Back layer is activation-gated, so the first
+   * gesture pushes the entry.
+   */
+  const loadRouteHandledRef = useRef(false);
+  useEffect(() => {
+    if (!loadMapRoute || loadRouteHandledRef.current || !hasMapPane || loading) return;
+    if (loadMapRoute.date && forecastDates == null) return;
+    loadRouteHandledRef.current = true;
+    const { date, eventType, locationId } = loadMapRoute;
+    const status = routeWindowStatus({ date, eventType }, { todayStr, forecastDates, windowKeys: planWindowKeys });
+    const win = date && status === 'ok' ? { date, eventType } : null;
+    const place = win && locationId != null && Array.isArray(locations)
+      ? locations.find((l) => l?.id === locationId) : null;
+    let note = null;
+    if (status === 'past') note = `That ${LOAD_WORD[eventType] ?? 'window'} has passed`;
+    else if (status === 'unforecast') note = 'Not forecast yet';
+    // Responding to an address that arrives from OUTSIDE this component is the effect's whole purpose, once.
+    // A night's address names the night, not a place: the aurora door and the astro night door reopen it.
+    let focus = place ? { kind: 'location', id: place.id, name: place.name } : null;
+    if (win?.eventType === 'AURORA') focus = { kind: 'aurora' };
+    else if (win?.eventType === 'ASTRO') focus = { kind: 'astro' };
+    openMap({
+      window: win,
+      focus,
+      loadTime: true,
+      note,
+    });
+    onLoadMapRouteHandled?.();
+    // `openMap` is rebuilt every render; the handled ref is the once-only guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadMapRoute, hasMapPane, loading, forecastDates, todayStr, planWindowKeys, locations]);
+  /**
    * A window opened on the Map (G2a, glance-to-map-plan.md): a Glance card, a lane's tap-through and a warning lane
    * all land here. The window selects on the Map through the one {@code kind: 'event'} door ({@link showOnMap}, which
    * closes the Plan dialogs first and merges the live lens), and the tapped topic, when there is one, rides it so the
    * Map selects that chip.
    *
-   * <p>Records where the reader came from so {@code selectTab('map')} can register the arrival's Back layer: Back
-   * returns to Glance. Nothing is recorded for a press already on the Map. With no Map door (no forecast) the press
-   * does nothing, as the Map has nothing to show.
+   * <p>The view's own Back layer is the way back (D3): Back, Escape and ✕ return the reader to the card they pressed.
+   * Pressed while the view is already open (a Find pick) it re-targets the window and pushes nothing. With no Map door
+   * (no forecast) the press does nothing, as the Map has nothing to show.
    *
    * @param {string}  key       the `date:TYPE` window key
    * @param {?string} topicType the tapped lane's HotTopic type, or null
@@ -2044,9 +1966,9 @@ export default function WindowFirstShell({
     if (!showOnMap) return;
     const [date, eventType] = String(key).split(':');
     if (!date || !eventType) return;
-    if (effectiveTab !== 'map') setMapArrival({ from: effectiveTab, pending: true });
     showOnMap({
-      kind: 'event', date, eventType, ...(topicType ? { topicType: String(topicType).toUpperCase() } : {}),
+      kind: 'event', date, eventType, frame: HOME_AND_PLACE,
+      ...(topicType ? { topicType: String(topicType).toUpperCase() } : {}),
     });
   };
   /**
@@ -2085,15 +2007,13 @@ export default function WindowFirstShell({
     return { name, reason, region: can ? record : null };
   }, [sheetSpot, regions, origin]);
   /**
-   * Find — the masthead's labelled button, ⌘K / Ctrl K, and what a pick does on each tab
+   * Find — the masthead's labelled button, ⌘K / Ctrl K, and what a pick does on the screen and on the map view
    * (find-and-favourites-plan.md F1).
    *
    * <h2>Where it is offered</h2>
-   * <p>Plan, Coming up and Map: the three tabs that give a pick a meaning of their own. Operations has none, so
-   * the tick line draws its origin as a statement there and no button. Until F1 the Plan tab alone had it,
-   * because a pick made elsewhere opened a Plan dialog over the wrong tab; each tab now gives a pick its own
-   * meaning instead (the table in the plan), and a pick that needs the Plan tab goes there through
-   * {@code selectTab} first, the way {@code askOpenInPlan} does (decision D6).
+   * <p>The screen and the map view: each gives a pick its own meaning (the table in the plan), and a pick that
+   * needs the screen closes the layers first, the way {@code askOpenInPlan} does (decision D6). Operations has none,
+   * and Find is not offered there (the masthead is hidden under it).
    *
    * <h2>The guards</h2>
    * <p>The button refuses while a sheet layer (the Map's spot list, the next-days sheet or the area sheet) or the
@@ -2105,8 +2025,11 @@ export default function WindowFirstShell({
    * refusal (the focus is in Find's own field by then). {@code preventDefault} only when the key acts, so
    * a refused ⌘K still reaches the browser. The listener is mounted at every width and for every role.
    */
-  const findOffered = effectiveTab === 'plan' || effectiveTab === 'coming-up' || effectiveTab === 'map';
-  const findNode = () => shellRef.current?.querySelector('[data-testid="window-first-search"]') ?? null;
+  const findOffered = !operationsShown;
+  // The Find button the reader came through: the view's own while it is open (the masthead's is inert behind it).
+  const findNode = () => shellRef.current?.querySelector(
+    mapOpen ? '[data-testid="map-screen-find"]' : '[data-testid="window-first-search"]',
+  ) ?? null;
   const openFind = () => {
     if (!findOffered || stackedOverLayer || guideModal) return;
     setSearchSeed('');
@@ -2151,8 +2074,6 @@ export default function WindowFirstShell({
     // Closed-over `findNode` reads the ref only; the open flag is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchSeed]);
-  /** Where a Coming up pick that needs the Plan tab lands: the tab's own button, as `goToPlan` does. */
-  const focusPlanTab = () => tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
   /** The windows Find offers on the Map: only those the map's own window control can reach. */
   const mapFindWindows = useMemo(
     () => (Array.isArray(forecastDates)
@@ -2161,37 +2082,30 @@ export default function WindowFirstShell({
     [heatStripCards, forecastDates],
   );
   /**
-   * A place picked in Find, by tab. Plan: the next-days sheet, as ever. Coming up: the Plan tab, then that sheet
-   * in the same batch (D6). Map: fly there and open its callout, through the Map pane's own channel.
+   * A place picked in Find, by context. The screen: the next-days sheet, as ever. The map view: fly there and open
+   * its callout, through the Map pane's own channel.
    */
   const pickFindLocation = (spot) => {
-    if (effectiveTab === 'map') {
+    if (mapOpen) {
       onFindOnMap?.({ kind: 'location', id: spot.id ?? null, name: spot.name });
       return;
     }
     sheetFromFindRef.current = true;
-    if (effectiveTab === 'coming-up') {
-      warmStackedChunks();
-      selectTab('plan');
-      openSheetLayer({ spot });
-      focusPlanTab();
-      return;
-    }
     openSheetLayer({ spot });
   };
   /**
    * A window picked in Find (G2a): the Map with that window selected, from any tab. On the Map it is selected in place;
-   * from Plan or Coming up it goes through the Map door and records the arrival, so Back returns to the tab it left.
+   * from the screen it goes through the Map door and records the arrival, so Back returns to the tab it left.
    */
   const pickFindWindow = (key) => {
     openWindowOnMap(key);
   };
   /**
-   * A region picked in Find. Plan and Coming up plan from it (the origin moves, as ever); the Map only pans and
+   * A region picked in Find. The screen plans from it (the origin moves, as ever); the Map only pans and
    * frames it, and never calls {@code setOrigin}, because an origin move reaches the rings and every drive time.
    */
   const pickFindRegion = (region) => {
-    if (effectiveTab === 'map') {
+    if (mapOpen) {
       onFindOnMap?.({ kind: 'region', name: region.name });
       return;
     }
@@ -2199,25 +2113,54 @@ export default function WindowFirstShell({
     setOrigin?.(region);
   };
   /**
-   * An area picked in Find. Plan: its sheet. Coming up: the Plan tab, then the sheet in the same batch (D6). Map: fly
+   * An area picked in Find. The screen: its sheet. The map view: fly
    * to it and apply the named-spot lens, through the Map pane's own channel; the pick carries member ids, and the map
    * resolves them to names against its own roster.
    */
   const pickFindArea = (area) => {
-    if (effectiveTab === 'map') {
+    if (mapOpen) {
       onFindOnMap?.({ kind: 'area', id: area.id, name: area.name, ids: area.locationIds });
       return;
     }
     areaFromFindRef.current = true;
-    if (effectiveTab === 'coming-up') {
-      warmStackedChunks();
-      selectTab('plan');
-      setAreaSheet(area);
-      focusPlanTab();
-      return;
-    }
     openSheetLayer(null);
     setAreaSheet(area);
+  };
+  /**
+   * A Your places chip with a window to open (D15): the map view on that window, focused on the place, or on the
+   * area's spots as the named-spot lens (the same lens the area sheet's foot uses).
+   *
+   * @param {{window: {date: string, eventType: string}, focus: object, from: ?Element}} request
+   */
+  const openYourPlace = ({ window: win, focus, from }) => {
+    if (focus?.kind === 'area') {
+      const members = new Set(focus.area.locationIds);
+      const names = heatSpots.filter((spot) => members.has(spot.id)).map((spot) => spot.name);
+      openMap({ window: win, focus: { kind: 'names', focusNames: names }, from });
+      return;
+    }
+    openMap({ window: win, focus, from, frame: HOME_AND_PLACE });
+  };
+  /**
+   * The week's best, named in This week's bar (screen-spec.md D3): the card whose served pick is the Best bet, within
+   * the days this screen shows. Withheld with no map door (the press goes to the map) and, by the card's own pick,
+   * for a Lite reader or an origin that has scoped the pick away. Never ranked here (`utils/weekBest.js`).
+   */
+  const weekBest = useMemo(
+    () => (showOnMap ? weekBestOf(heatStripCards, forecastDates) : null),
+    [showOnMap, heatStripCards, forecastDates],
+  );
+  /** The bar's best button: the map view on that window, framing home and the pick's place, focus returning to it. */
+  const openWeekBest = (event) => {
+    if (!weekBest) return;
+    openMap({
+      window: { date: weekBest.date, eventType: weekBest.eventType },
+      focus: weekBest.locationId != null
+        ? { kind: 'location', id: weekBest.locationId, name: weekBest.place }
+        : null,
+      from: event.currentTarget,
+      frame: HOME_AND_PLACE,
+    });
   };
   /** The area sheet's foot: the Map on the area's best window, with the area's spots as the named-spot lens. */
   const showAreaOnMap = (area) => {
@@ -2226,13 +2169,9 @@ export default function WindowFirstShell({
     const members = new Set(area.locationIds);
     const names = heatSpots.filter((spot) => members.has(spot.id)).map((spot) => spot.name);
     setAreaSheet(null);
-    openMapTab({
-      ...target,
-      region: null,
-      locationName: null,
-      focusNames: names,
-      title: area.name,
-      caption: `${names.length} ${names.length === 1 ? 'spot' : 'spots'}`,
+    openMap({
+      window: { date: target.date, eventType: target.targetType },
+      focus: { kind: 'names', focusNames: names },
     });
   };
   /**
@@ -2335,6 +2274,27 @@ export default function WindowFirstShell({
     ratingLens?.floorId, ratingLens?.minRating, reachMeasured]);
 
   /**
+   * The lens belongs to This week (screen-spec.md D6; lens-this-week-only-plan.md): past This week it is not drawn, at every
+   * width. The state is lifted here, out of the bar, because `useLensReserve` needs it too and cannot see inside the bar.
+   * Never while the plan-conflict verdict shows (`enabled`): a warning with an action is not to be hidden.
+   *
+   * <p>The first-paint guess is the lens's height at the width: a phone's two chip rows and a count line (94px), a
+   * desktop's single row (53.5px); the measurement replaces it as soon as the bar mounts.
+   */
+  const lensVerdictShown = Boolean(conflict?.line);
+  const getLensFocusTarget = useCallback(() => document.getElementById(FURTHER_AHEAD_HEADING_ID), []);
+  const lensPast = useLensPastWeek({
+    enabled: !lensVerdictShown,
+    weekNode,
+    guessHeight: isMobile ? LENS_GUESS_PHONE : LENS_GUESS_WIDE,
+    getFocusTarget: getLensFocusTarget,
+  });
+  // `hidden` here is "Further ahead's top assumes the lens is gone": true unless the verdict holds the lens drawn. It is
+  // NOT `lensPast.hidden`: the Further ahead jump scrolls with margins read BEFORE the lens flips, so they must already
+  // exclude it, or the jump leaves a lens-sized gap above the heading.
+  useLensReserve(shellRef, { hidden: !lensVerdictShown });
+
+  /**
    * The safety warning a topic on this plan carries, and the window it is about.
    *
    * <p>⚠️ <b>Page-level because the surface that used to guarantee it is gone.</b>
@@ -2363,380 +2323,12 @@ export default function WindowFirstShell({
     };
   }, [windowCards, topicIndex, planScopeNames]);
 
-  return (
-    <div
-      ref={shellRef}
-      data-testid="window-first-shell"
-      // Capture phase, per `commitTabInForce`'s own note above: ANY interaction anywhere in this
-      // subtree — a sheet control, the lens bar, a card, a key, a scroll — pins the opening
-      // preference before it can be moved out from under the reader. Pointer, keyboard and wheel
-      // are the three input classes that can reach a control here; a plain `click` needs no
-      // listener of its own because it is always preceded by a `pointerdown`.
-      onPointerDownCapture={commitTabInForce}
-      onKeyDownCapture={commitTabInForce}
-      onWheelCapture={commitTabInForce}
-      // `wf-shell` hosts `--wf-gutter`/`--wf-lens-reserve`/`--wf-lens-h` — the arm's shared
-      // horizontal inset and the sticky-chrome measurements `useLensReserve` publishes. It carries
-      // NO width constraint of its own (map-tab-v2-plan.md §3 P7's second full-frame owner): the
-      // masthead and the tab bar stay wrapped at `WRAP_MAX_WIDTH` below on every tab, and — since
-      // O-17 (bundle rev 2, owner decision 2026-09-03, reversing P7's width release) — the panel
-      // region's own wrapper further down now applies that SAME `WRAP_MAX_WIDTH` on the Map tab
-      // too, rather than releasing it. (A third carrier of the same constant exists while the Ask
-      // dock is open: the COLUMN around both wrappers, which the dock sits beside. It is the same
-      // value from the same constant, so the three cannot disagree.)
-      //
-      // ⚠️ That closes the gap at `sm` (640px) and up, but NOT below it. `App.jsx`'s `<main>`
-      // carries `sm:px-4` on the Map tab — present at `sm`+, absent on the phone — because P12's
-      // full-bleed phone chrome needs the genuine edge (adversarial review, real finding: an
-      // earlier cut dropped `<main>`'s horizontal padding unconditionally, which left the masthead
-      // 32px narrower on Map than on every other tab between 640px and ~1112px, the exact
-      // disagreement O-17 exists to close). So below `sm` a real, deliberate residue survives: the
-      // masthead/tick line/search anchor DO still shift by `<main>`'s own 32px of horizontal
-      // padding on a Plan⇄Map switch on a phone. See `App.jsx`'s own comment on `<main>` for the
-      // full account — this file's width story is complete only at `sm` and up.
-      //
-      // On the Map tab it is ALSO a flex column filling whatever height `App`'s own root gives it
-      // (App.jsx's `isMapTabActive` recast) — `flex-1 min-h-0` so it actually receives that space
-      // rather than sizing to its content, `flex flex-col` so its own children (the masthead+tabbar
-      // wrap below, then the panel region) stack and share it the same way. Every other tab keeps
-      // plain block flow (`w-full` alone), which is today's unchanged layout and scroll. O-17 is
-      // WIDTH ONLY — this vertical/height chain is untouched.
-      //
-      // ⚠️ With the Ask dock open (F2) the root is a ROW — `[column][dock]`, centred as a pair — and
-      // `wf-shell--docked` says so in the stylesheet; on the Map it is then `flex` without `flex-col`
-      // (a utility and a rule of the same specificity would be an order-of-source bet). Everything
-      // else about the chain below is unchanged: the column wrapper takes the root's old place in it.
-      className={`${effectiveTab === 'map'
-        ? `wf-shell w-full flex-1 min-h-0 flex${dockedRow ? '' : ' flex-col'}`
-        : 'wf-shell w-full'}${dockedRow ? ' wf-shell--docked' : ''}${
-        askEntry === 'bar' ? ' wf-ask-bar-on' : ''}`}
-    >
-      {/* THE SHELL COLUMN: the masthead, the tab row and the panel region, and nothing else. It exists
-          so the Ask dock (this wrapper's next sibling in the shell root) can sit BESIDE all three at once — the
-          masthead and the panel then narrow together and O-17's "the two columns never drift apart"
-          holds, which a dock inside either wrapper could not promise. Undocked it is a plain block
-          (a `flex-1 min-h-0` flex column on the Map, taking the root's old place in that chain), so
-          nothing about the layout changes when Ask is off or closed. The two wrappers inside are
-          deliberately NOT re-indented one level, for the reason the tab row's own wrapper gives. */}
-      <div
-        className={effectiveTab === 'map' ? 'wf-shell-col flex-1 min-h-0 flex flex-col' : 'wf-shell-col'}
-        // Docked, the column is a flex item that takes what the dock leaves, up to the one width the
-        // masthead and the panel inside it share. Undocked it is a block and the two wrappers cap
-        // themselves, exactly as before.
-        style={dockedRow ? { maxWidth: WRAP_MAX_WIDTH } : undefined}
-        data-testid="window-first-shell-col"
-      >
-      {/* Masthead + tab bar + tab rule — wrapped at `WRAP_MAX_WIDTH` on EVERY tab, and since O-17
-          the panel region below shares that same width on every tab too (there is no longer a tab
-          whose wrap "releases"), at `sm` (640px) and up — below it `<main>`'s own padding still
-          differs per tab; see the shell root's own comment above. On the Map tab this is also the
-          flex column's first, natural-height item — `flex-shrink-0` so a tight column squeezes
-          the panel below it, never this. */}
-      <div
-        className={effectiveTab === 'map' ? 'mx-auto w-full flex-shrink-0' : 'mx-auto w-full'}
-        style={{ maxWidth: WRAP_MAX_WIDTH }}
-      >
-      {/* The lit band. Three lines in a column, not one row: the lockup and its controls, then
-          today's light as a gradient, then the row that labels it. The band's own surface and its
-          zero bottom padding live on `.wf-mast` in index.css — the time row supplies the bottom
-          space, and a media query is a selector, so no inline style can reach it. */}
-      <div
-        data-testid="window-first-masthead"
-        className="wf-mast border-b border-plex-border"
-      >
-        {isMobile ? (
-          // The phone's one 34px line (compact-chrome plan §1): the compact wordmark, today's golden
-          // times, an admin-only status dot and the ⋯ menu that now holds Settings, Change home
-          // postcode and Sign out. Every width above 639px takes the arm below, unchanged.
-          <div className="wf-mast-row" data-testid="window-first-mast-row">
-            <BrandLockup variant="compact" />
-            <div className="wf-mast-right">
-              {light && (
-                // ⚠️ Always the HOME light (R7): `/light` is keyed on the saved postcode and an away
-                // origin does not move it. Away, a small ⌂ says so, and the label stays as words.
-                <span data-testid="masthead-phone-times" className="wf-mast-times">
-                  {origin && <span aria-hidden="true" className="wf-mast-times-home">⌂</span>}
-                  <span className="sr-only">{light.label}</span>
-                  <span className="wf-mast-time" data-testid="masthead-phone-sunrise">
-                    <span aria-hidden="true" className="wf-mast-arrow">↑</span>
-                    {light.sunrise}
-                    <span className="sr-only"> sunrise</span>
-                  </span>
-                  <span className="wf-mast-time" data-testid="masthead-phone-sunset">
-                    <span aria-hidden="true" className="wf-mast-arrow">↓</span>
-                    {light.sunset}
-                    <span className="sr-only"> sunset</span>
-                  </span>
-                </span>
-              )}
-              {healthDot}
-              <MastheadMenu
-                open={mastMenuOpen}
-                onOpenChange={setMastMenuOpen}
-                buttonRef={menuBtnRef}
-                statusLine={healthStatusLine}
-                // The cog's handler and the nudge's, unchanged (the menu closes first and hands
-                // focus to ⋯, so the dialog they open records it as its opener). The postcode row
-                // also names ⋯ as the place focus returns to if the nudge is gone by the close.
-                onSettings={() => { selectTab(effectiveTab); onOpenSettings?.(); }}
-                onChangePostcode={() => {
-                  selectTab(effectiveTab);
-                  (onSetPostcode ?? onOpenSettings)?.(() => menuBtnRef.current);
-                }}
-                onSignOut={onSignOut}
-                onWarmSettings={warmSettingsModal}
-                onGuide={guideTabPage
-                  ? () => guide.openGuide(guideTabPage, '', { returnFocus: () => menuBtnRef.current })
-                  : undefined}
-              />
-            </div>
-          </div>
-        ) : (
-        <div className="flex items-center gap-3">
-          <BrandLockup variant="masthead" />
-          <div className="ml-auto flex items-center gap-2">
-            {/* Leftmost of the three — it is a reading, not a control the reader operates to get
-                somewhere, so it sits before the pair rather than between them. Absent for everyone
-                but an admin, and the gap collapses on its own. */}
-            {healthPill}
-            {/* ⚠️ TAKES EVERY DIALOG DOWN FIRST, and M5 added that after measuring the alternative.
-                `UserSettingsModal` is a SIBLING of this shell in `App`, so it is outside every
-                mechanism this arm has for ordering layers: it is not a `Modal` this shell renders,
-                `stackedOverLayer` cannot see it, and it takes no `stacked` opt-in. With a sheet
-                open a keyboard reader reached this cog on the forty-second Tab (measured) and
-                got TWO `aria-modal="true"` elements with neither inert — and then one Escape press
-                closed the SHEET underneath while the settings dialog stayed up, because the sheet's
-                own listener was still armed. Closing first is the rule every other route out of the
-                plan already follows (`onGoHome`, the map handoffs), and it keeps the "exactly one
-                modal" property a property of the page rather than of three of its dialogs.
-
-                This is exactly the class of route the v1-retirement plan's §4.3 ruling means by
-                "held route by route": `UserSettingsModal` sits outside `useDialogFocus`'s mechanism
-                the same way it always has, v1 or no v1, and closing here is what keeps the property
-                true without a shell-wide `inert` (the structural alternative, still a named
-                follow-on, not adopted).
-
-                ⚠️ M5's close missed SEARCH, which is `searchSeed` rather than a sheet or a layer
-                over it — and this cog is reachable from an open search box, since the tick line
-                leaves the tab order under it and the cog does not. It now closes through
-                `selectTab` naming the tab in force, the shell's one list, which carries search;
-                the tick line's nudge below does the same, and `App`'s `settingsOpen` edge covers
-                the map's ⌂. None of them reaches a dialog this shell does not own: an
-                Operations-tab admin `Modal` is left open under settings, since what it holds (a generated password, say) a close would lose. */}
-            <button
-              type="button"
-              onClick={() => { selectTab(effectiveTab); onOpenSettings?.(); }}
-              onPointerEnter={warmSettingsModal}
-              onFocus={warmSettingsModal}
-              data-testid="window-first-settings"
-              aria-label="Settings"
-              className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
-              style={{ fontSize: '10.5px', borderRadius: '7px', padding: '5px 10px' }}
-            >
-              ⚙
-            </button>
-            {/* The guide's masthead door (G2): the page for the tab in force, a toggle (open → close).
-                Absent on Operations, which has no guide page. Desktop and tablet only; the phone's is
-                the ⋯ menu's Guide row. `aria-controls` names the docked column when that is what an
-                open guide is; a stacked dialog or the sheet is not in this tree. */}
-            {guideTabPage && (
-              <button
-                ref={guideBtnRef}
-                type="button"
-                onClick={toggleGuide}
-                data-testid="window-first-guide"
-                aria-label="Guide for this tab"
-                aria-expanded={guide.open}
-                aria-controls={guideDockShown ? 'wf-guide-dock' : undefined}
-                className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
-                style={MAST_CTRL_STYLE}
-              >
-                ?
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onSignOut}
-              data-testid="window-first-signout"
-              className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
-              style={{ fontSize: '10.5px', borderRadius: '7px', padding: '5px 10px' }}
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
-        )}
-        <MastheadLight light={light} compact={isMobile} />
-        {/* The tick line — the plan's origin, the way to change it, and today's times, in the one
-            row the design allows for all three. It is inside the band deliberately: the rail
-            footer it replaces sat outside, and a reader who has just moved the origin should not
-            have to look in two places to see where they moved it to. */}
-        <MastheadTickLine
-          light={light}
-          origin={origin ?? null}
-          homePlace={homePlace}
-          // ⚠️ HANDED OVER ON PLAN, COMING UP AND MAP (find-and-favourites-plan.md F1). It was the Plan tab
-          // alone, because every pick acted on the Plan: on Coming up a window or a place opened a Plan
-          // dialog over the almanac feed with the tab unmoved — the state `selectTab` exists to prevent.
-          // Each tab now gives a pick its own meaning (`pickFindLocation`, `pickFindWindow`,
-          // `pickFindRegion`), so both doors are offered on all three. WITHHELD rather than refused on
-          // Operations, which has no meaning for a pick: with no handler the tick line draws the origin as
-          // a statement and no Find button, where a handler that did nothing would leave two controls with
-          // no visible effect (plan-matrix §3 rule 14). The beyond line, the third trigger, sits inside
-          // the Plan pane and is hidden with it.
-          //
-          // ⚠️ And the SAME stacking guard the old `/` search shortcut carried, which M5 added because
-          // the button did not. Measured in a browser: from an open location sheet a keyboard reader
-          // reached this control on the seventeenth Tab and opened search as a THIRD layer — and
-          // `Modal` gives every dialog `fixed inset-0 z-50`, so with equal z-index paint order is DOM
-          // order and the sheet, which renders after search, painted its scrim and its whole card
-          // OVER the search panel. The reader typed into a box behind a dead, dimmed sheet. The
-          // shortcut's own comment (since deleted with it) had settled the rule this restores — "those
-          // are already stacked, and a third layer has nowhere to go" — so the button was
-          // simply bypassing it.
-          onOpenSearch={findOffered ? openFind : undefined}
-          // Takes the sheet layer down first: moving the origin under an open sheet is the case the close-then-move
-          // footer exists to rule out. Focus is the tick line's to settle, not this handler's.
-          onGoHome={() => { openSheetLayer(null); setOrigin?.(null); }}
-          // ⚠️ The cog's rule, which this route went without: `App` wired the nudge straight to its
-          // own handler, so with a sheet open — where `searchOpen` is false and this row
-          // keeps its tab stops — a reader who Tabbed out onto the nudge opened settings OVER the
-          // sheet, two `aria-modal` elements with the sheet's Escape listener still armed beneath.
-          // It closes through the same `selectTab(effectiveTab)` the cog does. Search is a belt here, exactly as
-          // it is for `onGoHome`: under it this row is out of the tab order.
-          //
-          // The arguments are FORWARDED, whatever they are: what the nudge hands its handler is the
-          // tick line's business, and a wrapper here that swallowed them would change that contract
-          // without either end noticing.
-          onSetPostcode={(...args) => {
-            selectTab(effectiveTab);
-            (onSetPostcode ?? onOpenSettings)?.(...args);
-          }}
-          // Out of the tab order for TWO reasons now, which is why the prop is no longer named for
-          // one of them. The anchored search panel covers this row exactly (WCAG 2.4.11) — and a
-          // sheet layer makes the search button refuse, so leaving it tabbable
-          // would be a control with no visible effect, which plan §3 rule 14 bans outright.
-          searchOpen={searchSeed != null || stackedOverLayer}
-          // map-tab-v2-plan.md §3 P11: a per-tab STATE of the tick line, read off the SAME
-          // `effectiveTab` every other map-only branch in this file already keys on (the full-frame
-          // recast at `:1154`/`:1355`, the search/sheet gates below) — never a second "which tab"
-          // test that could disagree with them. Since F1 it no longer withholds Find from the Map;
-          // it keeps the caption only the Map draws ("drive times from here").
-          isMapTab={effectiveTab === 'map'}
-          // Phone only (compact-chrome plan D-1, R2): the Map hides the row at Home — the HOME marker
-          // and reach rings show the origin there, and on the Plan tab the row is search's only way
-          // in — and every phone tab moves the times up into the masthead's one line. Desktop and
-          // tablet pass none of the three, so the row is exactly what it was.
-          hideAtHome={isMobile && effectiveTab === 'map'}
-          fallbackFocus={isMobile ? menuBtnRef : null}
-          showTimes={!isMobile}
-        />
-      </div>
-
-      {/* ⚠️ THE RAIL FOOTER IS GONE, and three of its four elements moved rather than died
-          (plan-matrix §6 M3.5, deletion ledger M3). `PlanOriginChip` and the "Home not set"
-          line are now the tick line's origin button and its empty state; "Edit reach" is the ⚙
-          it already opened, which is one route to the same modal rather than two side by side.
-
-          ⚠️ THE AGE IS THE ONE THAT COST SOMETHING, and the price is stated here rather than left
-          to be rediscovered. It moved beside the strip's change line — the plan's own placement —
-          so the page states ONE age (Rule 7) where the footer and that line had both been printing
-          the same `generatedAt`. Three things follow, and the third is a real loss:
-            · it is Plan-only now, where the footer sat above the tab bar and showed on every tab;
-            · it takes the pane's `contentDisabled` greying, where the footer sat outside it — still
-              drawn and readable at `opacity-50`, not removed;
-            · and it VANISHES when `WindowFirstHeatStrip` withdraws (`cards.length === 0 ||
-              spots.length === 0` — a failed `/api/locations`, a session with no roster), where the
-              footer printed it unconditionally.
-          The defence for the third is that the strip withdraws precisely when there is no forecast
-          on screen to be old, so the age would be qualifying nothing; the deleted row's own comment
-          ("the forecast's AGE is the one fact that becomes more useful when the backend is down")
-          argued the other way, and a reader who wants it back should move the age into the tick
-          line AND strip `runAge` from the change line — never add a second copy. */}
-
-      {/* The tab ROW: the tab list and, from 640 to 1023px, the Ask field BESIDE it (plan §2.6).
-          Always rendered, with or without the field — wrapping conditionally would remount the tab
-          buttons the moment Ask's availability resolved, taking focus from one a reader was on.
-          (The tab list inside is deliberately NOT re-indented one level: that would turn a
-          four-line wrapper into a reflow of eighty lines nobody has to review.) */}
-      <div
-        className="wf-tabrow"
-        data-testid="window-first-tabrow"
-        data-tab-count={tabs.length}
-        data-ask-upsell={askUpsellOpen ? 'open' : undefined}
-      >
-      <div
-        data-testid="window-first-tabs"
-        role="tablist"
-        aria-label="Sections"
-        className="wf-tabs flex gap-1.5"
-      >
-        {tabs.map((tab, index) => {
-          const selected = tab.id === effectiveTab;
-          // Only the Coming up tab ever carries a badge (design §6: "forecast topics do not badge
-          // on arrival" — no other tab has an equivalent signal at all).
-          const badge = tab.id === 'coming-up' ? comingUpBadge : null;
-          // Explicit only while a badge is showing — otherwise the accessible name computes from
-          // content exactly as it always has, and there is nothing here to override. With a badge,
-          // the badge SPAN below is `aria-hidden` and this is the only place its meaning reaches a
-          // screen reader (design §6's two shapes, put into words: "1 new announced event" / "new
-          // interrupt event" — the interrupt shape carries no number to read back, matching the
-          // visual).
-          // The two band names — `interrupt` and `announce` — are the surprise model's, not the
-          // reader's. A screen-reader user hears only this string, so it carries the difference the
-          // bands encode (one exceptional arrival versus several ordinary ones) without naming them.
-          const badgeAriaLabel = badge
-            ? `${tab.label}, ${badge.band === 'interrupt'
-              ? 'one rare event added'
-              : `${badge.count} new event${badge.count === 1 ? '' : 's'}`}`
-            : undefined;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              id={tabDomId(tab.id)}
-              aria-selected={selected}
-              aria-controls={panelDomId(tab.id)}
-              aria-label={badgeAriaLabel}
-              // Roving: the bar is ONE tab stop, and the arrow keys move within it. Without this a
-              // keyboard user tabs through every tab to reach the pane.
-              tabIndex={selected ? 0 : -1}
-              ref={(node) => { tabRefs.current[index] = node; }}
-              onClick={() => selectTab(tab.id)}
-              onKeyDown={(event) => handleTabKey(event, index)}
-              data-testid={tabDomId(tab.id)}
-              // Type, padding and the selected treatment all live in `.wf-tab` — the phone rule
-              // changes two of them, and a media query cannot reach an inline style. The selected
-              // state hangs off `aria-selected`, which the tab pattern already requires above, so
-              // the whole style object migrates without inventing a state class or a prop. The
-              // mock's own weights (500 resting, 600 active) and the gold top rule are in the
-              // stylesheet beside the geometry they belong with.
-              className={`wf-tab${tab.gated ? ' wf-tab-gated' : ''} font-sans whitespace-nowrap border border-plex-border transition-colors ${
-                selected
-                  ? 'bg-plex-surface text-plex-text'
-                  : 'bg-plex-panel text-plex-text-secondary hover:text-plex-text'
-              }`}
-            >
-              {tab.glyph && (
-                <span aria-hidden="true" style={{ fontSize: '12px', opacity: 0.8 }}>
-                  {`${tab.glyph} `}
-                </span>
-              )}
-              {tab.shortLabel ? <GlanceLabel /> : tab.label}
-              {badge && (
-                <span
-                  aria-hidden="true"
-                  data-testid="coming-up-tab-badge"
-                  className={badge.band === 'interrupt' ? 'wf-tab-badge wf-tab-badge-rare' : 'wf-tab-badge'}
-                >
-                  {badge.band === 'interrupt' ? '◆' : badge.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+  /**
+   * The Ask entry fields and the Lite upsell popover: one set, drawn in the masthead while the screen is showing and in
+   * the map view's header while the view is open (the masthead is inert behind it). Never both.
+   */
+  const askFields = (
+    <>
       {askEntry === 'field' && (
         <AskField
           width={260}
@@ -2771,16 +2363,6 @@ export default function WindowFirstShell({
           buttonRef={askTriggerRef}
         />
       )}
-      {askGhost && (
-        <div
-          className="wf-askf wf-askf-ghost"
-          aria-hidden="true"
-          data-width={askFieldWidth}
-          data-testid="ask-field-ghost"
-        />
-      )}
-      {/* The LITE reader's Ask upsell under the field (from 640px): the tab row's last child, out of flow,
-          anchored to the row (`position: relative` in the stylesheet). Inline, never portalled. */}
       {askUpsellOpen && askEntryKind !== 'bar' && (
         <AskUpsellPopover
           id={askUpsellId}
@@ -2792,37 +2374,205 @@ export default function WindowFirstShell({
           foreignOpen={isForeignDialogOpen}
         />
       )}
-      </div>
-      <div data-testid="window-first-tabrule" className="h-px bg-plex-border" />
-      </div>
+    </>
+  );
 
-      {/* The panel region — P7's width split, REVERSED (O-17, bundle rev 2, owner decision
-          2026-09-03): the Map tab no longer goes full-width. Bundle rev 2's own case is
-          structural, not a taste call — full-bleed reads as broken because the tab strip stops at
-          the content column while a full-width panel carries on to the window edge, so the tabs
-          look like they float above an unrelated surface, and full width adds sea and empty moor
-          rather than information (at 2400px one screen spans ~150 miles and the window control and
-          Filters end up a head-turn apart). So this wrapper now applies the SAME `WRAP_MAX_WIDTH`
-          + centering on EVERY tab, Map included — one `style` object below, shared rather than two
-          copies of the constant, so the masthead's column and the map panel's column can never
-          drift apart the way the design's complaint describes. A width change here on tab switch
-          was never actually a hazard either way (nothing sticky lives in this wrapper — the
-          masthead and the tab bar, the two elements a width jump would actually disturb, are both
-          in the wrapper above, which never changes) — but now THIS wrapper's own `maxWidth` never
-          changes either, at any viewport. That is not quite the whole width story, though: below
-          `sm` (640px) `<main>`'s own padding (`App.jsx`, outside this component) still differs
-          per tab for P12's full-bleed phone chrome, so the masthead still shifts by 32px on a
-          phone-width tab switch — see the shell root's own comment above for the full account.
+  /**
+   * The ☰ menu (one-screen-plan.md D9, D14), one mount at every width: Settings, Change home postcode, Guide,
+   * Operations (an admin's only: `App` hands over {@code onOpenOperations} for no one else, so Pro and Lite get no row
+   * at all) and Sign out. Every row takes the dialogs down first ({@link closeShellLayers}, the settings dialog is a
+   * sibling of this shell) and the menu hands focus to its button before the handler runs, so what the row opens
+   * records the button as its opener.
+   */
+  const mastMenu = (
+    <MastheadMenu
+      open={mastMenuOpen}
+      onOpenChange={setMastMenuOpen}
+      buttonRef={menuBtnRef}
+      // The phone has no inline pill: the admin's status reading lives in the menu there. Wider screens draw the pill.
+      statusLine={isMobile ? healthStatusLine : null}
+      onSettings={() => { closeShellLayers(); onOpenSettings?.(); }}
+      onChangePostcode={() => {
+        closeShellLayers();
+        (onSetPostcode ?? onOpenSettings)?.(() => menuBtnRef.current);
+      }}
+      onSignOut={onSignOut}
+      onWarmSettings={warmSettingsModal}
+      // The phone's masthead has no origin chip, so while away the menu carries the way back home (P4).
+      onGoHome={isMobile && origin ? () => { closeShellLayers(); setOrigin?.(null); } : undefined}
+      awayFrom={isMobile && origin ? (origin.baseName ?? null) : null}
+      onGuide={guideScreenPage ? toggleGuide : undefined}
+      guideOpen={guide.open}
+      guideControls={guideDockShown ? 'wf-guide-dock' : undefined}
+      onOperations={onOpenOperations && operationsPane != null
+        ? () => { closeShellLayers(); onOpenOperations(); }
+        : undefined}
+    />
+  );
 
-          The vertical behaviour is UNTOUCHED by O-17. On the Map tab this is still the flex
-          column's second item — `flex-1 min-h-0` so it takes every pixel the masthead+tab-bar item
-          above did not, `flex flex-col` so its own visible child (the Map tab's own slotted-pane
-          wrapper, `.wf-body.wf-body--map` — every OTHER child here is `hidden` while the Map tab
-          is active, so it is the pane's only flex participant) can do the same. No height is
-          computed anywhere in this chain; flexbox distributes it. `mx-auto` costs nothing on that
-          chain — a horizontally centred flex column is still a flex column. */}
+  return (
+    <div
+      ref={shellRef}
+      data-testid="window-first-shell"
+      // `wf-shell` hosts `--wf-gutter`/`--wf-lens-reserve`/`--wf-lens-h` — the arm's shared horizontal inset and the
+      // sticky-chrome measurements `useLensReserve` publishes. It carries NO width constraint of its own: the masthead
+      // stays wrapped at `WRAP_MAX_WIDTH` below. Plain block flow: the map does not recast the page as a
+      // viewport-height flex column (one-screen-plan.md D11 deleted that layout switch);
+      // it is a fixed view over this screen (`MapScreen`, below), so the screen never re-lays-out under it.
+      //
+      // ⚠️ With the Ask dock open (F2) the root is a ROW — `[column][dock]`, centred as a pair — and
+      // `wf-shell--docked` says so in the stylesheet. The map view is `position: fixed` and so takes no part in it.
+      className={`wf-shell w-full${dockedRow ? ' wf-shell--docked' : ''}${askEntry === 'bar' ? ' wf-ask-bar-on' : ''}`}
+    >
+      {/* THE SHELL COLUMN: the masthead and the screen's column, and nothing else. It exists so the Ask dock (this
+          wrapper's next sibling in the shell root) can sit BESIDE both at once, so the masthead and the screen narrow
+          together and the two columns never drift apart, which a dock inside either wrapper could not promise. Undocked it
+          is a plain block, so nothing about the layout changes when Ask is off or closed. */}
       <div
-        className={effectiveTab === 'map' ? 'mx-auto w-full flex-1 min-h-0 flex flex-col' : 'mx-auto w-full'}
+        className="wf-shell-col"
+        // While the map view is open the screen and the masthead behind it are INERT (one-screen-plan.md D1): the same
+        // isolation an `aria-modal` would give, without the three things that need the view NOT to be a modal
+        // (`MapScreen`'s doc). Never the dock column, the AskBar or the `<body>` portals.
+        inert={mapOpen}
+        // Operations covers the whole screen (D9): the masthead and the screen are `hidden`, not just inert, so nothing
+        // behind it is reachable by Tab or a screen reader. They stay mounted, so the screen keeps its scroll.
+        hidden={operationsShown}
+        // Docked, the column is a flex item that takes what the dock leaves, up to the one width the
+        // masthead and the panel inside it share. Undocked it is a block and the two wrappers cap
+        // themselves, exactly as before.
+        style={dockedRow ? { maxWidth: WRAP_MAX_WIDTH } : undefined}
+        data-testid="window-first-shell-col"
+      >
+      {/* The masthead, wrapped at `WRAP_MAX_WIDTH`. The screen's column below shares that same width, so the two never
+          drift apart; below `sm` (640px) `<main>`'s own padding is the only difference (`App.test.jsx` covers it). */}
+      <div
+        className="mx-auto w-full"
+        style={{ maxWidth: WRAP_MAX_WIDTH }}
+      >
+      {/* The lit band. Three lines in a column, not one row: the lockup and its controls, then
+          today's light as a gradient, then the row that labels it. The band's own surface and its
+          zero bottom padding live on `.wf-mast` in index.css — the time row supplies the bottom
+          space, and a media query is a selector, so no inline style can reach it. */}
+      <div
+        data-testid="window-first-masthead"
+        className="wf-mast border-b border-plex-border"
+      >
+        {isMobile ? (
+          // The phone's one line (screen-spec.md section 4, P4): the compact wordmark, then ⌕ Find, the admin's status dot
+          // and the ☰ menu (Settings, Change home postcode, Plan from home again while away, Guide, Sign out). There are no
+          // light times on a phone (the map view's header and the desktop masthead carry them), and the origin chip lives
+          // in the lens caption and the menu. Every width above 639px takes the arm below, unchanged.
+          <div className="wf-mast-row" data-testid="window-first-mast-row">
+            <BrandLockup variant="compact" />
+            <div className="wf-mast-right">
+              {findOffered && (
+                <MastheadFind onOpen={openFind} searchOpen={searchSeed != null || stackedOverLayer} />
+              )}
+              {healthDot}
+              {mastMenu}
+            </div>
+          </div>
+        ) : (
+        <div className="flex items-center gap-3" data-testid="window-first-mast-row-wide">
+          <BrandLockup variant="masthead" />
+          {/* Brand, then (right) the admin's health pill, the Ask field and the ☰ menu (D14). The origin chip and Find
+              are the tick line's, below. Settings, the guide and Sign out are the menu's rows now. The Ask field is
+              drawn here while the screen shows and in the map view's header while the view is open. */}
+          <div className="wf-mast-tools flex flex-1 min-w-0 items-center justify-end gap-2">
+            {healthPill}
+            <div className="wf-mast-askwrap" data-testid="masthead-ask-room">{!mapOpen && askFields}</div>
+            {mastMenu}
+          </div>
+        </div>
+        )}
+        <MastheadLight light={light} compact={isMobile} />
+        {/* The tick line — the plan's origin, the way to change it, and today's times, in the one
+            row the design allows for all three. It is inside the band deliberately: the rail
+            footer it replaces sat outside, and a reader who has just moved the origin should not
+            have to look in two places to see where they moved it to. */}
+        <MastheadTickLine
+          light={light}
+          origin={origin ?? null}
+          homePlace={homePlace}
+          // ⚠️ HANDED OVER ON PLAN, COMING UP AND MAP (find-and-favourites-plan.md F1). It was the Plan tab
+          // alone, because every pick acted on the Plan: on Coming up a window or a place opened a Plan
+          // dialog over the almanac feed — the state `closeShellLayers` exists to prevent.
+          // Each tab now gives a pick its own meaning (`pickFindLocation`, `pickFindWindow`,
+          // `pickFindRegion`), so both doors are offered on all three. WITHHELD rather than refused on
+          // Operations, which has no meaning for a pick: with no handler the tick line draws the origin as
+          // a statement and no Find button, where a handler that did nothing would leave two controls with
+          // no visible effect (plan-matrix §3 rule 14). The beyond line, the third trigger, sits inside
+          // the Plan pane and is hidden with it.
+          //
+          // ⚠️ And the SAME stacking guard the old `/` search shortcut carried, which M5 added because
+          // the button did not. Measured in a browser: from an open location sheet a keyboard reader
+          // reached this control on the seventeenth Tab and opened search as a THIRD layer — and
+          // `Modal` gives every dialog `fixed inset-0 z-50`, so with equal z-index paint order is DOM
+          // order and the sheet, which renders after search, painted its scrim and its whole card
+          // OVER the search panel. The reader typed into a box behind a dead, dimmed sheet. The
+          // shortcut's own comment (since deleted with it) had settled the rule this restores — "those
+          // are already stacked, and a third layer has nowhere to go" — so the button was
+          // simply bypassing it.
+          onOpenSearch={findOffered ? openFind : undefined}
+          // Takes the sheet layer down first: moving the origin under an open sheet is the case the close-then-move
+          // footer exists to rule out. Focus is the tick line's to settle, not this handler's.
+          onGoHome={() => { openSheetLayer(null); setOrigin?.(null); }}
+          // ⚠️ The cog's rule, which this route went without: `App` wired the nudge straight to its
+          // own handler, so with a sheet open — where `searchOpen` is false and this row
+          // keeps its tab stops — a reader who Tabbed out onto the nudge opened settings OVER the
+          // sheet, two `aria-modal` elements with the sheet's Escape listener still armed beneath.
+          // It closes through the same `closeShellLayers()` the menu's Settings row does. Search is a belt here, exactly as
+          // it is for `onGoHome`: under it this row is out of the tab order.
+          //
+          // The arguments are FORWARDED, whatever they are: what the nudge hands its handler is the
+          // tick line's business, and a wrapper here that swallowed them would change that contract
+          // without either end noticing.
+          onSetPostcode={(...args) => {
+            closeShellLayers();
+            (onSetPostcode ?? onOpenSettings)?.(...args);
+          }}
+          // Out of the tab order for TWO reasons now, which is why the prop is no longer named for
+          // one of them. The anchored search panel covers this row exactly (WCAG 2.4.11) — and a
+          // sheet layer makes the search button refuse, so leaving it tabbable
+          // would be a control with no visible effect, which plan §3 rule 14 bans outright.
+          searchOpen={searchSeed != null || stackedOverLayer}
+          // Phone: the row is only the unset-postcode nudge (nothing otherwise); Find is the brand row's own button.
+          // Desktop and tablet keep the whole row, with today's times labelled "today".
+          phone={isMobile}
+          // Once a postcode is saved the phone's row is gone, and the nudge with it: focus lands on ☰, never <body>.
+          fallbackFocus={isMobile ? () => menuBtnRef.current : undefined}
+        />
+      </div>
+
+      {/* ⚠️ THE RAIL FOOTER IS GONE, and three of its four elements moved rather than died
+          (plan-matrix §6 M3.5, deletion ledger M3). `PlanOriginChip` and the "Home not set"
+          line are now the tick line's origin button and its empty state; "Edit reach" is the ⚙
+          it already opened, which is one route to the same modal rather than two side by side.
+
+          ⚠️ THE AGE IS THE ONE THAT COST SOMETHING, and the price is stated here rather than left
+          to be rediscovered. It moved beside the strip's change line — the plan's own placement —
+          so the page states ONE age (Rule 7) where the footer and that line had both been printing
+          the same `generatedAt`. Three things follow, and the third is a real loss:
+            · it is Plan-only now, where the footer sat above the tab bar and showed on every tab;
+            · it takes the pane's `contentDisabled` greying, where the footer sat outside it — still
+              drawn and readable at `opacity-50`, not removed;
+            · and it VANISHES when `WindowFirstHeatStrip` withdraws (`cards.length === 0 ||
+              spots.length === 0` — a failed `/api/locations`, a session with no roster), where the
+              footer printed it unconditionally.
+          The defence for the third is that the strip withdraws precisely when there is no forecast
+          on screen to be old, so the age would be qualifying nothing; the deleted row's own comment
+          ("the forecast's AGE is the one fact that becomes more useful when the backend is down")
+          argued the other way, and a reader who wants it back should move the age into the tick
+          line AND strip `runAge` from the change line — never add a second copy. */}
+
+      </div>
+
+      {/* The screen's column: the SAME `WRAP_MAX_WIDTH` and centring as the masthead (O-17, owner decision 2026-09-03:
+          full-bleed read as broken because the masthead stopped at the content column while a panel carried on to the
+          window edge). One width, so the masthead and the screen can never drift apart. The map is not in this column:
+          it is the fixed view `MapScreen`, drawn after it. No height is computed anywhere in this chain. */}
+      <div
+        className="mx-auto w-full"
         style={{ maxWidth: WRAP_MAX_WIDTH }}
       >
 
@@ -2831,7 +2581,7 @@ export default function WindowFirstShell({
           "no control gates on data that does not exist", and its own footer would read "0 spots
           across 5 windows" over a pane containing neither. It is unmounted rather than hidden so
           the sticky bar cannot take a scroll position with it. */}
-      {effectiveTab === 'plan' && reachLens && ratingLens && (
+      {!operationsShown && reachLens && ratingLens && (
         <div
           ref={lensSentinelRef}
           data-testid="window-first-lens-sentinel"
@@ -2843,9 +2593,12 @@ export default function WindowFirstShell({
           className="wf-lens-sentinel"
         />
       )}
-      {effectiveTab === 'plan' && reachLens && ratingLens && (
+      {!operationsShown && reachLens && ratingLens && (
         <WindowFirstLensBar
           stuck={lensStuck}
+          hidden={lensPast.hidden}
+          attachLens={lensPast.attachLens}
+          focusProps={lensPast.focusProps}
           lens={reachLens}
           ratingLens={ratingLens}
           spotCount={windowCards.reduce((total, card) => total + placesOf(card.spots).length, 0)}
@@ -2853,13 +2606,8 @@ export default function WindowFirstShell({
           // rather than derived in the bar for the reason `spotCount` already is: the counts have to
           // be the lengths of the arrays that were drawn, and only this component can see all six.
           reachedCount={windowCards.reduce((total, card) => total + (card.reachedTotal ?? 0), 0)}
-          // ⚠️ Whether the reach axis COULD act — see `formatLensCount`. A reader with no home
-          // postcode has no drive time anywhere, so `reachedCount` is simply everything and the
-          // readout's "within reach" would name a gate that did nothing. This is the page's ONE
-          // count statement (§4 A7), so it is the most load-bearing place that claim could be
-          // wrong; an adversarial review of M5 found it still making it after the deleted window popup was fixed.
-          // Asked of `allSpots` — the origin scope BEFORE the reach gate — for the reason
-          // the deleted window popup's author recorded (the deleted window popup is gone): the drawn set would make the wording flicker per window.
+          // ⚠️ Whether the reach axis COULD act, see `formatLensCount`. A reader with no home postcode has no drive
+          // time anywhere, so `reachedCount` is simply everything and "within reach" would name a gate that did nothing.
           reachMeasured={windowCards.some((card) => card.reachMeasured)}
           // A reader with no pick has no spots to count: "0 spots across 4 windows" would be false of the picks (S5b-1).
           windowCount={picksFacts?.allowed === 0 ? 0 : windowCards.length}
@@ -2870,80 +2618,109 @@ export default function WindowFirstShell({
         />
       )}
 
-      {/* Mounted whichever tab is selected, and hidden when it is not — the same lifetime the Plan
-          pane has, and for a reason beyond symmetry. Both tabs carry `aria-controls` pointing at
-          their panel's id, and an `aria-controls` whose target is not in the document resolves to
-          nothing: while this was mounted conditionally, the pairing the tab pattern requires was
-          only ever half present, and the half that was missing was always the tab a reader had not
-          reached yet. It costs a heading and a footer in the DOM; it does NOT cost a request, since
-          the fetch is gated on the tab rather than on the mount. */}
-      <WindowFirstComingUp
-        id={panelDomId('coming-up')}
-        labelledBy={tabDomId('coming-up')}
-        hidden={effectiveTab !== 'coming-up'}
-        status={comingUp.status}
-        events={comingUp.events}
-        todayStr={todayStr}
-        onRetry={comingUp.retry}
-        onGoToPlan={goToPlan}
-        onShowOnMap={showOnMap ?? NO_MAP_DOOR}
-        focusRequest={comingUpFocus}
-        onFocusHandled={handleComingUpFocusHandled}
-        comingUpLastSeenDate={comingUpLastSeenDate}
-        forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
-        onMarkSeen={markSeen}
-        locations={locations}
-        watchlist={(
-          <ComingUpWatchlist
-            active={effectiveTab === 'coming-up'}
-            spots={heatSpots}
-            windows={heatStripCards}
-            scoreIndex={detailScoreIndex}
-            reachById={effectiveReachById}
-            allowedLocationIds={allowedLocationIds}
-            // Coming up has no sheet of its own (D6): a pick goes to the Plan tab and opens there, as Find's does.
-            onOpenPlace={(spot) => {
-              warmStackedChunks();
-              selectTab('plan');
-              openSheetLayer({ spot });
-              focusPlanTab();
-            }}
-            onOpenArea={(area) => {
-              warmStackedChunks();
-              selectTab('plan');
-              setAreaSheet(area);
-              focusPlanTab();
-            }}
-          />
-        )}
-      />
-
-      {/* Hidden rather than unmounted: unmounting the pane on every tab change would discard the
-          open window and scroll position on every change back to Plan — which is exactly what
-          `ManageView` does to its sub-views, and the behaviour not to copy. Keeping it mounted
-          keeps whatever the reader had open open.
-
-          BOTH the `hidden` attribute and a display class, and the reason is defence in depth rather
-          than necessity — which is worth stating plainly, because two earlier versions of this
-          comment got the mechanism wrong in opposite directions. Tailwind v4's preflight ships
-          `[hidden]:where(:not([hidden='until-found'])) { display: none !important }`
-          (`node_modules/tailwindcss/preflight.css:396`). That is an AUTHOR rule carrying
-          `!important`, so it beats every normal author declaration whatever the specificity — the
-          attribute alone does hide the pane, and `.flex` does not override it. Verified on the
-          running app: a `<div class="flex" hidden>` computes to `display: none`. Equally, the
-          class alone would be enough, since `display: none` is itself what removes an element from
-          the accessibility tree.
-
-          So: the attribute is the semantic statement and the half jsdom can see; the class is
-          carried so that a display utility added here later cannot quietly re-expose the panel. */}
+      {/* The screen's column: This week, then Further ahead. There is no tab panel and no hidden state any more: the
+          screen is always the page, and the map view and Operations cover it (inert, or `hidden` on the column). */}
       <div
-        id={panelDomId('plan')}
-        role="tabpanel"
-        aria-labelledby={tabDomId('plan')}
-        hidden={effectiveTab !== 'plan'}
         data-testid="window-first-pane"
-        className={`wf-body ${effectiveTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
+        className={`wf-body flex flex-col${dimmed}`}
       >
+      {/* THIS WEEK (one-screen-plan.md O2): the forecast, under a sticky heading that carries the "Further ahead ↓" jump
+          and its NEW badge. Its own `<section>` so the heading sticks for exactly as long as the section is on screen and
+          is then replaced by Further ahead's, which is a sibling section below. The jump's accessible name carries the
+          badge's meaning (the badge span is `aria-hidden`), so the heading's own name stays "This week" (the week's best is a sibling button, never inside it). */}
+      <section
+        id={THIS_WEEK_ID}
+        ref={setWeekNode}
+        aria-labelledby={THIS_WEEK_HEADING_ID}
+        className="wf-sec wf-this-week"
+        data-testid="this-week"
+      >
+        <div className="wf-sec-bar wf-sec-bar-week" data-testid="this-week-bar">
+          <h2
+            id={THIS_WEEK_HEADING_ID}
+            tabIndex={-1}
+            className="wf-sec-h"
+            data-testid="this-week-heading"
+          >
+            {THIS_WEEK_HEADING}
+          </h2>
+          {/* The help `?` for the fixed/could-still-move words, moved here from the strip's retired heading. */}
+          <GuideLink section="fixed" label="What fixed and could still move mean" />
+          {/* The week's best (screen-spec.md D3): the served Best bet, a sibling button (never inside the heading, so the
+              heading's name stays "This week"). Absent for a Lite reader, an away-scoped origin and a forecast with no
+              Best bet. The glyphs are decoration; the name says it in words. */}
+          {weekBest && (
+            <button
+              type="button"
+              className="wf-sec-best"
+              data-testid="this-week-best"
+              onClick={openWeekBest}
+            >
+              {/* No aria-label: the accessible name STARTS with the visible words (WCAG 2.5.3), the stars spoken as
+                  words by StarFigure, then a screen-reader-only tail naming what the button is and does. */}
+              <span className="wf-sec-best-t">
+                {`best ${weekBest.dow} ${weekBest.event}, ${weekBest.place}`}
+                {weekBest.rating != null && (
+                  <>
+                    {' '}
+                    <StarFigure n={weekBest.rating} />
+                  </>
+                )}
+              </span>
+              <span aria-hidden="true">{' →'}</span>
+              <span className="sr-only">, the week&apos;s best, opens the map</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="wf-sec-jump"
+            data-testid="further-ahead-jump"
+            aria-label={furtherAheadJumpLabel}
+            onClick={openFurtherAhead}
+          >
+            Further ahead
+            <span aria-hidden="true">{' ↓'}</span>
+            {watchingCount > 0 && (
+              <span aria-hidden="true" data-testid="further-ahead-jump-watching" className="wf-jump-watching">
+                <BookmarkMark className="wf-yp-mark" />
+                {watchingCount}
+              </span>
+            )}
+            {comingUpBadge && (
+              <span
+                aria-hidden="true"
+                data-testid="further-ahead-jump-badge"
+                className={comingUpBadge.band === 'interrupt' ? 'wf-jump-badge wf-jump-badge-rare' : 'wf-jump-badge'}
+              >
+                {comingUpBadge.band === 'interrupt' ? '◆' : comingUpBadge.count}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Your places (F4, D15): the reader's own bookmarked places and areas as one row of chips at the top of the
+            forecast, or the one-time hint that teaches bookmarking (a Lite reader's carries the Pro pill). Renders nothing for
+            anyone else. */}
+        <YourPlacesRow
+          hintDue={placesHintDue}
+          onDismissHint={onDismissPlacesHint}
+          onSettleHint={onSettlePlacesHint}
+          spots={heatSpots}
+          windows={heatStripCards}
+          scoreIndex={detailScoreIndex}
+          reachById={effectiveReachById}
+          allowedLocationIds={allowedLocationIds}
+          onOpenWindow={openYourPlace}
+          onOpenPlace={(spot) => {
+            warmStackedChunks();
+            openSheetLayer({ spot });
+          }}
+          onOpenArea={(area) => {
+            warmStackedChunks();
+            setAreaSheet(area);
+          }}
+        />
+
         {/* The hazard notice, page-level for the reason the memo records: the card list that used
             to guarantee it is on screen whenever a topic is has been deleted. */}
         {safety && (
@@ -2981,9 +2758,12 @@ export default function WindowFirstShell({
             renderedEntryIds={comingUpEntryIds}
             openableKeys={planWindowKeys}
             forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
-            onOpenComingUp={openComingUp}
+            onLaneEntryIds={setGraduatedIds}
+            quietOpen={openQuietDays}
+            onQuietToggle={toggleQuietDay}
             onShowOnMap={showOnMap ?? NO_MAP_DOOR}
             onOpenLaneOnMap={openWindowOnMap}
+            onOpenWatched={openYourPlace}
             highlightKeys={askHighlight}
             todayStr={todayStr}
             runAge={age}
@@ -3033,71 +2813,105 @@ export default function WindowFirstShell({
             </p>
           )}
         </div>
+      </section>
+
+      {/* FURTHER AHEAD (D5): Coming up's almanac, as the bottom section of the screen. It lists what This week does not
+          already draw as a lane (`graduatedIds`, reported by the heat strip), and the one-off NEW-badge bootstrap fires
+          when its heading first reaches the viewport (D6). */}
+      <FurtherAhead
+        id={FURTHER_AHEAD_ID}
+        headingId={FURTHER_AHEAD_HEADING_ID}
+        graduatedIds={graduatedIds}
+        onHeadingSeen={handleFurtherAheadSeen}
+        status={comingUp.status}
+        events={comingUp.events}
+        todayStr={todayStr}
+        onRetry={comingUp.retry}
+        onGoToPlan={goToPlan}
+        onShowOnMap={showOnMap ?? NO_MAP_DOOR}
+        focusRequest={comingUpFocus}
+        onFocusHandled={handleComingUpFocusHandled}
+        comingUpLastSeenDate={comingUpLastSeenDate}
+        forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
+        onMarkSeen={markSeen}
+        locations={locations}
+      />
       </div>
 
-      {/* The slotted panes. Each renders its panel ELEMENT unconditionally — `aria-controls` must
-          name something that exists, and a tab pointing at nothing is half a relationship — but its
-          CONTENTS wait for the tab to be selected once, and then stay.
+      </div>
+      </div>
 
-          That split is this file's own idiom, not a new one: `useComingUpFeed` is already gated on
-          the selected tab while its panel is always mounted. It matters more here. Mounting
-          `ManageView` eagerly would pull 633 KB and fire its waitlist fetch and the landing
-          sub-view's own (Pipeline Runs) on every Plan-tab first paint, for a pane most sessions
-          never open. Never unmounting after that is equally deliberate — but NOT for the reason
-          first written here. `ManageView` writes
-          `#manage/<tab>` on every sub-tab click and parses that hash on mount, so the sub-view is
-          the one thing that WOULD survive a remount. What a remount actually discards is the rest:
-          the selected run, table filters, scroll position, and a re-fired waitlist fetch.
-          ⚠️ The cost of never unmounting is real and measured: the landing Pipeline Runs sub-view's
-          60-second list poll (and a Scheduler sub-view's 30-second one) keeps running for the rest
-          of the session, invisibly, after the reader has gone back to Plan. Admin-only and one
-          interval, not several — but if that is not wanted, release the pane here rather than
-          deleting the comment. */}
-      {tabs.filter((t) => t.slot).map((tab) => (
-        <div
-          key={tab.id}
-          id={panelDomId(tab.id)}
-          role="tabpanel"
-          aria-labelledby={tabDomId(tab.id)}
-          hidden={effectiveTab !== tab.id}
-          data-testid={`window-first-panel-${tab.id}`}
-          // `wf-body` on BOTH branches, exactly as the two panes above do it. Without it this panel
-          // rendered flush to the frame while its siblings sat at the arm's inset — measured 100px
-          // vs 118px at 1280 and 16px vs 30px at 390 — so the content edge jumped on every tab
-          // change, and ManageView's own group bar landed on the tab rule reading as one two-row
-          // control. That is precisely what this class was introduced to make structurally
-          // impossible, in a comment this file already carries. `gap` is inert on a block panel.
-          //
-          // `wf-body--map` is the SELECTED Map tab's own addition (map-tab-v2-plan.md §3 P7's
-          // third + fourth full-frame owners): it releases `wf-body`'s inset padding to zero (the
-          // map is meant to bleed to the frame's edge — since O-17 that "frame" is this panel's own
-          // width-capped column, not the browser window; see the panel-region wrapper's comment
-          // above) and makes this panel a `flex:1; min-height:0`
-          // flex child of the panel-region wrap above — no height is computed anywhere in the
-          // chain (a `calc(100dvh - …)` version of this shipped once and was reverted: a live
-          // measurement found 16px of inter-element spacing a `ResizeObserver` on element BOXES
-          // cannot see, index.css's own comment on `.wf-body.wf-body--map` has the full account).
-          // Flexbox distributing real, measured space is what lets `MapView`'s own `flex:1` map
-          // container fill "the rest of the screen" with no page scroll. Never applied to
-          // Operations, and never applied to the Map tab while it is merely mounted-but-hidden
-          // (`hidden` wins the cascade regardless either way, but there is no reason to make an
-          // invisible panel a flex child of anything).
-          className={effectiveTab === tab.id
-            ? (tab.id === 'map' ? 'wf-body wf-body--map' : 'wf-body')
-            : 'wf-body hidden'}
+      {/* OPERATIONS (one-screen-plan.md D9): an admin-only full-screen view, open exactly while the page's address says
+          `#manage...` (`App` reads it and hands {@code operationsOpen}). The column above is `hidden` while it stands, so
+          nothing behind it is reachable. Mounted only while open: the pane reads the hash when it mounts, and releasing
+          it stops its list polls. Never a Back layer: its own hashes already give Back, and registering a `#manage`
+          panel with the dialog history is banned (`plan-tab.md`, 'Back'). */}
+      {operationsShown && (
+        <OperationsScreen onClose={onCloseOperations}>{operationsPane}</OperationsScreen>
+      )}
+
+      {/* THE MAP VIEW (one-screen-plan.md D1, D10, D12). A labelled region, `position: fixed` over the inert screen,
+          rendered INSIDE the shell root and never portalled (so `foreignDialogOpen` keeps seeing the dialogs outside
+          the shell, and Ask, `/` and ⌘K keep working). The pane mounts on the FIRST open, visible from its first commit,
+          and stays mounted behind the `hidden` attribute when closed. It sits above the Ask bar and below `Modal`; with
+          the Ask dock or the docked guide open it ends at the dock column's edge, and the dock stays beside it. */}
+      {mapPane != null && mapMounted && (
+        <MapScreen
+          open={mapOpen}
+          onClose={closeMapAnimated}
+          // The scrim closes the view only when nothing is stacked over it: a press that lands there while a sheet or
+          // Find stands belongs to that layer's own backdrop.
+          onScrimPress={() => {
+            if (stackedOverLayer || searchSeed != null || guideModal || askSheetShown) return;
+            closeMap();
+          }}
+          onRoute={handleMapRoute}
+          titleRef={mapTitleRef}
+          right={dockEdge}
+          note={mapNote}
+          onDismissNote={() => setMapNote(null)}
+          find={(
+            <button
+              type="button"
+              data-testid="map-screen-find"
+              className="wf-map-screen-btn font-mono"
+              onClick={openFind}
+              aria-keyshortcuts="Meta+K Control+K"
+            >
+              <span aria-hidden="true">⌕ </span>
+              Find
+            </button>
+          )}
+          origin={(origin?.baseName || homePlace) ? (
+            <>
+              <span data-testid="map-screen-origin" className="wf-map-screen-btn wf-map-screen-origin font-mono">
+                {origin?.baseName ? `From ${origin.baseName}` : `Home · ${homePlace}`}
+                {/* True on the map, where every drive time and leave-by is measured from this place. */}
+                <span className="hidden md:inline">{' · drive times from here'}</span>
+              </span>
+              {/* The masthead's ⌂ is inert behind the view, so an away origin is undone from here. Its press removes
+                  it, so focus goes to the title first (never <body>). */}
+              {origin?.baseName && (
+                <button
+                  type="button"
+                  data-testid="map-screen-origin-home"
+                  className="wf-map-screen-btn font-mono"
+                  aria-label="Plan from home again"
+                  onClick={() => {
+                    mapTitleRef.current?.focus({ preventScroll: true });
+                    setOrigin?.(null);
+                  }}
+                >
+                  <span aria-hidden="true">⌂</span>
+                </button>
+              )}
+            </>
+          ) : null}
+          ask={mapOpen ? askFields : null}
         >
-          {/* `|| tab.id === effectiveTab` — belt over the render-time `openedTabs` adjustment
-              above: a Map pane shown only by the opening PREFERENCE (never through `selectTab`,
-              which already seeds `openedTabs` itself) must mount on the very render it becomes
-              effective, not one render late — a blank panel is the failure this guards. */}
-          {(openedTabs.has(tab.id) || tab.id === effectiveTab)
-            ? (tab.id === 'map'
-              ? <MapListContext.Provider value={mapListDoor}>{mapPane}</MapListContext.Provider>
-              : { mapPane, operationsPane }[tab.slot]) : null}
-        </div>
-      ))}
-      </div>
-      </div>
+          <MapListContext.Provider value={mapListDoor}>{mapPane}</MapListContext.Provider>
+        </MapScreen>
+      )}
 
       {/* Ask PhotoCast's DOCK — the second child of the root row, a sibling of the whole shell column
           (F2, plan §2.6/D-4). Mounted only while open and only from 1024px, on Plan, Coming up and the
@@ -3109,17 +2923,17 @@ export default function WindowFirstShell({
           on Plan and Coming up it sticks to the viewport with the input row at its foot. */}
       {askDockShown && (
         <ChunkErrorBoundary variant="inline" label="Ask PhotoCast" id={ASK_DOCK_ID} onClose={closeAskDock}>
-        <Suspense fallback={<AskDockFallback band={askSurface} sticky={effectiveTab !== 'map'} />}>
+        <Suspense fallback={<AskDockFallback band={askSurface} sticky />}>
         <AskDock
           band={askSurface}
-          sticky={effectiveTab !== 'map'}
+          sticky
           inert={askDialogOpen}
           view={askViewSpec.view}
           viewLabel={askViewSpec.label}
-          contextLabel={ASK_DOCK_CONTEXT[effectiveTab] ?? ASK_DOCK_CONTEXT.plan}
+          contextLabel={mapOpen ? ASK_DOCK_CONTEXT.map : ASK_DOCK_CONTEXT.plan}
           inputRef={askDockInputRef}
           onClose={closeAskDock}
-          fallbackFocus={selectedTabNode}
+          fallbackFocus={screenFocusNode}
           pickActions={askPickActions}
           planActions={askPlanActions}
           focusOnMount={!dockQuiet}
@@ -3135,7 +2949,7 @@ export default function WindowFirstShell({
       {guideDockShown && (
         <GuideDock
           band={askSurface}
-          sticky={effectiveTab !== 'map'}
+          sticky
           inert={askDialogOpen}
         />
       )}
@@ -3226,8 +3040,8 @@ export default function WindowFirstShell({
             key={searchSeed}
             stacked={guideModal}
             initialQuery={searchSeed}
-            tab={findOffered ? effectiveTab : 'plan'}
-            windows={effectiveTab === 'map' ? mapFindWindows : heatStripCards}
+            context={mapOpen ? 'map' : 'screen'}
+            windows={mapOpen ? mapFindWindows : heatStripCards}
             regions={regions}
             locations={heatSpots}
             originId={origin?.id ?? null}
@@ -3267,7 +3081,7 @@ export default function WindowFirstShell({
             onPickRegion={pickFindRegion}
             // ⚠️ The same belt here, and for the reason above rather than a new one: nothing can be over search
             // when a pick fires, because a sheet layer is what refuses search. A pick on a window selects it on the
-            // Map (`pickFindWindow`), which closes any sheet through `selectTab` first.
+            // Map (`pickFindWindow`), which closes any sheet through `closeShellLayers` first.
             onPickWindow={pickFindWindow}
             // P8: a location result opens that place's own six-window timeline rather than jumping
             // straight to the map. The map is not lost — the sheet's footer carries it and names
@@ -3356,7 +3170,7 @@ export default function WindowFirstShell({
             // sheet; the block's button closes this sheet before Settings opens.
             outsidePicks={isOutsidePicks(allowedLocationIds, sheetSpot.id ?? sheetLocation?.id ?? null)}
             onOpenSubRegions={openSubRegions
-              ? () => { openSheetLayer(null); openSubRegions(selectedTabNode); }
+              ? () => { openSheetLayer(null); openSubRegions(screenFocusNode); }
               : null}
             // Where the close lands when the sheet was opened from Ask's sheet (F5); null for every
             // other opening, which keeps its restore exactly as it was.
@@ -3408,9 +3222,7 @@ export default function WindowFirstShell({
             // `LocationFourDaySheet` renders `location-sheet-nomap`'s sentence in its place.
             onShowOnMap={onOpenMapTab
               ? (date, targetType, name) => {
-                openMapTab({
-                  date, targetType, locationName: name, region: null,
-                });
+                openMap({ window: { date, eventType: targetType }, focus: { kind: 'location', name } });
               }
               : undefined}
           />
@@ -3430,12 +3242,12 @@ WindowFirstShell.propTypes = {
   /** The active scoreRamp mode, forwarded to the heat strip as its paint-repaint key. */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
   /**
-   * The shell→App channel for the full-frame Map tab (map-tab-v2-plan.md §3 P7). Fired with the
-   * effective tab id on mount and on every change — `App` cannot otherwise learn which tab is
-   * active (`effectiveTab` is shell-internal), and it needs to know in order to recast `<main>`'s
-   * padding (no bottom padding, `sm:px-4`, the top padding kept) for the Map tab.
+   * The shell→App channel for the screen in force: {@code 'plan'} (the screen), {@code 'map'} (the map view is open) or
+   * {@code 'operations'}, fired on mount and on every change, and {@code null} on unmount. `App` cannot otherwise learn
+   * it (the view's state is shell-internal), and it needs it to lift the session notice over the map view, to inert
+   * the page's own banners behind it and to tell the guide which page to follow.
    */
-  onTabChange: PropTypes.func,
+  onScreenChange: PropTypes.func,
   onOpenSettings: PropTypes.func.isRequired,
   /**
    * Whether `App`'s settings dialog is open. The shell does not render that dialog, so this is the
@@ -3450,19 +3262,8 @@ WindowFirstShell.propTypes = {
       every existing test renders without it. */
   onSeasonalFeaturesChange: PropTypes.func,
   locations: PropTypes.array,
-  /** The Map pane. Absent means no Map tab — the tab and its content arrive together. */
+  /** The Map pane. Absent means no map view and no door onto one. */
   mapPane: PropTypes.node,
-  /**
-   * A tab selection asked for from outside the bar, as {@code {id, nonce}}. The nonce is what makes
-   * it fire, so the same tab can be requested twice running. A request naming a tab this shell has
-   * no pane for is ignored rather than obeyed.
-   */
-  tabRequest: PropTypes.shape({
-    id: PropTypes.string,
-    nonce: PropTypes.number,
-    // The control a door was pressed on, carried by the breadcrumb's return: focused if still mounted.
-    opener: PropTypes.object,
-  }),
   /**
    * Registers a "close my dialogs" callback with `App` (called with the closer, and with null on
    * unmount) - the aurora banner sits outside the shell and must be able to take a Map-hosted
@@ -3492,17 +3293,23 @@ WindowFirstShell.propTypes = {
   }),
   /**
    * The map doors' shared entry (doors D2, `plan-to-map-doors-plan.md` §3) — `App.jsx`'s
-   * `openMapTabFromPlan`, called by the shell's own `openMapTab(door)` wrapper (which closes the
-   * popup/window sheet first and merges in the live lens values). Absent whenever there is nothing
+   * `openMapTabFromPlan`, called by the shell's own `openMap` (which closes the layers first and merges in the live
+   * lens values). Absent whenever there is nothing
    * to map (`App`'s own `hasForecastData` gate) — no door renders without it: a control that opens
    * nothing is banned, so every producer's control is withheld with it.
    */
   onOpenMapTab: PropTypes.func,
   /**
-   * The Operations pane. Absent means no Operations tab, and that is the admin gate in full: the
-   * caller holds the role and withholds the pane, so nothing role-shaped reaches this component.
+   * The Operations pane. Absent means no Operations view and no ☰ menu row for it, and that is the admin gate in full:
+   * the caller holds the role and withholds the pane, so nothing role-shaped reaches this component.
    */
   operationsPane: PropTypes.node,
+  /** Whether the page's address says Operations is open (`#manage...`, read by `App`); shown only with the pane. */
+  operationsOpen: PropTypes.bool,
+  /** Opens Operations from the ☰ menu's row. Absent means the menu has no Operations row. */
+  onOpenOperations: PropTypes.func,
+  /** The "‹ PhotoCast" button's handler: leaves Operations for the screen. */
+  onCloseOperations: PropTypes.func,
   /**
    * The masthead's status pill, on the same terms as {@code operationsPane}: absent means no pill,
    * which is how the admin gate reaches this arm without a role crossing into it.
@@ -3537,10 +3344,28 @@ WindowFirstShell.propTypes = {
     lon: PropTypes.number,
   }),
   /**
-   * The tab this device opens on — {@code 'plan'} or {@code 'map'}, resolved once by
-   * {@code App} via {@code utils/initialTab.js} (default-tab-by-device-plan.md §4.2). Absent means
-   * Plan, the long-standing default every existing shell test still gets with no prop at all. A
-   * STANDING PREFERENCE, not a one-time selection — see {@code activeTab}'s own Javadoc.
+   * Registers {@code openMap} with `App` (called with an opener, and with null on unmount): the aurora banner is outside
+   * the shell and asks it to show the map view after handing the map its own handoff.
    */
-  initialTab: PropTypes.oneOf(['plan', 'map']),
+  registerOpenMap: PropTypes.func,
+  /**
+   * Whether the one-time "Bookmark places and watch dates" hint is still due (screen-spec.md D8): the server's own
+   * {@code placesHintDue}, read with the reader's settings. False while unknown. Handed to Your places.
+   */
+  placesHintDue: PropTypes.bool,
+  /** Records the hint's dismissal (hides it at once and writes the flag). Absent in tests that do not render the hint. */
+  onDismissPlacesHint: PropTypes.func,
+  /** Told once the reader has saved a favourite while the hint was due, so the page's own flag drops with no write. */
+  onSettlePlacesHint: PropTypes.func,
+  /**
+   * The map view to open at load (one-screen-plan.md D4): `{date, eventType, locationId}` from the page's own `#map/...`
+   * address. Null means open nothing: every device opens on This week.
+   */
+  loadMapRoute: PropTypes.shape({
+    date: PropTypes.string,
+    eventType: PropTypes.string,
+    locationId: PropTypes.number,
+  }),
+  /** Told once the shell has acted on (or dropped) {@code loadMapRoute}, so `App` can spend it. */
+  onLoadMapRouteHandled: PropTypes.func,
 };

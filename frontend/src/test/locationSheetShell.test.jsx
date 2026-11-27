@@ -403,13 +403,16 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     const view = renderShell();
     await openSheetFor('Bamburgh');
     fireEvent.click(screen.getByRole('button', { name: /Show on map/ }));
-    // `inPlace: false` — this shell's fixture has no map pane, so `effectiveTab` is 'plan' and the
+    // `inPlace: false` — this shell's fixture has no map pane, so the view is closed and the
     // press IS a door. The peek's own in-place stamp is pinned in
     // `WindowFirstShellLocationSheetHandoff.test.jsx`.
-    expect(view.props.onOpenMapTab).toHaveBeenCalledWith({
-      date: '2026-08-14', targetType: 'SUNSET', locationName: 'Bamburgh Beach', region: null,
-      minRating: null, limitMinutes: 45, inPlace: false, from: 'plan',
-    });
+    // One door, `openMap`'s: the location trigger with the Plan's live lens, and no `from` (the breadcrumb that named it
+    // is gone, one-screen-plan.md D12).
+    expect(view.props.onOpenMapTab).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'location', date: '2026-08-14', eventType: 'SUNSET', locationName: 'Bamburgh Beach',
+      minRating: null, limitMinutes: 45, inPlace: false,
+    }));
+    expect(view.props.onOpenMapTab.mock.calls[0][0]).not.toHaveProperty('from');
     // Never the retired route — a re-pointing must not also ring the old bell, or the overlay would
     // open silently behind the Map tab.
     expect(view.props.onShowOnMap).not.toHaveBeenCalled();

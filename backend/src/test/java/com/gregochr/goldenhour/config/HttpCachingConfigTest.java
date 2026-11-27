@@ -124,6 +124,8 @@ class HttpCachingConfigTest {
         // write and the reverse lookup. Both POST/PUT today, pinned so a future GET under either
         // path cannot be missed — the reverse body is derived from the caller's own location.
         "/api/user/settings/postcode-prompt-dismissed",
+        // The one-time Bookmark-places hint dismissal (screen-spec D8): a PUT, but pinned with its sibling.
+        "/api/user/settings/places-hint-dismissed",
         "/api/user/settings/home/reverse",
         // The caller's sub-region picks (sub-regions-plan S2). A GET, so it is the one that WOULD be
         // filtered if the whitelist ever matched by prefix; the body is the reader's own picks.
@@ -135,6 +137,8 @@ class HttpCachingConfigTest {
         "/api/user/settings/favourites",
         "/api/user/settings/favourites/places/7",
         "/api/user/settings/favourites/areas/7",
+        // A watched almanac date (one-screen-plan D16): the key is the reader's own, so it is never filtered either.
+        "/api/user/settings/favourites/dates/king-tide:2026-12-03",
         // Each area's figure for THIS reader (find-and-favourites-plan D3): gated members counted, a Lite
         // reader's picks implied by the counts. Shaped per reader, so it must never be ETag-shared.
         "/api/areas/outlook",

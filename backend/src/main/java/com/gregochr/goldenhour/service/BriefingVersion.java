@@ -26,9 +26,10 @@ import java.util.List;
  *
  * <p><b>What it covers</b> is exactly what {@link ReachVerdictService} reads: per region its weather verdict,
  * display verdict, gloss headline, sample flags, mean and confidence; per slot its location, rating, canopy flag,
- * neighbour mark and the two reach stamps; and the UK civil date, because confidence is horizon-dependent. It
- * deliberately omits prose, tide and weather figures, which the reach computation does not read, so a change to them
- * does not make a client refetch for nothing.
+ * neighbour mark, the two reach stamps and the disposition the coverage-reason fold reads (category, cycle ended,
+ * low visibility); per blanked region its coverage reason and fog; and the UK civil date, because confidence is
+ * horizon-dependent. It deliberately omits prose, tide and weather figures, which the reach computation does not
+ * read, so a change to them does not make a client refetch for nothing.
  */
 final class BriefingVersion {
 
@@ -77,6 +78,10 @@ final class BriefingVersion {
         put(digest, region.forcedSample());
         put(digest, region.meanRating());
         put(digest, region.confidence());
+        // What a blanked region says about why (unscored-reason-card-plan): the reach computation copies these onto
+        // a window, so a changed reason must make a client refetch.
+        put(digest, region.coverageReason());
+        put(digest, region.fog());
         for (BriefingSlot slot : region.slots()) {
             put(digest, slot.locationId());
             put(digest, slot.locationName());
@@ -85,6 +90,11 @@ final class BriefingVersion {
             put(digest, slot.neighbourOutlier());
             put(digest, slot.forced());
             put(digest, slot.triaged());
+            // The inputs the reach tier's CoverageReasons fold reads from each in-reach slot.
+            EvaluationViewService.LatestDisposition disposition = slot.disposition();
+            put(digest, disposition == null ? null : disposition.category());
+            put(digest, disposition == null ? null : disposition.cycleEnded());
+            put(digest, disposition == null ? null : disposition.lowVisibility());
         }
     }
 

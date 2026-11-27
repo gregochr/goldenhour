@@ -78,7 +78,7 @@ describe('warning lanes on the desktop grid', () => {
 
   it('names the lane from its content, with the span and the destination, so the visible words are in the name', () => {
     render(<WindowGlanceLanes lanes={[]} onTap={() => {}} warningLanes={[wLane()]} onWarningTap={() => {}} />);
-    const button = screen.getByRole('button', { name: /^Amber warning of snow, .*Saturday to Sunday, opens the At a Glance window$/ });
+    const button = screen.getByRole('button', { name: /^Amber warning of snow, .*Saturday to Sunday, opens that window on the map$/ });
     expect(button).toBeInTheDocument();
   });
 
@@ -177,7 +177,7 @@ describe('warning lanes on the phone', () => {
 
   it('speaks the day it is on', () => {
     render(<WindowGlanceLanes lanes={[]} date="2026-10-25" onTap={() => {}} warningLanes={[wLane()]} onWarningTap={() => {}} />);
-    expect(screen.getByRole('button', { name: /Amber warning of snow, Sunday, opens the At a Glance window/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Amber warning of snow, Sunday, opens that window on the map/ })).toBeInTheDocument();
   });
 
   it('renders nothing for a day with no warning lane and no footer', () => {

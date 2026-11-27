@@ -45,7 +45,7 @@ class OpenMeteoArchiveClientTest {
                 "[" + responseJson(10) + "," + responseJson(90) + "]");
 
         List<OpenMeteoForecastResponse> results =
-                client.fetchArchiveBatch(coords(2), DATE, HOURLY);
+                client.fetchArchiveBatch(coords(2), DATE, HOURLY).responses();
 
         assertThat(results).hasSize(2);
         assertThat(results.get(0).getHourly().getCloudCoverLow()).containsExactly(10);
@@ -59,7 +59,7 @@ class OpenMeteoArchiveClientTest {
         RestClientMocks.stubGet(restClient, String.class, responseJson(42));
 
         List<OpenMeteoForecastResponse> results =
-                client.fetchArchiveBatch(coords(1), DATE, HOURLY);
+                client.fetchArchiveBatch(coords(1), DATE, HOURLY).responses();
 
         assertThat(results).hasSize(1);
         assertThat(results.getFirst().getHourly().getCloudCoverLow()).containsExactly(42);
@@ -75,7 +75,7 @@ class OpenMeteoArchiveClientTest {
                 arrayJson(5, 90));
 
         List<OpenMeteoForecastResponse> results =
-                client.fetchArchiveBatch(coords(total), DATE, HOURLY);
+                client.fetchArchiveBatch(coords(total), DATE, HOURLY).responses();
 
         assertThat(results).hasSize(total);
         assertThat(results.getFirst().getHourly().getCloudCoverLow()).containsExactly(10);
@@ -96,7 +96,7 @@ class OpenMeteoArchiveClientTest {
                 "gateway timeout, not json");
 
         List<OpenMeteoForecastResponse> results =
-                client.fetchArchiveBatch(coords(total), DATE, HOURLY);
+                client.fetchArchiveBatch(coords(total), DATE, HOURLY).responses();
 
         // Length is preserved so index-based mapping downstream stays correct.
         assertThat(results).hasSize(total);
@@ -109,7 +109,7 @@ class OpenMeteoArchiveClientTest {
         RestClientMocks.stubGetThrows(restClient, String.class, new RuntimeException("503"));
 
         List<OpenMeteoForecastResponse> results =
-                client.fetchArchiveBatch(coords(3), DATE, HOURLY);
+                client.fetchArchiveBatch(coords(3), DATE, HOURLY).responses();
 
         // Length must match the request: callers map back by index, so a short list would
         // silently shift every subsequent evaluation's observations onto the wrong row.
@@ -128,7 +128,7 @@ class OpenMeteoArchiveClientTest {
                 "{\"error\":true,\"reason\":\"Hourly API request limit exceeded.\"}");
 
         List<OpenMeteoForecastResponse> results =
-                client.fetchArchiveBatch(coords(2), DATE, HOURLY);
+                client.fetchArchiveBatch(coords(2), DATE, HOURLY).responses();
 
         // Nulls, not a parsed-but-empty response — so the caller records no observations
         // and the runner can stop rather than grinding on.
@@ -141,7 +141,7 @@ class OpenMeteoArchiveClientTest {
         RestClientMocks.stubGet(restClient, String.class,
                 "[" + responseJson(10) + ",{\"error\":true,\"reason\":\"limit\"}]");
 
-        assertThat(client.fetchArchiveBatch(coords(2), DATE, HOURLY))
+        assertThat(client.fetchArchiveBatch(coords(2), DATE, HOURLY).responses())
                 .hasSize(2).containsOnlyNulls();
     }
 
@@ -150,15 +150,15 @@ class OpenMeteoArchiveClientTest {
     void fetchArchiveBatch_badJson_returnsNulls() {
         RestClientMocks.stubGet(restClient, String.class, "not json");
 
-        assertThat(client.fetchArchiveBatch(coords(2), DATE, HOURLY))
+        assertThat(client.fetchArchiveBatch(coords(2), DATE, HOURLY).responses())
                 .hasSize(2).containsOnlyNulls();
     }
 
     @Test
     @DisplayName("fetchArchiveBatch handles no coordinates without calling the API")
     void fetchArchiveBatch_emptyCoords_returnsEmpty() {
-        assertThat(client.fetchArchiveBatch(List.of(), DATE, HOURLY)).isEmpty();
-        assertThat(client.fetchArchiveBatch(null, DATE, HOURLY)).isEmpty();
+        assertThat(client.fetchArchiveBatch(List.of(), DATE, HOURLY).responses()).isEmpty();
+        assertThat(client.fetchArchiveBatch(null, DATE, HOURLY).responses()).isEmpty();
     }
 
     private List<double[]> coords(int count) {

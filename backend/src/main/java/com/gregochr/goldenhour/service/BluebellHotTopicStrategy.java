@@ -189,10 +189,34 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
                     topRegions,
                     BLUEBELL_DESCRIPTION,
                     expandedDetail);
-            topics.add(topic.withScience(buildFacts(dayScores, bestScore), BLUEBELL_NOTE));
+            topics.add(topic.withScience(buildFacts(dayScores, bestScore), BLUEBELL_NOTE)
+                    .withLocations(qualifyingWoods(dayScores, topRegions)));
         }
 
         return topics;
+    }
+
+    /**
+     * The exact woods to ring for the day: bluebell locations whose rating at either event reaches
+     * {@value #HOT_TOPIC_THRESHOLD}, restricted to the topic's kept regions so the region-scope
+     * filter and the rings agree. Distinct names, best rating first, then name.
+     *
+     * @param dayScores  all bluebell-scored slot composites for the day
+     * @param topRegions the regions the topic carries (after the {@value #MAX_REGIONS} cut)
+     * @return the qualifying wood names
+     */
+    private static List<String> qualifyingWoods(List<SlotSignals> dayScores, List<String> topRegions) {
+        return dayScores.stream()
+                .filter(s -> s.scores().bluebell() != null
+                        && s.scores().bluebell() >= HOT_TOPIC_THRESHOLD)
+                .filter(s -> s.location() != null && s.location().getName() != null
+                        && s.location().getRegion() != null
+                        && topRegions.contains(s.location().getRegion().getName()))
+                .sorted(Comparator.comparingInt(BluebellHotTopicStrategy::bluebellScore).reversed()
+                        .thenComparing(s -> s.location().getName()))
+                .map(s -> s.location().getName())
+                .distinct()
+                .toList();
     }
 
     /**

@@ -152,7 +152,7 @@ export default function RegionForm({ mode, region = undefined, onClose, onCancel
 
         {mode === 'base' && (
           <fieldset className="flex flex-col gap-2" data-testid="region-base-fields">
-            <legend className={labelClass}>Base town — the origin the At a Glance tab can plan from</legend>
+            <legend className={labelClass}>Base town — the origin This week can plan from</legend>
             <p className="text-xs text-plex-text-muted">
               The town a visitor would stay in, not the region&apos;s centre — a centroid is often offshore, and every
               drive time would then measure a journey nobody can make. Leave all three blank and the region cannot be

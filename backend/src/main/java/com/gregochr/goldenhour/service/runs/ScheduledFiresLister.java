@@ -28,9 +28,9 @@ import java.util.Optional;
 /**
  * Lists what the scheduler will still run before the UK day ends, for the Day view's "still to run today".
  *
- * <p>Only the scheduler jobs whose runs the Day view can show are listed: the three cycle jobs, the tide, wildlife
- * and astro refreshes, the aurora batch and the weekly sky eval. Fixed-delay pollers are left out (they would flood
- * the list and most write no run). Fires are stepped by the scheduler's own arithmetic
+ * <p>Only the scheduler jobs whose runs the Day view can show are listed: the three cycle jobs, the tide, wildlife,
+ * astro and snow state refreshes, the aurora batch and the weekly sky eval. Fixed-delay pollers are left out (they
+ * would flood the list and most write no run). Fires are stepped by the scheduler's own arithmetic
  * ({@link DynamicSchedulerService#firesBetween}). Each cycle fire chains a briefing run at its end and an ask-ready
  * run after it, and the astro job chains an ask-ready run; their times are estimates from the medians of the last 30
  * runs and are listed only when those medians exist.
@@ -43,6 +43,9 @@ class ScheduledFiresLister {
 
     /** The astro conditions refresh job's key. */
     static final String ASTRO_JOB = "astro_conditions_refresh";
+
+    /** The snow state refresh job's key. */
+    static final String SNOW_JOB = "snow_state_refresh";
 
     /** Fewer earlier runs than this and no estimate is made from them. */
     static final int MIN_ESTIMATE = 3;
@@ -76,6 +79,7 @@ class ScheduledFiresLister {
             WILDLIFE_JOB, new Def("Wildlife comfort", StatKey.ofJob(RunType.WEATHER, EvaluationModel.WILDLIFE),
                     Role.PLAIN, null),
             ASTRO_JOB, new Def("Astro conditions", StatKey.ofJob(RunType.WEATHER, null), Role.ASTRO, null),
+            SNOW_JOB, new Def("Snow state", StatKey.ofJob(RunType.SNOW_STATE, null), Role.PLAIN, null),
             // Aurora batches share a run type with the cycles' batch runs, so there is no population to estimate from.
             SchedulerRunsService.AURORA_BATCH_JOB, new Def("Aurora batch", null, Role.PLAIN, null),
             SkyRatingEvalService.JOB_KEY, new Def(RunDeepType.SKY_EVAL.label(), StatKey.SKY_EVAL, Role.PLAIN, null));

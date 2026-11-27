@@ -32,7 +32,7 @@ function Harness({ initialLayers = 0, closes = 'all', tab = 'plan', probe }) {
   };
   useEffect(() => { probe.set('closeShellDialogs', spy); });
   return (
-    <GuideProvider closeShellDialogs={closeShellDialogs} activeTab={tab}>
+    <GuideProvider closeShellDialogs={closeShellDialogs} activeScreen={tab}>
       <Doors probe={probe} />
       {/* The shell mounts this in the Ask dock's slot; here it stands in for that slot. */}
       <GuideDock band="wide" sticky inert={false} />
@@ -256,10 +256,10 @@ describe('the message listener', () => {
   it('takes the title and page from the frame it owns and points "Open in new tab" at them', () => {
     mount();
     press('door-map');
-    post(report({ page: 'coming-up.html', title: 'Coming up.', hash: '#tides' }));
-    expect(screen.getByTestId('guide-title')).toHaveTextContent('Coming up');
+    post(report({ page: 'planning.html', title: 'Planning a shoot.', hash: '#tides' }));
+    expect(screen.getByTestId('guide-title')).toHaveTextContent('Planning a shoot');
     expect(screen.getByTestId('guide-new-tab')).toHaveAttribute(
-      'href', `${GUIDE_ORIGIN}/guide/coming-up.html#tides`,
+      'href', `${GUIDE_ORIGIN}/guide/planning.html#tides`,
     );
   });
 
@@ -436,7 +436,7 @@ describe('tab changes', () => {
     const { rerenderWith } = mount({ tab: 'plan' });
     act(() => screen.getByTestId('door-map').click());
     // Opened on the Map page while on Plan: not Plan's own page, so it must stay put.
-    rerenderWith({ tab: 'coming-up' });
+    rerenderWith({ tab: 'map' });
     expect(frame().getAttribute('src')).toContain('/map.html');
   });
 
@@ -444,10 +444,10 @@ describe('tab changes', () => {
     const probe = makeProbe();
     installViewport(1280);
     const view = render(<Harness probe={probe} tab="plan" />);
-    act(() => probe.guide.openGuide('at-a-glance'));
+    act(() => probe.guide.openGuide('planning'));
     const before = frame();
-    view.rerender(<Harness probe={probe} tab="coming-up" />);
-    expect(frame().getAttribute('src')).toContain('/coming-up.html?embed=1');
+    view.rerender(<Harness probe={probe} tab="map" />);
+    expect(frame().getAttribute('src')).toContain('/map.html?embed=1');
     expect(frame()).not.toBe(before);
     expect(screen.getByTestId('guide-dock')).toBeInTheDocument();
   });
@@ -457,12 +457,12 @@ describe('tab changes', () => {
     installViewport(1280);
     const view = render(<Harness probe={probe} tab="plan" />);
     act(() => probe.guide.openGuide('settings'));
-    post(report({ page: 'at-a-glance.html', title: 'At a Glance.', hash: '' }));
+    post(report({ page: 'planning.html', title: 'Planning a shoot.', hash: '' }));
     view.rerender(<Harness probe={probe} tab="map" />);
     expect(frame().getAttribute('src')).toContain('/map.html');
     // ...and the reverse: a frame that wandered off the old tab's page stays where the reader took it.
     post(report({ page: 'settings.html', title: 'Settings.', hash: '' }));
-    view.rerender(<Harness probe={probe} tab="coming-up" />);
+    view.rerender(<Harness probe={probe} tab="map" />);
     expect(frame().getAttribute('src')).toContain('/map.html');
   });
 

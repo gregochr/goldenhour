@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.util.ForecastHorizon;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -289,19 +290,38 @@ final class BriefingHonestyFilter {
     }
 
     /**
-     * Words a region that a reach tier left with no rated place the way the served pipeline words a zero-coverage
-     * one (reach-scoped-card-plan R2): STAND_DOWN only where the pipeline really stood a place down on weather,
-     * AWAITING otherwise, so a tier never says "Stand down" for places that were simply not attempted.
+     * Words a region that a reach tier left with no rated place exactly as the served pipeline words a zero-coverage
+     * one: the SAME {@link CoverageReasons#of} fold and {@link CoverageReasons#fogMajority}, run over the in-reach
+     * slots (unscored-reason-card-plan 3.1). Ties, missing records, failures and the T+4 rule therefore behave as
+     * they do on the served path, a tier card over fog says "fog", and a tier never words a place "Stand down" for
+     * a minority of stood-down places among stability skips.
      *
-     * <p>The served filter reads the latest dispositions to tell the two apart; a reach computation may not read the
-     * stores again (D5), so it reads the {@code triaged} stamp the rollup put on each slot from the same evidence.
+     * <p>The served filter reads the latest dispositions to build the fold's lookup; a reach computation may not
+     * read the stores again (reach-scoped-card-plan D5), so each slot carries the disposition the serve-time
+     * assembler stamped from the same read, and the lookup is rebuilt from those stamps. A slot with no stamp has no
+     * record, which the fold reads as {@code UNKNOWN}, its own safe default.
      *
      * @param region    the pruned region, with no rated place
-     * @param standDown whether any of its places was triaged by the weather
+     * @param inReach   the places left in reach (the slots the region was re-rolled over)
+     * @param date      the window's date
+     * @param type      the window's event
+     * @param daysAhead the window's horizon from the UK civil date ({@code ForecastHorizon}, injected clock)
      * @return the region blanked exactly as the filter blanks a zero-coverage one
      */
-    static BriefingRegion blankedForReach(BriefingRegion region, boolean standDown) {
-        return fullRewrite(region, standDown ? CoverageReason.STOOD_DOWN : CoverageReason.NOT_ATTEMPTED, false);
+    static BriefingRegion blankedForReach(BriefingRegion region, List<BriefingSlot> inReach, LocalDate date,
+            TargetType type, int daysAhead) {
+        List<BriefingSlot> scoreable = inReach.stream().filter(BriefingSlot::couldCarryRating).toList();
+        Map<String, LatestDisposition> latestBySlot = new HashMap<>();
+        for (BriefingSlot slot : scoreable) {
+            if (slot.disposition() != null) {
+                latestBySlot.put(EvaluationViewService.stabilitySkipKey(slot.locationName(), date, type),
+                        slot.disposition());
+            }
+        }
+        CoverageReason reason = CoverageReasons.of(scoreable, date, type, daysAhead, latestBySlot);
+        boolean fog = reason == CoverageReason.STOOD_DOWN
+                && CoverageReasons.fogMajority(scoreable, date, type, latestBySlot);
+        return fullRewrite(region, reason, fog);
     }
 
     /**
@@ -360,6 +380,8 @@ final class BriefingHonestyFilter {
                 null,
                 null,
                 null,
-                reason);
+                reason,
+                null,
+                fog ? Boolean.TRUE : null);
     }
 }

@@ -1724,7 +1724,8 @@ class BriefingServiceTest {
                     new HotTopicSimulationService(), mock(TravelDayService.class), passthrough,
                     new HotTopicGlanceDecorator(),
                     mock(SlotSignalReader.class),
-                    mock(com.gregochr.goldenhour.repository.LocationRepository.class));
+                    mock(com.gregochr.goldenhour.repository.LocationRepository.class),
+                    mock(SnowStateReader.class));
             BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
             LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(

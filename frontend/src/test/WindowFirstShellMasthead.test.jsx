@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import { openMapView, registerMapDoor } from './shellMapDoor.js';
 
 /**
  * The Plan's masthead, and specifically the status pill it inherited from the app header it
@@ -69,7 +70,7 @@ const renderShell = (extraProps = {}, ctxOverrides = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing')
     .mockReturnValue({ ...ctx(), ...ctxOverrides });
   const props = {
-    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
+    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [], registerOpenMap: registerMapDoor,
     ...extraProps,
   };
   return { ...props, ...render(<WindowFirstShell {...props} />) };
@@ -89,8 +90,7 @@ describe('WindowFirstShell — the masthead status pill', () => {
     renderShell();
     expect(screen.queryByTestId('health-indicator')).toBeNull();
     // The rest of the masthead is unaffected — the gap collapses on its own.
-    expect(screen.getByTestId('window-first-settings')).toBeInTheDocument();
-    expect(screen.getByTestId('window-first-signout')).toBeInTheDocument();
+    expect(screen.getByTestId('masthead-menu-button')).toBeInTheDocument();
   });
 
   it('renders the pill in the masthead when one is handed over', () => {
@@ -99,12 +99,11 @@ describe('WindowFirstShell — the masthead status pill', () => {
     expect(masthead).toContainElement(screen.getByTestId('health-indicator'));
   });
 
-  // Reading first, then the two controls. A pill dropped between the cog and Sign out would
-  // split a pair the reader treats as one group.
-  it('places it ahead of the settings cog and Sign out', () => {
+  // Reading first, then the control. The pill sits ahead of the ☰ menu it used to sit beside the cog and Sign out for.
+  it('places it ahead of the ☰ menu button', () => {
     renderShell({ healthPill: PILL });
     const pill = screen.getByTestId('health-indicator');
-    const cog = screen.getByTestId('window-first-settings');
+    const cog = screen.getByTestId('masthead-menu-button');
     expect(pill.compareDocumentPosition(cog) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
@@ -221,13 +220,12 @@ describe('WindowFirstShell — the lit band', () => {
     expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Newcastle');
   });
 
-  it('carries exactly the tick line\'s controls beside the two it already had', () => {
+  it('carries exactly the tick line\'s controls beside the ☰ menu it already had', () => {
     renderShell({ light: LIGHT });
     const masthead = screen.getByTestId('window-first-masthead');
 
     expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
-      .toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
-        'window-first-origin-chip', 'window-first-search']);
+      .toEqual(['masthead-menu-button', 'window-first-origin-chip', 'window-first-search']);
     // No home button at home, and no nudge once the light has resolved.
     expect(screen.queryByTestId('window-first-origin-home')).toBeNull();
     expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
@@ -241,8 +239,7 @@ describe('WindowFirstShell — the lit band', () => {
     const masthead = screen.getByTestId('window-first-masthead');
 
     expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
-      .toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
-        'masthead-set-postcode', 'window-first-search']);
+      .toEqual(['masthead-menu-button', 'masthead-set-postcode', 'window-first-search']);
   });
 
   it('stays out of the greying a DOWN backend applies, like the rest of the band', () => {
@@ -288,7 +285,7 @@ describe('WindowFirstShell — the compact phone masthead', () => {
   const DOT = <span data-testid="health-dot">dot</span>;
   const LINE = <button type="button" data-testid="health-status-line">UP</button>;
   const openMenu = () => fireEvent.click(screen.getByTestId('masthead-menu-button'));
-  const mapTab = () => fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+  const mapTab = () => openMapView();
 
   describe('on the phone', () => {
     beforeEach(() => { mockIsMobile = true; });
@@ -300,39 +297,72 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(screen.getByRole('heading', { name: /PhotoCast/ })).toBeInTheDocument();
     });
 
-    it('renders no cog and no Sign out button at rest — they live in the ⋯ menu', () => {
+    it('renders no cog and no Sign out button at rest — they live in the ☰ menu', () => {
       renderShell({ light: LIGHT });
       expect(screen.queryByTestId('window-first-settings')).toBeNull();
       expect(screen.queryByTestId('window-first-signout')).toBeNull();
       expect(screen.getByTestId('masthead-menu-button')).toBeInTheDocument();
     });
 
-    it('draws the golden times as ↑/↓ with the event words for assistive tech', () => {
+    it('draws no light times at all: the phone masthead is the brand, ⌕ Find and ☰ (screen-spec.md P4)', () => {
       renderShell({ light: LIGHT });
-      const times = screen.getByTestId('masthead-phone-times');
-      expect(screen.getByTestId('masthead-phone-sunrise')).toHaveTextContent('↑06:04 sunrise');
-      expect(screen.getByTestId('masthead-phone-sunset')).toHaveTextContent('↓19:58 sunset');
-      expect(times).toHaveTextContent('Home · NE66 1NG');
-      // The blue hours stay off the phone, and the tick line draws no times of its own.
-      expect(times).not.toHaveTextContent('05:32');
-      expect(screen.queryByTestId('masthead-light-times')).toBeNull();
-    });
-
-    it('draws no times while the light is unanswered or no home is saved', () => {
-      renderShell({ light: undefined });
       expect(screen.queryByTestId('masthead-phone-times')).toBeNull();
+      expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+      expect(screen.queryByTestId('masthead-light-today')).toBeNull();
+      expect(document.querySelector('.wf-mast-times')).toBeNull();
     });
 
-    it('R7 — always the HOME light: a small ⌂ prefixes the times while away, none at home', () => {
-      const { unmount } = renderShell({ light: LIGHT });
-      expect(screen.getByTestId('masthead-phone-times').querySelector('.wf-mast-times-home')).toBeNull();
-      unmount();
-      renderShell({ light: LIGHT }, { origin: LAKES });
-      const home = screen.getByTestId('masthead-phone-times').querySelector('.wf-mast-times-home');
-      expect(home).toHaveTextContent('⌂');
-      expect(home).toHaveAttribute('aria-hidden', 'true');
-      // …and the label is still there as words.
-      expect(screen.getByTestId('masthead-phone-times')).toHaveTextContent('Home · NE66 1NG');
+    it('is ONE line: no tick line, no origin chip, Find in the brand row beside the menu', () => {
+      renderShell({ light: LIGHT });
+      const row = screen.getByTestId('window-first-mast-row');
+      expect(within(row).getByTestId('window-first-search')).toHaveClass('wf-mast-find');
+      expect(within(row).getByTestId('window-first-search')).toHaveAccessibleName('Find');
+      expect(within(row).getByTestId('masthead-menu-button')).toBeInTheDocument();
+      expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+      expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
+      expect(screen.queryByTestId('window-first-origin-home')).toBeNull();
+    });
+
+    it('draws the unset-postcode nudge as a slim line under the brand row, and only then', () => {
+      renderShell({ light: null }, { homePlace: null });
+      const line = screen.getByTestId('window-first-tickline');
+      expect(line).toHaveClass('wf-tick-phone');
+      expect(within(line).getByTestId('masthead-set-postcode')).toBeInTheDocument();
+      expect(within(line).queryByTestId('window-first-search')).toBeNull();
+      // Find stays one tap away, in the brand row.
+      expect(within(screen.getByTestId('window-first-mast-row')).getByTestId('window-first-search')).toBeInTheDocument();
+    });
+
+    it('takes Find out of the Tab order while the search panel covers the masthead, like the tick line did', () => {
+      renderShell({ light: LIGHT });
+      const find = screen.getByTestId('window-first-search');
+      expect(find).not.toHaveAttribute('tabindex');
+      fireEvent.click(find);
+      expect(screen.getByTestId('window-first-search')).toHaveAttribute('tabindex', '-1');
+    });
+
+    it('offers no Find on Operations, which has no meaning for a pick', () => {
+      renderShell({ light: LIGHT, operationsPane: <div>ops</div>, operationsOpen: true });
+      expect(screen.queryByTestId('window-first-search')).toBeNull();
+    });
+
+    it('names an away origin from the ☰ menu, whose row sends the reader home', () => {
+      const setOrigin = vi.fn();
+      renderShell({ light: LIGHT }, { origin: LAKES, setOrigin });
+      openMenu();
+      const row = screen.getByTestId('masthead-menu-home');
+      expect(row).toHaveTextContent('Plan from home again · from Keswick');
+      fireEvent.click(row);
+      expect(setOrigin).toHaveBeenCalledWith(null);
+      expect(screen.queryByTestId('masthead-menu')).toBeNull();
+      // Focus is on the ☰ button, which outlives the origin it removed.
+      expect(document.activeElement).toBe(screen.getByTestId('masthead-menu-button'));
+    });
+
+    it('has no such row at home', () => {
+      renderShell({ light: LIGHT });
+      openMenu();
+      expect(screen.queryByTestId('masthead-menu-home')).toBeNull();
     });
 
     it('draws the thinner rule', () => {
@@ -402,50 +432,38 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(onOpenSettings).toHaveBeenCalledTimes(1);
     });
 
-    it('⚠️ does not reopen the menu after a rotation to tablet and back', () => {
+    it('keeps one menu through a rotation to a tablet and back: the shell holds its state and the button is drawn at every width', () => {
       const { rerender, ...rest } = renderShell();
       openMenu();
       expect(screen.getByTestId('masthead-menu')).toBeInTheDocument();
 
       mockIsMobile = false;
       rerender(<WindowFirstShell {...rest} />);
-      expect(screen.queryByTestId('masthead-menu-button')).toBeNull();
+      expect(screen.getByTestId('masthead-menu-button')).toHaveAttribute('aria-expanded', 'true');
       mockIsMobile = true;
       rerender(<WindowFirstShell {...rest} />);
 
-      expect(screen.getByTestId('masthead-menu-button')).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.queryByTestId('masthead-menu')).toBeNull();
+      expect(screen.getByTestId('masthead-menu-button')).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getAllByTestId('masthead-menu-button')).toHaveLength(1);
     });
 
-    it('closes the menu when a tab is chosen (selectTab takes it down)', () => {
+    it('closes the menu when the reader jumps to Further ahead (closeShellLayers takes it down)', () => {
       renderShell({}, { });
       openMenu();
       expect(screen.getByTestId('masthead-menu')).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('tab', { name: 'Coming up' }));
+      fireEvent.click(screen.getByTestId('further-ahead-jump'));
       expect(screen.queryByTestId('masthead-menu')).toBeNull();
     });
 
-    it('R2 — hides the ORIGIN at Home on the Map tab (Find stays, alone), and still draws it on the other tabs', () => {
+    it('the masthead is the same with the map view open: the view\'s own header carries Find and the origin (D12)', () => {
       renderShell({ light: LIGHT, mapPane: MAP }, { });
-      // Plan tab (the default): the row is Find's way in, so it stays — without the times.
-      expect(screen.getByTestId('window-first-tickline')).toBeInTheDocument();
-      expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
-      expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+      expect(screen.queryByTestId('window-first-tickline')).toBeNull();
       mapTab();
-      // F1: the Map has Find too, so the row is not empty at Home any more — the HOME marker and the rings
-      // still say where the plan is from, so the row draws the Find button and nothing else.
-      expect(screen.getByTestId('window-first-tickline')).toHaveAttribute('data-compact', 'true');
-      expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
+      // Inert behind the view, but not rewritten for it: still the one line, with no tick line and no origin chip.
+      expect(screen.queryByTestId('window-first-tickline')).toBeNull();
       expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-      expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
-    });
-
-    it('draws the compact row on the Map tab when away, with ⌂ first', () => {
-      renderShell({ light: LIGHT, mapPane: MAP }, { origin: LAKES });
-      mapTab();
-      expect(screen.getByTestId('window-first-tickline')).toHaveAttribute('data-compact', 'true');
-      expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('The Lake District');
-      expect(screen.getByTestId('window-first-origin-home')).toBeInTheDocument();
+      expect(screen.getByTestId('map-screen-find')).toBeInTheDocument();
+      expect(screen.getByTestId('map-screen-origin')).toHaveTextContent('Home · Newcastle');
     });
 
     it('draws the red nudge row on the Map tab with no postcode', () => {
@@ -454,44 +472,34 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(screen.getByTestId('masthead-set-postcode').closest('.wf-tick-group'))
         .toHaveAttribute('data-unset', 'true');
     });
-
-    it('⚠️ ⌂ on the phone Map (Away to Home) leaves focus on ⋯, not <body>', () => {
-      // The route through the real shell: `setOrigin` is the briefing context's, so this stands in
-      // for it by letting the mocked context answer a null origin after the press.
-      const setOrigin = vi.fn();
-      const { rerender, ...rest } = renderShell(
-        { light: LIGHT, mapPane: MAP }, { origin: LAKES, setOrigin },
-      );
-      mapTab();
-      const home = screen.getByTestId('window-first-origin-home');
-      home.focus();
-      fireEvent.click(home);
-      expect(setOrigin).toHaveBeenCalledWith(null);
-      vi.spyOn(briefingContext, 'useWindowFirstBriefing')
-        .mockReturnValue({ ...ctx(), origin: null, setOrigin });
-      rerender(<WindowFirstShell {...rest} />);
-
-      // The row stays (Find alone), with no origin to take focus, so ⋯ is the nearest control.
-      expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-      expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
-      expect(document.activeElement).toBe(screen.getByTestId('masthead-menu-button'));
-    });
   });
 
   describe('off the phone (desktop and tablet provably unchanged)', () => {
-    it('keeps the masthead lockup with its kicker, the cog, Sign out and the tick line with times', () => {
+    it('keeps the masthead lockup with its kicker, the ☰ menu with Settings and Sign out, and the tick line with times', () => {
       renderShell({ light: LIGHT, healthPill: PILL, healthDot: DOT, healthStatusLine: LINE });
       expect(screen.getByTestId('brand-lockup')).toHaveAttribute('data-variant', 'masthead');
       expect(screen.getByText('Field guide to light')).toBeInTheDocument();
+      expect(screen.getByTestId('masthead-menu-button')).toBeInTheDocument();
+      openMenu();
       expect(screen.getByTestId('window-first-settings')).toBeInTheDocument();
       expect(screen.getByTestId('window-first-signout')).toBeInTheDocument();
       expect(screen.getByTestId('masthead-light-times')).toHaveTextContent('06:04');
       expect(screen.getByTestId('health-indicator')).toBeInTheDocument();
     });
 
-    it('renders none of the phone chrome', () => {
+    it('labels the desktop and tablet times "today", and offers neither the phone Find nor the away row', () => {
+      renderShell({ light: LIGHT });
+      expect(screen.getByTestId('masthead-light-times')).toHaveTextContent('today');
+      expect(screen.getByTestId('masthead-light-today')).toBeVisible();
+      expect(screen.getByTestId('window-first-search')).toHaveClass('wf-tick-search');
+      expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
+      openMenu();
+      expect(screen.queryByTestId('masthead-menu-home')).toBeNull();
+    });
+
+    it('renders none of the phone-only chrome (the ☰ menu is every width\'s, but its status line is the phone\'s)', () => {
       renderShell({ light: LIGHT, healthDot: DOT, healthStatusLine: LINE });
-      expect(screen.queryByTestId('masthead-menu-button')).toBeNull();
+      openMenu();
       expect(screen.queryByTestId('masthead-phone-times')).toBeNull();
       expect(screen.queryByTestId('window-first-mast-row')).toBeNull();
       expect(screen.queryByTestId('health-dot')).toBeNull();
@@ -503,15 +511,6 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       const rule = screen.getByTestId('masthead-light-rule');
       expect(rule).toHaveClass('h-1');
       expect(rule).toHaveClass('sm:mt-[14px]');
-    });
-
-    it('keeps the tick line at Home on the Map tab with its caption, now as the origin button beside Find, with no compact hook', () => {
-      renderShell({ light: LIGHT, mapPane: MAP });
-      mapTab();
-      expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Newcastle');
-      expect(screen.getByTestId('masthead-origin-caption')).toHaveTextContent('drive times from here');
-      expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
-      expect(screen.getByTestId('window-first-tickline')).not.toHaveAttribute('data-compact');
     });
 
     it('is red when unset here too', () => {

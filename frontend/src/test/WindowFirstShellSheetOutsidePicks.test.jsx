@@ -1,3 +1,4 @@
+import { openMapView, registerMapDoor } from './shellMapDoor.js';
 /**
  * The Four-days sheet for a place outside a Lite reader's sub-regions, at the shell (sub-regions-plan §11 S5a-3,
  * decisions 10 and 12): the shell hands the sheet `outsidePicks` from the briefing's served `allowedLocationIds`
@@ -7,7 +8,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { SubRegionStatusProvider } from '../context/SubRegionStatusContext.jsx';
@@ -94,10 +95,10 @@ async function openSheet(overrides) {
   const wrap = (shell) => (
     <SubRegionStatusProvider enabled={false} onOpen={openSettings}>{shell}</SubRegionStatusProvider>
   );
-  const view = render(wrap(<WindowFirstShell {...base} />));
-  fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+  const view = render(wrap(<WindowFirstShell registerOpenMap={registerMapDoor} {...base} />));
+  openMapView();
   await act(async () => {
-    view.rerender(wrap(<WindowFirstShell {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />));
+    view.rerender(wrap(<WindowFirstShell registerOpenMap={registerMapDoor} {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />));
   });
   await screen.findByTestId('location-sheet-stub');
   return view;
@@ -162,10 +163,10 @@ describe('WindowFirstShell — the Four-days sheet for a place outside the reade
       onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
       locations: [], mapPane: <p data-testid="map-pane">map pane</p>,
     };
-    const view = render(<WindowFirstShell {...base} />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    const view = render(<WindowFirstShell registerOpenMap={registerMapDoor} {...base} />);
+    openMapView();
     await act(async () => {
-      view.rerender(<WindowFirstShell {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
+      view.rerender(<WindowFirstShell registerOpenMap={registerMapDoor} {...base} locationSheetHandoff={{ id: 42, name: 'Bamburgh', regionName: 'North East', nonce: 1 }} />);
     });
     await screen.findByTestId('location-sheet-stub');
 

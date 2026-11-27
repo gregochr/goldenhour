@@ -24,14 +24,26 @@ import java.util.List;
 public interface UserFavouriteRepository extends Repository<UserFavouriteEntity, Long> {
 
     /**
-     * A reader's favourites, oldest first (ties by id).
+     * A reader's favourites of every kind (places, areas and watched dates), oldest first (ties by id).
      *
      * @param userId the reader
      * @return one row per favourite
      */
-    @Query("select new com.gregochr.goldenhour.model.FavouriteRow(f.locationId, f.areaId, f.createdAt) "
-            + "from UserFavouriteEntity f where f.userId = :userId order by f.createdAt, f.id")
+    @Query("select new com.gregochr.goldenhour.model.FavouriteRow(f.locationId, f.areaId, f.almanacKey, "
+            + "f.createdAt) from UserFavouriteEntity f where f.userId = :userId order by f.createdAt, f.id")
     List<FavouriteRow> findRowsByUserId(@Param("userId") Long userId);
+
+    /**
+     * A reader's starred places and areas only, oldest first. A watched date is not a place: Ask's reads go through
+     * this, so a date row can never reach {@code rank_spots.favourites} or the location expansion.
+     *
+     * @param userId the reader
+     * @return one row per starred place or area
+     */
+    @Query("select new com.gregochr.goldenhour.model.FavouriteRow(f.locationId, f.areaId, f.almanacKey, "
+            + "f.createdAt) from UserFavouriteEntity f where f.userId = :userId and f.almanacKey is null "
+            + "order by f.createdAt, f.id")
+    List<FavouriteRow> findPlaceAndAreaRowsByUserId(@Param("userId") Long userId);
 
     /**
      * Stars one place. A second insert of the same place violates the partial unique index.
@@ -62,6 +74,33 @@ public interface UserFavouriteRepository extends Repository<UserFavouriteEntity,
             + "VALUES (:userId, :areaId, :createdAt)", nativeQuery = true)
     int insertArea(@Param("userId") Long userId, @Param("areaId") Long areaId,
             @Param("createdAt") LocalDateTime createdAt);
+
+    /**
+     * Watches one almanac date. A second insert of the same key violates the partial unique index.
+     *
+     * @param userId     the reader
+     * @param almanacKey {@code <type>:<start date>}
+     * @param createdAt  when it was watched
+     * @return rows inserted (1)
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Transactional
+    @Query(value = "INSERT INTO user_favourite (user_id, almanac_key, created_at) "
+            + "VALUES (:userId, :almanacKey, :createdAt)", nativeQuery = true)
+    int insertDate(@Param("userId") Long userId, @Param("almanacKey") String almanacKey,
+            @Param("createdAt") LocalDateTime createdAt);
+
+    /**
+     * Un-watches some of a reader's dates.
+     *
+     * @param userId the reader
+     * @param keys   the almanac keys to drop
+     * @return rows deleted
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Transactional
+    @Query("delete from UserFavouriteEntity f where f.userId = :userId and f.almanacKey in :keys")
+    int deleteDates(@Param("userId") Long userId, @Param("keys") Collection<String> keys);
 
     /**
      * Un-stars some of a reader's places.

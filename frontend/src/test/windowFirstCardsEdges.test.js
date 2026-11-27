@@ -132,12 +132,12 @@ describe('buildWindowCards edges', () => {
     };
 
     it('comes from the region with content, whichever order the regions are served in', () => {
-      expect(build([live, blank]).verdictBlanked).toBe(false);
-      expect(build([blank, live]).verdictBlanked).toBe(false);
+      expect(build([live, blank]).blankedReason).toBeNull();
+      expect(build([blank, live]).blankedReason).toBeNull();
     });
 
     it('is blanked when every region is', () => {
-      expect(build([blank, { ...blank, regionName: 'Other' }]).verdictBlanked).toBe(true);
+      expect(build([blank, { ...blank, regionName: 'Other' }]).blankedReason).toBe('STOOD_DOWN');
     });
   });
 

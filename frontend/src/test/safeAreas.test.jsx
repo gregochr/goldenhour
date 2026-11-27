@@ -250,14 +250,12 @@ describe('safe areas', () => {
       expect(dialog.className).not.toMatch(/\bp-4\b/);
     });
 
-    it('the app root carries app-safe on both of its layout arms', () => {
-      // Asserted at source rather than by rendering `App`: the class sits on a conditional whose
-      // two arms are the point, and a render can only ever show one of them.
-      const root = read('../App.jsx').match(/className=\{`app-safe \$\{isMapTabActive[\s\S]{0,160}?`\}/);
+    it('the app root carries app-safe, with one layout on every screen (the map is a fixed view, not a layout arm)', () => {
+      // Asserted at source rather than by rendering `App`.
+      const root = read('../App.jsx').match(/className="app-safe min-h-screen[^"]*"/);
 
-      expect(root, 'the App root must carry app-safe ahead of its conditional arms').not.toBeNull();
-      expect(root[0]).toMatch(/h-\[100dvh\]/);
-      expect(root[0]).toMatch(/min-h-screen/);
+      expect(root, 'the App root must carry app-safe').not.toBeNull();
+      expect(root[0]).not.toMatch(/h-\[100dvh\]/);
     });
   });
 });

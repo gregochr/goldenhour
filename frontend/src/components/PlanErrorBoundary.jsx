@@ -48,6 +48,7 @@ import { purgeServiceWorkerState } from '../utils/serviceWorkerReset.js';
  * @param {object}   props
  * @param {React.ReactNode} props.children   the subtree this guards
  * @param {function} props.onSignOut         ends the session; the button's handler
+ * @param {function} [props.onCrash]         told when the guarded subtree crashed, so state derived from it can reset
  * @param {function} [props.reload]          defaults to reloading the page. Overridable because
  *        jsdom 30 cannot stub `window.location.reload` directly (own non-configurable property).
  */
@@ -67,6 +68,8 @@ class PlanErrorBoundary extends React.Component {
     // The stack goes here rather than on screen: it is the thing worth having in a bug report and
     // the thing nobody can act on in a panel.
     console.error('Plan crashed:', error, info?.componentStack);
+    // The page around the boundary resets whatever it derived from the crashed shell (the map view's inert footer).
+    this.props.onCrash?.();
   }
 
   componentDidMount() {
@@ -147,7 +150,7 @@ class PlanErrorBoundary extends React.Component {
             real design call on whether a decorative, non-interactive landing heading wants a ring at
             all, not a mechanical substitution. */}
         <h2 ref={this.headingRef} tabIndex={-1} className="text-red-400 font-medium mb-2 outline-none">
-          At a Glance stopped working
+          This week stopped working
         </h2>
         {/* The message, not the stack. Enough to quote into a bug report; the rest is in the console. */}
         <p data-testid="plan-error-detail" className="text-plex-text-secondary text-sm mb-4">
@@ -181,6 +184,7 @@ class PlanErrorBoundary extends React.Component {
 PlanErrorBoundary.propTypes = {
   children: PropTypes.node,
   onSignOut: PropTypes.func.isRequired,
+  onCrash: PropTypes.func,
   reload: PropTypes.func,
 };
 
