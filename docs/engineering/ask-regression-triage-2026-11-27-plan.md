@@ -113,6 +113,7 @@ there").
   `AskSnapshot.Area` "Sunderland & the Durham Coast" (alias "Durham coast") holding the coastal places.
 - **Proposed assertion:** "a pick is one of the area's location ids", replacing `DURHAM.equals(regionName)`.
 - **Approved by the owner 2026-11-27; applied in this commit.**
+- **A-section follow-up (owner, 2026-11-27: "yes, change the question to Saturday"):** the Heugh question asks about Saturday, not tomorrow, because `AskFixtures.TODAY` is Monday 2026-10-05 and the rated window is Saturday 2026-10-10; a correct answer to "tomorrow" says Tuesday has no forecast.
 
 ### Noise, not a failure
 `[ASK] Could not read the night forecasts … "tonight" is null` appears across many classes.

@@ -42,7 +42,7 @@ import static org.mockito.Mockito.when;
  *   <li>"Does Hadrian's Wall look good this weekend?": answerable, the summary names a member, and it does not
  *       say "not in the forecast";</li>
  *   <li>"Where on Hadrian's Wall should I go on Saturday morning?": picks, every one a member;</li>
- *   <li>"How's the Heugh looking tomorrow?": answerable and mentions Hartlepool Headland;</li>
+ *   <li>"How's the Heugh looking on Saturday?": answerable and mentions Hartlepool Headland;</li>
  *   <li>"Does the Great Wall of China look good tomorrow?": not answerable.</li>
  * </ol>
  *
@@ -69,7 +69,7 @@ class AskNamedAreaRegressionTest {
 
     private static final String QUESTION_LOOK = "Does Hadrian's Wall look good this weekend?";
     private static final String QUESTION_WHERE = "Where on Hadrian's Wall should I go on Saturday morning?";
-    private static final String QUESTION_HEUGH = "How's the Heugh looking tomorrow?";
+    private static final String QUESTION_HEUGH = "How's the Heugh looking on Saturday?";
     private static final String QUESTION_CHINA = "Does the Great Wall of China look good tomorrow?";
 
     /** The ids of the named area's members in the fixture. */
@@ -182,7 +182,10 @@ class AskNamedAreaRegressionTest {
         });
     }
 
-    /** (3) A place called by another name is found. */
+    /**
+     * (3) A place called by another name is found.
+     * Asks about Saturday, not tomorrow: the shared fixture's today is Monday 2026-10-05 (owner-approved 2026-11-27).
+     */
     @Test
     void theHeughIsHartlepoolHeadland() {
         passRate("the Heugh", () -> {

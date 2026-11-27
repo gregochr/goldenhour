@@ -10,3 +10,4 @@ neutral and the test forbids "strong" and "severe" while the state is MODERATE; 
 mirrors production (a named area inside "Northumberland & Tyneside"); "closer to home" may name minutes or
 miles. A new plain unit test, `AskRegressionPatternsTest`, pins the accept and reject cases. No `src/main`
 change. The aurora ban was then narrowed (owner-approved) to "strong" or "severe" describing the aurora, alert or geomagnetic activity, so "strong stargazing conditions" passes.
+ The Heugh question now asks about Saturday instead of tomorrow (owner-approved), because the shared fixture's today is Monday 2026-10-05 and the rated window is Saturday.
