@@ -82,7 +82,7 @@ public final class AskToolSchemas {
         if (withPlaceLookup) {
             tools.add(lookUpPlace());
         }
-        tools.add(rankNightSpots(withUser));
+        tools.add(rankNightSpots(withUser, withPlaceLookup));
         tools.add(getHotTopics());
         tools.add(getComingUp());
         tools.add(submitAnswer(withThread));
@@ -124,10 +124,11 @@ public final class AskToolSchemas {
                             + "'near', 'nearby' or 'local' with no number. The result says the "
                             + "radius: quote it as 'within N miles of home'."));
             props.put("favourites", m("type", "boolean",
-                    "description", "True only when the reader asks about their own bookmarked (favourite or "
-                            + "saved) places: just those, and the places in bookmarked areas, are ranked. A result may "
-                            + "show favourites without it, as a lead (the answer) and a companion with a "
-                            + "companionKind."));
+                    "description", "True only when the question limits itself to the reader's own bookmarked "
+                            + "(favourite or saved) places (\"which of my places...\"): just those, and the places in "
+                            + "bookmarked areas, are ranked. A question asking where is best and also how their "
+                            + "favourite looks leaves it unset: the result already shows favourites, as a lead (the "
+                            + "answer) and a companion with a companionKind."));
         }
         if (withNamedAreas) {
             props.put("areaName", m("type", "string", "description", "Only places in this named area (e.g. a "
@@ -157,7 +158,7 @@ public final class AskToolSchemas {
                 props, List.of("name"));
     }
 
-    private static Tool rankNightSpots(boolean withUser) {
+    private static Tool rankNightSpots(boolean withUser, boolean withNamedAreas) {
         Map<String, Object> props = new LinkedHashMap<>();
         props.put("night", m("type", "string",
                 "description", "tonight (the default), tomorrow, or the date of a night list_windows names."));
@@ -179,6 +180,10 @@ public final class AskToolSchemas {
                             + "radius of home, in straight-line miles. Use for 'close to home', "
                             + "'near', 'nearby' or 'local' with no number. The result says the "
                             + "radius: quote it as 'within N miles of home'."));
+        }
+        if (withNamedAreas) {
+            props.put("areaName", m("type", "string", "description", "Only places in this named area (e.g. a "
+                    + "landmark such as Hadrian's Wall), by its name or another name for it."));
         }
         props.put("limit", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_NIGHT_SPOTS,
                 "description", "How many places, at most " + AskTools.MAX_NIGHT_SPOTS + "."));

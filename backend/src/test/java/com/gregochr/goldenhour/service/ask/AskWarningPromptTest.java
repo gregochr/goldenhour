@@ -33,13 +33,14 @@ class AskWarningPromptTest {
      * reproduce exactly), for 2026-10-05, every region, no window or night, keyed by hasUser then hasThread. Pinned,
      * not derived from the code under test, so a change to the false path fails here. The two typed (hasUser) entries
      * were re-pinned for find-and-favourites F4b (two sentences in {@code WITH_USER}) and again when the
-     * colour score was renamed from Fiery Sky to Red Sky.
+     * colour score was renamed from Fiery Sky to Red Sky. All four were re-pinned for the Ask regression triage
+     * (B1 adds a clause to {@code RULES}; B3 and B5 reword {@code WITH_USER}; B4 adds a sentence for the typed prompt).
      */
     private static final Map<String, String> PRE_W6 = Map.of(
-            "true,true", "13406:88ddfe5c9c6e268e492222d664df34476310ef297797af5c3d9189b11a057cc0",
-            "true,false", "12135:5c81378142c72faf945036688eff1c577267c5866b6a68d585a7afb48fe71f53",
-            "false,true", "7337:0b85c1a6d491d428d368d7a0f6ed1721701c36fd58385b9ff110177b83e85e2a",
-            "false,false", "6066:f3450faa9057041e05b61f91c42a91e32c250b289647dcad37d28f5aa3a8d608");
+            "true,true", "13934:f698da223fd58674e448bc48723184976abf4b523d55d59640447c3c2cfd3bfd",
+            "true,false", "12663:c30b4728e9b99cc6015ca01182242716961bdf34512a0e5cac4c6db63bdf507f",
+            "false,true", "7401:7b322ac9d34256cc8f8e5514e115346007db7bafcce181b83b472c78c4478b5c",
+            "false,false", "6130:4740fd8326744a5c73898241cad706b494f89c28b4cc84772551c4285c9a37a2");
 
     private static String fingerprint(String text) throws Exception {
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));

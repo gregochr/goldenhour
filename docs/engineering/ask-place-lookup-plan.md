@@ -106,7 +106,7 @@ headline and tide come straight off `AskSnapshot.Slot`, so they are the served f
 | `UNRATED` | `rating == null` or not `RatingValidator.isInRange` | `"Not rated for this window."` plus the region's `coverageReason` phrase when it is non-null (reuse whatever wording `list_windows`' spread already uses for stood-down / not scored; do not invent new text) |
 | `CANOPY` | `slot.canopy()` | `"A woodland canopy rating: how good the light under the trees is, not the sky."` (check the canopy wording the Plan / Map already use and match it) |
 | `BELOW_GAME_ON` | `rating < AskSnapshot.MIN_PICK_RATING` (tested before the outlier and region tests: a 2-star place is below the floor whatever its region, and "too few were rated" would imply it might otherwise be recommended) | null |
-| `NEIGHBOUR_OUTLIER` | `slot.neighbourOutlier()` (after the rating floor) | `"Rated well above the places beside it, so PhotoCast is not suggesting it."` |
+| `NEIGHBOUR_OUTLIER` | `slot.neighbourOutlier()` (after the rating floor) | `"Its rating is well above the places beside it, so PhotoCast doubts that star and is not suggesting it."` |
 | `THIN_SAMPLE` | `!region.pickEligible()` | `"Too few places in this region were rated to recommend one."` |
 | `PICK` | `AskSnapshot.isPickEligible(region, slot)` | null |
 

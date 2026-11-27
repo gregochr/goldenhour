@@ -1688,4 +1688,54 @@ class ClaudeAskEngineTest {
 
         assertThat(systemText(sentParams().getFirst())).doesNotContain("The question is about these windows");
     }
+
+    private static AskSnapshot twoDaySnapshot(BriefingWindow.Pick todayPick) {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, todayPick, northumberland(), teesdale()),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, northumberland(), teesdale())), List.of()));
+    }
+
+    @Test
+    @DisplayName("a Ready conversation's prompt names a covered day with no candidate window, by its weekday")
+    void readyPromptNamesACoveredDayWithNothing() {
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot this weekend?", List.of(WINDOW), null,
+                List.of(WINDOW, "2026-10-06_sunset"));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), twoDaySnapshot(null), AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID,
+                ReadyQuestion.BEST_WEEKEND, offer));
+
+        assertThat(systemText(sentParams().getFirst())).contains(
+                "Tuesday 6 October has no place worth going to: say so in the summary, naming the day.");
+    }
+
+    @Test
+    @DisplayName("a typed question names no covered day with nothing, and neither does a night-bound Ready one")
+    void typedQuestionNamesNoEmptyDay() {
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), twoDaySnapshot(null), USER, AskRunOptions.none());
+
+        assertThat(systemText(sentParams().getFirst())).doesNotContain("has no place worth going to");
+    }
+
+    @Test
+    @DisplayName("the empty covered dates: only a day with no candidate window, never the BEST BET's, earliest "
+            + "first, and an id the snapshot lacks adds nothing")
+    void emptyCoveredDates() {
+        BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland", "A", 1L);
+        AskSnapshot withBestToday = twoDaySnapshot(best);
+        AskSnapshot noBest = twoDaySnapshot(null);
+        List<String> covered = List.of("2026-10-06_sunset", WINDOW, "2099-01-01_sunset");
+
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, List.of(WINDOW), noBest))
+                .containsExactly(TODAY.plusDays(1));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, List.of(), noBest))
+                .containsExactly(TODAY, TODAY.plusDays(1));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, List.of(), withBestToday))
+                .containsExactly(TODAY.plusDays(1));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, List.of("2026-10-06_sunset", WINDOW), noBest))
+                .isEmpty();
+        assertThat(ClaudeAskEngine.emptyCoveredDates(List.of(), List.of(), noBest)).isEmpty();
+    }
 }

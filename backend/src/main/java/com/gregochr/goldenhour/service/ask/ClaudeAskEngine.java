@@ -21,6 +21,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
+import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
@@ -38,8 +39,12 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -214,6 +219,49 @@ public class ClaudeAskEngine implements AskEngine {
         return basis == null || basis.question().nightBound() ? List.of() : basis.offer().coveredWindowIds();
     }
 
+    /**
+     * The covered dates of a Ready conversation's question with no candidate window, which its prompt names so
+     * the answer says there is nothing that day (ask regression triage, B2). The BEST BET's date is left out,
+     * and a typed question or a night one has none.
+     */
+    private static List<LocalDate> emptyCoveredDates(AskConversation conversation, AskSnapshot snapshot) {
+        AskAnswerValidator.ReadyBasis basis = conversation.options().readyBasis();
+        if (basis == null || basis.question().nightBound()) {
+            return List.of();
+        }
+        return emptyCoveredDates(basis.offer().coveredWindowIds(), basis.offer().windowIds(), snapshot);
+    }
+
+    /**
+     * The dates of the covered windows that have no candidate window, in date order, leaving out the date of
+     * the window that carries the BEST BET.
+     *
+     * @param coveredWindowIds the windows the question is about
+     * @param candidateIds     the covered windows that have candidates
+     * @param snapshot         the snapshot the windows are read from
+     * @return the dates, earliest first
+     */
+    static List<LocalDate> emptyCoveredDates(List<String> coveredWindowIds, List<String> candidateIds,
+            AskSnapshot snapshot) {
+        Set<LocalDate> withCandidates = new HashSet<>();
+        Set<LocalDate> bestBet = new HashSet<>();
+        for (String id : candidateIds) {
+            snapshot.window(id).ifPresent(w -> withCandidates.add(w.date()));
+        }
+        for (String id : coveredWindowIds) {
+            snapshot.window(id).filter(w -> w.pick() != null && w.pick().kind() == BriefingWindow.PickKind.BEST)
+                    .ifPresent(w -> bestBet.add(w.date()));
+        }
+        return coveredWindowIds.stream()
+                .map(snapshot::window)
+                .flatMap(Optional::stream)
+                .map(AskSnapshot.Window::date)
+                .distinct()
+                .filter(d -> !withCandidates.contains(d) && !bestBet.contains(d))
+                .sorted()
+                .toList();
+    }
+
     /** The model for one conversation: the Ready run's pinned model, else the run type's row. */
     private EvaluationModel resolveModel(AskConversation conversation, boolean ready) {
         if (ready) {
@@ -236,7 +284,8 @@ public class ClaudeAskEngine implements AskEngine {
                         .filter(n -> n.kind() != AskWindowKind.AURORA || user.canSeeAurora()).orElse(null);
         AskPromptBuilder.SystemPrompt system = promptBuilder.systemPromptBlocks(snapshot.today(),
                 conversation.scope(), contextWindow, contextNight, snapshot.nights().tonight(), user.hasUser(),
-                !thread.isEmpty(), coveredWindows(conversation), conversation.tools().hasWarningFacts());
+                !thread.isEmpty(), coveredWindows(conversation), conversation.tools().hasWarningFacts(),
+                emptyCoveredDates(conversation, snapshot));
         // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
         // the forecast, one query for names, neither of which should repeat each turn.
         String userMessage = promptBuilder.userMessage(question.sanitised(), thread);
