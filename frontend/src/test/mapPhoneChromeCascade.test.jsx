@@ -435,8 +435,22 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     const cleanup = inject(slice);
     try {
       const style = computedStyleFor('wf-map-scored-legend', ['wf-map-tab']);
-      // 62px when `--wf-chrome-tl-h` is unset (40px control + 22); `bigSeasCascade.test.js` evaluates it.
-      expect(style.top).toBe('calc(var(--wf-chrome-tl-h, 40px) + 22px)');
+      // 62px when `--wf-chrome-tl-h` is unset (40px control + 22); jsdom 31 resolves the `calc(var())`.
+      // Two figures, so a plain `top: 62px` rule that ignored the variable would fail the second: with
+      // the control at 50px the toast sits at 72px, and no bottom-stack offset (152px) matches either.
+      expect(style.top).toBe('62px');
+      const tab = document.createElement('div');
+      tab.className = 'wf-map-tab';
+      tab.style.setProperty('--wf-chrome-tl-h', '50px');
+      const toast = document.createElement('div');
+      toast.className = 'wf-map-scored-legend';
+      tab.appendChild(toast);
+      document.body.appendChild(tab);
+      try {
+        expect(getComputedStyle(toast).top).toBe('72px');
+      } finally {
+        tab.remove();
+      }
       expect(style.left).toBe('50%');
       expect(style.bottom).toBe('auto');
       expect(style.right).toBe('auto');

@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import WindowFirstHeatStrip from '../components/WindowFirstHeatStrip.jsx';
+import { injectRealTokens, tokenColor } from './cssTestKit.js';
 
 /**
  * The Spread row's wrapper, label and count columns — which declaration wins, asserted against the
@@ -20,13 +21,15 @@ import WindowFirstHeatStrip from '../components/WindowFirstHeatStrip.jsx';
  * at the LEFT of its line in the stacked state; and every override of those children has to be
  * written higher still. A rule that quietly loses is a green suite and a broken card.
  *
- * <p>jsdom resolves SPECIFICITY and does not resolve `var()` (it returns the declaration text), so
- * "the nested cell's `min-height` is `var(--wf-hc-well)`" is the strongest thing to say about the
- * single row-height figure here — and the same string on the wrapper, the value cell and the well
- * is what proves the three read ONE token. What the token evaluates to, whether `@container
- * wf-card` fires at 205px, where the histogram's right edge lands, and the contrast of the counts
- * are browser claims, measured in plan §7's fixture. jsdom does not evaluate `@container`, so those
- * blocks are pinned as TEXT below.
+ * <p>jsdom (31+) resolves SPECIFICITY and `var()`, so "the nested cell's `min-height` is the well
+ * token" reads as `28px` (`--wf-hc-col` 25px + 3px), and the same figure on the wrapper, the value
+ * cell and the well is what proves the three read ONE token. Each such figure is checked against
+ * what the LOSING rule would give (the grid's 20px child minimum), so it cannot pass by accident.
+ * Colour tokens live in `@theme`, which this file does not inject as a rule, so `injectRealTokens()`
+ * puts the real values on `:root` and `tokenColor()` names the value the right token resolves to.
+ * Whether `@container wf-card` fires at 205px, where the histogram's right edge lands, and the
+ * contrast of the counts are browser claims, measured in plan §7's fixture. jsdom does not evaluate
+ * `@container`, so those blocks are pinned as TEXT below.
  */
 
 vi.mock('../utils/heatField.js', async (importOriginal) => {
@@ -94,7 +97,9 @@ function blockNamed(css, header) {
 }
 
 let styleEl;
+let tokenEl;
 beforeAll(() => {
+  tokenEl = injectRealTokens();
   const slice = spreadRowRules(readCss());
   // Named per surface, so a slicer that stops matching one cannot hide behind another's rules: an
   // empty injection would leave every property at its default and pass the "not the grid's 20px"
@@ -107,7 +112,10 @@ beforeAll(() => {
   styleEl.textContent = slice;
   document.head.appendChild(styleEl);
 });
-afterAll(() => styleEl?.remove());
+afterAll(() => {
+  styleEl?.remove();
+  tokenEl?.remove();
+});
 
 let originalGetContext;
 beforeEach(() => {
@@ -185,7 +193,8 @@ describe('the Spread row wrapper — what beats what', () => {
     // `.wf-hc-pls > span` is (0,1,1) and sets `min-height: 20px` on this very element (a direct
     // child of the grid); `.wf-hc-pls > .wf-hc-sprow` is (0,2,0). The bare `.wf-hc-sprow` would
     // lose, and the row would reserve 20px instead of the well's height.
-    expect(row.minHeight).toBe('var(--wf-hc-well)');
+    // The token resolves to 28px; the losing grid rule would leave 20px.
+    expect(row.minHeight).toBe('28px');
     expect(row.display).toBe('flex');
     expect(row.justifyContent).toBe('space-between');
     expect(row.gap).toBe('8px');
@@ -209,13 +218,14 @@ describe('the Spread row wrapper — what beats what', () => {
 
   it('reserves the well\'s height in the value cell in BOTH states, so neighbours across the gate align', async () => {
     await renderCard(BARS);
-    expect(style(screen.getByTestId('wf-heat-spread-value')).minHeight).toBe('var(--wf-hc-well)');
+    // 28px is the well token; without the rule the cell has no minimum (0px) or the grid's 20px.
+    expect(style(screen.getByTestId('wf-heat-spread-value')).minHeight).toBe('28px');
     cleanup();
     await renderCard(BELOW_GATE);
     // The text state is one 10px line; without this the cell would be ~15px shorter than a
     // bars-mode neighbour's and the two Best rows would part in a stacked row.
     expect(screen.getByTestId('wf-heat-spread-note')).toBeInTheDocument();
-    expect(style(screen.getByTestId('wf-heat-spread-value')).minHeight).toBe('var(--wf-hc-well)');
+    expect(style(screen.getByTestId('wf-heat-spread-value')).minHeight).toBe('28px');
   });
 
   it('reads the SAME token for the wrapper, the value cell and the well, so the three cannot drift', async () => {
@@ -225,7 +235,7 @@ describe('the Spread row wrapper — what beats what', () => {
       style(screen.getByTestId('wf-heat-spread-value')).minHeight,
       style(screen.getByTestId('wf-heat-spread')).height,
     ];
-    expect(figures).toEqual(['var(--wf-hc-well)', 'var(--wf-hc-well)', 'var(--wf-hc-well)']);
+    expect(figures).toEqual(['28px', '28px', '28px']);
     // And it is DEFINED exactly once, from the column it holds.
     const css = readCss();
     expect(css.match(/--wf-hc-well:/g)).toHaveLength(1);
@@ -275,10 +285,23 @@ describe('the Spread row wrapper — what beats what', () => {
 
 describe('the count columns — what beats what', () => {
   it('sizes every column from the card\'s own width variable, and holds the 25px column token', async () => {
+    // A four-character card sets `--cw` inline on the histogram to something other than the rule's
+    // 9px fallback, so a column that resolves to THAT figure read the variable; a plain `width: 9px`
+    // (or a misspelt variable falling back to 9px) could not.
+    const thousands = Array.from({ length: 1200 }, () => 3).concat(Array.from({ length: 600 }, () => null));
+    await renderCard(thousands);
+    const cw = screen.getByTestId('wf-heat-spread').style.getPropertyValue('--cw');
+    expect(cw).toMatch(/^\d+(\.\d+)?px$/);
+    expect(cw).not.toBe('9px');
+    const wide = screen.getAllByTestId('wf-heat-spread-count')[0].parentElement;
+    expect(style(wide).width).toBe(cw);
+    cleanup();
     await renderCard(BARS);
+    expect(screen.getByTestId('wf-heat-spread').style.getPropertyValue('--cw')).toBe('9px');
     const column = screen.getAllByTestId('wf-heat-spread-count')[0].parentElement;
-    expect(style(column).width).toBe('var(--cw, 9px)');
-    expect(style(column).height).toBe('var(--wf-hc-col)');
+    expect(style(column).width).toBe('9px');
+    // The 25px column token (`--wf-hc-col`), resolved.
+    expect(style(column).height).toBe('25px');
     expect(style(column).flexDirection).toBe('column');
     expect(style(column).justifyContent).toBe('flex-end');
   });
@@ -324,7 +347,11 @@ describe('the count columns — what beats what', () => {
     expect(counts[3].fontWeight).toBe('600');
     expect(counts[1].fontWeight).toBe('400');
     expect(counts[1].color).toBe(counts[3].color);
-    expect(counts[1].color).toBe('var(--color-plex-text-secondary)');
+    // The real secondary token's resolved value; the primary and muted inks resolve differently, so
+    // the wrong token would fail here.
+    expect(counts[1].color).toBe(tokenColor('--color-plex-text-secondary'));
+    expect(counts[1].color).not.toBe(tokenColor('--color-plex-text'));
+    expect(counts[1].color).not.toBe(tokenColor('--color-plex-text-muted'));
     expect(counts[3].fontSize).toBe('9px');
     expect(counts[3].fontStyle).toBe('normal');
   });

@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import WindowComingUpEntry from '../components/WindowComingUpEntry.jsx';
+import { injectRealTokens, themeTokens, tokenColor } from './cssTestKit.js';
 
 /**
  * What the Coming up day-chip rules resolve to, asserted against the real `index.css`
@@ -48,9 +49,12 @@ function extractDayRules() {
 }
 
 let styleEl;
+let tokenEl;
 let sliceText = '';
 let rawCss = '';
 beforeAll(() => {
+  // The colour tokens live in `@theme`; jsdom 31 resolves var(), so give them their real values.
+  tokenEl = injectRealTokens();
   const slice = extractDayRules();
   sliceText = slice;
   rawCss = readFileSync(CSS_PATH, 'utf8');
@@ -61,7 +65,10 @@ beforeAll(() => {
   styleEl.textContent = slice;
   document.head.appendChild(styleEl);
 });
-afterAll(() => styleEl?.remove());
+afterAll(() => {
+  styleEl?.remove();
+  tokenEl?.remove();
+});
 afterEach(cleanup);
 
 const chip = (date, dow, day, over = {}) => ({
@@ -107,10 +114,14 @@ describe('Coming up day marks — what the rules resolve to', () => {
     const { container } = draw(FAMILIES.map((family, i) => chip(
       `2026-10-${25 + i}`, 'Mon', String(25 + i), { marks: [{ label: 'full moon', family }] },
     )));
+    const seen = new Set();
     FAMILIES.forEach((family) => {
       const mark = container.querySelector(`.wf-cu-day-mark[data-family="${family}"]`);
-      expect(cs(mark).color).toBe(`var(--color-topic-${family})`);
+      expect(cs(mark).color).toBe(tokenColor(`--color-topic-${family}`));
+      seen.add(cs(mark).color);
     });
+    // Every family resolves to its own colour, so a rule keyed by type (one colour for all) fails.
+    expect(seen.size).toBe(FAMILIES.length);
   });
 
   it('keeps a mark coloured by family on a disabled (no-forecast) chip', () => {
@@ -119,7 +130,7 @@ describe('Coming up day marks — what the rules resolve to', () => {
     ]);
     const mark = container.querySelector('.wf-cu-day-mark');
     expect(container.querySelector('.wf-cu-day')).toBeDisabled();
-    expect(cs(mark).color).toBe('var(--color-topic-sun-moon)');
+    expect(cs(mark).color).toBe(tokenColor('--color-topic-sun-moon'));
   });
 
   it('colours the merged peak chip by the peak MARK’s family, not the host accent or gold', () => {
@@ -130,8 +141,11 @@ describe('Coming up day marks — what the rules resolve to', () => {
     expect(container.querySelector('.wf-cu-days')).toHaveAttribute('data-marked', 'true');
     const peak = container.querySelector('[data-peak="true"]');
     expect(peak).toHaveAttribute('data-peak-family', 'coastal');
-    expect(cs(peak).getPropertyValue('--wf-cu-peak')).toBe('var(--color-topic-coastal)');
-    expect(cs(peak.querySelector('.wf-cu-day-dn')).color).toBe('var(--wf-cu-peak, var(--color-home))');
+    // The custom property now reads back resolved: the coastal token's own declared value.
+    expect(cs(peak).getPropertyValue('--wf-cu-peak')).toBe(themeTokens()['--color-topic-coastal']);
+    // The peak number follows the MARK's family (coastal), not the host accent or the gold home colour.
+    expect(cs(peak.querySelector('.wf-cu-day-dn')).color).toBe(tokenColor('--color-topic-coastal'));
+    expect(tokenColor('--color-topic-coastal')).not.toBe(tokenColor('--color-home'));
     // cssstyle cannot reify a border or background carrying var()/color-mix(), so those are pinned
     // in the extracted rule text.
     expect(sliceText).toMatch(/\[data-peak="true"\]\s*\{\s*border-color: var\(--wf-cu-peak, var\(--color-home\)\);/);
@@ -166,7 +180,7 @@ describe('Coming up day marks — what the rules resolve to', () => {
     ]);
     expect(container.querySelector('.wf-cu-days')).not.toHaveAttribute('data-marked');
     const dn = container.querySelector('[data-peak="true"] .wf-cu-day-dn');
-    expect(cs(dn).color).toBe('var(--color-home)');
+    expect(cs(dn).color).toBe(tokenColor('--color-home'));
   });
 
   it('mutes a dimmed merged peak number by colour, not opacity', () => {
@@ -174,7 +188,7 @@ describe('Coming up day marks — what the rules resolve to', () => {
       chip('2026-10-27', 'Tue', '27', { peak: true, live: false, marks: [{ label: 'peak', family: 'coastal' }] }),
     ]);
     const dn = container.querySelector('[data-peak="true"] .wf-cu-day-dn');
-    expect(cs(dn).color).toBe('var(--color-plex-text-secondary)');
+    expect(cs(dn).color).toBe(tokenColor('--color-plex-text-secondary'));
   });
 
   it('keeps a coincidence name on one line', () => {

@@ -7,6 +7,7 @@ import {
 import { render, screen, cleanup } from '@testing-library/react';
 import WindowComingUpEntry from '../components/WindowComingUpEntry.jsx';
 import { buildEntryView, rangeBarHeight } from '../utils/comingUpFeed.js';
+import { injectRealTokens, tokenColor } from './cssTestKit.js';
 
 afterEach(cleanup);
 
@@ -496,7 +497,10 @@ describe('Coming up range bars — what the rules resolve to', () => {
   const rawCss = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
   const css = rawCss.replace(/\/\*[\s\S]*?\*\//g, '');
   let styleEl;
+  let tokenEl;
   beforeAll(() => {
+    // The colour tokens live in `@theme`; jsdom 31 resolves var(), so give them their real values.
+    tokenEl = injectRealTokens();
     const rules = [];
     let start = 0;
     let depth = 0;
@@ -518,7 +522,10 @@ describe('Coming up range bars — what the rules resolve to', () => {
     styleEl.textContent = rules.join('\n');
     document.head.appendChild(styleEl);
   });
-  afterAll(() => styleEl?.remove());
+  afterAll(() => {
+    styleEl?.remove();
+    tokenEl?.remove();
+  });
   const cs = (el) => window.getComputedStyle(el);
 
   it('stretches the chip button to the column height', () => {
@@ -561,13 +568,16 @@ describe('Coming up range bars — what the rules resolve to', () => {
   it('resolves tier colours: peak solid and primary, big coastal label, rest secondary', () => {
     const { container } = draw(entry());
     const col = (tier) => container.querySelector(`.wf-cu-day-col[data-tier="${tier}"]`);
-    expect(cs(col('peak').querySelector('.wf-cu-day-range-metres')).color).toBe('var(--color-plex-text)');
+    // Each token resolves to its own real value (primary, secondary and coastal all differ), so a
+    // rule that picked the wrong one fails.
+    expect(cs(col('peak').querySelector('.wf-cu-day-range-metres')).color).toBe(tokenColor('--color-plex-text'));
     expect(cs(col('peak').querySelector('.wf-cu-day-range-pill')).color).toBe('rgb(14, 11, 9)');
-    expect(cs(col('big').querySelector('.wf-cu-day-range-label')).color).toBe('var(--color-topic-coastal)');
+    expect(cs(col('big').querySelector('.wf-cu-day-range-label')).color).toBe(tokenColor('--color-topic-coastal'));
     expect(cs(col('rest').querySelector('.wf-cu-day-range-label')).color)
-      .toBe('var(--color-plex-text-secondary)');
+      .toBe(tokenColor('--color-plex-text-secondary'));
     expect(cs(col('rest').querySelector('.wf-cu-day-range-metres')).color)
-      .toBe('var(--color-plex-text-secondary)');
+      .toBe(tokenColor('--color-plex-text-secondary'));
+    expect(tokenColor('--color-plex-text-secondary')).not.toBe(tokenColor('--color-plex-text'));
     expect(rawCss).toMatch(/\.wf-cu-day-range-bar \{[^}]*color-mix\(in oklch, var\(--color-topic-coastal\) 45%, transparent\)/);
     expect(rawCss).toMatch(/\[data-tier="big"\] \.wf-cu-day-range-bar \{\s*background: color-mix\(in oklch, var\(--color-topic-coastal\) 80%/);
     expect(rawCss).toMatch(/\[data-tier="peak"\] \.wf-cu-day-range-bar \{\s*width: 22px;[^}]*box-shadow: 0 0 10px color-mix\(in oklch, var\(--color-topic-coastal\) 55%/);
@@ -581,9 +591,10 @@ describe('Coming up range bars — what the rules resolve to', () => {
     const peak = container.querySelector('.wf-cu-day-col[data-tier="peak"]');
     const pill = cs(peak.querySelector('.wf-cu-day-range-pill'));
     expect(pill.backgroundColor).toBe('rgba(0, 0, 0, 0)');
-    expect(pill.color).toBe('var(--color-plex-text-secondary)');
-    expect(pill.boxShadow).toMatch(/inset 0 0 0 1px/);
-    expect(cs(peak.querySelector('.wf-cu-day-range-metres')).color).toBe('var(--color-plex-text-secondary)');
+    expect(pill.color).toBe(tokenColor('--color-plex-text-secondary'));
+    // jsdom 31 serialises the shadow as a computed value: colour first, lengths in px, `inset` last.
+    expect(pill.boxShadow).toMatch(/0px 0px 0px 1px inset/);
+    expect(cs(peak.querySelector('.wf-cu-day-range-metres')).color).toBe(tokenColor('--color-plex-text-secondary'));
   });
 
   it('mutes a gone big label and stops a gone peak bar glowing', () => {
@@ -607,10 +618,12 @@ describe('Coming up range bars — what the rules resolve to', () => {
     );
     const big = container.querySelector('.wf-cu-day-col[data-tier="big"]');
     expect(big).toHaveAttribute('data-live', 'false');
-    expect(cs(big.querySelector('.wf-cu-day-range-label')).color).toBe('var(--color-plex-text-secondary)');
+    expect(cs(big.querySelector('.wf-cu-day-range-label')).color).toBe(tokenColor('--color-plex-text-secondary'));
+    // Not the live big label's coastal colour: the dimmed rule won.
+    expect(cs(big.querySelector('.wf-cu-day-range-label')).color).not.toBe(tokenColor('--color-topic-coastal'));
     const peak = container.querySelector('.wf-cu-day-col[data-tier="peak"]');
     expect(peak).toHaveAttribute('data-live', 'true');
-    expect(cs(peak.querySelector('.wf-cu-day-range-bar')).boxShadow).toMatch(/0 0 10px/);
+    expect(cs(peak.querySelector('.wf-cu-day-range-bar')).boxShadow).toMatch(/0px 0px 10px/);
   });
 
   it('makes a ranged lead a full-width heading above the row from 640px; no centring rules remain', () => {

@@ -29,7 +29,7 @@ import {
  *
  * <p>jsdom resolves specificity and source order but does not resolve `var()` — moot for the
  * filters, since both declarations are bare literals (`saturate(.5) sepia(.32) brightness(.9)
- * contrast(1.08)` and `saturate(.35) sepia(.3) brightness(1.02)`), copied verbatim from
+ * contrast(1.08)` and `saturate(0.35) sepia(0.3) brightness(1.02)`), copied verbatim from
  * `docs/design/map-tab-v2/README.md`'s "The basemap" section, and moot for the attribution
  * background, which is also a bare literal. What it cannot prove in either case is the rendered
  * PIXEL result — that is a browser claim, made separately by the coordinator's browser
@@ -126,13 +126,14 @@ function probe(className) {
 describe('the basemap-dress classes resolve their filter, not merely carry the name', () => {
   it('.wf-basemap-warm resolves the base tile filter verbatim from the design README', () => {
     const el = probe('wf-basemap-warm');
-    expect(normalise(getComputedStyle(el).filter)).toBe(normalise('saturate(.5) sepia(.32) brightness(.9) contrast(1.08)'));
+    // The CSS declares `saturate(.5) ...`; jsdom 31 serialises the computed value with the leading zero.
+    expect(normalise(getComputedStyle(el).filter)).toBe(normalise('saturate(0.5) sepia(0.32) brightness(0.9) contrast(1.08)'));
     el.remove();
   });
 
   it('.wf-basemap-ref resolves the reference (place-name) tile filter verbatim', () => {
     const el = probe('wf-basemap-ref');
-    expect(normalise(getComputedStyle(el).filter)).toBe(normalise('saturate(.35) sepia(.3) brightness(1.02)'));
+    expect(normalise(getComputedStyle(el).filter)).toBe(normalise('saturate(0.35) sepia(0.3) brightness(1.02)'));
     el.remove();
   });
 
