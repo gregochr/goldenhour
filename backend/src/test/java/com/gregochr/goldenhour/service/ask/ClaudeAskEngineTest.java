@@ -1690,6 +1690,27 @@ class ClaudeAskEngineTest {
         assertThat(systemText(sentParams().getFirst())).doesNotContain("The question is about these windows");
     }
 
+    /** True when the request goes to this model and its first user message is exactly this question. */
+    private static boolean isAskTo(MessageCreateParams p, String questionText, EvaluationModel model) {
+        return p != null && model.getModelId().equals(p.model().asString()) && asks(p, questionText);
+    }
+
+    /**
+     * Stubs the client for a request to the expected model whose first user message is exactly this question, so
+     * a wrong model or question yields no canned answer. RequestOptions and the CallGate are built inside the
+     * engine on every call, so only their types can be constrained.
+     */
+    private org.mockito.stubbing.OngoingStubbing<Message> stubAskFor(String questionText, EvaluationModel model) {
+        return when(client.createAskMessage(argThat(p -> isAskTo(p, questionText, model)),
+                any(RequestOptions.class), any(AnthropicApiClient.CallGate.class)));
+    }
+
+    /** Fails unless the engine sent at least one request to this model asking exactly this question. */
+    private void verifyAskedFor(String questionText, EvaluationModel model) {
+        verify(client, atLeastOnce()).createAskMessage(argThat(p -> isAskTo(p, questionText, model)),
+                any(RequestOptions.class), any(AnthropicApiClient.CallGate.class));
+    }
+
     private static AskSnapshot twoDaySnapshot(BriefingWindow.Pick todayPick) {
         return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
                 AskFixtures.sunsetDay(TODAY, todayPick, northumberland(), teesdale()),
@@ -1712,11 +1733,12 @@ class ClaudeAskEngineTest {
     void readyPromptNamesACoveredDayWithNothing() {
         ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot this weekend?", List.of(WINDOW), null,
                 List.of(WINDOW, "2026-10-06_sunset"));
-        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
 
         engine.run(question(), todayThenDay2(null, weatherRuledOut("Northumberland"), weatherRuledOut("Teesdale")),
                 AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID, ReadyQuestion.BEST_WEEKEND, offer));
 
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
         assertThat(systemText(sentParams().getFirst())).contains(
                 "Tuesday 6 October has no place worth going to: say so in the summary, naming the day.");
     }
@@ -1724,10 +1746,11 @@ class ClaudeAskEngineTest {
     @Test
     @DisplayName("a typed question names no covered day with nothing, and neither does a night-bound Ready one")
     void typedQuestionNamesNoEmptyDay() {
-        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
 
         engine.run(question(), twoDaySnapshot(null), USER, AskRunOptions.none());
 
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
         assertThat(systemText(sentParams().getFirst())).doesNotContain("has no place worth going to");
     }
 
@@ -1767,11 +1790,12 @@ class ClaudeAskEngineTest {
                 AskFixtures.region("Teesdale", true, AskFixtures.slot(10L, "Hamsterley", 4)));
         ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot at high tide?", List.of(WINDOW), null,
                 List.of(WINDOW, "2026-10-06_sunset"));
-        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
 
         engine.run(question(), snapshot, AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID,
                 ReadyQuestion.COASTAL_HIGH, offer));
 
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
         assertThat(systemText(sentParams().getFirst())).doesNotContain("has no place worth going to");
     }
 
