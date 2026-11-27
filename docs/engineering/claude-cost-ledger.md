@@ -361,10 +361,12 @@ requests, not the schedule, so a busy week of development must never read as "th
   workflow runs. This section should be filled in then, from `ci_spend_run`, not estimated.
 - **Its own cap.** The CI key's spend cap is the only cost limit on the paid jobs. The Testing figure is not counted in
   any alert, budget, spend cap or app figure.
-- **When the suites run.** On pull requests that change prompt or evaluation code, as decided by
-  `scripts/prompt-regression-paths.sh`, and by hand (`workflow_dispatch`). There is no approval click: the
-  `prompt-regression` environment has no required reviewer (owner, 2026-11-27), so a prompt-changing PR runs the paid
-  jobs as soon as it is opened or pushed. Same-repository PRs only. A skipped run is normal.
+- **When the suites run.** Once per pull request that changes prompt or evaluation code (as decided by
+  `scripts/prompt-regression-paths.sh`), as a **smoke**, when the `run-prompt-regression` label is added: the session
+  adds it as the last step, once Codex is clean on the head (owner, 2026-11-27). The smoke is the sky quick check plus
+  `AskPromptRegressionTest`, about $0.25. A push never runs them. The full suites run only by hand (`workflow_dispatch`
+  with `scope=full`). There is no approval click: the `prompt-regression` environment has no required reviewer.
+  Same-repository PRs only. A skipped run is normal.
 - **A slight under-count.** The recorder counts only calls that returned. A call that threw (a client timeout, say) is
   counted as an errored call but its tokens are unknown, and Anthropic can still bill it. The Testing figure is
   therefore a slight under-count of the key's real spend, and a run with errored calls says so.
