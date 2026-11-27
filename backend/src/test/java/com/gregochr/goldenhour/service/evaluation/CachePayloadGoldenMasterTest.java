@@ -148,12 +148,12 @@ class CachePayloadGoldenMasterTest {
             new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new JavaTimeModule());
 
     @Test
-    @DisplayName("coastal with aligned tide: sky 3 (sky-only) + spring tide 5 → averaged to 4")
+    @DisplayName("coastal with aligned tide: sky 3 (sky-only) + spring tide 5 → stays 3")
     void coastalAligned() {
         // Berwick-Upon-Tweed (SEASCAPE). Post-decomposition: Claude scores the SKY ALONE (3★ —
         // the old +1 tide boost is gone from the prompt), and the TideVisitor re-adds an aligned
-        // spring tide (5★). RatingCombiner averages: avg(3, 5) = 4. The fixture pins the new
-        // provenance; the value happens to land back on 4.
+        // spring tide (5★). RatingCombiner averages avg(3, 5) = 4, but the tide no longer lifts a
+        // sub-4★ sky (docs/engineering/tide-lift-plan.md §2), so the combined star stays 3.
         LocationEntity location = seascape("Berwick-Upon-Tweed", 1L, "Northumberland Coast");
         SunsetEvaluation eval = new SunsetEvaluation(
                 3, 72, 68, "Clearing western sky over the harbour.", null, null,
@@ -161,8 +161,8 @@ class CachePayloadGoldenMasterTest {
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNSET))
                 .thenReturn(Optional.of(tideContext(true, true, LunarTideType.SPRING_TIDE)));
         // Tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1): skyRating is
-        // the sky component ALONE (3), diverging from the combined rating (4) — the map tab's
-        // worked example of a spring tide lifting the star above the light's own figure.
+        // the sky component ALONE (3); the combined rating is also 3 now, because the tide no
+        // longer lifts a 3★ sky (only a spring/king tide on a 4★ sky reaches 5★).
         assertThat(serialisePayload(location, eval)).contains("\"skyRating\":3");
         assertGolden("coastal-aligned", location, eval);
     }
