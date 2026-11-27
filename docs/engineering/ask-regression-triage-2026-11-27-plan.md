@@ -325,3 +325,25 @@ After "call it by its listed name, adding the name the reader used.", insert:
 *B8, reworded:* `When every window the question is about is a stay-home one, the summary's first sentence says so, and the forecast's pick follows as the first exception.` This reconciles B8 with the bestBet rule, and keeps it off the game-on weekend, whose Sunday alone is stay-home.
 
 *Pins:* all four `AskWarningPromptTest` `PRE_W6` digests are re-pinned, with a line added to their comment, and `contains` assertions cover each new sentence.
+
+## Part D — B9, after two runs on `c30b7b3` (stay-home Ready weekend at 8/10, then 7/10)
+
+The owner chose this on 2026-11-27, with a threshold of 5%.
+
+**B9 — the engine tells a Ready prompt when the whole question is a stay-home one.**
+- In `ClaudeAskEngine`, beside `emptyCoveredDates`, a Ready conversation that is not night-bound computes `allStayHome`.
+- `allStayHome` is true only when the covered set is non-empty and **every** covered window has a spread over the conversation's scope that meets all three conditions:
+  - `rated > 0`;
+  - `gameOn * 100 < STAY_HOME_GAME_ON_PCT * rated`, where `STAY_HOME_GAME_ON_PCT = 5` is a named constant;
+  - mostly scored, by the same unlooked-at rule as `isEmptySpread`.
+- A window with no spread makes it false.
+- When it is true, `systemPromptBlocks` gets a new trailing boolean. The existing overloads delegate with `false`, keeping the prompt byte for byte. The dynamic tail, after the empty-day lines, then reads:
+  `Every window this question covers is a stay-home one: open the summary by saying so, then name the forecast's pick as the first exception.`
+- Typed questions never get it.
+
+*Fixtures:*
+- The owner's weekend is 2/180, 4/181 and 2/201, so the line is added.
+- The game-on weekend's Saturday evening is far above 5%, so it is not.
+- The mixed weekend's Saturday is weather-ruled-out (`rated` 0, or `gameOn` 0), and Sunday is game-on, so it is not.
+
+*Tests:* all-stay-home adds the line; one window over 5% does not; exactly 5% does not (a strict `<`); a window with no spread does not; a mostly unlooked-at window does not; typed and night-bound questions do not; overload byte-for-byte equality.
