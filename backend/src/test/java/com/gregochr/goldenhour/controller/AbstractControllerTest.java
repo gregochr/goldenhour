@@ -211,6 +211,10 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.runs.RunsCostService runsCostService;
 
+    /** Builds the CI prompt-regression spend for {@code AdminRunsController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.runs.CiSpendCostService ciSpendCostService;
+
     /** Builds the Runs timing view for {@code AdminRunsController}. */
     @MockitoBean
     protected com.gregochr.goldenhour.service.runs.RunsTimingService runsTimingService;

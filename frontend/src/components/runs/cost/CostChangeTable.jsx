@@ -1,5 +1,9 @@
+import { useId } from 'react';
 import PropTypes from 'prop-types';
-import { bucketSeries, costSelection, signedGbp, signedPercent, sinceLabel, typeSeries, whyText } from '../../../utils/runsCost.js';
+import {
+  TEST_SWATCH, bucketSeries, costSelection, signedGbp, signedPercent, sinceLabel, testingOf,
+  testingSeries, testingWhyText, typeSeries, whyText,
+} from '../../../utils/runsCost.js';
 import { toggleType } from '../../../utils/runsQuery.js';
 import { formatGbp, formatUsd, typeStyle } from '../../../utils/runsDay.js';
 
@@ -70,6 +74,154 @@ function Change({ delta, percent, testId }) {
 
 Change.propTypes = { delta: PropTypes.oneOfType([PropTypes.number, PropTypes.string]), percent: PropTypes.number, testId: PropTypes.string.isRequired };
 
+/** The whole class names of a suite's hatched sparkline (pattern fill and stroke), so each colour token is scanned. */
+const TEST_SPARK = {
+  SKY: { fill: 'fill-test-sky', tint: 'fill-test-sky/20', stroke: 'stroke-test-sky' },
+  ASK: { fill: 'fill-test-ask', tint: 'fill-test-ask/20', stroke: 'stroke-test-ask' },
+};
+
+/** A suite's daily sparkline, hatched like its chart bars (an SVG pattern with its own id), the prior half faint. */
+function TestingSparkline({ values: daily, suite, allTime }) {
+  const patternId = `${useId().replace(/:/g, '')}-spark`;
+  const values = bucketSeries(daily, Math.floor(SPARK_W / SPARK_MIN_BAR));
+  const peak = Math.max(...values, 0) || 1;
+  const bar = SPARK_W / values.length;
+  const half = allTime ? 0 : values.length / 2;
+  const look = TEST_SPARK[suite];
+  return (
+    <svg width={SPARK_W} height={SPARK_H} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} aria-hidden="true" className="@max-[640px]:hidden" data-testid={`runs-cost-testing-spark-${suite.toLowerCase()}`}>
+      <defs>
+        <pattern id={patternId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="6" height="6" className={look.tint} />
+          <rect width="2.5" height="6" className={look.fill} />
+        </pattern>
+      </defs>
+      {values.map((value, i) => (
+        value > 0 ? (
+          <rect
+            key={i}
+            x={i * bar}
+            y={SPARK_H - (value / peak) * SPARK_H}
+            width={Math.max(1, bar - 1)}
+            height={(value / peak) * SPARK_H}
+            fill={`url(#${patternId})`}
+            className={look.stroke}
+            opacity={i < half ? PRIOR_OPACITY : 1}
+          />
+        ) : null
+      ))}
+    </svg>
+  );
+}
+
+TestingSparkline.propTypes = {
+  values: PropTypes.arrayOf(PropTypes.number).isRequired,
+  suite: PropTypes.string.isRequired,
+  allTime: PropTypes.bool,
+};
+
+/**
+ * The table's testing block, shown only when a testing block is served: the {@code App subtotal} row (the app's own
+ * served totals, so the page's figures stay today's), a {@code TESTING · CI PROMPT REGRESSION} group row (one cell
+ * spanning the grid, so it survives the narrow layout), one inert row per suite (no toggle: the testing layer does not
+ * follow the picked app types), the {@code Testing subtotal} and the {@code Total} of both. In all time there is no prior
+ * period, so only Spend and the sparkline.
+ */
+function TestingRows({ data, allTime }) {
+  const grid = allTime ? GRID_ALL : GRID;
+  const { totals } = data;
+  const testing = data.testing;
+  const combined = testing.totals.combined;
+  const appIncomplete = totals.costComplete === false;
+  const testingIncomplete = testing.types.some((t) => t.costComplete === false);
+  const usd = `${formatUsd(combined.lastUsd)}${Number(totals.fxRate) > 0 ? ` · £1 = $${(1 / Number(totals.fxRate)).toFixed(2)}` : ''}`;
+  const subtotalCell = 'font-mono font-normal text-plex-text-secondary';
+  return (
+    <>
+      <div className={`${grid} border-b border-plex-border/60 py-2.5 text-[12.5px]`} role="row" data-testid="runs-cost-app-subtotal">
+        <span role="cell" className={subtotalCell}>App subtotal</span>
+        <span role="cell" className="text-right font-mono" data-testid="runs-cost-app-subtotal-last">
+          {formatGbp(totals.lastGbp)}
+          {appIncomplete && <small className="block text-[10px] text-verdict-marginal">so far</small>}
+        </span>
+        {!allTime && (
+          <>
+            <span role="cell" className="text-right font-mono text-plex-text-secondary @max-[640px]:hidden">{formatGbp(totals.priorGbp)}</span>
+            <span role="cell" className="text-right"><Change delta={totals.deltaGbp} percent={totals.deltaPercent} testId="runs-cost-app-subtotal-change" /></span>
+            <span role="cell" className="@max-[640px]:hidden" />
+          </>
+        )}
+        <span role="cell" className="@max-[640px]:hidden" />
+      </div>
+      <div className={`${grid} border-b border-dashed border-plex-border-light pb-1.5 pt-4`} role="row" data-testid="runs-cost-testing-group">
+        <span role="cell" className="col-span-full font-mono text-[10px] uppercase tracking-[0.14em] text-plex-text-muted">
+          Testing {'·'} CI prompt regression
+        </span>
+      </div>
+      {testing.types.map((row) => {
+        const key = row.suite.toLowerCase();
+        return (
+          <div key={row.suite} className={`${grid} border-b border-plex-border/60 py-2.5 text-[12.5px]`} role="row" data-testid={`runs-cost-testing-row-${key}`}>
+            <span role="cell" className="flex min-w-0 items-center gap-2">
+              <i className={`size-2.5 shrink-0 rounded-xs ${TEST_SWATCH[row.suite]}`} aria-hidden="true" />
+              <span className="min-w-0 font-semibold text-plex-text">{row.label}</span>
+            </span>
+            <span role="cell" className="text-right font-mono" data-testid={`runs-cost-testing-row-${key}-last`}>
+              {formatGbp(row.lastGbp)}
+              {row.costComplete === false && <small className="block text-[10px] text-verdict-marginal">so far</small>}
+              {allTime && row.unknownRuns > 0 && (
+                <small className="block text-[10px] text-plex-text-muted" data-testid={`runs-cost-testing-row-${key}-unknown`}>{row.unknownRuns} usage unknown</small>
+              )}
+            </span>
+            {!allTime && (
+              <>
+                <span role="cell" className="text-right font-mono text-plex-text-secondary @max-[640px]:hidden">{formatGbp(row.priorGbp)}</span>
+                <span role="cell" className="text-right"><Change delta={row.deltaGbp} percent={row.deltaPercent} testId={`runs-cost-testing-row-${key}-change`} /></span>
+                <span role="cell" className="text-[12px] text-plex-text-secondary @max-[640px]:hidden" data-testid={`runs-cost-testing-row-${key}-why`}>{testingWhyText(row)}</span>
+              </>
+            )}
+            <span role="cell" className="@max-[640px]:hidden"><TestingSparkline values={testingSeries(data, row.suite)} suite={row.suite} allTime={allTime} /></span>
+          </div>
+        );
+      })}
+      <div className={`${grid} border-b border-plex-border/60 py-2.5 text-[12.5px]`} role="row" data-testid="runs-cost-testing-subtotal">
+        <span role="cell" className={subtotalCell}>Testing subtotal</span>
+        <span role="cell" className="text-right font-mono" data-testid="runs-cost-testing-subtotal-last">
+          {formatGbp(testing.totals.lastGbp)}
+          {testingIncomplete && <small className="block text-[10px] text-verdict-marginal">so far</small>}
+        </span>
+        {!allTime && (
+          <>
+            <span role="cell" className="text-right font-mono text-plex-text-secondary @max-[640px]:hidden">{formatGbp(testing.totals.priorGbp)}</span>
+            <span role="cell" className="text-right"><Change delta={testing.totals.deltaGbp} percent={testing.totals.deltaPercent} testId="runs-cost-testing-subtotal-change" /></span>
+            <span role="cell" className="text-[12px] text-plex-text-secondary @max-[640px]:hidden">the CI key has its own spend cap</span>
+          </>
+        )}
+        <span role="cell" className="text-[12px] text-plex-text-secondary @max-[640px]:hidden">
+          {allTime ? 'the CI key has its own spend cap' : ''}
+        </span>
+      </div>
+      <div className={`${grid} py-2.5 text-[12.5px] font-semibold`} role="row" data-testid="runs-cost-total">
+        <span role="cell">Total</span>
+        <span role="cell" className="text-right font-mono" data-testid="runs-cost-total-last">
+          {formatGbp(combined.lastGbp)}
+          {(appIncomplete || testingIncomplete) && <small className="block text-[10px] font-normal text-verdict-marginal">so far</small>}
+        </span>
+        {!allTime && (
+          <>
+            <span role="cell" className="text-right font-mono @max-[640px]:hidden">{formatGbp(combined.priorGbp)}</span>
+            <span role="cell" className="text-right"><Change delta={combined.deltaGbp} percent={null} testId="runs-cost-total-change" /></span>
+          </>
+        )}
+        <span role="cell" className="font-mono text-[12px] font-normal text-plex-text-secondary @max-[640px]:hidden" data-testid="runs-cost-total-usd">{usd}</span>
+        {!allTime && <span role="cell" className="@max-[640px]:hidden" />}
+      </div>
+    </>
+  );
+}
+
+TestingRows.propTypes = { data: PropTypes.object.isRequired, allTime: PropTypes.bool };
+
 /**
  * The all-time table: no prior period, so only Type, Spend and the daily sparkline; the total row is the spend and its
  * dollar equivalent. The rows are served biggest spend first.
@@ -121,6 +273,7 @@ function AllTimeTable({ data, selected, onSelect }) {
             </div>
           );
         })}
+        {testingOf(data) ? <TestingRows data={data} allTime /> : (
         <div className={`${GRID_ALL} py-2.5 text-[12.5px] font-semibold`} role="row" data-testid="runs-cost-total">
           <span role="cell">Total</span>
           <span role="cell" className="text-right font-mono" data-testid="runs-cost-total-last">
@@ -131,6 +284,7 @@ function AllTimeTable({ data, selected, onSelect }) {
             {formatUsd(totals.lastUsd)}{Number(totals.fxRate) > 0 ? ` \u00b7 £1 = $${(1 / Number(totals.fxRate)).toFixed(2)}` : ''}
           </span>
         </div>
+        )}
       </div>
     </section>
   );
@@ -209,6 +363,7 @@ export default function CostChangeTable({ data, selected, onSelect }) {
             </div>
           );
         })}
+        {testingOf(data) ? <TestingRows data={data} /> : (
         <div className={`${GRID} py-2.5 text-[12.5px] font-semibold`} role="row" data-testid="runs-cost-total">
           <span role="cell">Total</span>
           <span role="cell" className="text-right font-mono" data-testid="runs-cost-total-last">
@@ -222,6 +377,7 @@ export default function CostChangeTable({ data, selected, onSelect }) {
           </span>
           <span role="cell" className="@max-[640px]:hidden" />
         </div>
+        )}
       </div>
     </section>
   );

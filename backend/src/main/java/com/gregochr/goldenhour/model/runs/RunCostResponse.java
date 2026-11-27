@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.model.runs;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -20,6 +22,10 @@ import java.util.Map;
  * @param types     one entry per run type that ran, biggest rise in pounds first
  * @param totals    the two periods summed
  * @param verdict   the answer to "have my costs snowballed?"
+ * @param testing   the CI prompt-regression spend in the same window, kept apart from every figure above, or null
+ *                  when no CI run falls in the window
+ * @param appExact  the app's unrounded last and prior totals, per-day pounds and last-period micro-dollars, for the
+ *                  server to add testing to without rounding twice (never serialised)
  */
 public record RunCostResponse(
         int rangeDays,
@@ -29,7 +35,66 @@ public record RunCostResponse(
         List<CostDay> days,
         List<CostType> types,
         CostTotals totals,
-        CostVerdict verdict) {
+        CostVerdict verdict,
+        CostTesting testing,
+        @JsonIgnore AppExact appExact) {
+
+    /**
+     * The app's figures before rounding, kept so combined totals round once.
+     *
+     * @param lastGbp   unrounded pounds in the last period
+     * @param priorGbp  unrounded pounds in the prior period
+     * @param lastMicro micro-dollars in the last period
+     * @param dayGbp    unrounded pounds per UK day
+     */
+    public record AppExact(double lastGbp, double priorGbp, long lastMicro, Map<LocalDate, Double> dayGbp) {
+    }
+
+    /**
+     * Builds an app response with the exact figures but no testing block.
+     *
+     * @param rangeDays N
+     * @param firstDay  the first day
+     * @param lastDay   the last day
+     * @param allTime   whether the whole history was asked for
+     * @param days      the days
+     * @param types     the types
+     * @param totals    the totals
+     * @param verdict   the verdict
+     * @param appExact  the unrounded figures
+     */
+    public RunCostResponse(int rangeDays, LocalDate firstDay, LocalDate lastDay, boolean allTime,
+            List<CostDay> days, List<CostType> types, CostTotals totals, CostVerdict verdict, AppExact appExact) {
+        this(rangeDays, firstDay, lastDay, allTime, days, types, totals, verdict, null, appExact);
+    }
+
+    /**
+     * Builds an app-only response (no testing block).
+     *
+     * @param rangeDays N
+     * @param firstDay  the first day
+     * @param lastDay   the last day
+     * @param allTime   whether the whole history was asked for
+     * @param days      the days
+     * @param types     the types
+     * @param totals    the totals
+     * @param verdict   the verdict
+     */
+    public RunCostResponse(int rangeDays, LocalDate firstDay, LocalDate lastDay, boolean allTime,
+            List<CostDay> days, List<CostType> types, CostTotals totals, CostVerdict verdict) {
+        this(rangeDays, firstDay, lastDay, allTime, days, types, totals, verdict, null, null);
+    }
+
+    /**
+     * The same response with a testing block attached; every other field is carried over untouched.
+     *
+     * @param withTesting the CI spend block, or null
+     * @return the response
+     */
+    public RunCostResponse withTesting(CostTesting withTesting) {
+        return new RunCostResponse(rangeDays, firstDay, lastDay, allTime, days, types, totals, verdict, withTesting,
+                appExact);
+    }
 
     /**
      * One UK day's spend.
@@ -130,5 +195,77 @@ public record RunCostResponse(
     public record CostVerdict(Direction direction, Integer percent, RunDeepType topType, String topLabel,
             BigDecimal topDeltaGbp, BigDecimal totalDeltaGbp, boolean runsAsOften, BigDecimal perRunMultiple,
             LocationsPair askLocations, SkyEvalShare skyEval) {
+    }
+
+    /**
+     * The CI prompt-regression spend, counted apart from the app: never inside {@code days}, {@code types},
+     * {@code totals} or the verdict.
+     *
+     * @param types  one entry per suite that ran in the window, sky then ask
+     * @param days   one entry per UK day of {@code days} above, same order (dense)
+     * @param totals the suites together
+     */
+    public record CostTesting(List<CostTestingType> types, List<CostTestingDay> days, CostTestingTotals totals) {
+    }
+
+    /**
+     * One suite's spend in the two periods.
+     *
+     * @param suite               the suite
+     * @param label               the label to show
+     * @param lastGbp             pounds in the last period
+     * @param priorGbp            pounds in the prior period
+     * @param deltaGbp            last minus prior
+     * @param deltaPercent        whole percent change, null when the prior period spent nothing
+     * @param lastRuns            runs in the last period
+     * @param priorRuns           runs in the prior period
+     * @param perRunChangePercent the change in cost per run, null when either period has no cost per run
+     * @param unknownRuns         last-period runs whose usage is unknown or unpriced (not in the spend)
+     * @param costComplete        false when a run in either period has no known cost
+     */
+    public record CostTestingType(CiSuite suite, String label, BigDecimal lastGbp, BigDecimal priorGbp,
+            BigDecimal deltaGbp, Integer deltaPercent, int lastRuns, int priorRuns, Integer perRunChangePercent,
+            int unknownRuns, boolean costComplete) {
+    }
+
+    /**
+     * One UK day of CI spend.
+     *
+     * @param date     the day
+     * @param byType   pounds per suite name ({@code SKY}, {@code ASK}; both present, zero when nothing ran)
+     * @param totalGbp the day's total in pounds
+     * @param appPlusTestingGbp the app's total for the day plus {@code totalGbp}
+     */
+    public record CostTestingDay(LocalDate date, Map<String, BigDecimal> byType, BigDecimal totalGbp,
+            BigDecimal appPlusTestingGbp) {
+    }
+
+    /**
+     * The suites together.
+     *
+     * @param lastGbp      pounds in the last period
+     * @param priorGbp     pounds in the prior period
+     * @param deltaGbp     last minus prior
+     * @param deltaPercent whole percent change, null when the prior period spent nothing
+     * @param runs         runs in the last period
+     * @param priorRuns    runs in the prior period
+     * @param unknownRuns  last-period runs whose usage is unknown or unpriced
+     * @param lastUsd      the last period in dollars (the stored dollar costs of the priced runs)
+     * @param combined     the app's totals plus these, for the table's Total row
+     */
+    public record CostTestingTotals(BigDecimal lastGbp, BigDecimal priorGbp, BigDecimal deltaGbp,
+            Integer deltaPercent, int runs, int priorRuns, int unknownRuns, BigDecimal lastUsd,
+            CostCombined combined) {
+    }
+
+    /**
+     * The app's totals and the testing totals added together.
+     *
+     * @param lastGbp  pounds in the last period
+     * @param priorGbp pounds in the prior period
+     * @param deltaGbp last minus prior
+     * @param lastUsd  the last period in dollars
+     */
+    public record CostCombined(BigDecimal lastGbp, BigDecimal priorGbp, BigDecimal deltaGbp, BigDecimal lastUsd) {
     }
 }

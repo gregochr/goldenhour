@@ -166,6 +166,65 @@ export const overnightTiming = (over = {}) => timingResponse({
   ...over,
 });
 
+/** One served {@code testing.types} row (CostTestingType). */
+export const testingType = (suite, over = {}) => ({
+  suite,
+  label: suite === 'SKY' ? 'Prompt tests · sky' : 'Prompt tests · ask',
+  lastGbp: suite === 'SKY' ? 2.64 : 0.76,
+  priorGbp: suite === 'SKY' ? 1.1 : 0.52,
+  deltaGbp: suite === 'SKY' ? 1.54 : 0.24,
+  deltaPercent: suite === 'SKY' ? 140 : 46,
+  lastRuns: suite === 'SKY' ? 9 : 5,
+  priorRuns: suite === 'SKY' ? 4 : 3,
+  perRunChangePercent: suite === 'SKY' ? 7 : -12,
+  unknownRuns: 0,
+  costComplete: true,
+  ...over,
+});
+
+/**
+ * A served {@code testing} block (CostTesting) for a response: dense days (one per app day, same order) with the
+ * given per-date suite spend, the two suite rows and the totals of the handoff's worked example.
+ */
+export const testingBlock = (data, perDate = {}, over = {}) => ({
+  types: [testingType('SKY'), testingType('ASK')],
+  days: data.days.map((day) => {
+    const byType = { SKY: perDate[day.date]?.SKY ?? 0, ASK: perDate[day.date]?.ASK ?? 0 };
+    const totalGbp = byType.SKY + byType.ASK;
+    return { date: day.date, byType, totalGbp, appPlusTestingGbp: Number(day.totalGbp) + totalGbp };
+  }),
+  totals: {
+    lastGbp: 3.4, priorGbp: 1.62, deltaGbp: 1.78, deltaPercent: 110, runs: 14,
+    priorRuns: 7,
+    unknownRuns: 0,
+    lastUsd: 4.53,
+    combined: { lastGbp: 134.13, priorGbp: 116.45, deltaGbp: 17.68, lastUsd: 179.71 },
+  },
+  ...over,
+});
+
+/** A served {@code promptTestRuns} row (PromptTestRunRow). */
+export const promptTestRun = (over = {}) => ({
+  prNumber: 1912,
+  prTitle: 'fix: valley mist wording',
+  suite: 'SKY',
+  attempt: 1,
+  conclusion: 'success',
+  htmlUrl: 'https://github.com/gregochr/goldenhour/actions/runs/9/attempts/1',
+  startedAt: '2026-11-01T10:00:00Z',
+  cases: 42,
+  failed: 0,
+  input: 178000,
+  output: 38000,
+  cacheRead: 434000,
+  costGbp: 0.41,
+  costUsd: 0.52,
+  usageState: 'KNOWN',
+  inputTotal: 612000,
+  cachedPercent: 71,
+  ...over,
+});
+
 /** An all-time answer: {@code n} consecutive days up to 2026-11-01, one period, nothing before it. */
 export const costAllTime = (n = 400, over = {}) => ({
   rangeDays: n,

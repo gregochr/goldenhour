@@ -45,9 +45,11 @@ export function ChipGroup({ label, wrap = false, children }) {
 ChipGroup.propTypes = { label: PropTypes.string.isRequired, wrap: PropTypes.bool, children: PropTypes.node.isRequired };
 
 /** The 1px divider between chip groups. Hidden on a phone: wrapped, it would strand at a line edge, and the gap suffices. */
-export function ChipDivider() {
-  return <span className="h-5 w-px shrink-0 bg-plex-border max-[639px]:hidden" aria-hidden="true" />;
+export function ChipDivider({ testId = undefined }) {
+  return <span className="h-5 w-px shrink-0 bg-plex-border max-[639px]:hidden" aria-hidden="true" data-testid={testId} />;
 }
+
+ChipDivider.propTypes = { testId: PropTypes.string };
 
 /**
  * A filter chip with an optional count. A toggle ({@code aria-pressed}).

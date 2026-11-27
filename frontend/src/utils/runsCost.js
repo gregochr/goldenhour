@@ -64,13 +64,16 @@ export function sinceLabel(firstDay) {
  * is no earlier period to compare with).
  *
  * @param {object} data the served {@code RunCostResponse}
+ * @param {boolean} [appLabel] say "app" (set only when a testing block is served, so the sentence is not read as the
+ *   total including CI)
  * @returns {string} the headline
  */
-export function allTimeHeadline(data) {
+export function allTimeHeadline(data, appLabel = false) {
   const since = sinceLabel(data.firstDay);
+  const app = appLabel ? 'app ' : '';
   return Number(data.totals.lastGbp) > 0
-    ? `${formatGbp(data.totals.lastGbp)} spent since ${since}.`
-    : `No spend recorded since ${since}.`;
+    ? `${formatGbp(data.totals.lastGbp)} ${appLabel ? 'of app spend' : 'spent'} since ${since}.`
+    : `No ${app}spend recorded since ${since}.`;
 }
 
 /**
@@ -78,10 +81,12 @@ export function allTimeHeadline(data) {
  * server serves the types biggest first, which in all time is biggest spend first).
  *
  * @param {object} data the served {@code RunCostResponse}
+ * @param {boolean} [appLabel] say "app" (set only when a testing block is served)
  * @returns {Array<{text: string, bold?: boolean}>} the runs, in order
  */
-export function allTimeBody(data) {
-  const runs = [{ text: formatGbp(data.totals.perDayLast), bold: true }, { text: ' a day on average over ' },
+export function allTimeBody(data, appLabel = false) {
+  const runs = [{ text: formatGbp(data.totals.perDayLast), bold: true },
+    { text: appLabel ? ' a day on average for the app over ' : ' a day on average over ' },
     { text: `${data.rangeDays} days`, bold: true }, { text: '.' }];
   const top = data.types[0];
   if (top && Number(top.lastGbp) > 0) {
@@ -96,15 +101,20 @@ export function allTimeBody(data) {
  * @param {{direction: string, percent: number|null}} verdict the served verdict
  * @param {number} rangeDays N
  * @param {boolean} hasSpend whether either period spent anything
+ * @param {boolean} [appLabel] say "App spend" (set only when a testing block is served; the verdict itself is
+ *   computed from the app's figures either way)
  * @returns {string} the headline
  */
-export function verdictHeadline(verdict, rangeDays, hasSpend) {
-  if (!hasSpend) return `No spend recorded in the last ${rangeDays} days.`;
-  if (verdict.percent == null) return `No comparison yet: nothing was spent in the ${rangeDays} days before.`;
+export function verdictHeadline(verdict, rangeDays, hasSpend, appLabel = false) {
+  const spend = appLabel ? 'App spend' : 'Spend';
+  if (!hasSpend) return `No ${appLabel ? 'app spend' : 'spend'} recorded in the last ${rangeDays} days.`;
+  if (verdict.percent == null) {
+    return `No comparison yet: nothing was ${appLabel ? 'spent on the app' : 'spent'} in the ${rangeDays} days before.`;
+  }
   const pct = Math.abs(verdict.percent);
-  if (verdict.direction === 'UP') return `Yes. Spend is up ${pct}% on the previous ${rangeDays} days.`;
-  if (verdict.direction === 'DOWN') return `No. Spend is down ${pct}% on the previous ${rangeDays} days.`;
-  return `No. Spend is roughly flat (${signedPercent(verdict.percent)}) on the previous ${rangeDays} days.`;
+  if (verdict.direction === 'UP') return `Yes. ${spend} is up ${pct}% on the previous ${rangeDays} days.`;
+  if (verdict.direction === 'DOWN') return `No. ${spend} is down ${pct}% on the previous ${rangeDays} days.`;
+  return `No. ${spend} is roughly flat (${signedPercent(verdict.percent)}) on the previous ${rangeDays} days.`;
 }
 
 /**
@@ -245,4 +255,155 @@ export function bucketSeries(values, max) {
     buckets.push(values.slice(i, i + size).reduce((a, b) => a + b, 0));
   }
   return buckets;
+}
+
+// ── CI prompt-regression spend (ci-spend-plan.md C3) ─────────────────────────────────────────────────────────────
+
+/** The two CI suites, in stack order (sky, then ask), the keys of {@code testing.days[].byType}. */
+export const TEST_SUITES = ['SKY', 'ASK'];
+
+/**
+ * The hatched swatch of each suite (chip, table, headline). Each class names its colour token in full: Tailwind v4
+ * prunes a theme variable no scanned file mentions, and a name assembled at runtime is invisible to the scanner.
+ */
+export const TEST_SWATCH = {
+  SKY: 'border border-test-sky bg-[repeating-linear-gradient(135deg,var(--color-test-sky)_0_3px,transparent_3px_6px)]',
+  ASK: 'border border-test-ask bg-[repeating-linear-gradient(135deg,var(--color-test-ask)_0_3px,transparent_3px_6px)]',
+};
+
+/**
+ * The testing block of a served cost response, or null when it has none (or an empty one).
+ *
+ * @param {object} data the served {@code RunCostResponse}
+ * @returns {object|null} the block
+ */
+export function testingOf(data) {
+  const testing = data?.testing;
+  return testing && testing.totals && Array.isArray(testing.types) && testing.types.length > 0 ? testing : null;
+}
+
+/**
+ * The testing headline line as text runs, outside the app's own sentence: {@code Plus £3.40 on prompt tests
+ * (14 runs, was £1.62)}, or in all time {@code Plus £3.40 on prompt tests since 3 Mar 2026}, with the number of runs
+ * whose usage is unknown appended.
+ *
+ * @param {object} data the served {@code RunCostResponse} with a testing block
+ * @returns {Array<{text: string, bold?: boolean}>} the runs, in order
+ */
+export function testingLine(data) {
+  const { totals } = data.testing;
+  const runs = [{ text: 'Plus ' }, { text: formatGbp(totals.lastGbp), bold: true }, { text: ' on prompt tests' }];
+  if (data.allTime === true) {
+    runs.push({ text: ` since ${sinceLabel(data.firstDay)}` });
+  } else {
+    runs.push({ text: ` (${totals.runs} ${totals.runs === 1 ? 'run' : 'runs'}, was ${formatGbp(totals.priorGbp)})` });
+  }
+  if (totals.unknownRuns > 0) runs.push({ text: ` · ${totals.unknownRuns} usage unknown` });
+  return runs;
+}
+
+/**
+ * A suite row's "Why" cell: {@code Runs 9, was 4 · £/run +7%} (the £/run part only when it can be worked out), with
+ * the number of runs whose usage is unknown appended.
+ *
+ * @param {object} row the served {@code testing.types} row
+ * @returns {string} the text
+ */
+export function testingWhyText(row) {
+  let text = `Runs ${row.lastRuns}, was ${row.priorRuns}`;
+  if (row.perRunChangePercent != null) text += ` · £/run ${signedPercent(row.perRunChangePercent)}`;
+  if (row.unknownRuns > 0) text += ` · ${row.unknownRuns} usage unknown`;
+  return text;
+}
+
+/**
+ * A suite's daily values over all the served days, for its sparkline.
+ *
+ * @param {object} data the served {@code RunCostResponse} with a testing block
+ * @param {string} suite {@code SKY} or {@code ASK}
+ * @returns {number[]} one value per app day (the testing days are dense and in the same order), prior period first
+ */
+export function testingSeries(data, suite) {
+  const byDate = new Map(data.testing.days.map((day) => [day.date, Number(day.byType?.[suite] ?? 0)]));
+  return data.days.map((day) => byDate.get(day.date) ?? 0);
+}
+
+/**
+ * The served testing days keyed by date, for constant-time lookups while drawing.
+ *
+ * @param {object} data the served {@code RunCostResponse}
+ * @returns {Map<string, object>} date to served testing day (empty without a testing block)
+ */
+export function testingDayMap(data) {
+  return new Map((data.testing?.days ?? []).map((day) => [day.date, day]));
+}
+
+/**
+ * The outcome words of a prompt test run: passed, "N failed", failed, cancelled, or the raw value.
+ *
+ * @param {object} row the served prompt test run
+ * @returns {{text: string, tone: 'ok'|'bad'|'quiet'}} the words and their tone
+ */
+export function promptTestOutcome(row) {
+  if (row.conclusion === 'success') return { text: 'passed', tone: 'ok' };
+  if (row.conclusion === 'failure') {
+    return row.failed > 0 ? { text: `${row.failed} failed`, tone: 'bad' } : { text: 'failed', tone: 'bad' };
+  }
+  if (row.conclusion === 'cancelled') return { text: 'cancelled', tone: 'quiet' };
+  return { text: row.conclusion ?? 'running', tone: 'quiet' };
+}
+
+/**
+ * A token count in thousands or millions: 612000 as "612k", 1250000 as "1.3M", 800 as "800".
+ *
+ * @param {number|string} n the count
+ * @returns {string} the short form
+ */
+export function compactTokens(n) {
+  const value = Number(n);
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1000) return `${Math.round(value / 1000)}k`;
+  return String(value);
+}
+
+/**
+ * The meta line of a prompt test run: {@code 42 cases · 0 failed · 612k in · 38k out · 71% cached · attempt 1}. A
+ * figure the server did not have is left out (never a zero). The input total and cached share are served.
+ *
+ * @param {object} row the served prompt test run
+ * @returns {string} the line
+ */
+export function promptTestMeta(row) {
+  const parts = [];
+  if (row.cases != null) parts.push(`${row.cases} ${row.cases === 1 ? 'case' : 'cases'}`);
+  if (row.failed != null) parts.push(`${row.failed} failed`);
+  if (row.inputTotal != null) {
+    parts.push(`${compactTokens(row.inputTotal)} in`);
+    if (row.output != null) parts.push(`${compactTokens(row.output)} out`);
+    if (row.cachedPercent != null && row.cachedPercent > 0) parts.push(`${row.cachedPercent}% cached`);
+  }
+  parts.push(`attempt ${row.attempt}`);
+  return parts.join(' · ');
+}
+
+/**
+ * The cost cell of a prompt test run: pounds, or "usage unknown" / "unpriced", never a zero that was not measured.
+ *
+ * @param {object} row the served prompt test run
+ * @returns {string} the text
+ */
+export function promptTestCostText(row) {
+  if (row.usageState === 'UNKNOWN') return 'usage unknown';
+  if (row.usageState === 'UNPRICED') return 'unpriced';
+  return formatGbp(row.costGbp);
+}
+
+/**
+ * Whether a run's link is one the page may render: only an {@code https://github.com/} address.
+ *
+ * @param {string|null|undefined} url the served link
+ * @returns {boolean} true for a GitHub address
+ */
+export function isGithubUrl(url) {
+  return typeof url === 'string' && url.startsWith('https://github.com/');
 }

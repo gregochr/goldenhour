@@ -4,6 +4,9 @@ import com.gregochr.goldenhour.controller.GlobalExceptionHandler.ErrorResponse;
 import com.gregochr.goldenhour.model.runs.RunGroup;
 import com.gregochr.goldenhour.model.runs.RunRange;
 import com.gregochr.goldenhour.service.runs.AdminRunsService;
+import com.gregochr.goldenhour.model.runs.RunCostResponse;
+import com.gregochr.goldenhour.model.runs.RunDayResponse;
+import com.gregochr.goldenhour.service.runs.CiSpendCostService;
 import com.gregochr.goldenhour.service.runs.RunCursor;
 import com.gregochr.goldenhour.service.runs.RunsCalendarService;
 import com.gregochr.goldenhour.service.runs.RunsCallsService;
@@ -43,6 +46,7 @@ public class AdminRunsController {
     private final RunsCallsService callsService;
     private final RunsCostService costService;
     private final RunsTimingService timingService;
+    private final CiSpendCostService ciSpendService;
 
     /**
      * Constructs the controller.
@@ -53,16 +57,18 @@ public class AdminRunsController {
      * @param callsService    builds a run's external calls
      * @param costService     builds the Cost trends view
      * @param timingService   builds the Timing view
+     * @param ciSpendService  builds the CI prompt-regression spend, composed beside the app's figures
      */
     public AdminRunsController(AdminRunsService runsService, RunsDayService dayService,
             RunsCalendarService calendarService, RunsCallsService callsService, RunsCostService costService,
-            RunsTimingService timingService) {
+            RunsTimingService timingService, CiSpendCostService ciSpendService) {
         this.runsService = runsService;
         this.dayService = dayService;
         this.calendarService = calendarService;
         this.callsService = callsService;
         this.costService = costService;
         this.timingService = timingService;
+        this.ciSpendService = ciSpendService;
     }
 
     /**
@@ -126,7 +132,9 @@ public class AdminRunsController {
         } catch (DateTimeParseException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse("date must be YYYY-MM-DD"));
         }
-        return ResponseEntity.ok(dayService.day(parsed));
+        RunDayResponse day = dayService.day(parsed);
+        return ResponseEntity.ok(day.withPromptTestRuns(ciSpendService.promptTestRuns(day.dayStartUtc(),
+                day.dayEndUtc())));
     }
 
     /**
@@ -167,7 +175,10 @@ public class AdminRunsController {
      */
     @GetMapping("/cost")
     public ResponseEntity<?> cost(@RequestParam(required = false) String days) {
-        return ResponseEntity.ok(costService.cost(days));
+        RunCostResponse app = costService.cost(days);
+        LocalDate splitDay = app.allTime() ? app.firstDay() : app.lastDay().plusDays(1).minusDays(app.rangeDays());
+        return ResponseEntity.ok(app.withTesting(
+                ciSpendService.testing(app.firstDay(), splitDay, app.lastDay(), app.allTime(), app)));
     }
 
     /**

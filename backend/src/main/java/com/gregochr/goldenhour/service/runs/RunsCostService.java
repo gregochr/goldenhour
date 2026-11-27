@@ -152,7 +152,10 @@ public class RunsCostService {
                 percent(last, prior), RunFx.dollars(lastMicro),
                 BigDecimal.valueOf(loaded.fx().rateOn(lastDay)).setScale(FX_SCALE, RoundingMode.HALF_UP),
                 RunFx.pence(last / n), RunFx.pence(prior / n), allComplete);
-        return new RunCostResponse(n, firstDay, lastDay, allTime, days, types, totals, verdict(tallies, last, prior));
+        Map<LocalDate, Double> dayGbp = new HashMap<>();
+        perDay.forEach((d, m) -> dayGbp.put(d, m.values().stream().mapToDouble(Double::doubleValue).sum()));
+        return new RunCostResponse(n, firstDay, lastDay, allTime, days, types, totals,
+                verdict(tallies, last, prior), new RunCostResponse.AppExact(last, prior, lastMicro, dayGbp));
     }
 
     private static int parseDays(String requested) {
@@ -194,10 +197,7 @@ public class RunsCostService {
     }
 
     private static Double perRunMultiple(Tally t) {
-        if (t.runs[0] == 0 || t.runs[1] == 0 || t.gbp[0] <= 0) {
-            return null;
-        }
-        return (t.gbp[1] / t.runs[1]) / (t.gbp[0] / t.runs[0]);
+        return CostArithmetic.perRunMultiple(t.gbp[1], t.runs[1], t.gbp[0], t.runs[0]);
     }
 
     private static Integer perRunChange(Tally t) {
@@ -213,7 +213,7 @@ public class RunsCostService {
      * @return the signed change, or null when the base is zero or negative
      */
     static Integer percent(double now, double base) {
-        return base <= 0 ? null : (int) Math.round((now - base) / base * PERCENT);
+        return CostArithmetic.percent(now, base);
     }
 
     private static CostVerdict verdict(Map<RunDeepType, Tally> tallies, double last, double prior) {

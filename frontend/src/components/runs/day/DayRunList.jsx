@@ -252,7 +252,13 @@ export default function DayRunList({ day, filter, onFilterChange, openId, onTogg
 
   let body;
   if (day.runs.length === 0) {
-    body = <p className="py-6 text-center text-sm text-plex-text-secondary" data-testid="runs-day-empty">No runs on this day.</p>;
+    // A day with only CI runs has no app runs; the prompt test runs are listed in their own section after this card.
+    const ciOnly = (day.promptTestRuns?.length ?? 0) > 0;
+    body = (
+      <p className="py-6 text-center text-sm text-plex-text-secondary" data-testid="runs-day-empty">
+        {ciOnly ? 'No app runs on this day.' : 'No runs on this day.'}
+      </p>
+    );
   } else if (rows.length === 0) {
     body = (
       <p className="py-6 text-center text-sm text-plex-text-secondary" data-testid="runs-day-filter-empty">
