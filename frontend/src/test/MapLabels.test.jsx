@@ -19,6 +19,7 @@ import MapLabels from '../components/map/MapLabels.jsx';
 import { rampHex, setMode } from '../utils/scoreRamp.js';
 import { labelInNameResult } from './labelInNameCheck.js';
 import { withFavourites } from './favouritesKit.jsx';
+import { cssNumber } from './cssTestKit.js';
 
 /**
  * The Map tab's HTML label layer (map-tab-v2-plan.md §3 P8) — the WIRING suite. The placement
@@ -253,8 +254,9 @@ describe('MapLabels — home marker', () => {
     // size, at the first unblocked rung — dy=0/dx=0 here, nothing else on screen to collide
     // with), not the raw anchor point itself.
     const anchor = currentMap.latLngToContainerPoint([HOME.lat, HOME.lon]);
-    expect(home.style.left).toBe(`${anchor.x - 15}px`);
-    expect(home.style.top).toBe(`${anchor.y - 7}px`);
+    // jsdom 31 reads a style figure back at six significant digits (cssTestKit's cssNumber).
+    expect(home.style.left).toBe(`${cssNumber(anchor.x - 15)}px`);
+    expect(home.style.top).toBe(`${cssNumber(anchor.y - 7)}px`);
   });
 
   it('is absent at/above the zoom gate', async () => {

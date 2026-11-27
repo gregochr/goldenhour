@@ -24,6 +24,7 @@ import {
 } from '@testing-library/react';
 import MapTideStrip, { TY, footerModel, nextFitCopy } from '../components/map/MapTideStrip.jsx';
 import { mockOpenGuide } from './guideContextMock.js';
+import { cssNumber } from './cssTestKit.js';
 
 vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
@@ -334,8 +335,9 @@ describe('MapTideStrip — the chart mapping (plan §7 check 5)', () => {
     const ref = mapPane();
     render(<MapTideStrip model={baseModel()} tide={tide} activeRow={activeRow} mapPaneRef={ref} />);
     const dot = screen.getByTestId('wf-tide-strip-dot');
-    expect(dot.style.top).toBe(`${TY(tide.windowLevel)}%`);
-    expect(dot.style.left).toBe(`${tide.windowPosition * 100}%`);
+    // jsdom 31 reads a style figure back at six significant digits (cssTestKit's cssNumber).
+    expect(dot.style.top).toBe(`${cssNumber(TY(tide.windowLevel))}%`);
+    expect(dot.style.left).toBe(`${cssNumber(tide.windowPosition * 100)}%`);
   });
 
   it('the fixture\'s own curve and windowLevel agree within 0.02 (mirrors TideSurfaceAgreementTest)', () => {
