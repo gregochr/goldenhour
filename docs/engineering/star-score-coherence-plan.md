@@ -149,3 +149,27 @@ score" read per-score would break `copt-hill-15mar` (§3.2); clear sky at 2★ (
 (§6); keep both pin placements and pin the schema text (§6); golden masters (§6); "bands never move
 the star" (§3.1); the tide-lifted card and summary tone (§4). Confirmed not a problem: the eight
 fixture bounds, cost beyond four cache writes, other regression tests.
+
+## 9. v3, 2026-11-27: narrowed after the Haiku measurement
+
+The owner ran the Sky Eval on Haiku 4.5 (8 runs per fixture) on the PR and on `main`. The global band
+table destabilised Haiku in both directions the v1 reviewers predicted: it read the table score-first
+and pulled scores toward band middles.
+
+| Fixture | `main` | v2 (bands) |
+|---|---|---|
+| far-corridor-blanket-canvas (gated, blocked) | 2★ ×7, 3★ ×1, 18/28 | 3★ ×5 at 48/62 |
+| st-marys-7apr clear-sky cap | 3★ ×7, golden 62-72 | 1★ ×8, golden 28-35 |
+| copt-hill-5mar washout (blocked) | 2★, fiery 18 | 2★, fiery 28 (above bound 25) |
+| copt-hill-15mar (approach) | 3★, 35/40-45 | 2★, 20/28 |
+
+Sonnet 5.5 passed in CI, but Batch Far-Term runs on Haiku. **Owner decision: narrow the PR.**
+- Removed: the STAR AND SCORE BANDS block, the band text on the JSON field list, and the band text on
+  the `fiery_sky` / `golden_hour` schema descriptions.
+- Kept, local to the combined approach rule: when it leaves the rating at 3, the 20-30 point score
+  penalty stops once the higher of the two scores reaches 40 (prose, field list and `golden_hour`
+  schema description: the binding placement).
+- Kept: upwind alone persists → rating ≤2 (a plain star rule), and the "half-blocked" headline
+  example.
+- A general star↔score guarantee is not achieved by prompt on Haiku; a code-side check (§2, declined
+  for now) is the route if it is revisited. Re-measure v3 on Haiku against the `main` run above.
