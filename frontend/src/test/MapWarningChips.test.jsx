@@ -51,6 +51,28 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); });
 
 describe('MapWarningChips', () => {
+  it('prints each warning\'s validity in UK time beside its chip, with or without Details', async () => {
+    const a = warning({
+      warningId: 'a', weatherTypes: ['ICE'], validFrom: `${DATE}T03:00:00Z`, validTo: `${DATE}T21:00:00Z`,
+    });
+    const b = warning({
+      warningId: 'b', weatherTypes: ['WIND'], validFrom: `${DATE}T10:00:00Z`, validTo: '2026-06-16T08:00:00Z',
+    });
+    await mount(response([a, b]), { onToggle: vi.fn() });
+    const withToggle = screen.getAllByTestId('map-warning-validity').map((n) => n.textContent);
+    expect(withToggle).toHaveLength(2);
+    expect(withToggle[0]).toContain('Mon 15 Jun, 04:00\u201322:00');
+    expect(withToggle[1]).toContain('Mon 15 Jun, 11:00 \u2013 Tue 16 Jun, 09:00');
+    const first = screen.getAllByTestId('warning-chip')[0].closest('div');
+    expect(first.querySelector('[data-testid="map-warning-validity"]')).not.toBeNull();
+  });
+
+  it('prints the validity even when no Details button is drawn', async () => {
+    await mount(response([YELLOW]));
+    expect(screen.queryByTestId('map-warning-toggle')).toBeNull();
+    expect(screen.getByTestId('map-warning-validity')).toHaveTextContent('Mon 15 Jun, 01:00 \u2013 Tue 16 Jun, 00:59');
+  });
+
   it('draws the window\'s warnings most severe first, level word printed, Updated for the served flag', async () => {
     await mount(response([YELLOW, RED]));
     const chips = screen.getAllByTestId('warning-chip');
