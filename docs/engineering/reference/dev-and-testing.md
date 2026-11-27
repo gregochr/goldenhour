@@ -358,12 +358,13 @@ the distribution with `./mvnw -v`, up to 3 attempts with a 10 s / 20 s backoff, 
 that download warm-up retries; the real Maven command that follows is never retried. A new workflow job that calls
 `./mvnw` must add the same step. `backend/Dockerfile` uses Alpine's `apk` Maven, not the wrapper, so it is unaffected.
 
-### Prompt regression in CI (approval-gated, never required)
+### Prompt regression in CI (runs automatically, never required)
 
 `Prompt regression (approval-gated)` (`.github/workflows/prompt-regression.yml`, Phase 5b) runs the real-Claude
 `prompt-regression` classes on pull requests that change prompt or evaluation code. It is **its own workflow**, never a job in
-`ci.yml`, and **never a required check**: a run that is waiting for approval, skipped or expired is normal and is not awaited
-before a merge (CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and `Prompt regression — ask`).
+`ci.yml`, and **never a required check**: a skipped run is normal, and a red run is reported, never awaited, before a merge
+(CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and `Prompt regression — ask`). The workflow's name still says
+"approval-gated" because it is the check name and `prompt-regression-workflow.test.sh` pins it; the gate itself is off (below).
 
 - **How it triggers.** `pull_request` (opened, synchronize, reopened, ready_for_review) and `workflow_dispatch`. A `changes` job
   (no secrets, no environment) takes a three-dot `git diff` against the merge base (`fetch-depth: 0`) and feeds it to
@@ -379,17 +380,24 @@ before a merge (CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and
   with `-DforkCount=1`; any skipped Ask test is shown red in the summary, because a skipped paid test checked nothing.
   `PromptReplayHarnessTest` never runs. The step summary (`scripts/prompt-regression-summary.py`, read from the surefire
   `TEST-*.xml`) and the uploaded reports use `if: ${{ !cancelled() }}`, so a red test step still produces them.
-- **Approval.** Both jobs run in the `prompt-regression` GitHub environment, whose required reviewer is the owner; nothing spends
-  money without a click. The key is the environment secret `PROMPT_REGRESSION_ANTHROPIC_API_KEY`, a separate, spend-capped key
-  (never the production or smoke key), and a run fails fast when it is empty. ⚠️ **The approval is a cost gate, not a sandbox.**
-  Once approved, the PR head's workflow, tests, pom plugins and Maven wrapper all run with the key.
-- **Owner's pre-approval checklist (B3).** Before clicking Approve, read the PR's diff of `.github/**`, `backend/pom.xml`, `.mvn/**`,
-  `mvnw` and `backend/src/test/**`. Anything there that is not obviously about the prompt under test is a reason to reject the run.
+- **No approval gate (owner's choice, 2026-11-27).** Both jobs run in the `prompt-regression` GitHub environment, which holds the
+  key but has **no required reviewer**: a prompt-changing PR runs the paid jobs as soon as it is opened or pushed (observed on
+  PR #1967 and on the `main` run before it: each job started about 3 s after it was queued). The original design (2026-11-08)
+  had the owner as required reviewer, so nothing spent money without a click; to restore that, tick Required reviewers on the
+  environment and update this section and CLAUDE.md step 6. The key is the environment secret
+  `PROMPT_REGRESSION_ANTHROPIC_API_KEY`, a separate, spend-capped key (never the production or smoke key), and a run fails fast
+  when it is empty; the spend cap is now the only cost limit. ⚠️ **Same-repository PRs only, and that is the security boundary.**
+  A same-repository PR's head workflow, tests, pom plugins and Maven wrapper all run with the key, with no click in between;
+  fork PRs and Dependabot never reach the paid jobs.
+- **Owner's review checklist (B3, was the pre-approval checklist).** On a prompt-changing PR, read its diff of `.github/**`,
+  `backend/pom.xml`, `.mvn/**`, `mvnw` and `backend/src/test/**` as part of reviewing it. Anything there that is not obviously about
+  the prompt under test is a reason to look hard at what the paid run did with the key.
 - **Costs** (estimates): sky quick (k=1) about 25 calls on Sonnet 5.5, roughly $0.10-0.30 and 5 minutes; sky eval (k=8, dispatch
   only) 80+ calls, roughly $1-2 and 20-40 minutes; ask about 145 asks on Haiku, roughly $1.50-3.60 and 30-50 minutes. A newer push
-  to the same branch cancels a stale run (`concurrency` per job), so an unapproved run costs nothing.
-- **Manual runs.** Actions, Prompt regression, Run workflow: choose `suite` (`sky`, `ask`, `both`) and `sky_runs` (`1` or `8`). The
-  same environment approval applies.
+  to the same branch cancels a stale run (`concurrency` per job). With no gate, every prompt-changing PR and every push to one
+  pays for a run.
+- **Manual runs.** Actions, Prompt regression, Run workflow: choose `suite` (`sky`, `ask`, `both`) and `sky_runs` (`1` or `8`). They
+  start at once, like PR runs.
 - **Tests.** `scripts/test/prompt-regression-{paths,summary,workflow}.test.sh` run in `Shell — script tests`; the scripts are
   ShellChecked by `Shell — ShellCheck`. `actionlint` is not part of CI.
 
