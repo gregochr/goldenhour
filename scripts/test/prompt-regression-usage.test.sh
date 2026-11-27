@@ -125,17 +125,18 @@ assert_eq "pr is null" "None" "$(jget "$OUT" "d['pr']")"
 assert_eq "runId is null" "None" "$(jget "$OUT" "d['runId']")"
 assert_eq "headSha kept" "def" "$(jget "$OUT" "d['headSha']")"
 
-# ── step summary: appended, one line of totals ───────────────────────────────────────────────────────────────
+# ── summary: one line of totals on stdout; the script never touches the job summary file ──────────────────────
 S="$(new_dir shards-sum)"
 printf '%s' "$SHARD_A" > "$S/shard-1-aaa.json"
+usage sky "$S" "$R" "$WORK/out/sum.json" > "$WORK/stdout.txt" 2>/dev/null
+echo "-- summary line"
+assert_eq "one line on stdout" "1" "$(wc -l < "$WORK/stdout.txt" | tr -d ' ')"
+assert_file_has "stdout has the totals" "$WORK/stdout.txt" "Prompt usage (sky): 3 calls (1 errored), 100 input, 20 output, 50 cache read, 10 cache write"
 echo "existing" > "$WORK/step-summary.md"
 GITHUB_STEP_SUMMARY="$WORK/step-summary.md" python3 -I "$SCRIPTS/prompt-regression-usage.py" \
-    --suite sky --shards "$S" --reports "$R" --out "$WORK/out/sum.json" > "$WORK/stdout.txt"
-echo "-- step summary"
-assert_file_has "keeps what was there" "$WORK/step-summary.md" "existing"
-assert_file_has "appends the totals" "$WORK/step-summary.md" "Prompt usage (sky): 3 calls (1 errored), 100 input, 20 output, 50 cache read, 10 cache write"
-assert_eq "one line appended" "2" "$(wc -l < "$WORK/step-summary.md" | tr -d ' ')"
-assert_eq "nothing on stdout" "0" "$(wc -c < "$WORK/stdout.txt" | tr -d ' ')"
+    --suite sky --shards "$S" --reports "$R" --out "$WORK/out/sum2.json" > /dev/null
+assert_eq "an env-named summary file is left alone" "existing" "$(cat "$WORK/step-summary.md")"
+assert_file_lacks "the script does not reference GITHUB_STEP_SUMMARY" "$SCRIPTS/prompt-regression-usage.py" "GITHUB_STEP_SUMMARY"
 
 # ── paths are confined to the working directory ──────────────────────────────────────────────────────────────
 S="$(new_dir shards-conf)"

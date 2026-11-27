@@ -8,7 +8,7 @@ uploads and production later prices. It holds token counts and run identifiers o
 keys or headers.
 
 Environment: GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, HEAD_SHA, PR_NUMBER (empty on a manual run), STARTED_AT.
-Appends one totals line to $GITHUB_STEP_SUMMARY when it is set.
+Prints one totals line to stdout; the workflow appends it to the job summary.
 
 * *.tmp files are ignored (a shard being replaced); a malformed shard is skipped with a warning.
 * "complete" is false when no surefire report exists (the build failed before any test ran).
@@ -173,10 +173,7 @@ def main(argv):
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(doc, handle, indent=2)
         handle.write("\n")
-    target = os.environ.get("GITHUB_STEP_SUMMARY")
-    if target:
-        with open(target, "a", encoding="utf-8") as handle:
-            handle.write(summary_line(doc))
+    sys.stdout.write(summary_line(doc))
     return 0
 
 

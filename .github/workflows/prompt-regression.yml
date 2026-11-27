@@ -198,7 +198,7 @@ jobs:
             --suite sky \
             --shards backend/target/prompt-regression-usage \
             --reports backend/target/surefire-reports \
-            --out backend/target/prompt-regression-usage-sky.json
+            --out backend/target/prompt-regression-usage-sky.json >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload usage
         if: always()
@@ -293,7 +293,7 @@ jobs:
             --suite ask \
             --shards backend/target/prompt-regression-usage \
             --reports backend/target/surefire-reports \
-            --out backend/target/prompt-regression-usage-ask.json
+            --out backend/target/prompt-regression-usage-ask.json >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload usage
         if: always()

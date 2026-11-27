@@ -160,6 +160,8 @@ assert_file_has "sky model is Sonnet 5.5" "$WF" "SKY_MODEL: SONNET_55"
 assert_file_has "SKY_RUNS defaults to 1" "$WF" "SKY_RUNS: \${{ inputs.sky_runs || '1' }}"
 assert_file_has "ask summary shows skips red" "$WF" "--skipped-red"
 assert_file_has "runs the usage script isolated" "$WF" "python3 -I scripts/prompt-regression-usage.py"
+assert_file_has "sky Write usage appends to the job summary" "$WF" '--out backend/target/prompt-regression-usage-sky.json >> "$GITHUB_STEP_SUMMARY"'
+assert_file_has "ask Write usage appends to the job summary" "$WF" '--out backend/target/prompt-regression-usage-ask.json >> "$GITHUB_STEP_SUMMARY"'
 assert_file_has "usage shards go under backend/target" "$WF" "PROMPT_REGRESSION_USAGE_DIR: \${{ github.workspace }}/backend/target/prompt-regression-usage"
 assert_file_lacks "no Anthropic key as a repository secret" "$WF" "secrets.ANTHROPIC_API_KEY"
 assert_file_lacks "never runs the replay harness in a -Dtest" "$WF" "-Dtest='PromptReplayHarnessTest"
