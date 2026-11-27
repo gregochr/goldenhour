@@ -13,6 +13,10 @@ name: Prompt regression (approval-gated)
 # with it, so the key is a separate, spend-capped one (PROMPT_REGRESSION_ANTHROPIC_API_KEY) and the spend cap is the only
 # cost limit. Same-repository PRs only: a fork PR never reaches the paid jobs, and neither does Dependabot (for an SDK
 # bump, run this manually).
+# ⚠️ Cost trends (docs/engineering/ci-spend-plan.md, C1): each paid job records the tokens it spends (a recording client in the
+# paid test classes writes counts per model to PROMPT_REGRESSION_USAGE_DIR) and uploads them as the
+# `prompt-regression-usage-<suite>-<attempt>` artifact. The artifact holds token counts and run identifiers only, never
+# prompt text or model output. Production reads it later to price CI spend on Runs > Cost trends; nothing here waits on it.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -113,6 +117,10 @@ jobs:
       # B11: the CI model setting is SKY_MODEL only.
       SKY_MODEL: SONNET_55
       SKY_RUNS: ${{ inputs.sky_runs || '1' }}
+      PROMPT_REGRESSION_USAGE_DIR: ${{ github.workspace }}/backend/target/prompt-regression-usage
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # Empty on a manual run.
+      PR_NUMBER: ${{ github.event.pull_request.number }}
     defaults:
       run:
         working-directory: backend
@@ -120,6 +128,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      # working-directory: . because the job default (backend) does not exist before checkout in the first place.
+      - name: Record start time
+        working-directory: .
+        run: echo "STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -177,6 +190,21 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+      - name: Write usage
+        if: always()
+        working-directory: .
+        run: |
+          python3 -I scripts/prompt-regression-usage.py --suite sky >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload usage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-regression-usage-sky-${{ github.run_attempt }}
+          path: backend/target/prompt-regression-usage-sky.json
+          retention-days: 90
+          if-no-files-found: ignore
+
   # ── Ask PhotoCast prompt tests ───────────────────────────────────────────────────────────────────────────────
   ask:
     name: Prompt regression — ask
@@ -191,6 +219,10 @@ jobs:
       cancel-in-progress: true
     env:
       ANTHROPIC_API_KEY: ${{ secrets.PROMPT_REGRESSION_ANTHROPIC_API_KEY }}
+      PROMPT_REGRESSION_USAGE_DIR: ${{ github.workspace }}/backend/target/prompt-regression-usage
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # Empty on a manual run.
+      PR_NUMBER: ${{ github.event.pull_request.number }}
     defaults:
       run:
         working-directory: backend
@@ -198,6 +230,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      # working-directory: . because the job default (backend) does not exist before checkout in the first place.
+      - name: Record start time
+        working-directory: .
+        run: echo "STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -242,4 +279,19 @@ jobs:
           name: prompt-regression-ask-surefire-reports
           path: backend/target/surefire-reports/
           retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Write usage
+        if: always()
+        working-directory: .
+        run: |
+          python3 -I scripts/prompt-regression-usage.py --suite ask >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload usage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-regression-usage-ask-${{ github.run_attempt }}
+          path: backend/target/prompt-regression-usage-ask.json
+          retention-days: 90
           if-no-files-found: ignore

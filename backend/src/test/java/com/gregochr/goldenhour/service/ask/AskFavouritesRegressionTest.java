@@ -10,7 +10,7 @@ import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.FavouriteLocations;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
-import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.goldenhour.testsupport.promptusage.RecordingAnthropicApiClient;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -119,7 +119,7 @@ class AskFavouritesRegressionTest {
         AskJobRunService jobRuns = mock(AskJobRunService.class);
         when(jobRuns.dailyRunId()).thenReturn(DAILY_RUN_ID);
         when(jobRuns.accountingAvailable()).thenReturn(true);
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(),
+        engine = new ClaudeAskEngine(new RecordingAnthropicApiClient(client), new AskProperties(),
                 AskModelFixtures.haiku(), jobRuns,
                 mock(DriveTimeResolver.class), new AskAnswerValidator(), new AskPromptBuilder(),
                 new ObjectMapper().findAndRegisterModules(), Clock.systemUTC(), AskLocationNames.NONE);

@@ -15,7 +15,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
-import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.goldenhour.testsupport.promptusage.RecordingAnthropicApiClient;
 import com.gregochr.goldenhour.util.GeoUtils;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -166,7 +166,7 @@ class AskThreadRegressionTest {
         when(jobRuns.accountingAvailable()).thenReturn(true);
         DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
         when(driveTimes.getAllMinutes(ASKER_ID)).thenReturn(DRIVE_MINUTES);
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(),
+        engine = new ClaudeAskEngine(new RecordingAnthropicApiClient(client), new AskProperties(),
                 AskModelFixtures.haiku(), jobRuns,
                 driveTimes, new AskAnswerValidator(), new AskPromptBuilder(), mapper, Clock.systemUTC(),
                 () -> PLACES);

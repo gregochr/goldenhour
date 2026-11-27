@@ -9,7 +9,7 @@ import com.gregochr.goldenhour.service.ask.AskSnapshot.AuroraState;
 import com.gregochr.goldenhour.service.ask.AskSnapshot.Night;
 import com.gregochr.goldenhour.service.ask.AskSnapshot.NightSpot;
 import com.gregochr.goldenhour.service.ask.AskSnapshot.Nights;
-import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.goldenhour.testsupport.promptusage.RecordingAnthropicApiClient;
 import com.gregochr.goldenhour.util.GeoUtils;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -177,7 +177,7 @@ class AskNightRegressionTest {
         DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
         when(driveTimes.getAllMinutes(PRO_ID)).thenReturn(DRIVE_MINUTES);
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(),
+        engine = new ClaudeAskEngine(new RecordingAnthropicApiClient(client), new AskProperties(),
                 AskModelFixtures.haiku(), jobRuns,
                 driveTimes, new AskAnswerValidator(), new AskPromptBuilder(), mapper, Clock.systemUTC(),
                 () -> PLACES);

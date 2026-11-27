@@ -64,10 +64,34 @@ print("checkouts=%d" % checkouts)
 print("checkouts_without_credentials=%d" % safe)
 print("changes_fetch_depth=%s" % changes["steps"][0]["with"].get("fetch-depth"))
 for name in ("sky", "ask"):
+    print("%s_usage_env=%s" % (name, ",".join(sorted(
+        k for k in (jobs[name].get("env") or {}) if k in ("PROMPT_REGRESSION_USAGE_DIR", "HEAD_SHA", "PR_NUMBER")))))
+    names = [st.get("name", "") for st in jobs[name]["steps"]]
+    checkout = [i for i, st in enumerate(jobs[name]["steps"]) if str(st.get("uses", "")).startswith("actions/checkout@")]
+    maven = "Sky rating and token-count tests" if name == "sky" else "Ask regression tests"
+    print("%s_start_count=%d" % (name, names.count("Record start time")))
+    print("%s_maven_count=%d" % (name, names.count(maven)))
+    if "Record start time" in names and maven in names and checkout:
+        i = names.index("Record start time")
+        print("%s_start_wd=%s" % (name, jobs[name]["steps"][i].get("working-directory")))
+        print("%s_start_after_checkout=%s" % (name, i > checkout[0]))
+        print("%s_start_before_maven=%s" % (name, i < names.index(maven)))
+    print("%s_job_keys=%s" % (name, ",".join(sorted(jobs[name]))))
+    print("%s_step_count=%d" % (name, len(jobs[name]["steps"])))
     for step in jobs[name]["steps"]:
         label = step.get("name", "")
-        if label.startswith("Summarise") or label.startswith("Upload"):
-            print("%s_%s_if=%s" % (name, label.split()[0].lower(), step.get("if")))
+        # Steps are matched by exact name: a prefix match would take the new usage steps for the old ones.
+        for key, exact in (("summarise", "Summarise"), ("upload", "Upload surefire reports"),
+                           ("write_usage", "Write usage"), ("upload_usage", "Upload usage")):
+            if label == exact:
+                print("%s_%s_if=%s" % (name, key, step.get("if")))
+        if label == "Upload usage":
+            print("%s_usage_artifact=%s" % (name, step["with"].get("name")))
+            print("%s_usage_path=%s" % (name, step["with"].get("path")))
+            print("%s_usage_retention=%s" % (name, step["with"].get("retention-days")))
+            print("%s_usage_missing=%s" % (name, step["with"].get("if-no-files-found")))
+        if label == "Write usage":
+            print("%s_write_usage_wd=%s" % (name, step.get("working-directory")))
         if label.startswith("ValleyMist"):
             print("valleymist_continue=%s" % step.get("continue-on-error"))
             print("valleymist_if=%s" % step.get("if"))
@@ -98,7 +122,25 @@ else
         assert_eq "$job cancels stale runs" "True" "$(fact ${job}_cancel)"
         assert_contains "$job concurrency group uses the head ref" "$(fact ${job}_group)" "github.head_ref || github.ref"
         assert_eq "$job summary survives a red step" '${{ !cancelled() }}' "$(fact ${job}_summarise_if)"
-        assert_eq "$job upload survives a red step" '${{ !cancelled() }}' "$(fact ${job}_upload_if)"
+        assert_eq "$job surefire upload survives a red step" '${{ !cancelled() }}' "$(fact ${job}_upload_if)"
+        # C1 (docs/engineering/ci-spend-plan.md): the usage steps run even when the job is cancelled mid-run.
+        assert_eq "$job Write usage runs always()" "always()" "$(fact ${job}_write_usage_if)"
+        assert_eq "$job Upload usage runs always()" "always()" "$(fact ${job}_upload_usage_if)"
+        assert_eq "$job Write usage runs from the repository root" "." "$(fact ${job}_write_usage_wd)"
+        assert_eq "$job usage artifact is named per suite and attempt" \
+            "prompt-regression-usage-${job}-\${{ github.run_attempt }}" "$(fact ${job}_usage_artifact)"
+        assert_eq "$job usage artifact is the one JSON file" \
+            "backend/target/prompt-regression-usage-${job}.json" "$(fact ${job}_usage_path)"
+        assert_eq "$job usage artifact is kept 90 days" "90" "$(fact ${job}_usage_retention)"
+        assert_eq "$job usage artifact is optional" "ignore" "$(fact ${job}_usage_missing)"
+        assert_eq "$job has the usage env" "HEAD_SHA,PROMPT_REGRESSION_USAGE_DIR,PR_NUMBER" "$(fact ${job}_usage_env)"
+        assert_eq "$job has exactly one Record start time step" "1" "$(fact ${job}_start_count)"
+        assert_eq "$job paid Maven step exists by exact name" "1" "$(fact ${job}_maven_count)"
+        assert_eq "$job Record start time runs from the repository root" "." "$(fact ${job}_start_wd)"
+        assert_eq "$job Record start time is after checkout" "True" "$(fact ${job}_start_after_checkout)"
+        assert_eq "$job Record start time is before the paid Maven step" "True" "$(fact ${job}_start_before_maven)"
+        assert_eq "$job job keys are unchanged (no new needs or environment)" \
+            "concurrency,defaults,env,environment,if,name,needs,runs-on,steps,timeout-minutes" "$(fact ${job}_job_keys)"
     done
     assert_eq "ask timeout" "75" "$(fact ask_timeout)"
     assert_contains "sky timeout is 60 in eval mode, else 30" "$(fact sky_timeout)" "inputs.sky_runs == '8' && 60 || 30"
@@ -117,6 +159,16 @@ assert_file_has "ask forks once" "$WF" "-DforkCount=1"
 assert_file_has "sky model is Sonnet 5.5" "$WF" "SKY_MODEL: SONNET_55"
 assert_file_has "SKY_RUNS defaults to 1" "$WF" "SKY_RUNS: \${{ inputs.sky_runs || '1' }}"
 assert_file_has "ask summary shows skips red" "$WF" "--skipped-red"
+assert_file_has "runs the usage script isolated" "$WF" "python3 -I scripts/prompt-regression-usage.py"
+assert_file_has "sky Write usage appends to the job summary" "$WF" 'python3 -I scripts/prompt-regression-usage.py --suite sky >> "$GITHUB_STEP_SUMMARY"'
+assert_file_has "ask Write usage appends to the job summary" "$WF" 'python3 -I scripts/prompt-regression-usage.py --suite ask >> "$GITHUB_STEP_SUMMARY"'
+# The script takes no paths: its fixed directory must be the one PROMPT_REGRESSION_USAGE_DIR names.
+USAGE_PY="$ROOT/scripts/prompt-regression-usage.py"
+assert_file_has "the script reads shards from backend/target" "$USAGE_PY" 'TARGET = os.path.join(ROOT, "backend", "target")'
+assert_file_has "the script shard directory matches the env var" "$USAGE_PY" 'os.path.join(TARGET, "prompt-regression-usage")'
+assert_file_lacks "the script takes no --out argument" "$USAGE_PY" 'add_argument("--out"'
+assert_file_lacks "the script takes no --shards argument" "$USAGE_PY" 'add_argument("--shards"'
+assert_file_has "usage shards go under backend/target" "$WF" "PROMPT_REGRESSION_USAGE_DIR: \${{ github.workspace }}/backend/target/prompt-regression-usage"
 assert_file_lacks "no Anthropic key as a repository secret" "$WF" "secrets.ANTHROPIC_API_KEY"
 assert_file_lacks "never runs the replay harness in a -Dtest" "$WF" "-Dtest='PromptReplayHarnessTest"
 assert_file_lacks "ValleyMist is not in a hard step" "$WF" "SystemPromptTokenCountTest,ValleyMist"
