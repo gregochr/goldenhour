@@ -76,6 +76,13 @@ class AskNamedAreaRegressionTest {
     private static final Set<Long> MEMBERS = Set.of(1L, 2L, 3L);
     private static final List<String> MEMBER_NAMES = List.of("Walltown Crags", "Cawfields", "Steel Rigg");
 
+    /** The area's size as a word or digit, derived from {@link #MEMBERS} (plan A5, owner-approved 2026-11-27). */
+    static final Pattern AREA_SIZE = sizePattern(MEMBERS.size());
+
+    /** The whole fixture region's count of rated places (five), which is the wrong scope for the Wall. */
+    static final Pattern WHOLE_REGION_COUNT = Pattern.compile("\\b(five|5) (rated )?places\\b",
+            Pattern.CASE_INSENSITIVE);
+
     /** The frame the owner was shown, which an answer about a real named area must not use. */
     private static final Pattern NOT_IN_FORECAST = Pattern.compile("not in the forecast|doesn'?t have|does not have",
             Pattern.CASE_INSENSITIVE);
@@ -139,8 +146,17 @@ class AskNamedAreaRegressionTest {
             if (NOT_IN_FORECAST.matcher(summary).find()) {
                 faults.add("the summary says it is not in the forecast: " + summary);
             }
-            if (MEMBER_NAMES.stream().noneMatch(summary::contains)) {
-                faults.add("the summary names no member of the named area: " + summary);
+            // Owner-approved 2026-11-27 (plan A5): the area is answered from its own places, and quoting the
+            // area's size ("all three rated places") is as good as naming a member; the whole region's count
+            // ("five places") is a wrong scope.
+            if (run.trace().stream().noneMatch(call -> AskToolSchemas.LOOK_UP_PLACE.equals(call.tool()))) {
+                faults.add("look_up_place was never called");
+            }
+            if (MEMBER_NAMES.stream().noneMatch(summary::contains) && !AREA_SIZE.matcher(summary).find()) {
+                faults.add("the summary names no member of the named area and not its size: " + summary);
+            }
+            if (WHOLE_REGION_COUNT.matcher(summary).find()) {
+                faults.add("the summary counts the whole region's places, not the area's: " + summary);
             }
             return faults;
         });
@@ -197,6 +213,12 @@ class AskNamedAreaRegressionTest {
     }
 
     // -- running ----------------------------------------------------------------------------
+
+    /** {@code \b(word|digit)\b} for a count of two to nine. */
+    static Pattern sizePattern(int count) {
+        String[] words = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"};
+        return Pattern.compile("\\b(" + words[count] + "|" + count + ")\\b", Pattern.CASE_INSENSITIVE);
+    }
 
     private static AskRun typed(String text) {
         AskQuestion question = new AskQuestion(text, text.toLowerCase(Locale.ROOT), null, AskScope.ALL, "plan");

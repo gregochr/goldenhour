@@ -43,6 +43,7 @@ only). Many cases are both. Per CLAUDE.md, no regression assertion or regression
 - **What the regex rightly catches:** about 15 of 30 answers call the window "marginal" ("This weekend is
   marginal across every region"). On the owner's scale "marginal" is a single 3★ place, not a window. That is
   a real fault, and B1 fixes it.
+- **Approved by the owner 2026-11-27; applied in this commit.**
 
 ### A2. Mixed weekend names Saturday
 - **Real fault, 8/10:** the answer never mentions Saturday (B2).
@@ -52,12 +53,14 @@ only). Many cases are both. Per CLAUDE.md, no regression assertion or regression
 - **Proposed:** accept `saturday|tomorrow` in both checks, i.e.
   `(saturday|tomorrow)[^.]*(stay|poor|not worth|nothing|stood down|stand down)|mixed`.
   This holds only while the fixture's today is the Friday; say so in the Javadoc.
+- **Approved by the owner 2026-11-27; applied in this commit.**
 
 ### A3. Tied favourites
 - **Real fault, 3/5:** "two places rate 4★" names nobody (B3).
 - **Over-strict, 2/5:** "Mary's Lighthouse and Bamburgh are both rated 4★" states the tie, but
   `SAME = same|equal|tie|also` doesn't accept "both".
 - **Proposed:** `SAME = same|equal|tie|also|both|as well`, and require it in the sentence that names Bamburgh.
+- **Approved by the owner 2026-11-27; applied in this commit.**
 
 ### A4. Thin-sample fixture
 `AskFixtures.slotWith` builds every slot with no headline and no evaluation summary, so Alnmouth's row has no
@@ -69,6 +72,9 @@ there").
   production shape.
 - **Also suggested:** print tool arguments, not only tool names, in the regression `log` lines. The cause
   of the second `look_up_place` call is unknown because the log does not show what it asked for.
+- **Approved by the owner 2026-11-27; applied in this commit.** The fixture part is applied. The argument logging is
+  not: `AskTools.ToolCall` records only the tool name, an error flag and a size, so printing arguments needs a
+  `src/main` change, which this approval excludes.
 
 ### A5. Hadrian's Wall "look" question: over-strict
 - **Why the five fails are correct answers:** they say "all three rated places 4★ or better". Three is
@@ -80,6 +86,7 @@ there").
   - the summary must name a member **or** quote the area's count (`\b(three|3)\b`);
   - fail on `\b(five|5) (rated )?places\b`.
 - **Optional prompt nudge (not in B):** "name the best-rated place in the area and its stars".
+- **Approved by the owner 2026-11-27; applied in this commit.**
 
 ### A6. Aurora alert level: over-strict, and the fixture contradicts itself
 - **Where "strong" came from:** the fixture's served aurora summary reads "**Strong** geomagnetic activity
@@ -94,6 +101,7 @@ there").
   (i) the owner adds a prompt clause "when the result has auroraState, name the level and Kp as it reads"
   and keeps the assertion, or (ii) the assertion becomes "never says strong or severe while the state is
   moderate".
+- **Approved by the owner 2026-11-27; applied in this commit.**
 
 ### A7. "Durham coast" night fixture
 - **Production's shape:** "Durham coast" is not a region. It is an alias of the sub-region "Sunderland & the
@@ -103,6 +111,7 @@ there").
 - **Proposed fixture:** mirror production, with region "Northumberland & Tyneside" and an
   `AskSnapshot.Area` "Sunderland & the Durham Coast" (alias "Durham coast") holding the coastal places.
 - **Proposed assertion:** "a pick is one of the area's location ids", replacing `DURHAM.equals(regionName)`.
+- **Approved by the owner 2026-11-27; applied in this commit.**
 
 ### Noise, not a failure
 `[ASK] Could not read the night forecasts … "tonight" is null` appears across many classes.
@@ -239,6 +248,7 @@ reading candidate ids.
   smaller than the earlier picks' drive, or nearHome true"), and so does the test's own `personal` check
   ("nearHome or a drive limit"). The test then requires "miles of home", which only nearHome produces.
   - **A8:** accept `miles of home|minutes of home` there, or say in the prompt which of the two "closer" uses.
+  - **Approved by the owner 2026-11-27; applied in this commit.** (A8, with the rest of A1-A8.)
   - B5's areaName sentence had been inserted between the nearHome and drive clauses, so the next push moves
     it after them, in case it nudged the choice.
 
