@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { useWarnings } from '../../context/WarningsContext.jsx';
-import { warningLabel, warningsForMapWindow } from '../../utils/warnings.js';
+import { validityShort, warningLabel, warningsForMapWindow } from '../../utils/warnings.js';
 import WarningStrip from '../WarningStrip.jsx';
 import WarningChip, { ServedWarningFooter } from '../WarningChip.jsx';
 import MapInfoPanel from './MapInfoPanel.jsx';
@@ -64,6 +64,10 @@ export function useMapWarnings({
  * nothing to expand and so no button. A warning never changes a rating, the heat field, a verdict or a pick; this
  * reads {@code warnings} and nothing else.
  *
+ * <p>The collapsed row prints each warning's validity in UK time ({@code validityShort}, e.g. "Fri 27 Nov, 04:00–14:00")
+ * between the chip and the Details button, with or without {@code onToggle}, so the timing is readable without
+ * opening Details; nothing is printed for a warning whose instants are missing.
+ *
  * <p>Prints nothing while the feature is off, nothing for a window with no warning on a fresh feed (never an
  * all-clear), and only the stale line when the feed is stale. For a window the server never keys a warning to (a
  * night, High water, a past window) it prints nothing at all.
@@ -99,9 +103,17 @@ export default function MapWarningChips({
         {warnings.map((warning) => {
           const open = openId === warning.warningId;
           const name = warningLabel(warning);
+          const validity = validityShort(warning);
           return (
             <div key={warning.warningId} className="flex flex-wrap items-center gap-1.5">
               <WarningChip warning={warning} href={served.metOfficeUrl} />
+              {validity && (
+                <span data-testid="map-warning-validity" className="font-mono text-[10px] text-plex-text-secondary">
+                  <span className="sr-only">, valid </span>
+                  {validity}
+                  <span className="sr-only"> UK time</span>
+                </span>
+              )}
               {onToggle && (
                 <button
                   type="button"

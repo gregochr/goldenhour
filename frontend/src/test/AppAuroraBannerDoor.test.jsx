@@ -3,7 +3,7 @@
  * section 3 C4 and section 4 #4, #7): the banner is mounted above `<main>` on every tab, and its
  * "View on map" now takes the structured `source:'plan'` door instead of opening the retired
  * overlay. Driven through the real `App` and the real banner; the shell and the Map pane are stubs
- * so the payload `App` builds (`mapTabHandoff`, `tabRequest`) can be read off them.
+ * so the payload `App` builds (`mapTabHandoff`, `operationsOpen`) can be read off them.
  *
  * <ul>
  *   <li>a REAL alert, pressed off the Map tab: a `plan` door naming the night, carrying the Plan's
@@ -19,6 +19,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import { registerBackLayer, __resetForTests as resetDialogHistory } from '../utils/dialogHistory.js';
 
 vi.mock('../api/forecastApi.js', () => ({
   fetchForecasts: vi.fn(),
@@ -63,16 +64,26 @@ vi.mock('../components/AuroraFieldThumb.jsx', () => ({
   default: () => <div data-testid="aurora-field-stub" />,
 }));
 
-/** The shell, stubbed to the props under test plus a button that reports "the Map tab is in force". */
-const ShellStub = { lastProps: null };
+/** The shell, stubbed to the props under test plus a button that reports "the map view is open". It registers
+ *  `openMap` / `closeMap` spies the way the real shell does (`registerOpenMap`). */
+const ShellStub = { lastProps: null, doors: null };
 vi.mock('../components/WindowFirstShell.jsx', () => ({
-  default: (props) => {
+  default: function ShellDouble(props) {
     ShellStub.lastProps = props;
+    const { registerOpenMap } = props;
+    const [boom, setBoom] = React.useState(false);
+    if (boom) throw new Error('shell crashed with the map view open');
+    React.useEffect(() => {
+      ShellStub.doors = { open: vi.fn(), close: vi.fn() };
+      registerOpenMap?.(ShellStub.doors);
+      return () => registerOpenMap?.(null);
+    }, [registerOpenMap]);
     return (
       <div data-testid="stub-shell">
-        <button type="button" data-testid="on-map-tab" onClick={() => props.onTabChange?.('map')}>
+        <button type="button" data-testid="on-map-tab" onClick={() => props.onScreenChange?.('map')}>
           map tab in force
         </button>
+        <button type="button" data-testid="crash-shell" onClick={() => setBoom(true)}>crash</button>
         {props.mapPane}
       </div>
     );
@@ -143,6 +154,8 @@ const pressBanner = async () => {
 };
 
 beforeEach(() => {
+  // Operations is open exactly while the address says `#manage`: no test starts on another's address.
+  window.history.replaceState(null, '', '/');
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(NOW));
   localStorage.clear();
@@ -179,9 +192,8 @@ afterEach(() => {
 });
 
 describe('App — the aurora banner takes the structured Map door (overlay convergence C4)', () => {
-  it('a real alert pressed off the Map tab: a plan door naming the night, with the Plan lens, and a map tab request', async () => {
+  it('a real alert pressed with the map view closed: a plan door naming the night, with the Plan lens, and the shell asked to show the view', async () => {
     renderApp();
-    const requestBefore = ShellStub.lastProps?.tabRequest ?? null;
 
     await pressBanner();
 
@@ -191,12 +203,11 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
       eventType: 'AURORA',
       date: TODAY,
       night: { kind: 'aurora', date: TODAY },
-      title: 'Aurora tonight',
       minRating: 4,
       limitMinutes: 90,
     });
-    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'map' });
-    expect(ShellStub.lastProps.tabRequest).not.toEqual(requestBefore);
+    expect(ShellStub.doors.open).toHaveBeenCalledTimes(1);
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(false);
     // No overlay of any kind, and the Plan tab was handed no date.
     expect(screen.queryByRole('dialog', { name: 'Aurora tonight' })).toBeNull();
     expect(MapPaneStub.lastProps.handoff).not.toHaveProperty('focusNames');
@@ -217,11 +228,11 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
     // is kept local by `MapView`'s night-follow, which `MapViewPlanHandoff.test.jsx` pins.)
   });
 
-  it('⚠️ pressed ON the Map tab it only selects the night: source map, no lens, no tab request', async () => {
+  it('⚠️ pressed with the map view OPEN it only selects the night: source map, no lens, no second view', async () => {
     renderApp();
     await screen.findByTestId('aurora-banner');
     await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
-    const requestBefore = ShellStub.lastProps.tabRequest;
+    const openBefore = ShellStub.lastProps.operationsOpen ?? false;
 
     await pressBanner();
 
@@ -232,7 +243,8 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
     expect(handoff).not.toHaveProperty('limitMinutes');
     expect(handoff).not.toHaveProperty('region');
     expect(handoff).not.toHaveProperty('title');
-    expect(ShellStub.lastProps.tabRequest).toEqual(requestBefore);
+    expect(ShellStub.lastProps.operationsOpen ?? false).toEqual(openBefore);
+    expect(ShellStub.doors.open).not.toHaveBeenCalled();
   });
 
   it('a SIMULATED alert pressed by an admin asks for Operations and never for the Map tab', async () => {
@@ -241,7 +253,7 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
 
     await pressBanner();
 
-    await waitFor(() => expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'operations' }));
+    await waitFor(() => expect(ShellStub.lastProps.operationsOpen).toBe(true));
     expect(MapPaneStub.lastProps?.handoff ?? null).toBeNull();
     expect(window.location.hash).toBe('#manage/runs/start');
   });
@@ -255,7 +267,7 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
 
     await act(async () => { fireEvent.click(banner); });
 
-    expect(ShellStub.lastProps.tabRequest ?? null).toBeNull();
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(false);
     expect(MapPaneStub.lastProps?.handoff ?? null).toBeNull();
   });
 
@@ -295,7 +307,7 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
     expect(screen.queryByTestId('aurora-banner-cta')).toBeNull();
     expect(getAuroraStatus).not.toHaveBeenCalled();
     expect(MapPaneStub.lastProps?.handoff ?? null).toBeNull();
-    expect(ShellStub.lastProps.tabRequest ?? null).toBeNull();
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(false);
   });
 
   it('a LITE reader with a quiet alert has no banner', async () => {
@@ -316,7 +328,7 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
 
     expect(banner).toHaveAttribute('data-actionable', 'false');
     expect(MapPaneStub.lastProps?.handoff ?? null).toBeNull();
-    expect(ShellStub.lastProps.tabRequest ?? null).toBeNull();
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(false);
   });
 
   it('⚠️ a stale night WITH a forecast on screen has no door: no call to action, and a press changes nothing', async () => {
@@ -342,27 +354,6 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
     expect(banner).toHaveAttribute('data-actionable', 'false');
   });
 
-  it('a door pressed from the COMING UP tab names it as where the reader came from', async () => {
-    renderApp();
-    await screen.findByTestId('aurora-banner');
-    // The shell reports the tab in force; the stub's button reports "map"; stand in for Coming up.
-    await act(async () => { ShellStub.lastProps.onTabChange('coming-up'); });
-
-    await pressBanner();
-
-    await waitFor(() => expect(MapPaneStub.lastProps.handoff?.night).toBeTruthy());
-    expect(MapPaneStub.lastProps.handoff).toMatchObject({ source: 'plan', from: 'coming-up' });
-  });
-
-  it('a Plan press says it came from Plan', async () => {
-    renderApp();
-
-    await pressBanner();
-
-    await waitFor(() => expect(MapPaneStub.lastProps.handoff?.night).toBeTruthy());
-    expect(MapPaneStub.lastProps.handoff.from).toBe('plan');
-  });
-
   it('registers the shell\'s dialog closer and calls it before an in-place (Map tab) press, and not before an ordinary one', async () => {
     renderApp();
     await screen.findByTestId('aurora-banner');
@@ -378,72 +369,47 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
   });
 });
 
-describe('App — the breadcrumb\'s return (doors D2, extended by C4)', () => {
-  const doorThenReturn = async (from, opener) => {
-    renderApp();
-    await screen.findByTestId('stub-shell');
-    if (from) await act(async () => { ShellStub.lastProps.onTabChange(from); });
-    if (opener) opener.focus();
-    await pressBanner();
-    await waitFor(() => expect(MapPaneStub.lastProps.handoff?.night).toBeTruthy());
-    await act(async () => { MapPaneStub.lastProps.onReturnToPlan(from ?? 'plan'); });
-  };
-
-  it.each([
-    ['plan', 'plan'],
-    ['coming-up', 'coming-up'],
-    ['operations', 'operations'],
-  ])('a door from %s returns to %s', async (from, id) => {
-    await doorThenReturn(from);
-    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id });
-  });
-
-  it('anything that is not a tab a door can come from returns to Plan', async () => {
-    renderApp();
-    await screen.findByTestId('stub-shell');
-    await pressBanner();
-    await waitFor(() => expect(MapPaneStub.lastProps.handoff?.night).toBeTruthy());
-    await act(async () => { MapPaneStub.lastProps.onReturnToPlan('nowhere'); });
-    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'plan' });
-    await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
-    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'plan' });
-  });
-
-  it('carries the control that was pressed, once, and none when nothing held focus', async () => {
-    const opener = document.createElement('button');
-    document.body.appendChild(opener);
-    await doorThenReturn('coming-up', opener);
-    expect(ShellStub.lastProps.tabRequest.opener).toBe(opener);
-
-    // Spent: a second return from the same door has no stale opener to focus.
-    await act(async () => { MapPaneStub.lastProps.onReturnToPlan('coming-up'); });
-    expect(ShellStub.lastProps.tabRequest).not.toHaveProperty('opener');
-    opener.remove();
-  });
-
-  it('the request is nonce\'d: two returns in a row both land', async () => {
-    await doorThenReturn('plan');
-    const first = ShellStub.lastProps.tabRequest.nonce;
-    await act(async () => { MapPaneStub.lastProps.onReturnToPlan('plan'); });
-    expect(ShellStub.lastProps.tabRequest.nonce).not.toBe(first);
-  });
-});
-
 describe('App — a simulated alert\'s banner opens Operations (C4, S3)', () => {
-  it('asks for Operations with a fresh nonce on every press, and aims the hash at Start a run', async () => {
+  it('opens Operations on every press, and aims the hash at Start a run', async () => {
     getAuroraStatus.mockResolvedValue(alert({ simulated: true }));
     renderApp('ADMIN');
 
     await pressBanner();
-    await waitFor(() => expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'operations' }));
-    const first = ShellStub.lastProps.tabRequest.nonce;
+    await waitFor(() => expect(ShellStub.lastProps.operationsOpen).toBe(true));
     expect(window.location.hash).toBe('#manage/runs/start');
     expect(screen.getByTestId('aurora-banner-cta').textContent).toBe('Operations →');
 
-    // Navigate away (the shell stub reports Plan), then press again: a second request must land.
-    await act(async () => { ShellStub.lastProps.onTabChange('plan'); });
+    // The reader leaves Operations ("‹ PhotoCast", or Back), then presses again: it opens again.
+    await act(async () => { ShellStub.lastProps.onCloseOperations(); });
+    await waitFor(() => expect(ShellStub.lastProps.operationsOpen).toBe(false));
     await pressBanner();
-    expect(ShellStub.lastProps.tabRequest.nonce).toBeGreaterThan(first);
+    await waitFor(() => expect(ShellStub.lastProps.operationsOpen).toBe(true));
+    expect(window.location.hash).toBe('#manage/runs/start');
+  });
+
+  it('hands the shell no way into Operations to a non-admin, whatever the address says', async () => {
+    getAuroraStatus.mockResolvedValue(alert({ simulated: false }));
+    renderApp('PRO_USER');
+    await screen.findByTestId('aurora-banner');
+    expect(ShellStub.lastProps.operationsPane ?? null).toBeNull();
+    expect(ShellStub.lastProps.onOpenOperations).toBeUndefined();
+    await act(async () => { window.location.hash = 'manage/runs'; });
+    await waitFor(() => expect(window.location.hash).toBe(''));
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(false);
+  });
+
+
+  it('with the map view open it closes the view first and sets the hash only once the history has settled (D4, D9)', async () => {
+    getAuroraStatus.mockResolvedValue(alert({ simulated: true }));
+    renderApp('ADMIN');
+    await screen.findByTestId('aurora-banner');
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+
+    await pressBanner();
+
+    await waitFor(() => expect(ShellStub.lastProps.operationsOpen).toBe(true));
+    expect(ShellStub.doors.close).toHaveBeenCalledWith({ restoreFocus: false });
+    expect(window.location.hash).toBe('#manage/runs/start');
   });
 });
 
@@ -462,3 +428,114 @@ describe('App — the NLC sighting request follows the backend role gate (P2f)',
   });
 });
 
+
+describe('App — the REAL dialog-history engine under Operations\' door (D4, D9, review round 1)', () => {
+  const settleReal = () => act(async () => { await new Promise((resolve) => { setTimeout(resolve, 60); }); });
+
+  beforeEach(() => {
+    Object.defineProperty(window.navigator, 'userActivation', { configurable: true, value: { isActive: true } });
+    resetDialogHistory();
+  });
+
+  afterEach(() => {
+    delete window.navigator.userActivation;
+    resetDialogHistory();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('the view\'s history entry is unwound BEFORE #manage is written, so Back from Operations is not a stale #map', async () => {
+    getAuroraStatus.mockResolvedValue(alert({ simulated: true }));
+    renderApp('ADMIN');
+    await screen.findByTestId('aurora-banner');
+    // The shell's own layer, the real engine's, with its address: what an open map view holds.
+    const layer = registerBackLayer({ onBack: () => {}, url: '#map/2026-01-15/sunset' });
+    await settleReal();
+    expect(window.location.hash).toBe('#map/2026-01-15/sunset');
+    ShellStub.doors.close = vi.fn(() => layer.release());
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+
+    const order = [];
+    const goSpy = vi.spyOn(window.history, 'go').mockImplementation(function go(...args) {
+      order.push('go');
+      return Object.getPrototypeOf(window.history).go.apply(this, args);
+    });
+    window.addEventListener('hashchange', () => order.push('hash'));
+
+    await pressBanner();
+    await settleReal();
+
+    expect(ShellStub.doors.close).toHaveBeenCalledWith({ restoreFocus: false });
+    expect(window.location.hash).toBe('#manage/runs/start');
+    expect(order.indexOf('go')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('go')).toBeLessThan(order.indexOf('hash'));
+
+    // Back from Operations lands on the bare page, never on the closed view's old entry.
+    window.history.back();
+    await settleReal();
+    expect(window.location.hash).toBe('');
+    goSpy.mockRestore();
+  });
+});
+
+describe('App — what stays behind the map view (review round 1)', () => {
+  it('makes the banner block and the footer inert while the view is open, and not otherwise', async () => {
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    expect(screen.getByTestId('app-banner-block')).not.toHaveAttribute('inert');
+    expect(document.querySelector('footer')).not.toHaveAttribute('inert');
+
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+
+    expect(screen.getByTestId('app-banner-block')).toHaveAttribute('inert');
+    expect(document.querySelector('footer')).toHaveAttribute('inert');
+  });
+
+  it('keeps the session notice outside the inert block, fixed above the view (z 49), so it stays usable', async () => {
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+
+    const slot = screen.getByTestId('session-banner-slot');
+    expect(slot).not.toHaveAttribute('inert');
+    expect(slot.closest('[inert]')).toBeNull();
+    expect(slot.className).toMatch(/fixed/);
+    expect(slot.className).toMatch(/z-\[49\]/);
+    expect(screen.getByTestId('app-banner-block').contains(slot)).toBe(false);
+  });
+
+  it('leaves the session notice in the page\'s flow when the view is closed', async () => {
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    expect(screen.getByTestId('session-banner-slot').className).not.toMatch(/fixed/);
+  });
+
+  it('a crash under the error boundary with the view open does not leave the footer and banners inert', async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+    expect(document.querySelector('footer')).toHaveAttribute('inert');
+
+    await act(async () => { fireEvent.click(screen.getByTestId('crash-shell')); });
+
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    expect(document.querySelector('footer')).not.toHaveAttribute('inert');
+    quiet.mockRestore();
+  });
+
+  it('starts the view below the pinned session notice: the root property follows the slot\'s height and clears on close', async () => {
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function measure() {
+      return this.dataset?.testid === 'session-banner-slot' ? 44 : 0;
+    });
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    expect(document.documentElement.style.getPropertyValue('--wf-session-banner-h')).toBe('');
+
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+    expect(document.documentElement.style.getPropertyValue('--wf-session-banner-h')).toBe('44px');
+
+    await act(async () => { ShellStub.lastProps.onScreenChange('plan'); });
+    expect(document.documentElement.style.getPropertyValue('--wf-session-banner-h')).toBe('');
+    height.mockRestore();
+  });
+});

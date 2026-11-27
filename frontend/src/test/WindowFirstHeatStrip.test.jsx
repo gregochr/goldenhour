@@ -12,7 +12,8 @@ import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { withFavourites } from './favouritesKit.jsx';
+import { favouritesValue, withFavourites } from './favouritesKit.jsx';
+import { FavouritesContext } from '../context/FavouritesContext.jsx';
 
 /**
  * The Plan pane's heat strip — six solar-window thumbnails, replacing the day rail (plan D1, §1.1).
@@ -186,6 +187,7 @@ async function renderStrip({ wrap = (node) => node, ...props } = {}) {
   const spots = props.spots ?? [spot()];
   const pointSets = props.pointSets ?? scoredWindows(cards);
   let rerenderRoot;
+  let unmountRoot;
   await act(async () => {
     const result = render(wrap(
       <WindowFirstHeatStrip
@@ -198,6 +200,7 @@ async function renderStrip({ wrap = (node) => node, ...props } = {}) {
       />,
     ));
     rerenderRoot = result.rerender;
+    unmountRoot = result.unmount;
   });
   // Re-renders the SAME props this call used — a flip test calls this once, mutates the hook mock,
   // then `await rerender()` with no arguments to re-commit against the new branch, rather than
@@ -215,7 +218,8 @@ async function renderStrip({ wrap = (node) => node, ...props } = {}) {
       />,
     ));
   });
-  return { onOpenWindow, rerender };
+  const unmount = async () => act(async () => { unmountRoot(); });
+  return { onOpenWindow, rerender, unmount };
 }
 
 /**
@@ -296,16 +300,6 @@ async function withWellWidths(widths, run) {
 }
 
 describe('WindowFirstHeatStrip — which windows it draws', () => {
-  it('⚠️ heads the matrix with a real level-2 HEADING, not a styled span', async () => {
-    // It looks like a section heading — 9.5px mono, 600, letter-spaced, uppercase, beside a
-    // full-width hairline — and it was a `<span>`, which left the whole v2 Plan tab with exactly one
-    // heading (the masthead wordmark's `h1`): a browse-mode reader pressing `H` went from the
-    // wordmark to the end of the page. SC 1.3.1. Asserted through the ROLE with its level, which is
-    // the only query that can see the difference; axe could not, because nothing was out of order.
-    await renderStrip({ cards: [stripCard()] });
-    expect(screen.getByRole('heading', { level: 2, name: 'The days ahead' })).toBeInTheDocument();
-  });
-
   it('draws one thumbnail per card, in the order it was handed them', async () => {
     // The strip's whole claim is that it is a time axis, so the order is the payload's and nothing
     // here may sort. (Through M1 an Order control could rank the card list below; that control and
@@ -2012,8 +2006,8 @@ describe('WindowFirstHeatStrip — the away window', () => {
     // to, so the cell states its slot and stops there.
     await renderStrip({ cards: [AWAY] });
 
-    // The away cell is no control. G3's ? in the heading is the strip's only button (was: no button at all).
-    expect(screen.getAllByRole('button').map((b) => b.dataset.testid)).toEqual(['guide-link']);
+    // The away cell is no control, and the strip draws no heading ? any more: no button at all.
+    expect(screen.queryAllByRole('button')).toEqual([]);
     expect(screen.getByTestId('wf-heat-card')).toHaveAttribute('data-away', 'true');
   });
 
@@ -2237,7 +2231,8 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
    * "Poor" either way. Reported against a real Saturday sunrise at T+3, where Gate 4 evaluates
    * SETTLED cells only.
    */
-  const SCORED = stripCard({ verdict: 'STAND_DOWN', verdictLabel: 'Poor', bestRating: 2 });
+  // 3, not 2: a day whose every window is at most 2 stars folds (screen-spec.md D5), and this block is about the cards.
+  const SCORED = stripCard({ verdict: 'STAND_DOWN', verdictLabel: 'Poor', bestRating: 3 });
   const UNSCORED = stripCard({
     key: '2026-08-07:SUNRISE',
     date: '2026-08-07',
@@ -2748,14 +2743,9 @@ describe('WindowFirstHeatStrip — the header, footer and beyond line', () => {
       ],
     });
 
-    expect(screen.getByTestId('wf-heat-head')).toHaveTextContent('The days ahead');
-    expect(screen.getByTestId('wf-heat-head').textContent).not.toMatch(/\d/);
+    // The strip draws no heading of its own any more (This week's bar is the heading, screen-spec.md D3).
+    expect(within(screen.getByTestId('wf-heat-strip')).queryByRole('heading')).toBeNull();
     expect(screen.getByTestId('wf-heat-strip').textContent).not.toMatch(/\d+\s+(rated )?locations/i);
-  });
-
-  it('says the same thing for a one-day strip, naming no number to have to agree with', async () => {
-    await renderStrip();
-    expect(screen.getByTestId('wf-heat-head')).toHaveTextContent('The days ahead');
   });
 
   it('decodes the ramp and admits the haze, in the design\'s own words', async () => {
@@ -3251,7 +3241,11 @@ describe('WindowFirstHeatStrip — the row-rails branch (matrix-axis plan §6, D
     // The exact sequence the phone CSS's DOM-order flow depends on: header, sunrise cell, sunset
     // cell, once per day — this is what protects day-major flow now that the desktop branch above
     // is row-major (§6.4's "day-major protection now lives in the phone-branch test").
-    const kinds = Array.from(grid.children).map((el) => el.getAttribute('data-testid'));
+    // Each day's lanes and cards sit in its `.wf-day-body` wrapper (`display: contents`, drawn for every day so cards never
+    // re-parent when a day's quiet state changes), so the order is read THROUGH the wrapper.
+    const kinds = Array.from(grid.children)
+      .flatMap((el) => (el.classList.contains('wf-day-body') ? Array.from(el.children) : [el]))
+      .map((el) => el.getAttribute('data-testid'));
     expect(kinds).toEqual([
       'wf-heat-day', 'wf-heat-empty', 'wf-heat-card',
       'wf-heat-day', 'wf-heat-card', 'wf-heat-card',
@@ -4313,30 +4307,104 @@ describe('WindowFirstHeatStrip — a blanked stand-down says the weather called 
   const note = () => screen.queryByTestId('wf-heat-blanked');
 
   it('prints `unsettled` beside "Poor", in the mean\'s own cell, and voices it in the name', async () => {
-    await renderStrip({ cards: [stripCard({ ...POOR, verdictBlanked: true })] });
+    await renderStrip({ cards: [stripCard({ ...POOR, blankedReason: 'STOOD_DOWN' })] });
 
     expect(note()).toHaveTextContent(/^unsettled$/);
-    expect(note()).toHaveAttribute('title', 'too unsettled to forecast');
+    expect(note()).toHaveAttribute('title', 'Too unsettled to forecast');
     const verdict = screen.getByTestId('wf-heat-verdict');
     expect(verdict).toHaveTextContent(/^Poor$/);
     expect(note().parentElement).toBe(verdict.parentElement);
     expect(note()).toHaveClass('wf-hc-mean');
-    expect(screen.getByRole('button', { name: /Poor, too unsettled to forecast/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Poor, Too unsettled to forecast/ })).toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-value-grid')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('prints neither the note nor the clause for a stood-down card WITH slots', async () => {
-    await renderStrip({ cards: [stripCard({ ...POOR, verdictBlanked: false })] });
+    await renderStrip({ cards: [stripCard({ ...POOR, blankedReason: null })] });
 
     expect(note()).toBeNull();
     expect(screen.queryByTestId('wf-heat-mean')).toBeNull();
     expect(screen.getByRole('button', { name: /Poor/ }).getAttribute('aria-labelledby')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Poor/ }).textContent).not.toMatch(/too unsettled/);
+    expect(screen.getByRole('button', { name: /Poor/ }).textContent).not.toMatch(/[Tt]oo unsettled/);
   });
 
   it('prints nothing for a card that never set the field', async () => {
     await renderStrip({ cards: [stripCard({ ...POOR })] });
     expect(note()).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — the card says why a window was not scored (unscored-reason-card C2)', () => {
+  const UNSCORED = {
+    verdict: 'AWAITING', verdictLabel: 'Not scored', verdictMean: null, bestRating: null,
+  };
+  const note = () => screen.queryByTestId('wf-heat-blanked');
+  const sentence = () => document.getElementById(
+    screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby'),
+  ).textContent;
+
+  it.each([
+    ['STOOD_DOWN', 'unsettled', 'Too unsettled to forecast'],
+    ['FOG', 'fog', 'Fog forecast'],
+    ['NOT_ATTEMPTED', 'too far out', 'Not scored at this range'],
+    ['FAILED', 'run failed', 'Forecast unavailable'],
+  ])('%s: prints %s, titles and speaks the served label once, with no duplicate "not scored"', async (
+    reason, visible, spoken,
+  ) => {
+    await renderStrip({ cards: [stripCard({ ...UNSCORED, blankedReason: reason })] });
+
+    expect(note()).toHaveTextContent(new RegExp(`^${visible}$`));
+    expect(note()).toHaveAttribute('data-reason', reason);
+    expect(note()).toHaveAttribute('title', spoken);
+    expect(note()).toHaveClass('wf-hc-mean');
+    expect(sentence()).toContain(spoken);
+    expect(sentence().split(spoken)).toHaveLength(2);
+    // The verdict word "Not scored" is the face's own; the lower-case fallback clause is the duplicate being dropped.
+    expect(sentence()).not.toContain('not scored');
+  });
+
+  it.each(['STOOD_DOWN', 'FOG', 'NOT_ATTEMPTED', 'FAILED'])(
+    'WCAG 2.5.3: the visible word of %s is inside the sentence', async (reason) => {
+      await renderStrip({ cards: [stripCard({ ...UNSCORED, blankedReason: reason })] });
+      expect(sentence().toLowerCase()).toContain(note().textContent);
+    },
+  );
+
+  it.each([['AWAY'], ['UNKNOWN'], [null], [undefined]])('is silent for a %s reason, as before', async (reason) => {
+    await renderStrip({ cards: [stripCard({ ...UNSCORED, blankedReason: reason })] });
+
+    expect(note()).toBeNull();
+    expect(sentence()).toMatch(/not scored/i);
+  });
+
+  it('prints no note on an away cell', async () => {
+    await renderStrip({ cards: [stripCard({ ...UNSCORED, away: true, blankedReason: 'NOT_ATTEMPTED' })] });
+    expect(note()).toBeNull();
+  });
+
+  it('a printed mean suppresses the note', async () => {
+    await renderStrip({
+      cards: [stripCard({
+        verdict: 'MAYBE', verdictLabel: 'Maybe', verdictMean: 3.1, blankedReason: 'NOT_ATTEMPTED',
+      })],
+    });
+    expect(note()).toBeNull();
+    expect(screen.getByTestId('wf-heat-mean')).toBeInTheDocument();
+  });
+
+  it('keeps the stood-places words beside a NOT_ATTEMPTED note: each said once, neither contradicting', async () => {
+    const stood = [{ lat: 55.4, lng: -1.6, reason: 'HIGH_CLOUD', rid: 'Northumberland & Tyneside', key: '#9' }];
+    const card = stripCard({ ...UNSCORED, blankedReason: 'NOT_ATTEMPTED' });
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({ cards: [card], stoodSets: new Map([[card.key, stood]]) });
+    });
+
+    expect(note()).toHaveTextContent('too far out');
+    expect(sentence().split('Not scored at this range')).toHaveLength(2);
+    // The places' own words stay (the hatch describes places, the note describes the window); the bare fallback
+    // clause does not come back beside them.
+    expect(sentence()).toContain('stood down by the weather');
+    expect(sentence()).not.toContain('not scored');
   });
 });
 
@@ -4751,12 +4819,10 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     expect(screen.queryByTestId('wf-glance-topic-key')).toBeNull();
   });
 
-  it('has no starts/continues key in the section head and no "Dated events in Coming up" door', async () => {
+  it('has no starts/continues key and no "Dated events in Coming up" door', async () => {
     await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)] });
-    const head = screen.getByTestId('wf-heat-head');
-    expect(head).not.toHaveTextContent('starts');
-    expect(head).not.toHaveTextContent('continues');
-    expect(head.lastElementChild).toBe(within(head).getByTestId('guide-link'));
+    expect(within(screen.getByTestId('wf-heat-strip')).queryByTestId('guide-link')).toBeNull();
+    expect(screen.queryByTestId('wf-glance-topic-key')).toBeNull();
     expect(screen.queryByText(/Dated events in Coming up/)).toBeNull();
     expect(screen.queryByTestId('wf-glance-topics-door-row')).toBeNull();
   });
@@ -4777,7 +4843,8 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     const lanes = screen.getAllByTestId('wf-glance-lane');
     expect(lanes).toHaveLength(1);
     expect(lanes[0]).toHaveAttribute('data-starts-before', 'true');
-    expect(lanes[0]).toHaveAccessibleName(/began earlier/);
+    // A tide lane with no card to open has no route, so it is plain text: its words are its text, not a button's name.
+    expect(lanes[0].textContent).toMatch(/began earlier/);
   });
 
   it('keeps every grid track: a matrix day outside the four dates draws no lane but keeps its column', async () => {
@@ -4808,32 +4875,132 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     expect(lanes[0]).toHaveAttribute('data-starts-before', 'true');
   });
 
-  it('routes a press: a jump goes to Coming up at that entry', async () => {
-    const onOpenComingUp = vi.fn();
+  const SPRING_RUN = {
+    id: 'spring-tide:run', type: 'spring-tide', startDate: D4, endDate: D6, coincidence: [], dayRanges: [],
+  };
+
+  it('routes a press: a lane carrying a jump opens its window, never Coming up (the entry is drawn as the lane)', async () => {
+    const onOpenLaneOnMap = vi.fn();
     await renderStrip({
       cards: COLUMNS,
       hotTopics: [tide(D4)],
-      comingUpEntries: [{
-        id: 'spring-tide:run', type: 'spring-tide', startDate: D4, endDate: D6, coincidence: [], dayRanges: [],
-      }],
-      renderedEntryIds: new Set(['spring-tide:run']),
-      onOpenComingUp,
+      comingUpEntries: [SPRING_RUN],
+      renderedEntryIds: new Set([SPRING_RUN.id]),
+      onOpenLaneOnMap,
+      openableKeys: new Set([`${D4}:SUNRISE`, `${D4}:SUNSET`]),
     });
-    fireEvent.click(screen.getByTestId('wf-glance-lane'));
-    expect(onOpenComingUp).toHaveBeenCalledWith('spring-tide:run');
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane.tagName).toBe('BUTTON');
+    expect(lane).toHaveAccessibleName(/opens that window on the map/);
+    fireEvent.click(lane);
+    expect(onOpenLaneOnMap).toHaveBeenCalledTimes(1);
+    expect(onOpenLaneOnMap).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^${D4}:`)), 'SPRING_TIDE');
+  });
+
+  it('draws a lane with a jump but no window or map door as text, never a button that opens nothing', async () => {
+    await renderStrip({
+      cards: COLUMNS,
+      hotTopics: [tide(D4)],
+      comingUpEntries: [SPRING_RUN],
+      renderedEntryIds: new Set([SPRING_RUN.id]),
+    });
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane.tagName).toBe('DIV');
+    expect(lane.textContent).not.toMatch(/Coming up/);
+  });
+
+  describe('reporting the entries the lanes carry, for Further ahead to leave out (D5)', () => {
+    it('reports the set of jump entries once the lanes are drawn', async () => {
+      const onLaneEntryIds = vi.fn();
+      await renderStrip({
+        cards: COLUMNS,
+        hotTopics: [tide(D4)],
+        comingUpEntries: [SPRING_RUN],
+        renderedEntryIds: new Set([SPRING_RUN.id]),
+        onLaneEntryIds,
+      });
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([SPRING_RUN.id]));
+    });
+
+    it('reports an empty set when no lane carries an entry (an entry with no lane stays listed)', async () => {
+      const onLaneEntryIds = vi.fn();
+      await renderStrip({
+        cards: COLUMNS,
+        hotTopics: [tide(D4)],
+        comingUpEntries: [],
+        renderedEntryIds: new Set(),
+        onLaneEntryIds,
+      });
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+    });
+
+    it('reports an entry once however many lanes or days carry it, and not again when nothing changed', async () => {
+      const onLaneEntryIds = vi.fn();
+      const props = {
+        cards: COLUMNS,
+        hotTopics: [tide(D4, 1, 2), tide(D5, 2, 2), inversion(D6)],
+        comingUpEntries: [{ ...SPRING_RUN, endDate: D5 }],
+        renderedEntryIds: new Set([SPRING_RUN.id]),
+        onLaneEntryIds,
+      };
+      const view = await renderStrip(props);
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([SPRING_RUN.id]));
+      const calls = onLaneEntryIds.mock.calls.length;
+      await view.rerender();
+      expect(onLaneEntryIds.mock.calls.length).toBe(calls);
+    });
+
+    it('reports no entries when the strip withdraws (no spots), so the entry is not left out of both places', async () => {
+      const onLaneEntryIds = vi.fn();
+      await renderStrip({
+        cards: COLUMNS,
+        spots: [],
+        hotTopics: [tide(D4)],
+        comingUpEntries: [SPRING_RUN],
+        renderedEntryIds: new Set([SPRING_RUN.id]),
+        onLaneEntryIds,
+      });
+      expect(screen.queryByTestId('wf-glance-lane')).toBeNull();
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+      expect(onLaneEntryIds).not.toHaveBeenCalledWith(new Set([SPRING_RUN.id]));
+    });
+
+    it('takes its entries back when it unmounts', async () => {
+      const onLaneEntryIds = vi.fn();
+      const view = await renderStrip({
+        cards: COLUMNS,
+        hotTopics: [tide(D4)],
+        comingUpEntries: [SPRING_RUN],
+        renderedEntryIds: new Set([SPRING_RUN.id]),
+        onLaneEntryIds,
+      });
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([SPRING_RUN.id]));
+      await view.unmount();
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+    });
+
+    it('is not an entry the feed has not rendered: a jump needs a listed entry to point at', async () => {
+      const onLaneEntryIds = vi.fn();
+      await renderStrip({
+        cards: COLUMNS,
+        hotTopics: [tide(D4)],
+        comingUpEntries: [SPRING_RUN],
+        renderedEntryIds: new Set(),
+        onLaneEntryIds,
+      });
+      expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+    });
   });
 
   it('routes a press: a weather topic with a forecast opens the Map door, as the old block did', async () => {
     const onShowOnMap = vi.fn();
-    const onOpenComingUp = vi.fn();
     await renderStrip({
-      cards: COLUMNS, hotTopics: [inversion(D5)], onShowOnMap, onOpenComingUp, forecastDates: [D5],
+      cards: COLUMNS, hotTopics: [inversion(D5)], onShowOnMap, forecastDates: [D5],
     });
     fireEvent.click(screen.getByTestId('wf-glance-lane'));
     expect(onShowOnMap).toHaveBeenCalledWith({
       kind: 'event', date: D5, eventType: 'SUNRISE', topicType: 'INVERSION',
     });
-    expect(onOpenComingUp).not.toHaveBeenCalled();
   });
 
   it('routes a press: a topic with a window card opens that window with the topic emphasised', async () => {
@@ -4850,12 +5017,11 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     expect(onOpenLaneOnMap).toHaveBeenCalledWith(`${D5}:SUNRISE`, 'INVERSION');
   });
 
-  it('routes a press: otherwise Coming up with no entry', async () => {
-    const onOpenComingUp = vi.fn();
-    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)], onOpenComingUp });
-    fireEvent.click(screen.getByTestId('wf-glance-lane'));
-    expect(onOpenComingUp).toHaveBeenCalledTimes(1);
-    expect(onOpenComingUp).toHaveBeenLastCalledWith(null);
+  it('routes a press: otherwise nowhere, and the lane is text rather than a control', async () => {
+    await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)] });
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane.tagName).toBe('DIV');
+    expect(screen.queryByRole('button', { name: /Spring tide/ })).toBeNull();
   });
 
   it('phone: each day\'s lanes are a cell directly under ITS OWN day header; lane-free days add nothing', async () => {
@@ -4863,6 +5029,7 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     await renderStrip({ cards: COLUMNS, hotTopics: [tide(D5, 1, 2), tide(D6, 2, 2)] });
     expect(screen.queryByTestId('wf-glance-lanes')).toBeNull();
     const kids = Array.from(screen.getByTestId('wf-heat-grid').children)
+      .flatMap((el) => (el.classList.contains('wf-day-body') ? Array.from(el.children) : [el]))
       .map((el) => el.getAttribute('data-testid'));
     expect(kids).toEqual([
       'wf-heat-day', 'wf-heat-empty', 'wf-heat-card',
@@ -4953,7 +5120,7 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
   it.each([
     ['a rated word', {}],
     ['an UNRATED word', { verdict: 'UNRATED', verdictLabel: 'Too few rated', verdictMean: 3.6 }],
-    ['a blanked stand-down', { verdictMean: null, verdictBlanked: true }],
+    ['a blanked stand-down', { verdictMean: null, blankedReason: 'STOOD_DOWN' }],
     ['a thin rated word', { verdict: 'MAYBE', verdictLabel: 'Maybe', verdictMean: 3.1, scopedThinCount: 3 }],
   ])('WCAG 2.5.3: every visible string of %s is a substring of the spoken sentence', async (_n, overrides) => {
     await renderStrip({ cards: [scopedCard(overrides)] });
@@ -5302,19 +5469,650 @@ describe('WindowFirstHeatStrip — the reach split (reach-field plan)', () => {
 });
 
 describe('WindowFirstHeatStrip — Your places on the best-spot line (find-and-favourites-plan.md F4)', () => {
-  it('marks the best spot with ★ and says "your place" when the reader starred that place; rating and name are untouched', async () => {
+  it('marks the best spot with the bookmark mark and says "bookmarked" when the reader bookmarked that place; rating and name are untouched', async () => {
     await renderStrip({ cards: [ratedCard()], wrap: (node) => withFavourites(node, { places: [1] }) });
     expect(screen.getByTestId('wf-heat-best-fav')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('Bamburgh Beach');
     expect(screen.getByTestId('wf-heat-best-rating')).toHaveTextContent('4★');
-    expect(screen.getByTestId('wf-heat-card-button')).toHaveAccessibleName(/best Bamburgh Beach.*your place/);
+    expect(screen.getByTestId('wf-heat-card-button')).toHaveAccessibleName(/best Bamburgh Beach.*bookmarked/);
   });
 
-  it('⚠️ marks nothing for a place inside a starred area, an unstarred best, or no provider', async () => {
+  it('⚠️ marks nothing for a place inside a bookmarked area, an unbookmarked best, or no provider', async () => {
     await renderStrip({ cards: [ratedCard()], wrap: (node) => withFavourites(node, { places: [], locationIds: [1], areas: [4] }) });
     expect(screen.queryByTestId('wf-heat-best-fav')).toBeNull();
     cleanup();
     await renderStrip({ cards: [ratedCard()] });
     expect(screen.queryByTestId('wf-heat-best-fav')).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — a watched date is its day\'s lane (screen-spec.md D2)', () => {
+  const D4 = '2026-08-04';
+  const D5 = '2026-08-05';
+  const D6 = '2026-08-06';
+  const RUN = {
+    id: 'spring-tide:run', type: 'spring-tide', title: 'Spring tide', metric: '4.6 m', family: 'coastal',
+    startDate: D4, endDate: D6, coincidence: [], dayRanges: [],
+  };
+  const CARDS = [
+    stripCard(),
+    stripCard({
+      key: `${D5}:SUNRISE`, date: D5, targetType: 'SUNRISE', sunrise: true, dow: 'Wed', time: '05:20',
+      tide: { lightAlignment: 'HW' }, bestReach: { rating: 4, locationId: 7, locationName: 'Crimdon Beach' },
+    }),
+    stripCard({ key: `${D5}:SUNSET`, date: D5, targetType: 'SUNSET', dow: 'Wed', time: '21:09' }),
+    stripCard({ key: `${D6}:SUNRISE`, date: D6, targetType: 'SUNRISE', sunrise: true, dow: 'Thu', time: '05:22' }),
+  ];
+  const tideTopic = (date, n) => ({
+    type: 'SPRING_TIDE',
+    label: 'Spring tide',
+    date,
+    eventType: null,
+    regions: [],
+    tideRun: { runLabel: 'SPRING RUN', dayNumber: n, dayCount: 3 },
+    glance: { weather: false, value: '4.8 m', badge: 'PEAK' },
+  });
+  const inversion = (date) => ({
+    type: 'INVERSION', label: 'Cloud inversion', date, eventType: 'SUNRISE', regions: [],
+    glance: { weather: true, value: 'dawn · 9/10' },
+  });
+  const watching = (dates, props = {}) => renderStrip({
+    cards: CARDS,
+    comingUpEntries: [RUN],
+    renderedEntryIds: new Set([RUN.id]),
+    wrap: (node) => withFavourites(node, { dates }),
+    ...props,
+  });
+
+  afterEach(() => { useIsMobile.mockReturnValue(false); });
+
+  it('with no topic lane carrying the entry, adds a watched lane of its own: mark, name and metric over the plan', async () => {
+    const onLaneEntryIds = vi.fn();
+    await watching(['spring-tide:2026-08-04'], { onLaneEntryIds, onOpenWatched: vi.fn() });
+    const lane = screen.getByTestId('wf-watched-lane');
+    expect(lane.tagName).toBe('BUTTON');
+    expect(lane.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
+    expect(lane).toHaveTextContent('Spring tide · 4.6 m');
+    expect(within(lane).getByTestId('wf-watched-plan').textContent)
+      .toBe('sunrise 05:20 · , best Crimdon Beach 4★ stars · , tide on the light →');
+    expect(lane).toHaveAccessibleName(/^Spring tide · 4.6 m sunrise 05:20, best Crimdon Beach 4 stars, tide on the light, watching, Wednesday, opens that window on the map$/);
+    // The entry is reported, so Further ahead and Watching do not list it a second time.
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([RUN.id]));
+    expect(screen.queryByTestId('wf-glance-lane')).toBeNull();
+  });
+
+  it('sits in its own date column, after the warnings and before the topic lanes, which shift down a row', async () => {
+    await watching(['spring-tide:2026-08-04'], { hotTopics: [inversion(D5)], onOpenWatched: vi.fn() });
+    const items = [...screen.getByTestId('wf-glance-lanes').children];
+    expect(items.map((li) => li.getAttribute('data-testid') ?? 'topic')).toEqual(['wf-watched-lane-item', 'topic']);
+    // Wednesday is the second column; the watched lane takes row 1 and the topic lane (model row 1) row 2.
+    expect(items[0].style.getPropertyValue('--ls')).toBe('2');
+    expect(items[0].style.getPropertyValue('--le')).toBe('3');
+    expect(items.map((li) => li.style.getPropertyValue('--lr'))).toEqual(['1', '2']);
+  });
+
+  it('presses through onOpenWatched with the window, the best place to focus and the pressed element', async () => {
+    const onOpenWatched = vi.fn();
+    await watching(['spring-tide:2026-08-04'], { onOpenWatched });
+    const lane = screen.getByTestId('wf-watched-lane');
+    fireEvent.click(lane);
+    expect(onOpenWatched).toHaveBeenCalledWith({
+      window: { date: D5, eventType: 'SUNRISE' },
+      focus: { kind: 'location', id: 7, name: 'Crimdon Beach' },
+      from: lane,
+    });
+  });
+
+  it('is plain text when the strip has no map route to give it', async () => {
+    await watching(['spring-tide:2026-08-04']);
+    expect(screen.getByTestId('wf-watched-lane').tagName).toBe('DIV');
+  });
+
+  it('⚠️ DECORATES a topic lane that carries the entry that day, and never removes it (the two-question rule)', async () => {
+    const onLaneEntryIds = vi.fn();
+    await watching(['spring-tide:2026-08-04'], {
+      hotTopics: [tideTopic(D4, 1), tideTopic(D5, 2), tideTopic(D6, 3)],
+      onLaneEntryIds,
+      onOpenWatched: vi.fn(),
+      onOpenLaneOnMap: vi.fn(),
+      openableKeys: new Set([`${D5}:SUNRISE`, `${D4}:SUNSET`]),
+    });
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane).toHaveAttribute('data-watched', 'true');
+    expect(lane.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
+    expect(within(lane).getByTestId('wf-watched-plan').textContent)
+      .toBe('Wed sunrise 05:20 · , best Crimdon Beach 4★ stars · , tide on the light →');
+    expect(lane).toHaveAccessibleName(/, watching/);
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([RUN.id]));
+    // Its own route is unchanged: it still opens its own window.
+    fireEvent.click(lane);
+    expect(lane.tagName).toBe('BUTTON');
+  });
+
+  it('draws a meteor peak as text that says so, with no map route, and still takes the entry out of Further ahead', async () => {
+    const meteor = {
+      id: 'meteor:2026-08-05', type: 'meteor', title: 'Perseids', metric: '~100/hr', startDate: D5, endDate: D5,
+      coincidence: [], dayRanges: [],
+    };
+    const onLaneEntryIds = vi.fn();
+    await watching(['meteor:2026-08-05'], { comingUpEntries: [meteor], onLaneEntryIds, onOpenWatched: vi.fn() });
+    const lane = screen.getByTestId('wf-watched-lane');
+    expect(lane.tagName).toBe('DIV');
+    expect(lane).toHaveAttribute('data-kind', 'static');
+    expect(within(lane).getByTestId('wf-watched-plan').textContent).toBe('clear-sky check on the night');
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([meteor.id]));
+  });
+
+  it('draws nothing for a watch with no window in the forecast, a reader whose list has not landed, or no watch', async () => {
+    const onLaneEntryIds = vi.fn();
+    await watching(['spring-tide:2026-08-04'], {
+      cards: [stripCard(), CARDS[3]], onLaneEntryIds, onOpenWatched: vi.fn(),
+    });
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+    cleanup();
+    await renderStrip({
+      cards: CARDS, comingUpEntries: [RUN], wrap: (node) => withFavourites(node, { status: 'loading', dates: ['spring-tide:2026-08-04'] }),
+    });
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    cleanup();
+    await watching([]);
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+  });
+
+  it('phone: the lane is in its own day\'s cell only, before that day\'s topic lanes', async () => {
+    useIsMobile.mockReturnValue(true);
+    await watching(['spring-tide:2026-08-04'], { hotTopics: [inversion(D5)], onOpenWatched: vi.fn() });
+    const cells = screen.getAllByTestId('wf-glance-lanes-day');
+    expect(cells).toHaveLength(1);
+    expect([...cells[0].querySelector('ul').children].map((li) => li.getAttribute('data-testid') ?? 'topic'))
+      .toEqual(['wf-watched-lane-item', 'topic']);
+    expect(screen.getAllByTestId('wf-watched-lane')).toHaveLength(1);
+  });
+
+  it('⚠️ a watched entry a topic lane carries but whose plan finds no window still shows: the mark alone, no plan, no arrow', async () => {
+    const onLaneEntryIds = vi.fn();
+    const noLight = CARDS.map((card) => ({ ...card, tide: { lightAlignment: 'NONE' }, bestReach: null }));
+    await watching(['spring-tide:2026-08-04'], {
+      cards: noLight,
+      hotTopics: [tideTopic(D4, 1), tideTopic(D5, 2), tideTopic(D6, 3)],
+      onLaneEntryIds,
+      onOpenWatched: vi.fn(),
+      onOpenLaneOnMap: vi.fn(),
+      openableKeys: new Set([`${D5}:SUNRISE`, `${D4}:SUNSET`]),
+    });
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane).toHaveAttribute('data-watched', 'true');
+    expect(lane.querySelector('[data-testid="bookmark-mark"]')).not.toBeNull();
+    expect(within(lane).queryByTestId('wf-watched-plan')).toBeNull();
+    expect(lane.textContent).not.toContain('→');
+    expect(lane).toHaveAccessibleName(/, watching/);
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    // One home: the lane that carries it.
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([RUN.id]));
+  });
+
+  it('with no lane carrying a plan-less watched entry, nothing is drawn and the entry is left for Watching', async () => {
+    const onLaneEntryIds = vi.fn();
+    const noLight = CARDS.map((card) => ({ ...card, tide: { lightAlignment: 'NONE' }, bestReach: null }));
+    await watching(['spring-tide:2026-08-04'], { cards: noLight, onLaneEntryIds, onOpenWatched: vi.fn() });
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    expect(screen.queryByTestId('wf-glance-lane')).toBeNull();
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+  });
+
+  it('⚠️ a decorated topic lane with a plan presses through the watched route: the window and the best place', async () => {
+    const onOpenWatched = vi.fn();
+    const onOpenLaneOnMap = vi.fn();
+    await watching(['spring-tide:2026-08-04'], {
+      hotTopics: [tideTopic(D4, 1), tideTopic(D5, 2), tideTopic(D6, 3)],
+      onOpenWatched,
+      onOpenLaneOnMap,
+      openableKeys: new Set([`${D5}:SUNRISE`, `${D4}:SUNSET`]),
+    });
+    const lane = screen.getByTestId('wf-glance-lane');
+    fireEvent.click(lane);
+    expect(onOpenLaneOnMap).not.toHaveBeenCalled();
+    expect(onOpenWatched).toHaveBeenCalledWith({
+      window: { date: D5, eventType: 'SUNRISE' },
+      focus: { kind: 'location', id: 7, name: 'Crimdon Beach' },
+      from: lane,
+    });
+  });
+
+  it('a multi-day decorated lane names the plan\'s day on the desktop, and the phone (its own day\'s cell) does not', async () => {
+    const topics = [tideTopic(D4, 1), tideTopic(D5, 2), tideTopic(D6, 3)];
+    await watching(['spring-tide:2026-08-04'], { hotTopics: topics, onOpenWatched: vi.fn() });
+    expect(within(screen.getByTestId('wf-glance-lane')).getByTestId('wf-watched-plan').textContent)
+      .toMatch(/^Wed sunrise 05:20/);
+    cleanup();
+    useIsMobile.mockReturnValue(true);
+    await watching(['spring-tide:2026-08-04'], { hotTopics: topics, onOpenWatched: vi.fn() });
+    const plans = screen.getAllByTestId('wf-watched-plan');
+    expect(plans).toHaveLength(1);
+    expect(plans[0].textContent).toMatch(/^sunrise 05:20/);
+  });
+
+  it('⚠️ a lane that cannot be tapped never draws the arrow: the plan reads as plain text', async () => {
+    await watching(['spring-tide:2026-08-04'], { onOpenWatched: undefined });
+    const lane = screen.getByTestId('wf-watched-lane');
+    expect(lane.tagName).toBe('DIV');
+    expect(within(lane).getByTestId('wf-watched-plan').textContent).not.toContain('→');
+  });
+
+  it('registers where a date about to be watched will live, for the toast: its day in this strip, else nothing', async () => {
+    const value = favouritesValue({ dates: [] });
+    await renderStrip({
+      cards: CARDS,
+      comingUpEntries: [RUN],
+      renderedEntryIds: new Set([RUN.id]),
+      wrap: (node) => <FavouritesContext.Provider value={value}>{node}</FavouritesContext.Provider>,
+    });
+    const resolve = value.registerWatchHome.mock.calls.at(-1)[0];
+    expect(resolve('spring-tide:2026-08-04')).toEqual({ dow: 'Wed' });
+    // A key with no entry, or one whose plan finds no window here, has no lane to name.
+    expect(resolve('spring-tide:2027-01-07')).toBeNull();
+    expect(resolve('meteor:2026-08-05')).toBeNull();
+  });
+
+  it('stops answering when the strip goes, and the strip never needs a registrar', async () => {
+    const value = favouritesValue({ dates: [] });
+    const cleanupSpy = vi.fn();
+    value.registerWatchHome = vi.fn(() => cleanupSpy);
+    const view = await renderStrip({
+      cards: CARDS,
+      comingUpEntries: [RUN],
+      wrap: (node) => <FavouritesContext.Provider value={value}>{node}</FavouritesContext.Provider>,
+    });
+    await view.unmount();
+    expect(cleanupSpy).toHaveBeenCalled();
+    cleanup();
+    const bare = { ...favouritesValue({ dates: [] }) };
+    delete bare.registerWatchHome;
+    await renderStrip({
+      cards: CARDS, wrap: (node) => <FavouritesContext.Provider value={bare}>{node}</FavouritesContext.Provider>,
+    });
+    expect(screen.getByTestId('wf-heat-grid')).toBeInTheDocument();
+  });
+
+  describe('a multi-day decorated lane, cell by cell', () => {
+    const topics = [tideTopic(D4, 1), tideTopic(D5, 2), tideTopic(D6, 3)];
+    const open = (props = {}) => watching(['spring-tide:2026-08-04'], {
+      hotTopics: topics,
+      onOpenWatched: props.onOpenWatched ?? vi.fn(),
+      onOpenLaneOnMap: props.onOpenLaneOnMap ?? vi.fn(),
+      openableKeys: new Set([`${D4}:SUNSET`, `${D5}:SUNRISE`, `${D5}:SUNSET`, `${D6}:SUNRISE`]),
+    });
+
+    it('⚠️ phone: only the plan\'s own day takes the watched route; the other days keep their own route and words', async () => {
+      useIsMobile.mockReturnValue(true);
+      const onOpenWatched = vi.fn();
+      const onOpenLaneOnMap = vi.fn();
+      await open({ onOpenWatched, onOpenLaneOnMap });
+      const lanes = screen.getAllByTestId('wf-glance-lane');
+      expect(lanes).toHaveLength(3);
+      const [first, planDay, last] = lanes;
+      expect(planDay).toHaveAttribute('data-watched', 'true');
+      expect(planDay).toHaveAccessibleName(/, watching, opens the map on Wednesday sunrise at Crimdon Beach$/);
+      expect(planDay.getAttribute('aria-label')).toBeNull();
+      for (const other of [first, last]) {
+        expect(other).not.toHaveAttribute('data-watched');
+        expect(other).toHaveAccessibleName(/opens that window on the map$/);
+        expect(other).not.toHaveAccessibleName(/watching/);
+      }
+      fireEvent.click(first);
+      expect(onOpenWatched).not.toHaveBeenCalled();
+      expect(onOpenLaneOnMap).toHaveBeenCalledTimes(1);
+      fireEvent.click(planDay);
+      expect(onOpenWatched).toHaveBeenCalledWith({
+        window: { date: D5, eventType: 'SUNRISE' },
+        focus: { kind: 'location', id: 7, name: 'Crimdon Beach' },
+        from: planDay,
+      });
+      expect(onOpenLaneOnMap).toHaveBeenCalledTimes(1);
+    });
+
+    it('desktop: the one decorated lane says what it opens, not the map-door wording', async () => {
+      await open();
+      const lane = screen.getByTestId('wf-glance-lane');
+      expect(lane).toHaveAccessibleName(/, watching, opens the map on Wednesday sunrise at Crimdon Beach$/);
+      expect(lane).not.toHaveAccessibleName(/opens that window on the map/);
+    });
+
+    it('names the day and the event but no place when the plan has no best place', async () => {
+      const bare = CARDS.map((card) => (card.bestReach ? { ...card, bestReach: null } : card));
+      await watching(['spring-tide:2026-08-04'], {
+        cards: bare, hotTopics: topics, onOpenWatched: vi.fn(), onOpenLaneOnMap: vi.fn(),
+        openableKeys: new Set([`${D5}:SUNRISE`]),
+      });
+      expect(screen.getByTestId('wf-glance-lane')).toHaveAccessibleName(/, watching, opens the map on Wednesday sunrise$/);
+    });
+  });
+
+  it('⚠️ a watched entry whose plan day has no column here still has its topic lane marked (mark only), one home', async () => {
+    const onLaneEntryIds = vi.fn();
+    // D6's only window has a kind the grid has no row for, so it opens no column, but the tide is on its light.
+    const noColumn = [
+      CARDS[0],
+      { ...CARDS[1], tide: { lightAlignment: 'NONE' }, bestReach: null },
+      CARDS[2],
+      stripCard({
+        key: `${D6}:DUSK`, date: D6, targetType: 'DUSK', dow: 'Thu', time: '17:00',
+        tide: { lightAlignment: 'HW' }, bestReach: { rating: 4, locationId: 7, locationName: 'Crimdon Beach' },
+      }),
+    ];
+    await watching(['spring-tide:2026-08-04'], {
+      cards: noColumn,
+      hotTopics: [tideTopic(D4, 1), tideTopic(D5, 2)],
+      onLaneEntryIds,
+      onOpenWatched: vi.fn(),
+      onOpenLaneOnMap: vi.fn(),
+      openableKeys: new Set([`${D5}:SUNRISE`, `${D4}:SUNSET`]),
+    });
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane).toHaveAttribute('data-watched', 'true');
+    expect(within(lane).queryByTestId('wf-watched-plan')).toBeNull();
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set([RUN.id]));
+  });
+
+  it('with no lane to carry such an entry, it is not graduated: it stays for Watching', async () => {
+    const onLaneEntryIds = vi.fn();
+    const noColumn = [
+      CARDS[0],
+      stripCard({
+        key: `${D6}:DUSK`, date: D6, targetType: 'DUSK', dow: 'Thu', time: '17:00',
+        tide: { lightAlignment: 'HW' }, bestReach: null,
+      }),
+    ];
+    await watching(['spring-tide:2026-08-04'], { cards: noColumn, onLaneEntryIds, onOpenWatched: vi.fn() });
+    expect(screen.queryByTestId('wf-watched-lane')).toBeNull();
+    expect(onLaneEntryIds).toHaveBeenLastCalledWith(new Set());
+  });
+
+  it('the toast resolver promises "This week" only when the strip draws lanes: with no spots it answers nothing', async () => {
+    const value = favouritesValue({ dates: [] });
+    await renderStrip({
+      cards: CARDS,
+      spots: [],
+      comingUpEntries: [RUN],
+      wrap: (node) => <FavouritesContext.Provider value={value}>{node}</FavouritesContext.Provider>,
+    });
+    const resolve = value.registerWatchHome.mock.calls.at(-1)[0];
+    expect(resolve('spring-tide:2026-08-04')).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — quiet days fold (screen-spec.md D5)', () => {
+  const D4 = '2026-08-04';
+  const D5 = '2026-08-05';
+  const D6 = '2026-08-06';
+  const D7 = '2026-08-07';
+  const win = (date, targetType, dow, bestRating) => stripCard({
+    key: `${date}:${targetType}`, date, targetType, dow, sunrise: targetType === 'SUNRISE', bestRating,
+    label: `${dow} ${targetType.toLowerCase()}`,
+  });
+  /** D4 and D5 are quiet (at most 2 stars both ways); D6 has one window above 2; D7 has an unscored window. */
+  const WEEK = [
+    win(D4, 'SUNRISE', 'Tue', 2), win(D4, 'SUNSET', 'Tue', 1),
+    win(D5, 'SUNRISE', 'Wed', 1), win(D5, 'SUNSET', 'Wed', 2),
+    win(D6, 'SUNRISE', 'Thu', 2), win(D6, 'SUNSET', 'Thu', 4),
+    win(D7, 'SUNRISE', 'Fri', null), win(D7, 'SUNSET', 'Fri', 1),
+  ];
+  const inversion = (date) => ({
+    type: 'INVERSION', label: 'Cloud inversion', date, eventType: 'SUNRISE', regions: [],
+    glance: { weather: true, value: 'dawn · 9/10' },
+  });
+
+  /** Owns the open set the shell owns in production, so a press really re-renders the same button. */
+  function Opener({ children }) {
+    const [open, setOpen] = React.useState(() => new Set());
+    return React.cloneElement(children, {
+      quietOpen: open,
+      onQuietToggle: (date) => setOpen((prev) => {
+        const next = new Set(prev);
+        if (next.has(date)) next.delete(date);
+        else next.add(date);
+        return next;
+      }),
+    });
+  }
+  const strip = (props = {}) => renderStrip({ cards: WEEK, wrap: (node) => <Opener>{node}</Opener>, ...props });
+
+  afterEach(() => { useIsMobile.mockReturnValue(false); });
+
+  describe('on a phone', () => {
+    beforeEach(() => { useIsMobile.mockReturnValue(true); });
+
+    it('folds only the days whose every window is served and at most 2 stars, and never an unscored one', async () => {
+      await strip();
+      const folds = screen.getAllByTestId('wf-quiet-fold');
+      expect(folds.map((f) => f.getAttribute('aria-expanded'))).toEqual(['false', 'false']);
+      expect(folds[0]).toHaveTextContent('Today 4 · , nothing above 2★ stars ▸');
+      expect(folds[1]).toHaveTextContent('Wed 5 · , nothing above 2★ stars ▸');
+      // The mixed day and the day with an unscored window keep their own day header and open cards.
+      expect(screen.getAllByTestId('wf-heat-day').map((d) => d.textContent)).toEqual(['Thu6', 'Fri7']);
+    });
+
+    it('the fold REPLACES the day header (no second header for the day) and names the day in words', async () => {
+      await strip();
+      const fold = screen.getAllByTestId('wf-quiet-fold')[1];
+      expect(fold).toHaveAccessibleName(/^Wed 5,\s*nothing above 2 stars$/);
+      expect(screen.getAllByTestId('wf-heat-day').map((d) => d.textContent)).not.toContain('Wed5');
+    });
+
+    it('keeps the body mounted and hidden while folded, and the button controls exactly it', async () => {
+      await strip();
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      const body = document.getElementById(fold.getAttribute('aria-controls'));
+      expect(body).not.toBeNull();
+      expect(body).toHaveAttribute('hidden');
+      expect(within(body).getAllByTestId('wf-heat-card')).toHaveLength(2);
+      // Folded cards are not in the reading order or the tab order.
+      expect(within(body).queryAllByRole('button')).toEqual([]);
+    });
+
+    it('opens in place: the SAME button stays, keeps focus, flips aria-expanded and shows the cards', async () => {
+      await strip();
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      fold.focus();
+
+      fireEvent.click(fold);
+
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toBe(fold);
+      expect(fold).toHaveFocus();
+      expect(fold).toHaveAttribute('aria-expanded', 'true');
+      expect(fold).toHaveTextContent('Today 4 · , nothing above 2★ stars ▾');
+      expect(document.getElementById(fold.getAttribute('aria-controls'))).not.toHaveAttribute('hidden');
+
+      fireEvent.click(fold);
+      expect(fold).toHaveFocus();
+      expect(fold).toHaveAttribute('aria-expanded', 'false');
+      expect(document.getElementById(fold.getAttribute('aria-controls'))).toHaveAttribute('hidden');
+    });
+
+    it('counts the topic lanes inside the folded line, so nothing is hidden silently', async () => {
+      await strip({ hotTopics: [inversion(D4)] });
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      expect(within(fold).getByTestId('wf-quiet-topics')).toHaveTextContent('1 topic');
+      expect(fold).toHaveTextContent('Today 4 · , nothing above 2★ stars · , 1 topic ▸');
+      expect(fold).toHaveAccessibleName(/^Today 4,\s*nothing above 2 stars,\s*1 topic$/);
+      // The lane itself is inside the hidden body, still mounted.
+      expect(within(document.getElementById(fold.getAttribute('aria-controls'))).getByTestId('wf-glance-lane')).toBeInTheDocument();
+      // The other quiet day has no topic and says no count.
+      expect(within(screen.getAllByTestId('wf-quiet-fold')[1]).queryByTestId('wf-quiet-topics')).toBeNull();
+    });
+
+    it('says "topics" for more than one', async () => {
+      await strip({ hotTopics: [inversion(D4), { ...inversion(D4), type: 'MIST', label: 'Valley mist' }] });
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toHaveTextContent('· , 2 topics ▸');
+    });
+
+    it('stays open with a watched date on the day: the lane is drawn and that day does not fold', async () => {
+      const RUN = {
+        id: 'spring-tide:run', type: 'spring-tide', title: 'Spring tide', metric: '4.6 m', family: 'coastal',
+        startDate: D5, endDate: D5, coincidence: [], dayRanges: [],
+      };
+      await strip({
+        // The tide's plan needs a window on the day: Wednesday's sunrise sits on the tide, with a best place.
+        cards: WEEK.map((card) => (card.key === `${D5}:SUNRISE`
+          ? { ...card, tide: { lightAlignment: 'HW' }, bestReach: { rating: 4, locationId: 7, locationName: 'Crimdon Beach' } }
+          : card)),
+        comingUpEntries: [RUN],
+        renderedEntryIds: new Set([RUN.id]),
+        onOpenWatched: vi.fn(),
+        wrap: (node) => withFavourites(<Opener>{node}</Opener>, { dates: ['spring-tide:2026-08-05'] }),
+      });
+      expect(screen.getAllByTestId('wf-quiet-fold')).toHaveLength(1);
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toHaveTextContent('Today 4');
+      expect(screen.getByTestId('wf-watched-lane')).toBeVisible();
+    });
+
+    it('a Lite reader (every best rating null) never sees a fold', async () => {
+      await strip({ cards: WEEK.map((card) => ({ ...card, bestRating: null })) });
+      expect(screen.queryByTestId('wf-quiet-fold')).toBeNull();
+      expect(screen.getAllByTestId('wf-heat-day')).toHaveLength(4);
+    });
+
+    it('honours the shell-owned open set handed in: an opened day starts open', async () => {
+      await strip({ quietOpen: new Set([D5]), wrap: (node) => node });
+      const folds = screen.getAllByTestId('wf-quiet-fold');
+      expect(folds.map((f) => f.getAttribute('aria-expanded'))).toEqual(['false', 'true']);
+    });
+
+    it('tolerates a fold press with no handler handed in', async () => {
+      await strip({ wrap: (node) => node });
+      fireEvent.click(screen.getAllByTestId('wf-quiet-fold')[0]);
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toHaveAttribute('aria-expanded', 'false');
+    });
+  });
+
+  describe('on desktop and tablet', () => {
+    it('keeps the column header, puts the fold in the sunrise row and a quiet cell in the sunset row', async () => {
+      await strip();
+      expect(screen.getAllByTestId('wf-heat-day')).toHaveLength(4);
+      const cells = screen.getAllByTestId('wf-quiet-cell');
+      expect(cells).toHaveLength(4);
+      // The sunrise row's two folded days first, then the sunset row's.
+      const [amCell, , pmCell] = cells;
+      expect(within(amCell).getByTestId('wf-quiet-fold')).toHaveTextContent('Today 4 · , nothing above 2★ stars ▸');
+      expect(within(pmCell).queryByTestId('wf-quiet-fold')).toBeNull();
+      expect(amCell.style.getPropertyValue('--c')).toBe('1');
+      expect(pmCell.style.getPropertyValue('--c')).toBe('1');
+    });
+
+    it('the fold controls both of the day\'s hidden cells, which stay mounted, and opens them in place', async () => {
+      await strip();
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      const ids = fold.getAttribute('aria-controls').split(' ');
+      expect(ids).toHaveLength(2);
+      ids.forEach((id) => expect(document.getElementById(id)).toHaveAttribute('hidden'));
+
+      fold.focus();
+      fireEvent.click(fold);
+
+      expect(fold).toHaveFocus();
+      expect(fold).toHaveAttribute('aria-expanded', 'true');
+      ids.forEach((id) => expect(document.getElementById(id)).not.toHaveAttribute('hidden'));
+    });
+
+    it('draws no topic count (the topic lanes stay in the shared lanes grid, nothing hidden)', async () => {
+      await strip({ hotTopics: [inversion(D4)] });
+      expect(screen.queryByTestId('wf-quiet-topics')).toBeNull();
+      expect(screen.getAllByTestId('wf-quiet-fold')[0]).toHaveAccessibleName(/^Today 4,\s*nothing above 2 stars$/);
+      expect(screen.getByTestId('wf-glance-lane')).toBeVisible();
+    });
+
+    it('a day with a single window left (today after its sunrise) can still fold, and its hole is explained', async () => {
+      await strip({ cards: [win(D4, 'SUNSET', 'Tue', 1), win(D5, 'SUNRISE', 'Wed', 4), win(D5, 'SUNSET', 'Wed', 4)] });
+      expect(screen.getAllByTestId('wf-quiet-fold')).toHaveLength(1);
+      expect(screen.getAllByTestId('wf-quiet-cell')).toHaveLength(2);
+      const body = document.getElementById(screen.getByTestId('wf-quiet-fold').getAttribute('aria-controls').split(' ')[0]);
+      expect(body).toHaveTextContent('this morning has gone');
+    });
+  });
+
+  describe('the canvases of a folded day', () => {
+    /** The canvases drawGeo has been handed since the last clear, de-duplicated. */
+    const painted = () => new Set(drawGeo.mock.calls.map((call) => call[0]));
+
+    it.each([['a phone', true], ['desktop and tablet', false]])(
+      'on %s: a card in a folded day is NOT painted (it has no box), and is painted once the fold opens',
+      async (_name, mobile) => {
+        useIsMobile.mockReturnValue(mobile);
+        await withMeasuredThumbs(160, async () => {
+          drawGeo.mockClear();
+          await strip();
+          const hidden = [...document.querySelectorAll('[hidden] canvas')];
+          expect(hidden.length).toBeGreaterThan(0);
+          // Nothing hidden was drawn at the frame's width, which `fit()` would have written inline for good.
+          hidden.forEach((canvas) => expect(painted().has(canvas)).toBe(false));
+          expect(painted().size).toBeGreaterThan(0);
+
+          drawGeo.mockClear();
+          const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+          await act(async () => { fireEvent.click(fold); });
+
+          const opened = fold.getAttribute('aria-controls').split(' ')
+            .flatMap((id) => [...document.getElementById(id).querySelectorAll('canvas')]);
+          expect(opened.length).toBeGreaterThan(0);
+          opened.forEach((canvas) => expect(painted().has(canvas)).toBe(true));
+        });
+      },
+    );
+  });
+
+  describe('focus never drops to the body (plan 1)', () => {
+    /** Lets a test change one day's served rating after mount, as a refreshed forecast would. */
+    let setD4Rating;
+    function Flipper({ children }) {
+      const [rating, setRating] = React.useState(1);
+      setD4Rating = setRating;
+      return React.cloneElement(children, {
+        cards: WEEK.map((card) => (card.date === D4 ? { ...card, bestRating: rating } : card)),
+        quietOpen: new Set(),
+      });
+    }
+
+    it.each([['a phone', true], ['desktop and tablet', false]])(
+      'on %s: a day that stops being quiet while its fold has focus hands focus to its first card, with no remount',
+      async (_name, mobile) => {
+        useIsMobile.mockReturnValue(mobile);
+        await strip({ wrap: (node) => <Flipper>{node}</Flipper> });
+        const cardBefore = document.querySelector(`[data-testid="wf-heat-card"][data-date="${D4}"]`);
+        const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+        fold.focus();
+        expect(fold).toHaveFocus();
+
+        await act(async () => { setD4Rating(4); });
+
+        expect(fold.isConnected).toBe(false);
+        const cardAfter = document.querySelector(`[data-testid="wf-heat-card"][data-date="${D4}"]`);
+        expect(cardAfter).toBe(cardBefore);
+        expect(document.activeElement).not.toBe(document.body);
+        expect(cardAfter.querySelector('.wf-hc-hit')).toHaveFocus();
+      },
+    );
+
+    it('a card inside a body that has just been hidden hands focus to its fold button', async () => {
+      useIsMobile.mockReturnValue(true);
+      let closeD4;
+      function Closer({ children }) {
+        const [open, setOpen] = React.useState(new Set([D4]));
+        closeD4 = () => setOpen(new Set());
+        return React.cloneElement(children, { quietOpen: open });
+      }
+      await strip({ wrap: (node) => <Closer>{node}</Closer> });
+      const fold = screen.getAllByTestId('wf-quiet-fold')[0];
+      const hit = document.getElementById(fold.getAttribute('aria-controls')).querySelector('.wf-hc-hit');
+      hit.focus();
+      expect(hit).toHaveFocus();
+
+      await act(async () => { closeD4(); });
+
+      expect(document.getElementById(fold.getAttribute('aria-controls'))).toHaveAttribute('hidden');
+      expect(fold).toHaveFocus();
+    });
   });
 });

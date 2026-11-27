@@ -118,9 +118,9 @@ export function buildHeatStripCards(
       // (review F1) — a triage-fallback word has no mean behind it, and the face, the spoken
       // sentence and the H2 "beyond the tier" line all read THIS, never `topMeanRating`.
       verdictMean: card?.verdictMean ?? null,
-      // A STAND_DOWN word over a blanked region (H4): the face prints `unsettled` where the mean
-      // would sit. Folded from the card, never re-derived.
-      verdictBlanked: !away && card?.verdictBlanked === true,
+      // Why the window was not scored (H4, unscored-reason-card-plan.md): the face prints the reason's short word
+      // where the mean would sit. Folded from the card, never re-derived. Away cells print no note.
+      blankedReason: away ? null : (card?.blankedReason ?? null),
       // The forecast's own pick, served on the window projection — never a client-side "which of
       // these six looks best" (plan §2.12). Exactly two picks exist across the whole forecast, and
       // the matrix rides BOTH on the card's border as legends, so the kind is carried rather than
@@ -137,6 +137,12 @@ export function buildHeatStripCards(
       // a false claim about that region. `buildWindowCards` already withholds the whole pick when an
       // away origin has scoped its region out, so this is null in exactly the cases the kind is.
       pickRegion: card?.pick?.regionName ?? null,
+      // The pick's PLACE, folded for the This week bar's "best Fri sunrise, Crimdon Beach 4★" (screen-spec D3): the
+      // served location, and the rating of that place's own slot, never the card's `bestRating` and never a lookup in
+      // the detail index. Null when the pick names no place or its slot carries no rating.
+      pickLocationId: card?.pick?.locationId ?? null,
+      pickLocationName: card?.pick?.locationName ?? null,
+      pickRating: card?.pick?.rating ?? null,
       away,
       // The reach-scoped headline's facts (reach-scoped-card-plan R2), folded like everything else here and present
       // ONLY when the card wears one, so a card without it is the object it always was. `verdictScope` is what the

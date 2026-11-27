@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openTab, openMapTab, activeWindowId, SOLAR_ID, visibleChips,
+  test, expect, loginAndWaitForForecast, openMapView, activeWindowId, SOLAR_ID, visibleChips,
   installDialogDepthObserver, dialogDepth,
 } from './fixture.js';
 
@@ -25,7 +25,6 @@ function nextUkDay() {
 test.describe('Glance to Map', () => {
   /** Opens the Plan tab and waits for the matrix. */
   async function openPlan(page) {
-    await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
   }
 
@@ -43,7 +42,7 @@ test.describe('Glance to Map', () => {
     expect(label, 'the card says which window it opens').toMatch(/^Open .+ on the map/);
     await card.click();
 
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     const active = await activeWindowId(page);
     expect(active, 'a solar window is selected').toMatch(SOLAR_ID);
@@ -59,7 +58,7 @@ test.describe('Glance to Map', () => {
     test.setTimeout(60_000);
     await installDialogDepthObserver(page);
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
     const callout = page.getByTestId('map-callout');
     await expect(callout).toHaveCount(0);
 
@@ -85,7 +84,7 @@ test.describe('Glance to Map', () => {
     await expect(sheet).toHaveCount(0);
     await expect(callout).toBeVisible();
     await expect(callout).toContainText(name);
-    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('map-screen')).toBeVisible();
 
     const depth = await dialogDepth(page);
     expect(depth.maxDialogs, 'concurrent dialogs').toBeLessThanOrEqual(2);
@@ -103,11 +102,15 @@ test.describe('Glance to Map', () => {
     const pill = page.getByTestId('map-best-bet-why');
     let found = false;
     for (let i = 2; i < total && !found; i += 1) {
-      await openTab(page, 'plan');
       await cards.nth(i).click();
-      await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
-      await openMapTab(page);
+      await expect(page.getByTestId('map-screen')).toBeVisible();
+      await expect(page.locator('[data-testid="map-labels"][data-placed="true"]')).toHaveCount(1);
       found = (await pill.count()) > 0;
+      if (!found) {
+        // Back to the screen for the next card: the view is closed with its button.
+        await page.getByTestId('map-screen-close').click();
+        await expect(page.getByTestId('map-screen')).toBeHidden();
+      }
     }
     test.skip(!found, 'no window the fixture serves a pick for');
 
@@ -132,7 +135,7 @@ test.describe('Glance to Map', () => {
   test('the warning chip\'s Details toggle opens and closes the warning in full', async ({ page }) => {
     test.setTimeout(90_000);
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
 
     // Open the Map on the T+1 sunset window (the one window the fixture's warning is valid for), never the first.
     const target = `solar:${nextUkDay()}:SUNSET`;

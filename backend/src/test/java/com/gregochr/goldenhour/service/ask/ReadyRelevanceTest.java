@@ -49,11 +49,12 @@ class ReadyRelevanceTest {
         "RARE_EVENTS, spring-tide, true",
         "RARE_EVENTS, SNOW_TOPS, true",
         "SNOW_TOPS, SNOW_TOPS, true",
-        "SNOW_TOPS, SNOW_FRESH, true",
-        "SNOW_TOPS, SNOW_MIST, true",
-        "SNOW_TOPS, snow_fresh, true",
+        "SNOW_TOPS, SNOW_FRESH, false",
+        "SNOW_TOPS, SNOW_MIST, false",
+        "SNOW_TOPS, snow_fresh, false",
         "SNOW_TOPS, snow-tops, true",
-        "SNOW_TOPS, 'SNOW-MIST ', true",
+        "SNOW_TOPS, ' SNOW-TOPS ', true",
+        "SNOW_TOPS, 'SNOW-MIST ', false",
         "SNOW_TOPS, AURORA, false",
         "SNOW_TOPS, ECLIPSE, false",
         "SNOW_TOPS, SNOW, false",
@@ -65,8 +66,8 @@ class ReadyRelevanceTest {
         "COASTAL_HIGH, SPRING_TIDE, false",
         "AM_OR_PM, AURORA, false",
     })
-    @DisplayName("which event types each question admits: RARE_EVENTS any, SNOW_TOPS only the three snow "
-            + "topic types, every pick question none")
+    @DisplayName("which event types each question admits: RARE_EVENTS any, SNOW_TOPS only the SNOW_TOPS "
+            + "topic (snow underfoot is a different photograph), every pick question none")
     void admitsEvent(ReadyQuestion question, String type, boolean admitted) {
         assertThat(ReadyRelevance.admitsEvent(question, type)).isEqualTo(admitted);
     }
@@ -80,14 +81,15 @@ class ReadyRelevanceTest {
     }
 
     @Test
-    @DisplayName("SNOW_TOPS keeps the snow event and loses an aurora beside it; RARE_EVENTS keeps both")
+    @DisplayName("SNOW_TOPS keeps the SNOW_TOPS event and loses an aurora or a snow-underfoot event beside it; "
+            + "RARE_EVENTS keeps all")
     void relevantPartOfAnEventsQuestion() {
-        AskAnswer both = withEvents(event("AURORA", null), event("SNOW_FRESH", null));
+        AskAnswer both = withEvents(event("AURORA", null), event("SNOW_FRESH", null), event("SNOW_TOPS", null));
 
         assertThat(ReadyRelevance.relevantPart(ReadyQuestion.SNOW_TOPS, both).events()).extracting(AskEvent::type)
-                .containsExactly("SNOW_FRESH");
+                .containsExactly("SNOW_TOPS");
         assertThat(ReadyRelevance.relevantPart(ReadyQuestion.RARE_EVENTS, both).events()).extracting(AskEvent::type)
-                .containsExactly("AURORA", "SNOW_FRESH");
+                .containsExactly("AURORA", "SNOW_FRESH", "SNOW_TOPS");
         assertThat(ReadyRelevance.relevantPart(ReadyQuestion.SNOW_TOPS, withEvents(event("AURORA", null))).events())
                 .isEmpty();
     }

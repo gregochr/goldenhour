@@ -115,7 +115,7 @@ export function spotsNamed(spots, names) {
  * data already on the client (locations, forecasts, briefing scores); no new data.
  *
  * @param {Object} trigger  normalised trigger ({@link normalizeMapTrigger}):
- *   { kind: 'region'|'event'|'location'|'coming-up'|'aurora', region?, locationName?, filterAction?,
+ *   { kind: 'region'|'event'|'location'|'further-ahead'|'aurora', region?, locationName?, filterAction?,
  *     darkSky?, label?, date, eventType }
  * @param {Object} ctx  { locations, briefingScores, todayStr, tomorrowStr, outlierKeys? } -
  *   `outlierKeys` ({@link outlierKeysOf}) is absent on a caller with no briefing, which reads as
@@ -144,6 +144,10 @@ export function resolveDoor(trigger, ctx) {
   // would return that evening's sunset rating and sunset clock time dressed as aurora facts. There
   // is no star rating for an aurora and no solar time for one, so: no time, and no count of the
   // roster (§6 - a count of our own locations is not a fact about tonight).
+  if (trigger.kind === 'astro') {
+    // A night's own address (`#map/<date>/night`) reopens the astro night: a night row, no solar facts, no fit-bounds.
+    return { title: null, subLine: null, focus: null, handoff: { eventType: 'ASTRO', date } };
+  }
   if (trigger.kind === 'aurora') {
     return {
       title: 'Aurora tonight',
@@ -164,7 +168,7 @@ export function resolveDoor(trigger, ctx) {
   // `focus: { points }` with NO `names`, the shape the `event` all-regions arm uses below.
   // The `date` IS carried, deliberately - this branch never calls `ratingFor`/`solarTimeFor` for it,
   // so a Coming-up date past Plan's four-day horizon cannot dress "no data" as "stand down".
-  if (trigger.kind === 'coming-up') {
+  if (trigger.kind === 'further-ahead') {
     const unfiltered = !trigger.darkSky && !trigger.filterAction;
     let matches;
     if (trigger.darkSky) {
@@ -177,7 +181,7 @@ export function resolveDoor(trigger, ctx) {
     const points = matches.map((l) => [l.lat, l.lon]);
     const regions = new Set(matches.map((l) => l.regionName).filter(Boolean));
     return {
-      title: trigger.label || (trigger.darkSky ? 'Dark-sky spots' : trigger.filterAction) || 'Coming up',
+      title: trigger.label || (trigger.darkSky ? 'Dark-sky spots' : trigger.filterAction) || 'Further ahead',
       subLine: regions.size > 0 ? `${regions.size} ${regions.size === 1 ? 'region' : 'regions'}` : null,
       focus: points.length > 0
         ? { points, ...(unfiltered ? {} : { names: matches.map((l) => l.name) }) }
@@ -300,7 +304,7 @@ export function resolveDoor(trigger, ctx) {
  * <h2>Order is the whole point</h2>
  *
  * <p>Every `else if` here is checked against the shape of `dateOrHandoff`, and it used to matter
- * that the `kind:'coming-up'` check (D8's map channel) ran BEFORE the generic `filterAction`-bearing
+ * that the `kind:'further-ahead'` check (D8's map channel) ran BEFORE the generic `filterAction`-bearing
  * check that used to become `kind:'topic'` — both objects carried a `filterAction`, and getting the
  * order wrong would have silently turned a coastal/dark-sky action into a `kind:'topic'` trigger
  * instead. P6 (`docs/engineering/coming-up-plan.md` D7) deleted `kind:'topic'` and its only caller,
@@ -320,13 +324,16 @@ export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = nul
   if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'aurora') {
     return { kind: 'aurora', date: dateOrHandoff.date };
   }
-  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'coming-up') {
+  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'astro') {
+    return { kind: 'astro', date: dateOrHandoff.date };
+  }
+  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'further-ahead') {
     // The Coming up chronology's own map channel (D8) — named explicitly. It used to be checked
     // ahead of a generic `filterAction` branch that became `kind:'topic'`, since both shapes carried
     // a `filterAction`; P6 deleted that branch and its only caller (`HotTopicStrip`), so `coming-up`
     // is now the sole producer of a bare `filterAction` handoff.
     return {
-      kind: 'coming-up',
+      kind: 'further-ahead',
       filterAction: dateOrHandoff.filterAction ?? null,
       darkSky: !!dateOrHandoff.darkSky,
       label: dateOrHandoff.label ?? null,
@@ -343,6 +350,7 @@ export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = nul
       date: dateOrHandoff.date,
       eventType: dateOrHandoff.eventType,
       ...(dateOrHandoff.topicType ? { topicType: dateOrHandoff.topicType } : {}),
+      ...(dateOrHandoff.frame ? { frame: dateOrHandoff.frame } : {}),
     };
   }
   if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
@@ -365,22 +373,6 @@ export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = nul
 }
 
 /**
- * The breadcrumb's headline for a trigger - a title and sub-line, which the
- * Map tab's `MapBreadcrumb` prints as `title · caption` ("Aurora tonight", "Tomorrow sunrise ·
- * 06:12"). Derived through {@link resolveDoor} so the two surfaces can never name a door
- * differently. (The retired overlay's "tap a pin" prompt is deliberately not carried: it was
- * an instruction to a modal's reader, and the breadcrumb names its lens by clauses instead.)
- *
- * @param {object} trigger a normalised trigger ({@link normalizeMapTrigger})
- * @param {object} ctx     `resolveDoor`'s context ({locations, briefingScores, todayStr, tomorrowStr})
- * @returns {{title: ?string, caption: ?string}}
- */
-export function doorHeadline(trigger, ctx) {
-  const resolved = resolveDoor(trigger, ctx);
-  return { title: resolved.title || null, caption: resolved.subLine || null };
-}
-
-/**
  * A normalised trigger as the structured door `App.openMapTabFromPlan` sends. The location,
  * region, event and filter resolution is `resolveDoor`'s own (the top-rated spot of a single
  * region, the exact spot set of a coming-up card), read off its `handoff`/`focus` rather than
@@ -396,7 +388,6 @@ export function doorHeadline(trigger, ctx) {
 export function doorFromTrigger(trigger, ctx) {
   const resolved = resolveDoor(trigger, ctx);
   const h = resolved.handoff || {};
-  const { title, caption } = doorHeadline(trigger, ctx);
   const door = {
     date: trigger.date,
     targetType: h.eventType ?? null,
@@ -405,24 +396,27 @@ export function doorFromTrigger(trigger, ctx) {
     // the spot, so an away region is not stranded outside scope behind one callout (C4).
     region: h.region ?? (trigger.kind === 'region' ? trigger.region ?? null : null),
     locationName: h.locationName ?? null,
-    title,
-    caption,
   };
   if (trigger.kind === 'aurora') {
     door.night = { kind: 'aurora', date: trigger.date };
+  }
+  if (trigger.kind === 'astro') {
+    door.night = { kind: 'astro', date: trigger.date };
   }
   if (h.filterAction) door.filterAction = h.filterAction;
   // The Coming up weather chip's topic, for the Map to select on arrival (`kind:'event'` only).
   if (trigger.kind === 'event' && trigger.topicType) door.topicType = trigger.topicType;
   if (h.darkSky) door.darkSky = true;
+  // A WINDOW door's camera (a Glance card, a lane, a Your places chip): frame home and the place it opens. Set by the
+  // producer, never inferred from the trigger's kind, and carried only when the door resolved a single place.
+  if (trigger.frame && door.locationName) door.frame = trigger.frame;
   if (resolved.focus?.names?.length) door.focusNames = resolved.focus.names;
   if (resolved.focus?.points?.length) door.focusPoints = resolved.focus.points;
   // The wrapper-supplied lens fields ride through untouched (`WindowFirstShell.openMapTab` ->
   // `openMapDoor` spreads the Plan's rating floor and reach tier, and `inPlace`, onto whatever it is
   // handed, a trigger included): this function resolves the door's own fields and adds nothing of
   // its own to the lens. Copied when the trigger carries the key at all, otherwise ABSENT.
-  // `from` (C4): the tab the door was pressed on, for the breadcrumb's return.
-  ['minRating', 'limitMinutes', 'inPlace', 'from'].forEach((key) => {
+  ['minRating', 'limitMinutes', 'inPlace'].forEach((key) => {
     if (trigger[key] !== undefined) door[key] = trigger[key];
   });
   return door;

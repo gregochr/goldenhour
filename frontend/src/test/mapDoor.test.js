@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 // `resolveDoor` is the pure resolution the retired overlay's builder became (overlay convergence C5):
 // the door's headline and field resolution are read off its output.
 import {
-  normalizeMapTrigger, resolveDoor, doorHeadline, doorFromTrigger, outlierKeysOf,
+  normalizeMapTrigger, resolveDoor, doorFromTrigger, outlierKeysOf,
 } from '../utils/mapDoor.js';
 
 const DATE = '2026-07-04';
@@ -158,7 +158,7 @@ describe('resolveDoor', () => {
         loc('Elsewhere', 'Yorkshire', 3, { types: ['LANDSCAPE'] }),
       ];
       const ov = resolveDoor(
-        { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+        { kind: 'further-ahead', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
         ctx(locations),
       );
       expect(ov.title).toBe('Spring tide run');
@@ -175,7 +175,7 @@ describe('resolveDoor', () => {
         loc('Unmeasured', 'Northumberland', 3, { bortleClass: null }),
       ];
       const ov = resolveDoor(
-        { kind: 'coming-up', darkSky: true, label: 'Perseids', date: DATE },
+        { kind: 'further-ahead', darkSky: true, label: 'Perseids', date: DATE },
         ctx(locations),
       );
       expect(ov.handoff.darkSky).toBe(true);
@@ -188,7 +188,7 @@ describe('resolveDoor', () => {
         loc('Four', 'Northumberland', 3, { bortleClass: 4 }),
         loc('Five', 'Northumberland', 3, { bortleClass: 5 }),
       ];
-      const ov = resolveDoor({ kind: 'coming-up', darkSky: true, date: DATE }, ctx(locations));
+      const ov = resolveDoor({ kind: 'further-ahead', darkSky: true, date: DATE }, ctx(locations));
       expect(ov.focus.names).toEqual(['Four']);
     });
 
@@ -202,7 +202,7 @@ describe('resolveDoor', () => {
         { ...loc('Switched Off', 'Yorkshire', 3, { lat: 50.0, lon: -5.0, types: ['LANDSCAPE'] }), enabled: false },
       ];
       const ov = resolveDoor(
-        { kind: 'coming-up', filterAction: null, darkSky: false, label: 'Winter solstice · Sun 21 Dec', date: DATE },
+        { kind: 'further-ahead', filterAction: null, darkSky: false, label: 'Winter solstice · Sun 21 Dec', date: DATE },
         ctx(locations),
       );
       expect(ov.title).toBe('Winter solstice · Sun 21 Dec');
@@ -220,15 +220,15 @@ describe('resolveDoor', () => {
 
     it('a plan chip with no label falls back to a generic title rather than a type name', () => {
       const ov = resolveDoor(
-        { kind: 'coming-up', filterAction: null, darkSky: false, date: DATE },
+        { kind: 'further-ahead', filterAction: null, darkSky: false, date: DATE },
         ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
       );
-      expect(ov.title).toBe('Coming up');
+      expect(ov.title).toBe('Further ahead');
     });
 
     it('carries the trigger date, unlike the aurora branch — no rating is ever claimed for it', () => {
       const ov = resolveDoor(
-        { kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-11-26' },
+        { kind: 'further-ahead', filterAction: 'SEASCAPE', date: '2026-11-26' },
         ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
       );
       expect(ov.handoff.date).toBe('2026-11-26');
@@ -236,7 +236,7 @@ describe('resolveDoor', () => {
 
     it('falls back to a null-safe title when nothing matches', () => {
       const ov = resolveDoor(
-        { kind: 'coming-up', darkSky: true, date: DATE },
+        { kind: 'further-ahead', darkSky: true, date: DATE },
         ctx([loc('Nowhere Dark', 'Northumberland', 3, { bortleClass: 8 })]),
       );
       expect(ov.title).toBe('Dark-sky spots');
@@ -302,18 +302,18 @@ describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', 
     // object shape. This pins that it still normalises correctly now that it has no sibling shape
     // to be confused with.
     const trigger = normalizeMapTrigger(
-      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      { kind: 'further-ahead', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
       null,
     );
     expect(trigger).toEqual({
-      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: DATE,
+      kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: DATE,
     });
   });
 
   it('a dark-sky coming-up handoff carries an explicit boolean darkSky and a null filterAction', () => {
-    const trigger = normalizeMapTrigger({ kind: 'coming-up', darkSky: true, date: DATE }, null);
+    const trigger = normalizeMapTrigger({ kind: 'further-ahead', darkSky: true, date: DATE }, null);
     expect(trigger).toEqual({
-      kind: 'coming-up', filterAction: null, darkSky: true, label: null, date: DATE,
+      kind: 'further-ahead', filterAction: null, darkSky: true, label: null, date: DATE,
     });
   });
 
@@ -348,41 +348,6 @@ describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', 
   });
 });
 
-describe('doorHeadline (the breadcrumb\'s title · caption, overlay convergence C1)', () => {
-  it('names the aurora door "Aurora tonight" with no caption', () => {
-    expect(doorHeadline({ kind: 'aurora', date: DATE }, ctx([]))).toEqual({
-      title: 'Aurora tonight', caption: null,
-    });
-  });
-
-  it('names a region door by region, with the day, event and clock as its caption', () => {
-    const locations = [loc('Top', 'Tyne and Wear', 4)];
-    const headline = doorHeadline(
-      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
-      ctx(locations),
-    );
-    expect(headline.title).toBe('Tyne and Wear');
-    expect(headline.caption).toBe('Today sunset · 21:49');
-  });
-
-  it('names a coming-up door by its label, with the region count as its caption', () => {
-    const locations = [
-      loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
-      loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
-    ];
-    expect(doorHeadline(
-      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
-      ctx(locations),
-    )).toEqual({ title: 'Spring tide run', caption: '2 regions' });
-  });
-
-  it('never borrows the overlay\'s "tap a pin" prompt as a caption', () => {
-    const locations = [loc('A', 'North', 3, { lat: 55 }), loc('B', 'South', 3, { lat: 51 })];
-    const headline = doorHeadline({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
-    expect(headline.caption).not.toMatch(/tap a pin/i);
-  });
-});
-
 describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)', () => {
   it('event: carries topicType into the door when the trigger has one, and not otherwise', () => {
     const withTopic = doorFromTrigger(
@@ -393,15 +358,37 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     expect(plain).not.toHaveProperty('topicType');
   });
 
-  it('aurora: names the night, the AURORA event and its headline; no lens fields at all', () => {
+  it('a window door\'s frame rides the event trigger and lands on the door only when a single place resolved', () => {
+    expect(normalizeMapTrigger({ kind: 'event', date: DATE, eventType: 'SUNSET', frame: 'home-and-place' }))
+      .toMatchObject({ frame: 'home-and-place' });
+    expect(normalizeMapTrigger(DATE, 'SUNSET')).not.toHaveProperty('frame');
+    const one = doorFromTrigger(
+      { kind: 'event', date: DATE, eventType: 'SUNSET', frame: 'home-and-place' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(one).toMatchObject({ locationName: 'Top', frame: 'home-and-place' });
+    // Several regions fit their pins and name no place, so there is nothing to frame home with.
+    const many = doorFromTrigger(
+      { kind: 'event', date: DATE, eventType: 'SUNSET', frame: 'home-and-place' },
+      ctx([loc('A', 'Tyne and Wear', 4), loc('B', 'Lake District', 3)]),
+    );
+    expect(many.locationName).toBeNull();
+    expect(many).not.toHaveProperty('frame');
+    // A place door that asked for none stays unframed.
+    const place = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(place).not.toHaveProperty('frame');
+  });
+
+  it('aurora: names the night and the AURORA event; no lens fields at all', () => {
     const door = doorFromTrigger({ kind: 'aurora', date: DATE }, ctx([]));
     expect(door).toEqual({
       date: DATE,
       targetType: 'AURORA',
       region: null,
       locationName: null,
-      title: 'Aurora tonight',
-      caption: null,
       night: { kind: 'aurora', date: DATE },
     });
     expect(door).not.toHaveProperty('focusNames');
@@ -415,7 +402,7 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     );
     expect(door).toMatchObject({ date: DATE, targetType: 'SUNSET', locationName: 'Top', region: null });
     expect(Object.keys(door).sort()).toEqual(
-      ['caption', 'date', 'locationName', 'region', 'targetType', 'title'],
+      ['date', 'locationName', 'region', 'targetType'],
     );
   });
 
@@ -436,13 +423,6 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     expect(door.region).toBeNull();
   });
 
-  it('carries the tab the door was pressed on (`from`) and nothing when it names none', () => {
-    const c = ctx([loc('Top', 'Tyne and Wear', 4)]);
-    const base = { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' };
-    expect(doorFromTrigger({ ...base, from: 'coming-up' }, c).from).toBe('coming-up');
-    expect(doorFromTrigger(base, c)).not.toHaveProperty('from');
-  });
-
   it('several regions: fits the pins (focusPoints) and restricts nothing (no focusNames)', () => {
     const door = doorFromTrigger(
       { kind: 'event', date: DATE, eventType: 'SUNSET' },
@@ -454,7 +434,7 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
 
   it('coming-up by subject: names the exact spots, the points and the subject filter', () => {
     const door = doorFromTrigger(
-      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      { kind: 'further-ahead', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
       ctx([
         loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
         loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
@@ -465,13 +445,12 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     expect(door.focusPoints).toHaveLength(2);
     expect(door.filterAction).toBe('SEASCAPE');
     expect(door).not.toHaveProperty('darkSky');
-    expect(door.title).toBe('Spring tide run');
     expect(door.targetType).toBeNull();
   });
 
   it('coming-up dark sky: carries darkSky and no filterAction', () => {
     const door = doorFromTrigger(
-      { kind: 'coming-up', darkSky: true, filterAction: null, label: null, date: DATE },
+      { kind: 'further-ahead', darkSky: true, filterAction: null, label: null, date: DATE },
       ctx([loc('Dark', 'Northumberland', 3, { bortleClass: 2 }), loc('Bright', 'Tyne', 3, { bortleClass: 7 })]),
     );
     expect(door.darkSky).toBe(true);
@@ -481,7 +460,7 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
 
   it('coming-up with no subject (a plan chip): fits every pin and names no spot set', () => {
     const door = doorFromTrigger(
-      { kind: 'coming-up', filterAction: null, darkSky: false, label: null, date: DATE },
+      { kind: 'further-ahead', filterAction: null, darkSky: false, label: null, date: DATE },
       ctx([loc('A', 'North', 3), loc('B', 'South', 3)]),
     );
     expect(door.focusPoints).toHaveLength(2);
@@ -695,5 +674,25 @@ describe('outlierKeysOf', () => {
 
   it('is empty for a missing briefing', () => {
     expect(outlierKeysOf(null).size).toBe(0);
+  });
+});
+
+describe('the astro night door (a `#map/<date>/night` address reopens the night)', () => {
+  it('normalises a named astro handoff and keeps its date', () => {
+    expect(normalizeMapTrigger({ kind: 'astro', date: DATE })).toEqual({ kind: 'astro', date: DATE });
+  });
+
+  it('resolves to the ASTRO event with no fit-bounds and no solar claim', () => {
+    const resolved = resolveDoor({ kind: 'astro', date: DATE }, ctx([]));
+    expect(resolved.handoff).toEqual({ eventType: 'ASTRO', date: DATE });
+    expect(resolved.focus).toBeNull();
+    expect(resolved.title).toBeNull();
+  });
+
+  it('becomes a door that names its night, as the aurora door does', () => {
+    const door = doorFromTrigger({ kind: 'astro', date: DATE }, ctx([]));
+    expect(door).toEqual({
+      date: DATE, targetType: 'ASTRO', region: null, locationName: null, night: { kind: 'astro', date: DATE },
+    });
   });
 });

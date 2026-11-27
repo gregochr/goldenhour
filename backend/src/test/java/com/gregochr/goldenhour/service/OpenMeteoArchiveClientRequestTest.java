@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.model.ArchiveBatchResult;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.util.RestClientMocks;
 import java.time.LocalDate;
@@ -85,7 +86,7 @@ class OpenMeteoArchiveClientRequestTest {
                 .andRespond(withSuccess("[" + responseJson(11) + "," + responseJson(22) + "]",
                         MediaType.APPLICATION_JSON));
 
-        List<OpenMeteoForecastResponse> results = client.fetchArchiveBatch(coords(2), DATE, HOURLY);
+        List<OpenMeteoForecastResponse> results = client.fetchArchiveBatch(coords(2), DATE, HOURLY).responses();
 
         server.verify();
         assertThat(results).hasSize(2);
@@ -104,7 +105,7 @@ class OpenMeteoArchiveClientRequestTest {
         // An interrupted thread makes the 60 s rate-limit backoff return immediately, flag restored.
         Thread.currentThread().interrupt();
 
-        List<OpenMeteoForecastResponse> results = client.fetchArchiveBatch(coords(total), DATE, HOURLY);
+        List<OpenMeteoForecastResponse> results = client.fetchArchiveBatch(coords(total), DATE, HOURLY).responses();
 
         server.verify();
         assertThat(Thread.currentThread().isInterrupted()).isTrue();
@@ -123,10 +124,124 @@ class OpenMeteoArchiveClientRequestTest {
         int total = OpenMeteoClient.BATCH_COORD_LIMIT + 2;
         Thread.currentThread().interrupt();
 
-        List<OpenMeteoForecastResponse> results = failing.fetchArchiveBatch(coords(total), DATE, HOURLY);
+        List<OpenMeteoForecastResponse> results = failing.fetchArchiveBatch(coords(total), DATE, HOURLY).responses();
 
         assertThat(results).hasSize(total);
         assertThat(results).containsOnlyNulls();
+    }
+
+    private static final String DAILY_BODY =
+            "{\"reason\":\"Daily API request limit exceeded. Please try again tomorrow.\",\"error\":true}";
+    private static final String MINUTELY_BODY =
+            "{\"reason\":\"Minutely API request limit exceeded. Please try again in one minute.\",\"error\":true}";
+
+    private List<Long> sleeps;
+    private OpenMeteoArchiveClient quickClient;
+
+    private void useRecordingSleeper() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://archive-api.open-meteo.com");
+        server = MockRestServiceServer.bindTo(builder).build();
+        sleeps = new ArrayList<>();
+        quickClient = new OpenMeteoArchiveClient(new ObjectMapper(), builder.build(), sleeps::add);
+    }
+
+    @Test
+    @DisplayName("a daily-limit 429 on chunk two of three stops the call: chunk three is never requested")
+    void fetchArchiveBatch_dailyQuotaOnSecondChunk_stopsRemainingChunks() {
+        useRecordingSleeper();
+        int total = 2 * OpenMeteoClient.BATCH_COORD_LIMIT + 1;
+        server.expect(once(), requestTo(startsWith("https://archive-api.open-meteo.com/v1/archive")))
+                .andRespond(withSuccess(arrayJson(OpenMeteoClient.BATCH_COORD_LIMIT, 44),
+                        MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo(startsWith("https://archive-api.open-meteo.com/v1/archive")))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON).body(DAILY_BODY));
+
+        ArchiveBatchResult result = quickClient.fetchArchiveBatch(coords(total), DATE, HOURLY);
+
+        server.verify();
+        assertThat(result.quotaExhausted()).isTrue();
+        assertThat(result.quotaExhaustedReason()).isEqualTo("Daily API request limit exceeded");
+        assertThat(result.responses()).hasSize(total);
+        assertThat(result.responses().subList(0, OpenMeteoClient.BATCH_COORD_LIMIT))
+                .allSatisfy(r -> assertThat(r.getHourly().getCloudCoverLow()).containsExactly(44));
+        assertThat(result.responses().subList(OpenMeteoClient.BATCH_COORD_LIMIT, total)).containsOnlyNulls();
+        // Only the pause between chunk one and chunk two: no 60 s back-off, no third pause.
+        assertThat(sleeps).containsExactly(200L);
+    }
+
+    @Test
+    @DisplayName("an HTTP 200 error envelope naming the hourly limit also stops the remaining chunks")
+    void fetchArchiveBatch_hourlyQuotaEnvelope_stopsRemainingChunks() {
+        useRecordingSleeper();
+        int total = OpenMeteoClient.BATCH_COORD_LIMIT + 3;
+        server.expect(once(), requestTo(startsWith("https://archive-api.open-meteo.com/v1/archive")))
+                .andRespond(withSuccess("{\"error\":true,\"reason\":\"Hourly API request limit exceeded.\"}",
+                        MediaType.APPLICATION_JSON));
+
+        ArchiveBatchResult result = quickClient.fetchArchiveBatch(coords(total), DATE, HOURLY);
+
+        server.verify();
+        assertThat(result.quotaExhaustedReason()).isEqualTo("Hourly API request limit exceeded");
+        assertThat(result.responses()).hasSize(total).containsOnlyNulls();
+        assertThat(sleeps).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a minutely-limit 429 is not a spent allowance: it backs off 60 s and the next chunk is requested")
+    void fetchArchiveBatch_minutelyLimit_backsOffAndCarriesOn() {
+        useRecordingSleeper();
+        int total = OpenMeteoClient.BATCH_COORD_LIMIT + 3;
+        server.expect(once(), requestTo(startsWith("https://archive-api.open-meteo.com/v1/archive")))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON).body(MINUTELY_BODY));
+        server.expect(once(), requestTo(startsWith("https://archive-api.open-meteo.com/v1/archive")))
+                .andRespond(withSuccess(arrayJson(3, 61), MediaType.APPLICATION_JSON));
+
+        ArchiveBatchResult result = quickClient.fetchArchiveBatch(coords(total), DATE, HOURLY);
+
+        server.verify();
+        assertThat(result.quotaExhausted()).isFalse();
+        assertThat(result.quotaExhaustedReason()).isNull();
+        assertThat(sleeps).containsExactly(60_000L);
+        assertThat(result.responses().subList(0, OpenMeteoClient.BATCH_COORD_LIMIT)).containsOnlyNulls();
+        assertThat(result.responses().get(OpenMeteoClient.BATCH_COORD_LIMIT).getHourly().getCloudCoverLow())
+                .containsExactly(61);
+    }
+
+    @Test
+    @DisplayName("a plain 429 body without a limit message keeps the old 60 s back-off and no quota reason")
+    void fetchArchiveBatch_plainRateLimit_keepsTheBackoff() {
+        useRecordingSleeper();
+        int total = 2 * OpenMeteoClient.BATCH_COORD_LIMIT;
+        server.expect(once(), requestTo(startsWith("https://archive-api.open-meteo.com/v1/archive")))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON).body("{\"reason\":\"slow down\",\"error\":true}"));
+        server.expect(once(), requestTo(startsWith("https://archive-api.open-meteo.com/v1/archive")))
+                .andRespond(withSuccess(arrayJson(OpenMeteoClient.BATCH_COORD_LIMIT, 8),
+                        MediaType.APPLICATION_JSON));
+
+        ArchiveBatchResult result = quickClient.fetchArchiveBatch(coords(total), DATE, HOURLY);
+
+        server.verify();
+        assertThat(result.quotaExhaustedReason()).isNull();
+        assertThat(sleeps).containsExactly(60_000L);
+    }
+
+    @Test
+    @DisplayName("a single-chunk call that gets the daily-limit 429 returns nulls with the reason, no exception")
+    void fetchArchiveBatch_singleChunkQuota_setsReason() {
+        useRecordingSleeper();
+        server.expect(once(), requestTo(startsWith("https://archive-api.open-meteo.com/v1/archive")))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON).body(DAILY_BODY));
+
+        ArchiveBatchResult result = quickClient.fetchArchiveBatch(coords(5), DATE, HOURLY);
+
+        server.verify();
+        assertThat(result.quotaExhaustedReason()).isEqualTo("Daily API request limit exceeded");
+        assertThat(result.responses()).hasSize(5).containsOnlyNulls();
+        assertThat(sleeps).isEmpty();
     }
 
     @Test
@@ -140,7 +255,7 @@ class OpenMeteoArchiveClientRequestTest {
                 .andRespond(withSuccess(arrayJson(6, 90), MediaType.APPLICATION_JSON));
         Thread.currentThread().interrupt();
 
-        List<OpenMeteoForecastResponse> results = client.fetchArchiveBatch(coords(total), DATE, HOURLY);
+        List<OpenMeteoForecastResponse> results = client.fetchArchiveBatch(coords(total), DATE, HOURLY).responses();
 
         server.verify();
         assertThat(results).hasSize(total);

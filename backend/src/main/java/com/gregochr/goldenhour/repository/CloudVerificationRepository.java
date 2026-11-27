@@ -44,7 +44,7 @@ public interface CloudVerificationRepository extends JpaRepository<CloudVerifica
             + " AND NOT EXISTS ("
             + "   SELECT 1 FROM CloudVerificationEntity v"
             + "   WHERE v.forecastEvaluationId = e.id)"
-            + " ORDER BY e.targetDate ASC, e.id ASC")
+            + " ORDER BY e.targetDate ASC, e.location.id ASC, e.targetType ASC, e.id ASC")
     List<VerificationCandidate> findUnverified(@Param("cutoff") LocalDate cutoff, Limit limit);
 
     /**

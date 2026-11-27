@@ -1,4 +1,4 @@
-import { test, expect } from './fixture.js';
+import { test, expect, openMenu } from './fixture.js';
 
 /**
  * Runs in the `logout` project, AFTER the whole `smoke` project, on one worker (see
@@ -23,6 +23,8 @@ test.describe('Login and logout', () => {
     await expect(page.getByTestId('window-first-shell')).toBeVisible();
     await expect(page.getByTestId('login-username')).toHaveCount(0);
 
+    // Sign out is a row of the ☰ menu at every width.
+    await openMenu(page);
     await page.getByTestId('window-first-signout').click();
     await expect(page.getByTestId('login-username')).toBeVisible();
     await expect(page.getByTestId('window-first-shell')).toHaveCount(0);

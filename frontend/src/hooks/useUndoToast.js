@@ -16,8 +16,8 @@ export const UNDO_TOAST_MS = 10000;
  *
  * @param {object} [options]
  * @param {number} [options.duration] ms before it dismisses itself; never below {@link UNDO_TOAST_MS}
- * @returns {{toast: ?{id: number, message: string, onUndo: ?function, returnTo: ?Element},
- *   show: function({message: string, onUndo?: function, returnTo?: ?Element}): void, dismiss: function(): void,
+ * @returns {{toast: ?{id: number, message: string, onUndo: ?function, returnTo: ?(Element|function)},
+ *   show: function({message: string, onUndo?: function, returnTo?: ?(Element|function)}): void, dismiss: function(): void,
  *   pause: function(): void, resume: function(): void}}
  */
 export default function useUndoToast({ duration = UNDO_TOAST_MS } = {}) {

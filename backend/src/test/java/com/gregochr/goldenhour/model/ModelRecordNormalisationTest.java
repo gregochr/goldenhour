@@ -314,8 +314,8 @@ class ModelRecordNormalisationTest {
     @DisplayName("BackfillBatch.isBlank() is true only when rows were written but none had observations")
     void backfillBatch_isBlank() {
         assertThat(BackfillBatch.EMPTY.isBlank()).isFalse();
-        assertThat(new BackfillBatch(3, 0).isBlank()).isTrue();
-        assertThat(new BackfillBatch(3, 2).isBlank()).isFalse();
+        assertThat(new BackfillBatch(3, 0, 0, false).isBlank()).isTrue();
+        assertThat(new BackfillBatch(3, 2, 0, false).isBlank()).isFalse();
     }
 
     @Test

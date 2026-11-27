@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.BriefingWindowTide;
 import com.gregochr.goldenhour.model.Confidence;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
@@ -112,8 +113,37 @@ public final class PlanWindowProjector {
                     // all, so the verdict never depends on which name sorts first.
                     .thenComparing((RankedRegion r) -> r.region().slots().isEmpty()
                             && r.region().displayVerdict() == DisplayVerdict.AWAITING)
+                    // Between blanked AWAITING regions the word is the same but the reason is not, and the card
+                    // now says it (unscored-reason-card-plan 3.2). Facts about the date and horizon
+                    // (NOT_ATTEMPTED, AWAY) speak before a failed run, which speaks before a record that cannot
+                    // say, so the reason on the window is chosen by rule and never by which name sorts first.
+                    .thenComparingInt((RankedRegion r) -> blankedReasonPriority(r.region()))
                     .thenComparing(r -> r.region().regionName(),
                             Comparator.nullsLast(Comparator.naturalOrder()));
+
+    /**
+     * Where a blanked region's reason sits in the order a window's reason is chosen from: date-level facts first,
+     * then a failed run, then an unknowable record. A region that is not blanked (or carries no reason) ties at 0,
+     * and the earlier comparator steps have already separated blanked from unblanked and stand-down from awaiting.
+     */
+    private static int blankedReasonPriority(BriefingRegion region) {
+        if (!region.slots().isEmpty() || region.coverageReason() == null) {
+            return 0;
+        }
+        return switch (region.coverageReason()) {
+            case NOT_ATTEMPTED, AWAY, STOOD_DOWN -> 0;
+            case FAILED -> 1;
+            case UNKNOWN -> 2;
+        };
+    }
+
+    /**
+     * Whether the region is one the honesty filter (or its reach twin) blanked, so its word is a reason rather than a
+     * reading: no slots, and a reason on the region.
+     */
+    private static boolean isBlanked(BriefingRegion region) {
+        return region != null && region.slots().isEmpty() && region.coverageReason() != null;
+    }
 
     /** Ranks a slot above another for the Pick's named location: better rating, then name. */
     private static final Comparator<BriefingSlot> BY_SLOT_RATING =
@@ -376,7 +406,9 @@ public final class PlanWindowProjector {
                 top == null ? null : top.region().confidence(),
                 candidate(top, canopyCounts),
                 top == null ? 0.0 : top.stats().averageRating(),
-                badges);
+                badges,
+                top != null && isBlanked(top.region()) ? top.region().coverageReason() : null,
+                top != null && isBlanked(top.region()) ? top.region().fog() : null);
     }
 
     /**
@@ -879,12 +911,14 @@ public final class PlanWindowProjector {
             Confidence confidence,
             BriefingWindow.Pick candidate,
             double averageRating,
-            List<BriefingWindow.Badge> badges) {
+            List<BriefingWindow.Badge> badges,
+            CoverageReason coverageReason,
+            Boolean fog) {
 
         BriefingWindow toWindow(BriefingWindow.Pick awarded, BriefingWindowTide tide,
                 List<LocationTideFact> tideFacts) {
             return new BriefingWindow(eventTime, verdict, bestRating, confidence,
-                    awarded, badges, tide, tideFacts);
+                    awarded, badges, tide, tideFacts, null, null, coverageReason, fog);
         }
     }
 

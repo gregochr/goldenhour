@@ -6,10 +6,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
-import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.goldenhour.testsupport.promptusage.RecordingAnthropicApiClient;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -95,8 +96,13 @@ class AskPlaceLookupRegressionTest {
                 "ANTHROPIC_API_KEY is not set: the Ask place-lookup regression makes real API calls");
 
         // Fixture 1: Alnmouth 4 stars in a region whose sample is too thin to recommend a place.
+        // Alnmouth carries a served headline and evaluation summary, as a real thin-sample row would, so it has
+        // a detail (owner-approved 2026-11-27, plan A4). Built here, not in the shared AskFixtures. The outlier
+        // row below stays without one: production never serves detail for an outlier.
         thinSample = saturdaySunrise(AskFixtures.region("Northumberland & Tyneside", false,
-                AskFixtures.slot(1L, "Alnmouth", 4), AskFixtures.slot(2L, "Bamburgh", 4),
+                withServedReason(AskFixtures.slot(1L, "Alnmouth", 4), "Clear horizon, broken high cloud",
+                        "Mostly clear to the east with broken high cloud that should catch colour at sunrise."),
+                AskFixtures.slot(2L, "Bamburgh", 4),
                 AskFixtures.slot(3L, "Craster", 4), AskFixtures.slot(4L, "Seahouses", 4),
                 AskFixtures.slot(5L, "Hartlepool Headland", 3)));
         // Fixture 2: Alnmouth 4 stars among places rated 1 and 2, marked by the neighbour guard.
@@ -109,7 +115,7 @@ class AskPlaceLookupRegressionTest {
         AskJobRunService jobRuns = mock(AskJobRunService.class);
         when(jobRuns.dailyRunId()).thenReturn(DAILY_RUN_ID);
         when(jobRuns.accountingAvailable()).thenReturn(true);
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(),
+        engine = new ClaudeAskEngine(new RecordingAnthropicApiClient(client), new AskProperties(),
                 AskModelFixtures.haiku(), jobRuns,
                 mock(DriveTimeResolver.class), new AskAnswerValidator(), new AskPromptBuilder(),
                 new ObjectMapper().findAndRegisterModules(), Clock.systemUTC(), AskLocationNames.NONE);
@@ -120,6 +126,12 @@ class AskPlaceLookupRegressionTest {
         if (engine != null) {
             engine.shutdown();
         }
+    }
+
+    /** The slot with a served headline and evaluation summary, its rating and sky rating as they were. */
+    private static BriefingSlot withServedReason(BriefingSlot base, String headline, String summary) {
+        return base.withClaudeScores(base.claudeRating(), base.skyRating(), base.fierySkyPotential(),
+                base.goldenHourPotential(), summary, headline);
     }
 
     private static AskSnapshot saturdaySunrise(BriefingRegion region) {

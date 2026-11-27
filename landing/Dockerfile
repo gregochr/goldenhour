@@ -14,15 +14,14 @@ COPY viewer.js /usr/share/nginx/html/
 COPY home.js /usr/share/nginx/html/
 COPY shot-map.webp /usr/share/nginx/html/
 COPY shot-detail.webp /usr/share/nginx/html/
-COPY shot-ask.webp /usr/share/nginx/html/
+COPY shot-week.webp /usr/share/nginx/html/
+COPY shot-ahead.webp /usr/share/nginx/html/
 COPY field-map.webp /usr/share/nginx/html/
 COPY field-decide.webp /usr/share/nginx/html/
 COPY field-steel-rigg.webp /usr/share/nginx/html/
 COPY favicon.svg /usr/share/nginx/html/
 COPY favicon.png /usr/share/nginx/html/
 COPY apple-touch-icon.png /usr/share/nginx/html/
-COPY screenshot.png /usr/share/nginx/html/
-COPY screenshot-map.png /usr/share/nginx/html/
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY security-headers.conf /etc/nginx/security-headers.conf
 # Cloudflare and browsers cache css/js/images for 30 days under fixed URLs (nginx.conf), so a

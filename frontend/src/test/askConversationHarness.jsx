@@ -91,7 +91,7 @@ export const tree = ({ mapContext = null, ...props } = {}) => (
       <Probe />
       <AskConversation
         view="plan"
-        viewLabel="At a Glance · all regions"
+        viewLabel="This week · all regions"
         {...props}
       />
     </AskProvider>

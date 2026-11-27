@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 // Edge behaviour of the Plan->Map door's pure resolution: clock and day labels, malformed input, the
 // exact shape of every headline and handoff, and the best-spot / neighbour-outlier arithmetic.
 import {
-  normalizeMapTrigger, resolveDoor, doorHeadline, doorFromTrigger, outlierKeysOf, spotsNamed,
+  normalizeMapTrigger, resolveDoor, doorFromTrigger, outlierKeysOf, spotsNamed,
 } from '../utils/mapDoor.js';
 
 const DATE = '2026-07-04'; // a Saturday
@@ -204,7 +204,7 @@ describe('roster filter', () => {
 });
 
 describe('coming-up door', () => {
-  const comingUp = (extra = {}) => ({ kind: 'coming-up', date: DATE, ...extra });
+  const comingUp = (extra = {}) => ({ kind: 'further-ahead', date: DATE, ...extra });
 
   it('counts distinct regions, not matching spots, and says "region" for exactly one', () => {
     const locs = [loc('A1', 'North', 3), loc('A2', 'North', 3)];
@@ -560,10 +560,10 @@ describe('normalizeMapTrigger edges', () => {
 
   it('keeps the coming-up fields, defaulting them', () => {
     expect(normalizeMapTrigger({
-      kind: 'coming-up', date: DATE, filterAction: 'SEASCAPE', darkSky: true, label: 'L',
-    })).toEqual({ kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: true, label: 'L', date: DATE });
-    expect(normalizeMapTrigger({ kind: 'coming-up', date: DATE })).toEqual({
-      kind: 'coming-up', filterAction: null, darkSky: false, label: null, date: DATE,
+      kind: 'further-ahead', date: DATE, filterAction: 'SEASCAPE', darkSky: true, label: 'L',
+    })).toEqual({ kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: true, label: 'L', date: DATE });
+    expect(normalizeMapTrigger({ kind: 'further-ahead', date: DATE })).toEqual({
+      kind: 'further-ahead', filterAction: null, darkSky: false, label: null, date: DATE,
     });
   });
 
@@ -614,30 +614,23 @@ describe('doorFromTrigger edges', () => {
     const fit = doorFromTrigger(event(), ctx(locs));
     expect(fit.focusPoints).toEqual([[1, 2], [3, 4]]);
     expect('focusNames' in fit).toBe(false);
-    const lens = doorFromTrigger({ kind: 'coming-up', date: DATE, filterAction: 'LANDSCAPE' }, ctx(locs));
+    const lens = doorFromTrigger({ kind: 'further-ahead', date: DATE, filterAction: 'LANDSCAPE' }, ctx(locs));
     expect(lens.focusNames).toEqual(['A', 'B']);
     expect(lens.filterAction).toBe('LANDSCAPE');
     expect('darkSky' in lens).toBe(false);
   });
 
   it('flags dark-sky and an aurora night, and copies the lens fields that are present', () => {
-    const dark = doorFromTrigger({ kind: 'coming-up', date: DATE, darkSky: true }, ctx([loc('A', 'R', 4, { bortleClass: 2 })]));
+    const dark = doorFromTrigger({ kind: 'further-ahead', date: DATE, darkSky: true }, ctx([loc('A', 'R', 4, { bortleClass: 2 })]));
     expect(dark.darkSky).toBe(true);
     const aurora = doorFromTrigger({ kind: 'aurora', date: DATE }, ctx([]));
     expect(aurora.night).toEqual({ kind: 'aurora', date: DATE });
     expect(aurora.targetType).toBe('AURORA');
     const lens = doorFromTrigger(
-      { ...event(), minRating: 0, limitMinutes: 90, inPlace: false, from: 'plan' }, ctx([loc('A', 'R', 4)]),
+      { ...event(), minRating: 0, limitMinutes: 90, inPlace: false }, ctx([loc('A', 'R', 4)]),
     );
-    expect(lens).toMatchObject({ minRating: 0, limitMinutes: 90, inPlace: false, from: 'plan' });
+    expect(lens).toMatchObject({ minRating: 0, limitMinutes: 90, inPlace: false });
     const plain = doorFromTrigger(event(), ctx([loc('A', 'R', 4)]));
-    ['minRating', 'limitMinutes', 'inPlace', 'from', 'night'].forEach((k) => expect(k in plain).toBe(false));
-  });
-
-  it('reads the headline from the resolution', () => {
-    expect(doorHeadline(location('S'), ctx([loc('S', 'A', 4)]))).toEqual({
-      title: 'S', caption: 'Sat sunset · 21:49',
-    });
-    expect(doorHeadline({ kind: 'aurora', date: DATE }, ctx([]))).toEqual({ title: 'Aurora tonight', caption: null });
+    ['minRating', 'limitMinutes', 'inPlace', 'night'].forEach((k) => expect(k in plain).toBe(false));
   });
 });

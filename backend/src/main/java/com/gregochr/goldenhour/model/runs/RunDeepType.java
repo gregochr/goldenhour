@@ -69,7 +69,7 @@ public enum RunDeepType {
             case ASK_READY -> ASK_READY;
             // BATCH_NEAR_TERM, BATCH_FAR_TERM, BRIEFING_GLOSS, BRIEFING_BEST_BET, AURORA_GLOSS and
             // BLUEBELL_GLOSS are model_selection keys, never written as job runs: listed so the switch is total.
-            case SCHEDULED_BATCH, TIDE, WEATHER, LIGHT_POLLUTION, AURORA_EVALUATION, ASK,
+            case SCHEDULED_BATCH, TIDE, WEATHER, LIGHT_POLLUTION, AURORA_EVALUATION, ASK, SNOW_STATE,
                  BATCH_NEAR_TERM, BATCH_FAR_TERM, BRIEFING_BEST_BET, BRIEFING_GLOSS, AURORA_GLOSS,
                  BLUEBELL_GLOSS -> OTHER;
         };

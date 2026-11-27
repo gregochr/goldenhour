@@ -15,7 +15,7 @@ import {
 /**
  * The Ask upsell a LITE reader's entries open (`docs/engineering/ask-upsell-plan.md` §3, §4.1–§4.3, §5):
  * open, the content, every close path and where focus lands, the Escape order against the Map's landing
- * card, the foreign-dialog refusals, `selectTab`, the breakpoint swaps, and the Safari null-`relatedTarget`
+ * card, the foreign-dialog refusals, `closeShellLayers`, the breakpoint swaps, and the Safari null-`relatedTarget`
  * case. Per band: the phone bar, the tablet field, the desktop field and the wide field.
  *
  * <p>`AskLocked.test.jsx` is the lock suite (the trigger's shape, the `/` key, the dims). The Map landing
@@ -35,6 +35,7 @@ vi.mock('../api/askApi.js', async (importOriginal) => ({
   getAskSettings: vi.fn(),
 }));
 import { ask, getAskSettings, getReady } from '../api/askApi.js';
+import { openMapView } from './shellMapDoor.js';
 
 const LITE = { isPro: false, isLiteUser: true };
 const BANDS = [
@@ -47,7 +48,8 @@ const BANDS = [
 const renderLite = (width, options = {}) => renderAskShell({ width, ctx: LITE, ...options });
 const popover = () => screen.queryByTestId('wf-ask-upsell');
 const heading = () => screen.getByTestId('wf-ask-upsell-heading');
-const tabNamed = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
+// The screen's own focus target: This week's heading (the map view's title while the view is open).
+const screenHeading = () => screen.getByTestId('this-week-heading');
 const press = (node) => act(async () => { fireEvent.click(node); });
 
 /** Mounts, waits for the trigger and opens the upsell by a click. */
@@ -208,14 +210,13 @@ describe.each(BANDS)('at %i px, %s', (width, testId) => {
 
     it('a press on a control that does NOT block Ask closes it (the pointerdown listener, not a blocked let-go)', async () => {
       await openUpsell(width, testId);
-      const other = tabNamed('Coming up');
-      const selectedBefore = screen.getByRole('tab', { selected: true });
+      const other = screen.getByTestId('further-ahead-jump');
 
       await act(async () => { fireEvent.pointerDown(other); });
 
       expect(popover()).toBeNull();
-      // Only the press happened: no click, so no tab change.
-      expect(screen.getByRole('tab', { selected: true })).toBe(selectedBefore);
+      // Only the press happened: no click, so the jump did not run.
+      expect(screenHeading()).toBeInTheDocument();
     });
 
     it('clicking its non-focusable copy keeps focus inside, so Escape still closes it and returns focus', async () => {
@@ -239,12 +240,14 @@ describe.each(BANDS)('at %i px, %s', (width, testId) => {
       await user.tab({ shift: true });
       expect(document.activeElement).toBe(trigger);
       expect(popover()).toBeInTheDocument();
-      await user.tab({ shift: true });
+      // On the wider screens the field sits in the masthead, first in the tab order, with nothing before it to Tab back
+      // onto: focus moves on to the ☰ menu button instead. The phone's bar has the page before it.
+      if (width >= 640) await act(async () => { screen.getByTestId('masthead-menu-button').focus(); });
+      else await user.tab({ shift: true });
 
       expect(popover()).toBeNull();
       expect(document.activeElement).not.toBe(trigger);
       expect(document.activeElement).not.toBe(document.body);
-      if (width >= 640) expect(document.activeElement).toBe(screen.getByRole('tab', { selected: true }));
     });
 
     it('a press inside the popover, or on the trigger, is not an outside press', async () => {
@@ -258,7 +261,7 @@ describe.each(BANDS)('at %i px, %s', (width, testId) => {
 
     it('focus moving to something that is not a door closes it and leaves focus where the reader put it', async () => {
       await openUpsell(width, testId);
-      const target = tabNamed('Coming up');
+      const target = screen.getByTestId('further-ahead-jump');
 
       await act(async () => { target.focus(); });
 
@@ -360,8 +363,8 @@ describe.each(BANDS)('at %i px, %s', (width, testId) => {
 
       expect(popover()).toBeNull();
       expect(document.activeElement).not.toBe(document.body);
-      // The trigger is disabled now, so the tab in force takes it.
-      expect(document.activeElement).toBe(screen.getByRole('tab', { selected: true }));
+      // The trigger is disabled now, so the screen's heading takes it.
+      expect(document.activeElement).toBe(screenHeading());
     });
 
     it('a shell dialog or settings opening closes it', async () => {
@@ -379,26 +382,23 @@ describe.each(BANDS)('at %i px, %s', (width, testId) => {
   });
 });
 
-describe('the tab buttons close it (selectTab), from every tab the entry is drawn on', () => {
+describe('a move off the screen closes it (closeShellLayers), from every width the entry is drawn at', () => {
   it.each([
-    [800, 'At a Glance', 'Coming up'],
-    [800, 'Coming up', 'Map'],
-    [800, 'Map', 'At a Glance'],
-    [1280, 'At a Glance', 'Map'],
-    [1280, 'Coming up', 'At a Glance'],
-    [1280, 'Map', 'Coming up'],
-    [390, 'At a Glance', 'Coming up'],
-    [390, 'Coming up', 'At a Glance'],
-  ])('at %i px, from %s to %s', async (width, from, to) => {
+    [800, 'the Further ahead jump'],
+    [800, 'a door onto the map view'],
+    [1280, 'the Further ahead jump'],
+    [1280, 'a door onto the map view'],
+    [390, 'the Further ahead jump'],
+    [390, 'a door onto the map view'],
+  ])('at %i px, %s', async (width, door) => {
     const testId = width < 640 ? 'ask-bar' : 'ask-field';
     renderLite(width, { props: { mapPane: MAP_PANE } });
-    await screen.findByTestId(testId);
-    await press(tabNamed(from));
     const trigger = await screen.findByTestId(testId);
     await press(trigger);
     expect(popover()).toBeInTheDocument();
 
-    await press(tabNamed(to));
+    if (door === 'the Further ahead jump') await press(screen.getByTestId('further-ahead-jump'));
+    else await act(async () => { openMapView(); });
 
     expect(popover()).toBeNull();
   });

@@ -9,7 +9,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
-import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.goldenhour.testsupport.promptusage.RecordingAnthropicApiClient;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -42,7 +42,7 @@ import static org.mockito.Mockito.when;
  *   <li>"Does Hadrian's Wall look good this weekend?": answerable, the summary names a member, and it does not
  *       say "not in the forecast";</li>
  *   <li>"Where on Hadrian's Wall should I go on Saturday morning?": picks, every one a member;</li>
- *   <li>"How's the Heugh looking tomorrow?": answerable and mentions Hartlepool Headland;</li>
+ *   <li>"How's the Heugh looking on Saturday?": answerable and mentions Hartlepool Headland;</li>
  *   <li>"Does the Great Wall of China look good tomorrow?": not answerable.</li>
  * </ol>
  *
@@ -69,12 +69,19 @@ class AskNamedAreaRegressionTest {
 
     private static final String QUESTION_LOOK = "Does Hadrian's Wall look good this weekend?";
     private static final String QUESTION_WHERE = "Where on Hadrian's Wall should I go on Saturday morning?";
-    private static final String QUESTION_HEUGH = "How's the Heugh looking tomorrow?";
+    private static final String QUESTION_HEUGH = "How's the Heugh looking on Saturday?";
     private static final String QUESTION_CHINA = "Does the Great Wall of China look good tomorrow?";
 
     /** The ids of the named area's members in the fixture. */
     private static final Set<Long> MEMBERS = Set.of(1L, 2L, 3L);
     private static final List<String> MEMBER_NAMES = List.of("Walltown Crags", "Cawfields", "Steel Rigg");
+
+    /** The area's size as a word or digit, derived from {@link #MEMBERS} (plan A5, owner-approved 2026-11-27). */
+    static final Pattern AREA_SIZE = sizePattern(MEMBERS.size());
+
+    /** The whole fixture region's count of rated places (five), which is the wrong scope for the Wall. */
+    static final Pattern WHOLE_REGION_COUNT = Pattern.compile("\\b(five|5) (rated )?places\\b",
+            Pattern.CASE_INSENSITIVE);
 
     /** The frame the owner was shown, which an answer about a real named area must not use. */
     private static final Pattern NOT_IN_FORECAST = Pattern.compile("not in the forecast|doesn'?t have|does not have",
@@ -110,7 +117,7 @@ class AskNamedAreaRegressionTest {
         AskJobRunService jobRuns = mock(AskJobRunService.class);
         when(jobRuns.dailyRunId()).thenReturn(DAILY_RUN_ID);
         when(jobRuns.accountingAvailable()).thenReturn(true);
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(),
+        engine = new ClaudeAskEngine(new RecordingAnthropicApiClient(client), new AskProperties(),
                 AskModelFixtures.haiku(), jobRuns,
                 mock(DriveTimeResolver.class), new AskAnswerValidator(), new AskPromptBuilder(),
                 new ObjectMapper().findAndRegisterModules(), Clock.systemUTC(), AskLocationNames.NONE);
@@ -139,8 +146,17 @@ class AskNamedAreaRegressionTest {
             if (NOT_IN_FORECAST.matcher(summary).find()) {
                 faults.add("the summary says it is not in the forecast: " + summary);
             }
-            if (MEMBER_NAMES.stream().noneMatch(summary::contains)) {
-                faults.add("the summary names no member of the named area: " + summary);
+            // Owner-approved 2026-11-27 (plan A5): the area is answered from its own places, and quoting the
+            // area's size ("all three rated places") is as good as naming a member; the whole region's count
+            // ("five places") is a wrong scope.
+            if (run.trace().stream().noneMatch(call -> AskToolSchemas.LOOK_UP_PLACE.equals(call.tool()))) {
+                faults.add("look_up_place was never called");
+            }
+            if (MEMBER_NAMES.stream().noneMatch(summary::contains) && !AREA_SIZE.matcher(summary).find()) {
+                faults.add("the summary names no member of the named area and not its size: " + summary);
+            }
+            if (WHOLE_REGION_COUNT.matcher(summary).find()) {
+                faults.add("the summary counts the whole region's places, not the area's: " + summary);
             }
             return faults;
         });
@@ -166,7 +182,10 @@ class AskNamedAreaRegressionTest {
         });
     }
 
-    /** (3) A place called by another name is found. */
+    /**
+     * (3) A place called by another name is found.
+     * Asks about Saturday, not tomorrow: the shared fixture's today is Monday 2026-10-05 (owner-approved 2026-11-27).
+     */
     @Test
     void theHeughIsHartlepoolHeadland() {
         passRate("the Heugh", () -> {
@@ -197,6 +216,12 @@ class AskNamedAreaRegressionTest {
     }
 
     // -- running ----------------------------------------------------------------------------
+
+    /** {@code \b(word|digit)\b} for a count of two to nine. */
+    static Pattern sizePattern(int count) {
+        String[] words = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"};
+        return Pattern.compile("\\b(" + words[count] + "|" + count + ")\\b", Pattern.CASE_INSENSITIVE);
+    }
 
     private static AskRun typed(String text) {
         AskQuestion question = new AskQuestion(text, text.toLowerCase(Locale.ROOT), null, AskScope.ALL, "plan");

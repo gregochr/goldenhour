@@ -3,23 +3,18 @@ import { refShape } from './askShapes.js';
 import { ASK_PROMPT } from '../../utils/askModel.js';
 
 /**
- * The Ask field at the right end of the tab row (design README, "Where Ask lives": the 340 × 34 px
- * field with a `/` hint on desktop, 260px from 640px to 1179px, where the room goes to the dock or the
- * tab list). Below 1024px it opens the sheet; from 1024px it opens the dock.
+ * The Ask field in the masthead's right-hand cluster, beside the ☰ menu (one-screen-plan.md D14; design README,
+ * "Where Ask lives": the 340 × 34 px field with a `/` hint on desktop, 260px from 640px to 1179px). Below 1024px it
+ * opens the sheet; from 1024px it opens the dock.
  *
  * <p>Like the phone's bar it is a BUTTON that opens the Ask surface — the mock's `<button
  * class="askf">` — not an input: the question is typed on the surface, where the answer is.
  *
- * <p><b>It sits BESIDE the tab list, never inside it.</b> The tab list has roving arrow keys and
- * {@code overflow-x: auto}; a control inside it would join that key handling and scroll away with the
- * tabs. The shell renders it as the tab row's second child.
- *
- * <p><b>Collapsing.</b> With four tabs (an admin) there is not room for 260px beside the bar below
- * 720px of COLUMN width (a container query on the tab row: the dock narrows the column, not the
- * window), so the stylesheet takes the field down to a 34px "Ask" button there — and steps the 340px
- * form down to 260 under 800px first. It is CSS-only and keeps the prompt in the accessible name: the
- * label is clipped, never {@code display: none}. Whether it fits is a browser check, not a jsdom test
- * (plan §2.6).
+ * <p><b>Collapsing.</b> The room is a CONTAINER (`.wf-mast-askwrap`, the share of the masthead the brand, the health pill and
+ * the menu leave), not the window: the dock narrows the masthead and not the viewport. The stylesheet steps the 340px
+ * form down to 260 under 340px of room and takes the field to a 34px "Ask" button under 260px. It is CSS-only and keeps
+ * the prompt in the accessible name: the label is clipped, never {@code display: none}. Whether it fits is a browser
+ * check, not a jsdom test (`smoke/screen.spec.js` measures it at four widths).
  *
  * <p>{@code showKeyHint} draws the "/" key cap (aria-hidden) — only where there is room for it, from
  * 1180px. {@code keyShortcut} says the key works, to assistive technology, through

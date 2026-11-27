@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, visibleChips, chipStars, settledChipStars, fetchForecast, starsOf,
+  test, expect, loginAndWaitForForecast, openMapView, visibleChips, chipStars, settledChipStars, fetchForecast, starsOf,
   activeWindowId, CHIP_NAME,
 } from './fixture.js';
 
@@ -11,7 +11,7 @@ import {
 test.describe('Map tab', () => {
   test.beforeEach(async ({ page }) => {
     await loginAndWaitForForecast(page);
-    await openMapTab(page);
+    await openMapView(page);
   });
 
   test('Leaflet draws and the basemap tiles are requested', async ({ page, tiles }) => {

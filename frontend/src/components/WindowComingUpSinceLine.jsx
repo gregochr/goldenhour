@@ -70,7 +70,7 @@ export default function WindowComingUpSinceLine({ badge = null, entry = null, on
           {note && ` ${note}`}
         </span>
       )}
-      <GuideLink section="comingUpNew" label="What new arrivals are" />
+      <GuideLink section="furtherAheadNew" label="What new arrivals are" />
       <button
         type="button"
         className="wf-cu-since-seen"

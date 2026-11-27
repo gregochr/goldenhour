@@ -19,34 +19,39 @@ import { registerBackLayer } from '../utils/dialogHistory.js';
  * @param {boolean} [options.activationGated] - First-run prompts: while `open`, register only once the page has
  *     a live user activation (design item 10, back-closes-dialogs-plan.md). Without one Chromium would mark the
  *     entry skippable and Back would leave the app anyway, so nothing is pushed. If `navigator.userActivation`
- *     is live at open the layer registers at once; otherwise a capture-phase `click` / `keyup` listener (never
+ *     is live at open the layer registers at once; otherwise a capture-phase `click` / `keydown` / `keyup` listener (never
  *     `pointerdown`, which is not activation-triggering on touch) registers it on the first such gesture that
  *     finds `isActive` true, and then removes itself. Closing first removes the listener and pushes nothing.
  *     No `beforeunload`. On a browser with no `navigator.userActivation` at all the gesture registers the layer, but
  *     the engine's own push also needs `isActive === true`, so the layer has NO history entry: no guard, and Back
  *     behaves as it did before this feature. That is safe.
+ * @param {string} [options.url] - The layer's address (a hash such as `#map/2026-11-24/sunrise`), written by the
+ *     engine, never by the caller (`utils/dialogHistory.js`, "The layer URL"). Kept in a ref and pushed into the live
+ *     registration like `mode`, so a changing address never unregisters the layer or pushes an entry.
  * @param {{current: (Element|null)}} [options.ref] - With `activationGated`, the element the gesture listener
  *     attaches to (the prompt's own node); `document` when omitted or not yet mounted.
  */
 export default function useBackLayer({
-  open, onBack, mode = 'close', activationGated = false, ref = undefined,
+  open, onBack, mode = 'close', activationGated = false, ref = undefined, url = undefined,
 }) {
   const onBackRef = useRef(onBack);
   const modeRef = useRef(mode);
+  const urlRef = useRef(url);
   const layerRef = useRef(null);
 
   // No deps: runs every commit, before the registration effect below on a first mount.
   useEffect(() => {
     onBackRef.current = onBack;
     modeRef.current = mode;
-    layerRef.current?.update({ mode });
+    urlRef.current = url;
+    layerRef.current?.update({ mode, url });
   });
 
   useEffect(() => {
     if (!open) return undefined;
     let layer = null;
     const register = () => {
-      layer = registerBackLayer({ onBack: () => onBackRef.current?.(), mode: modeRef.current });
+      layer = registerBackLayer({ onBack: () => onBackRef.current?.(), mode: modeRef.current, url: urlRef.current });
       layerRef.current = layer;
     };
     let detach = () => {};
@@ -62,10 +67,14 @@ export default function useBackLayer({
       detach = () => {
         target.removeEventListener('click', onGesture, true);
         target.removeEventListener('keyup', onGesture, true);
+        target.removeEventListener('keydown', onGesture, true);
         detach = () => {};
       };
       target.addEventListener('click', onGesture, true);
       target.addEventListener('keyup', onGesture, true);
+      // Capture `keydown` too: a shortcut that opens another layer ON the keydown (⌘K's Find) would otherwise register
+      // that layer first, and Back would close the base layer before the one stacked on it.
+      target.addEventListener('keydown', onGesture, true);
     }
     return () => {
       detach();

@@ -26,47 +26,46 @@ const rows = (query, extra = {}) => buildSearchGroups(query, {
   regions: REGIONS, locations: SPOTS, windows: WINDOWS, ...extra,
 }).flatMap((group) => group.rows);
 
-describe('buildSearchGroups — tab: map', () => {
+describe('buildSearchGroups — context: map', () => {
   it('words a window as "Show", where Plan says "Open"', () => {
-    expect(rows('', { tab: 'map' })[0].action).toBe('Show');
-    expect(rows('', { tab: 'plan' })[0].action).toBe('Open');
+    expect(rows('', { context: 'map' })[0].action).toBe('Show');
+    expect(rows('', { context: 'screen' })[0].action).toBe('Open');
     expect(rows('')[0].action).toBe('Open');
   });
 
   it('words a place as "Show on map", where Plan says "Next few days"', () => {
-    expect(rows('bamburgh', { tab: 'map' })[0].action).toBe('Show on map');
-    expect(rows('bamburgh', { tab: 'coming-up' })[0].action).toBe('Next few days');
+    expect(rows('bamburgh', { context: 'map' })[0].action).toBe('Show on map');
+    expect(rows('bamburgh', { context: 'screen' })[0].action).toBe('Next few days');
   });
 
   it('⚠️ a region is a frame: pickable with no base town, and while it is the origin', () => {
-    const [lake] = rows('lake', { tab: 'map' });
+    const [lake] = rows('lake', { context: 'map' });
     expect(lake).toMatchObject({
       kind: 'region', disabled: false, reason: null, action: 'Show', sub: 'Frame on the map',
     });
-    const [north] = rows('northumberland', { tab: 'map', originId: 1 });
+    const [north] = rows('northumberland', { context: 'map', originId: 1 });
     expect(north).toMatchObject({ disabled: false, action: 'Show' });
   });
 
   it('a region switched off has nothing to frame, so it is shown with its reason and not pickable', () => {
-    const [peak] = rows('peak', { tab: 'map' });
+    const [peak] = rows('peak', { context: 'map' });
     expect(peak).toMatchObject({
       disabled: true, action: null, reason: 'This region is switched off', sub: 'Switched off',
     });
   });
 
   it('keeps Plan\'s own origin-based refusals exactly where they were', () => {
-    const [lake] = rows('lake', { tab: 'plan' });
+    const [lake] = rows('lake', { context: 'screen' });
     expect(lake).toMatchObject({ disabled: true, reason: 'This region has no base town to plan from' });
-    const [north] = rows('northumberland', { tab: 'plan', originId: 1 });
+    const [north] = rows('northumberland', { context: 'screen', originId: 1 });
     expect(north).toMatchObject({ disabled: true, reason: "You're already planning from here" });
   });
 
-  it('titles the region group for the tab', () => {
-    const titleOf = (tab) => buildSearchGroups('lake', { regions: REGIONS, tab })
+  it('titles the region group for where Find is open', () => {
+    const titleOf = (context) => buildSearchGroups('lake', { regions: REGIONS, context })
       .find((group) => group.id === 'regions').title;
     expect(titleOf('map')).toBe('Regions');
-    expect(titleOf('plan')).toBe('Plan from here');
-    expect(titleOf('coming-up')).toBe('Plan from here');
+    expect(titleOf('screen')).toBe('Plan from here');
   });
 });
 

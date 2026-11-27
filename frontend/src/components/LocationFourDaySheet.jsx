@@ -418,7 +418,7 @@ export default function LocationFourDaySheet({
               {sheet.outsideLabel}
             </span>
           )}
-          {/* Your places (F4): constant label with aria-pressed; a Lite reader gets the Pro door below the head. */}
+          {/* Your places (F4): Bookmark / Bookmarked words, no aria-pressed; a Lite reader gets the Pro door below the head. */}
           <FavouriteToggle
             kind="place"
             id={spot?.id ?? location?.id ?? null}

@@ -49,12 +49,20 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 const cameraLog = [];
 /** The recorded args of each fit, aligned to the 'fitBounds' entries of `cameraLog`. */
 const fitArgs = [];
+/** The box Leaflet's container reports; `{clientWidth: 0, clientHeight: 0}` is a pane mounted behind `hidden`. */
+let containerBox = { clientHeight: 500 };
+/** The `resize` listeners the controllers registered with `map.once`, fired by `fireResize`. */
+const resizeListeners = [];
+const fireResize = () => resizeListeners.splice(0).forEach((fn) => fn());
 const mockMap = {
   eachLayer: () => {},
-  getContainer: () => ({ clientHeight: 500 }),
+  getContainer: () => containerBox,
   getZoom: () => 9,
-  once: () => {},
-  off: () => {},
+  once: (event, fn) => { if (event === 'resize') resizeListeners.push(fn); },
+  off: (event, fn) => {
+    const at = resizeListeners.indexOf(fn);
+    if (event === 'resize' && at >= 0) resizeListeners.splice(at, 1);
+  },
   addControl: () => {},
   invalidateSize: () => { cameraLog.push('invalidateSize'); },
   flyTo: () => { cameraLog.push('flyTo'); },
@@ -83,7 +91,9 @@ vi.mock('../components/map/FiltersPopover.jsx', () => ({
   DRIVE_TIME_TIERS: [[0, 'Any'], [45, '45 min'], [90, '1h 30'], [150, '2h 30']],
 }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
-vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
+/** The phone layout, switched per test. */
+let phone = false;
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => phone }));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
@@ -172,9 +182,12 @@ const fits = () => cameraLog.filter((c) => c === 'fitBounds').length;
 const flies = () => cameraLog.filter((c) => c === 'flyTo').length;
 
 beforeEach(() => {
+  phone = false;
   localStorage.clear();
   cameraLog.length = 0;
   fitArgs.length = 0;
+  containerBox = { clientHeight: 500 };
+  resizeListeners.length = 0;
   cornerEl = document.createElement('div');
   cornerEl.className = 'leaflet-bottom leaflet-right';
   document.body.appendChild(cornerEl);
@@ -259,5 +272,95 @@ describe('MapView door camera - held while the Map pane is hidden', () => {
     await update(rerender, { planHandoff: door, panelShown: false });
     await update(rerender, { planHandoff: door, panelShown: true });
     expect(fits()).toBe(1);
+  });
+
+  it('a pane mounted behind `hidden` is panelShown (true) but 0x0: a focusPoints fit holds, then fits once on resize', async () => {
+    containerBox = { clientWidth: 0, clientHeight: 0 };
+    const door = { ...DOOR_BASE, focusPoints: PINS, nonce: 1 };
+    await renderTab({ planHandoff: door, panelShown: true });
+    expect(fits()).toBe(0);
+    expect(resizeListeners.length).toBeGreaterThan(0);
+
+    containerBox = { clientWidth: 1200, clientHeight: 600 };
+    cameraLog.length = 0;
+    await act(async () => { fireResize(); });
+    expect(fits()).toBe(1);
+    expect(fitArgs[0][0].points).toEqual(PINS);
+    expect(fitArgs[0][1]).toEqual({ padding: [60, 60], maxZoom: 12, animate: true });
+    expect(cameraLog.indexOf('invalidateSize')).toBeLessThan(cameraLog.indexOf('fitBounds'));
+
+    await act(async () => { fireResize(); });
+    expect(fits()).toBe(1);
+  });
+
+  it('a pane mounted behind `hidden` but panelShown: a locationName fly holds, then flies once on resize', async () => {
+    containerBox = { clientWidth: 0, clientHeight: 0 };
+    const door = { ...DOOR_BASE, locationName: 'Near', nonce: 1 };
+    await renderTab({ planHandoff: door, panelShown: true });
+    expect(flies()).toBe(0);
+
+    containerBox = { clientWidth: 1200, clientHeight: 600 };
+    await act(async () => { fireResize(); });
+    expect(flies()).toBe(1);
+    await act(async () => { fireResize(); });
+    expect(flies()).toBe(1);
+  });
+
+  describe('a window door frames home and its best place (frame: home-and-place)', () => {
+    const HOME = { lat: 55.0, lon: -1.6 };
+    /** The fits made by the door's `FitBoundsController` (a `{points}` bounds), not the heat field's. */
+    const doorFits = () => fitArgs.filter(([bounds]) => bounds?.points);
+    const framed = { ...DOOR_BASE, locationName: 'Far', frame: 'home-and-place' };
+
+    it('fits [home, place] with maxZoom 11 and the door insets, and does not fly', async () => {
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(1);
+      expect(flies()).toBe(0);
+      expect(doorFits()[0][0].points).toEqual([[55.0, -1.6], [FAR.lat, FAR.lon]]);
+      expect(doorFits()[0][1]).toEqual({
+        paddingTopLeft: [80, 90], paddingBottomRight: [80, 90], maxZoom: 11, animate: true,
+      });
+    });
+
+    it('uses the phone insets (clear of the 74px peek sheet) on a phone', async () => {
+      phone = true;
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(1);
+      expect(doorFits()[0][1]).toEqual({
+        paddingTopLeft: [48, 90], paddingBottomRight: [48, 150], maxZoom: 11, animate: true,
+      });
+    });
+
+    it('holds at 0x0 and fits once on resize', async () => {
+      containerBox = { clientWidth: 0, clientHeight: 0 };
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(0);
+      containerBox = { clientWidth: 1200, clientHeight: 600 };
+      await act(async () => { fireResize(); });
+      expect(doorFits()).toHaveLength(1);
+      expect(doorFits()[0][1].maxZoom).toBe(11);
+    });
+
+    it('flies to the place when there is no home coordinate', async () => {
+      await renderTab({ planHandoff: { ...framed, nonce: 1 }, homeCoords: null });
+      expect(doorFits()).toHaveLength(0);
+      expect(flies()).toBe(1);
+    });
+
+    it('flies to the place under an away origin, which draws no home', async () => {
+      await renderTab({
+        planHandoff: { ...framed, nonce: 1 },
+        homeCoords: HOME,
+        origin: { id: 7, name: 'Lake District', baseName: 'Keswick' },
+      });
+      expect(doorFits()).toHaveLength(0);
+      expect(flies()).toBe(1);
+    });
+
+    it('a place door without the frame still flies, even with a home', async () => {
+      await renderTab({ planHandoff: { ...DOOR_BASE, locationName: 'Far', nonce: 1 }, homeCoords: HOME });
+      expect(doorFits()).toHaveLength(0);
+      expect(flies()).toBe(1);
+    });
   });
 });

@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -1687,5 +1688,252 @@ class ClaudeAskEngineTest {
                 ReadyQuestion.NIGHT_SKY, offer));
 
         assertThat(systemText(sentParams().getFirst())).doesNotContain("The question is about these windows");
+    }
+
+    /** True when the request goes to this model and its first user message is exactly this question. */
+    private static boolean isAskTo(MessageCreateParams p, String questionText, EvaluationModel model) {
+        return p != null && model.getModelId().equals(p.model().asString()) && asks(p, questionText);
+    }
+
+    /**
+     * Stubs the client for a request to the expected model whose first user message is exactly this question, so
+     * a wrong model or question yields no canned answer. RequestOptions and the CallGate are built inside the
+     * engine on every call, so only their types can be constrained.
+     */
+    private org.mockito.stubbing.OngoingStubbing<Message> stubAskFor(String questionText, EvaluationModel model) {
+        return when(client.createAskMessage(argThat(p -> isAskTo(p, questionText, model)),
+                any(RequestOptions.class), any(AnthropicApiClient.CallGate.class)));
+    }
+
+    /** Fails unless the engine sent at least one request to this model asking exactly this question. */
+    private void verifyAskedFor(String questionText, EvaluationModel model) {
+        verify(client, atLeastOnce()).createAskMessage(argThat(p -> isAskTo(p, questionText, model)),
+                any(RequestOptions.class), any(AnthropicApiClient.CallGate.class));
+    }
+
+    private static AskSnapshot twoDaySnapshot(BriefingWindow.Pick todayPick) {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, todayPick, northumberland(), teesdale()),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, northumberland(), teesdale())), List.of()));
+    }
+
+    /** Today has game-on places; tomorrow holds the given regions. */
+    private static AskSnapshot todayThenDay2(BriefingWindow.Pick todayPick, BriefingRegion... tomorrow) {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, todayPick, northumberland(), teesdale()),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, tomorrow)), List.of()));
+    }
+
+    private static BriefingRegion weatherRuledOut(String name) {
+        return AskFixtures.blankedRegion(name, CoverageReason.STOOD_DOWN);
+    }
+
+    @Test
+    @DisplayName("a Ready conversation's prompt names a covered day the weather ruled out, by its weekday")
+    void readyPromptNamesACoveredDayWithNothing() {
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot this weekend?", List.of(WINDOW), null,
+                List.of(WINDOW, "2026-10-06_sunset"));
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), todayThenDay2(null, weatherRuledOut("Northumberland"), weatherRuledOut("Teesdale")),
+                AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID, ReadyQuestion.BEST_WEEKEND, offer));
+
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
+        assertThat(systemText(sentParams().getFirst())).contains(
+                "Tuesday 6 October has no place worth going to: say so in the summary, naming the day.");
+    }
+
+    @Test
+    @DisplayName("a typed question names no covered day with nothing, and neither does a night-bound Ready one")
+    void typedQuestionNamesNoEmptyDay() {
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), twoDaySnapshot(null), USER, AskRunOptions.none());
+
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
+        assertThat(systemText(sentParams().getFirst())).doesNotContain("has no place worth going to");
+    }
+
+    @Test
+    @DisplayName("the empty covered dates: a day with no 4-star place in scope and mostly scored, never the BEST "
+            + "BET's, earliest first, and an id the snapshot lacks adds nothing")
+    void emptyCoveredDates() {
+        BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland", "A", 1L);
+        BriefingRegion ruledOutA = weatherRuledOut("Northumberland");
+        BriefingRegion ruledOutB = weatherRuledOut("Teesdale");
+        List<String> covered = List.of("2026-10-06_sunset", WINDOW, "2099-01-01_sunset");
+
+        // Tomorrow is ruled out by the weather: scored and poor, so it is named.
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, todayThenDay2(null, ruledOutA, ruledOutB),
+                AskScope.ALL)).containsExactly(TODAY.plusDays(1));
+        // A day with a 4-star place in scope is never named.
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, twoDaySnapshot(null), AskScope.ALL)).isEmpty();
+        // Today is ruled out too, but its window carries the BEST BET: left out.
+        AskSnapshot bothOut = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, best, ruledOutA, ruledOutB),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, ruledOutA, ruledOutB)), List.of()));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, bothOut, AskScope.ALL))
+                .containsExactly(TODAY.plusDays(1));
+        AskSnapshot bothOutNoBest = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, null, ruledOutA, ruledOutB),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, ruledOutA, ruledOutB)), List.of()));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, bothOutNoBest, AskScope.ALL))
+                .containsExactly(TODAY, TODAY.plusDays(1));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(List.of(), bothOutNoBest, AskScope.ALL)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a covered day is not empty when a game-on place sits in a window the offer's candidates omit "
+            + "(the coastal-high case): the spread, not the candidate ids, decides")
+    void gameOnPlaceNotInOfferCandidatesIsNotEmpty() {
+        AskSnapshot snapshot = todayThenDay2(null,
+                AskFixtures.region("Teesdale", true, AskFixtures.slot(10L, "Hamsterley", 4)));
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot at high tide?", List.of(WINDOW), null,
+                List.of(WINDOW, "2026-10-06_sunset"));
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), snapshot, AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID,
+                ReadyQuestion.COASTAL_HIGH, offer));
+
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
+        assertThat(systemText(sentParams().getFirst())).doesNotContain("has no place worth going to");
+    }
+
+    @Test
+    @DisplayName("a mostly thin or not-scored day with no game-on place is unlooked-at, not empty; so is a "
+            + "window with no spread")
+    void mostlyUnlookedDayOrNoSpreadIsNotEmpty() {
+        List<String> covered = List.of("2026-10-06_sunset");
+        BriefingRegion thin = AskFixtures.region("Teesdale", false, AskFixtures.slot(10L, "Hamsterley", 2));
+        // Two of three in-scope regions are thin or not scored; one is ruled out by the weather.
+        AskSnapshot mostlyUnlooked = todayThenDay2(null, thin,
+                AskFixtures.blankedRegion("Cumbria", CoverageReason.UNKNOWN), weatherRuledOut("Northumberland"));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, mostlyUnlooked, AskScope.ALL)).isEmpty();
+        // Half unlooked is not "mostly scored" either.
+        AskSnapshot halfUnlooked = todayThenDay2(null, thin, weatherRuledOut("Northumberland"));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, halfUnlooked, AskScope.ALL)).isEmpty();
+        // Fewer than half (one thin, two ruled out) is.
+        AskSnapshot mostlyScored = todayThenDay2(null, thin, weatherRuledOut("Northumberland"),
+                weatherRuledOut("Cumbria"));
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, mostlyScored, AskScope.ALL))
+                .containsExactly(TODAY.plusDays(1));
+        // A window with no spread (an id the snapshot lacks, or no region in scope) is not empty.
+        assertThat(ClaudeAskEngine.emptyCoveredDates(covered, todayThenDay2(null), AskScope.ALL)).isEmpty();
+    }
+
+    // -- B9: the stay-home line -----------------------------------------------------------------
+
+    private static final String STAY_HOME_LINE = "Every window this question covers is a stay-home one";
+
+    /** A region with 40 rated places and the given number of 4-star ones (the rest 2-star). */
+    private static BriefingRegion stayHomeRegion(String name, long firstId, int fourStars) {
+        return AskFixtures.bandedRegion(name, firstId, 0, 40 - fourStars, 0, fourStars);
+    }
+
+    private static AskSnapshot twoDays(BriefingWindow.Pick todayPick, BriefingRegion today,
+            BriefingRegion tomorrow, BriefingRegion... tomorrowMore) {
+        BriefingRegion[] tomorrowAll = new BriefingRegion[tomorrowMore.length + 1];
+        tomorrowAll[0] = tomorrow;
+        System.arraycopy(tomorrowMore, 0, tomorrowAll, 1, tomorrowMore.length);
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, todayPick, today),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, tomorrowAll)), List.of()));
+    }
+
+    private static BriefingWindow.Pick bestPick() {
+        return AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland", "A", 1L);
+    }
+
+    /** Runs a Ready conversation over both windows and returns the system prompt it sent. */
+    private String readyPrompt(ReadyQuestion readyQuestion, AskSnapshot snapshot) {
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot this weekend?", List.of(WINDOW), null,
+                List.of(WINDOW, "2026-10-06_sunset"));
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), snapshot, AskUserContext.userLess(),
+                AskRunOptions.ready(READY_RUN_ID, readyQuestion, offer));
+
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
+        return systemText(sentParams().getLast());
+    }
+
+    @Test
+    @DisplayName("B9: every covered window stay-home, a BEST pick and some game-on place: the line is added")
+    void allStayHomeAddsTheLine() {
+        AskSnapshot snapshot = twoDays(bestPick(), stayHomeRegion("Northumberland", 100, 1),
+                stayHomeRegion("Teesdale", 300, 1));
+
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, snapshot)).contains(STAY_HOME_LINE
+                + ": open the summary by saying so, then name the forecast's pick, and any places worth going to "
+                + "as exceptions.");
+    }
+
+    @Test
+    @DisplayName("B9: one window over 5 percent, or exactly 5 percent, adds no line")
+    void aWindowAtOrOverFivePercentAddsNoLine() {
+        // 3 of 40 is 7.5 percent.
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(bestPick(),
+                stayHomeRegion("Northumberland", 100, 1), stayHomeRegion("Teesdale", 300, 3))))
+                .doesNotContain(STAY_HOME_LINE);
+        // 2 of 40 is exactly 5 percent: a strict less-than.
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(bestPick(),
+                stayHomeRegion("Northumberland", 100, 1), stayHomeRegion("Teesdale", 300, 2))))
+                .doesNotContain(STAY_HOME_LINE);
+    }
+
+    @Test
+    @DisplayName("B9: a covered window with no spread, or mostly unlooked-at, adds no line")
+    void noSpreadOrMostlyUnlookedAddsNoLine() {
+        // No region in scope tomorrow: no spread.
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, bestPick(), stayHomeRegion("Northumberland", 100, 1)),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null)), List.of())))).doesNotContain(STAY_HOME_LINE);
+        // Two of three regions tomorrow are not scored.
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(bestPick(),
+                stayHomeRegion("Northumberland", 100, 1), stayHomeRegion("Teesdale", 300, 1),
+                AskFixtures.blankedRegion("Cumbria", CoverageReason.UNKNOWN),
+                AskFixtures.blankedRegion("Durham", CoverageReason.UNKNOWN)))).doesNotContain(STAY_HOME_LINE);
+    }
+
+    @Test
+    @DisplayName("B9: COASTAL_HIGH and AM_OR_PM never get the line, though the data would qualify")
+    void comparisonAndCoastalQuestionsAddNoLine() {
+        AskSnapshot snapshot = twoDays(bestPick(), stayHomeRegion("Northumberland", 100, 1),
+                stayHomeRegion("Teesdale", 300, 1));
+
+        assertThat(readyPrompt(ReadyQuestion.COASTAL_HIGH, snapshot)).doesNotContain(STAY_HOME_LINE);
+        assertThat(readyPrompt(ReadyQuestion.AM_OR_PM, snapshot)).doesNotContain(STAY_HOME_LINE);
+    }
+
+    @Test
+    @DisplayName("B9: no BEST pick in the covered set adds no line")
+    void noBestPickAddsNoLine() {
+        assertThat(readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(null,
+                stayHomeRegion("Northumberland", 100, 1), stayHomeRegion("Teesdale", 300, 1))))
+                .doesNotContain(STAY_HOME_LINE);
+    }
+
+    @Test
+    @DisplayName("B9: every covered window with no game-on place adds no stay-home line, only B2's empty-day one")
+    void noGameOnAnywhereLeavesB2Only() {
+        String prompt = readyPrompt(ReadyQuestion.BEST_WEEKEND, twoDays(bestPick(),
+                stayHomeRegion("Northumberland", 100, 0), stayHomeRegion("Teesdale", 300, 0)));
+
+        assertThat(prompt).doesNotContain(STAY_HOME_LINE)
+                .contains("Tuesday 6 October has no place worth going to");
+    }
+
+    @Test
+    @DisplayName("B9: a typed question and a night-bound Ready one never get the line")
+    void typedAndNightBoundAddNoLine() {
+        AskSnapshot snapshot = twoDays(bestPick(), stayHomeRegion("Northumberland", 100, 1),
+                stayHomeRegion("Teesdale", 300, 1));
+        stubAskFor("Best spot tonight?", EvaluationModel.HAIKU).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), snapshot, USER, AskRunOptions.none());
+
+        verifyAskedFor("Best spot tonight?", EvaluationModel.HAIKU);
+        assertThat(systemText(sentParams().getFirst())).doesNotContain(STAY_HOME_LINE);
+        assertThat(readyPrompt(ReadyQuestion.NIGHT_SKY, snapshot)).doesNotContain(STAY_HOME_LINE);
     }
 }

@@ -1,3 +1,4 @@
+import { mapOffered } from './shellMapDoor.js';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -74,6 +75,9 @@ vi.mock('../components/ManageView.jsx', () => ({
   default: () => <div data-testid="manage-stub" />,
 }));
 /** The Map pane, printing the two props the rewind seeds: the handoff and the selected date. */
+vi.mock('../components/WindowFirstShell.jsx', async (importOriginal) => (
+  (await import('./shellMapDoor.js')).withMapDoors(await importOriginal())
+));
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: ({ handoff, selectedDate }) => (
     <div data-testid="map-pane-stub" data-selected-date={selectedDate ?? ''}>
@@ -192,7 +196,7 @@ describe('App — where Ask PhotoCast is mounted', () => {
   it('rewound, the settings read NEVER fires and no Ask surface exists, on the phone', async () => {
     act(() => setRewind(REWIND_TO));
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await mapOffered();
     await act(async () => {});
     expect(getAskSettings).not.toHaveBeenCalled();
     expect(getReady).not.toHaveBeenCalled();
@@ -203,7 +207,7 @@ describe('App — where Ask PhotoCast is mounted', () => {
     installViewport(800);
     act(() => setRewind(REWIND_TO));
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await mapOffered();
     await act(async () => {});
     expect(getAskSettings).not.toHaveBeenCalled();
     expect(screen.queryByTestId('ask-field')).toBeNull();
@@ -213,7 +217,7 @@ describe('App — where Ask PhotoCast is mounted', () => {
     installViewport(1280);
     act(() => setRewind(REWIND_TO));
     renderApp('ADMIN');
-    await screen.findByRole('tab', { name: 'Map' });
+    await mapOffered();
     await act(async () => {});
     expect(getAskSettings).not.toHaveBeenCalled();
     expect(screen.queryByTestId('ask-field')).toBeNull();
@@ -227,7 +231,7 @@ describe('App — where Ask PhotoCast is mounted', () => {
     installViewport(1280);
     renderApp('PRO_USER');
     // The app opens on the Map at this width, which draws no footer: Plan is where it is.
-    fireEvent.click(await screen.findByRole('tab', { name: /^At a Glance/ }));
+    fireEvent.click(await screen.findByTestId('this-week-heading'));
     fireEvent.click(await screen.findByTestId('ask-field'));
     const dock = await screen.findByRole('complementary', { name: 'Ask PhotoCast' });
     expect(screen.queryByRole('dialog')).toBeNull();

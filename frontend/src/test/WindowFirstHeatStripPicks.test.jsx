@@ -179,6 +179,20 @@ describe('B1: a shaped card is not "not scored" because the server stripped the 
     expect(screen.getByTestId('wf-heat-thin')).toHaveTextContent('· 1 rated');
   });
 
+  it('keeps the Best row\'s words in the name beside a reason note (shaped, none rated, no stood places)', async () => {
+    const props = shapedProps({
+      rated: false, summaryOverrides: { mine: [slot(1, 'Bamburgh', null), slot(7, 'Craster', null)] },
+    });
+    const cards = props.cards.map((c) => ({ ...c, verdict: 'AWAITING', verdictLabel: 'Not scored', blankedReason: 'NOT_ATTEMPTED' }));
+    await renderStrip({ ...props, cards });
+
+    const name = document.getElementById(cardControl().getAttribute('aria-labelledby'));
+    expect(screen.getByTestId('wf-heat-blanked')).toHaveTextContent('too far out');
+    expect(name).toHaveTextContent('None of your sub-regions are rated for this sunset yet.');
+    expect(name).toHaveTextContent('Not scored at this range, too far out');
+    expect(name).not.toHaveTextContent(/Not scored,/);
+  });
+
   it('is not scored only when the reader holds places in the window and none is rated', async () => {
     await renderStrip(shapedProps({
       rated: false, summaryOverrides: { mine: [slot(1, 'Bamburgh', null), slot(7, 'Craster', null)] },

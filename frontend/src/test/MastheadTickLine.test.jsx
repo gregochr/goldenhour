@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import {
   describe, it, expect, vi, afterEach,
 } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
-import MastheadTickLine from '../components/MastheadTickLine.jsx';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
+import MastheadTickLine, { MastheadFind } from '../components/MastheadTickLine.jsx';
+import { SET_POSTCODE_LONG } from '../utils/postcodeNudge.js';
 
 /**
  * The masthead's tick line — the design's "ONLY statement of where the plan is computed from".
@@ -484,101 +485,6 @@ describe('MastheadTickLine — with no search handler (every tab but Plan)', () 
 });
 
 /**
- * The Map tab (map-tab-v2-plan.md §3 P11, README "Masthead change"; find-and-favourites-plan.md F1).
- * `isMapTab` is a per-tab STATE of this one component, never a fork, and this block adds only what
- * changes when the prop flips.
- *
- * <p>⚠️ The Map used to withhold search whatever a caller passed ("on a map, panning IS the search").
- * F1 retired that: a place picked in Find flies the map to it, so a handler handed to the Map tab gets
- * the interactive origin button, the hairline and the Find button, exactly as the Plan tab does. What
- * stays the Map's own is the "drive times from here" caption, and the statement when there is no
- * handler (the shell hands none to Operations).
- */
-describe('MastheadTickLine — the Map tab (map-tab-v2-plan.md §3 P11; find-and-favourites-plan.md F1)', () => {
-  it('⚠️ offers Find on the Map when handed a handler — the origin button, the hairline and the Find button', () => {
-    const onOpenSearch = vi.fn();
-    const { container } = renderTick({ isMapTab: true, onOpenSearch });
-
-    expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
-    expect(container.querySelector('.wf-tick-sep')).not.toBeNull();
-    fireEvent.click(screen.getByTestId('window-first-origin-chip'));
-    fireEvent.click(screen.getByTestId('window-first-search'));
-    expect(onOpenSearch).toHaveBeenCalledTimes(2);
-  });
-
-  it('keeps the "drive times from here" caption on the Map, on the origin button, and says it in its name', () => {
-    const { rerender } = renderTick({ isMapTab: true });
-    expect(screen.getByTestId('masthead-origin-caption')).toHaveTextContent('drive times from here');
-    expect(screen.getByTestId('window-first-origin-chip').getAttribute('aria-label'))
-      .toBe('Planning from home · Durham. Search to change it. Drive times are measured from here.');
-
-    rerender(
-      <MastheadTickLine
-        light={LIGHT} origin={null} homePlace="Durham"
-        onOpenSearch={vi.fn()} onGoHome={vi.fn()} onSetPostcode={vi.fn()}
-        isMapTab={false}
-      />,
-    );
-    expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
-  });
-
-  it('still draws the statement, with its caption, where there is no handler', () => {
-    const { container } = renderTick({ isMapTab: true, onOpenSearch: undefined });
-
-    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-    expect(screen.queryByTestId('window-first-search')).toBeNull();
-    expect(container.querySelector('.wf-tick-sep')).toBeNull();
-    const statement = screen.getByTestId('window-first-origin-statement');
-    expect(statement.tagName).toBe('SPAN');
-    expect(statement).toHaveTextContent('Home · Durham');
-    expect(statement).toHaveTextContent('drive times from here');
-  });
-
-  it('still names the away origin correctly — the map tab does not stop being honest about where drive times come from', () => {
-    renderTick({ isMapTab: true, origin: LAKES });
-
-    const chip = screen.getByTestId('window-first-origin-chip');
-    expect(chip).toHaveTextContent('The Lake District · from Keswick');
-    expect(chip).toHaveTextContent('drive times from here');
-    // The way-home pin is a DIFFERENT control from the Find button, and leaving the origin remains
-    // reachable from every tab.
-    expect(screen.getByTestId('window-first-origin-home')).toBeInTheDocument();
-  });
-
-  it('⚠️ the empty-state nudge survives untouched — CLAUDE.md\'s do-not-re-gate-the-postcode rule', () => {
-    const onSetPostcode = vi.fn();
-    renderTick({
-      isMapTab: true, homePlace: null, light: LIGHT, onSetPostcode,
-    });
-
-    expect(screen.getByTestId('masthead-set-postcode')).toBeInTheDocument();
-    // No caption beside the nudge (no origin to be measured from), but Find stays on the Map, and the
-    // nudge itself is the SAME button (`onSetPostcode`, not a dead statement) every other tab renders.
-    expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
-    expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
-    expect(onSetPostcode).toHaveBeenCalledTimes(1);
-  });
-
-  it('the Plan tab is unaffected — both search buttons render, with no caption', () => {
-    renderTick({ isMapTab: false });
-
-    expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
-    expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
-    expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
-    expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
-  });
-
-  it('keeps the statement out of the Tab order — focus can be PUT there, never Tabbed to', () => {
-    // The statement is not a control, so it must not be a tab stop. It is a place focus can be put,
-    // for the one route that needs it (the block below).
-    renderTick({ isMapTab: true, onOpenSearch: undefined });
-    expect(screen.getByTestId('window-first-origin-statement')).toHaveAttribute('tabindex', '-1');
-  });
-});
-
-/**
  * The origin slot keeps the reader's focus when its element is swapped.
  *
  * <p>From an accessibility review of #842. On the Map tab a known home replaces the "set a postcode"
@@ -671,7 +577,7 @@ describe('MastheadTickLine — the origin slot keeps focus when its element is s
   });
 
   it('⚠️ nor when a switch to the Map tab swaps the origin button for the statement', () => {
-    // The route that rules the looser test out: the shell's `tabRequest` handoff switches tabs with
+    // The route that rules the looser test out: the shell's old tab handoff switched tabs with
     // focus wherever a closing dialog left it — `<body>` — and moves it to the tab itself a frame
     // later. A statement grabbing it first would be announced for nothing.
     const { rerender } = render(tick({ isMapTab: false }));
@@ -1029,7 +935,7 @@ describe('MastheadTickLine — theme tokens it cites', () => {
   // `--color-badge-tide` and two ink tokens, and leaving the newer block unguarded would put the
   // guard on the surface that has already been checked and not on the one that has not.
   it.each([
-    ['the tick line', '/* ── The tick line (M3) ──', '.wf-tabs {'],
+    ['the tick line', '/* ── The tick line (M3) ──', '/* The NEW badge on the "Further ahead'],
     ['the search panel', '.wf-search-anchored {', '/* ── P8 · the four-day location sheet'],
   ])('cites only tokens the stylesheet declares — %s', (_label, from, to) => {
     const css = read('../index.css');
@@ -1081,160 +987,112 @@ describe('MastheadTickLine — the unset hook (README §6, every width)', () => 
   });
 });
 
-describe('MastheadTickLine — hideAtHome (the phone Map)', () => {
-  // The shell's ⋯ button, as a ref the line can resolve at the moment it needs it.
-  const menuButton = { get current() { return document.getElementById('menu-btn'); } };
+describe('MastheadTickLine — the phone (screen-spec.md P4: the masthead is one line)', () => {
+  it('draws nothing at all once a home is saved: Find is the brand row\'s, the origin is the lens\'s and the menu\'s', () => {
+    const { container } = renderTick({ phone: true });
+    expect(container).toBeEmptyDOMElement();
+  });
 
-  function WithMenuButton({ fallback = menuButton, ...props }) {
+  it('draws nothing while away either (the menu carries the way home)', () => {
+    const { container } = renderTick({ phone: true, origin: { name: 'The Lake District', baseName: 'Keswick' } });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('draws only the unset-postcode nudge when no home is saved: no Find, no separator, no times', () => {
+    renderTick({ phone: true, homePlace: null, light: null });
+    const line = screen.getByTestId('window-first-tickline');
+    expect(line).toHaveClass('wf-tick-phone');
+    expect(screen.getByTestId('masthead-set-postcode')).toHaveAttribute('aria-label', SET_POSTCODE_LONG);
+    expect(screen.queryByTestId('window-first-search')).toBeNull();
+    expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+    expect(line.querySelector('.wf-tick-sep')).toBeNull();
+  });
+
+  it('draws no times on the phone even for a saved home with a light', () => {
+    renderTick({ phone: true, homePlace: null, light: null });
+    expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+  });
+});
+
+describe('MastheadTickLine — phone focus when the saved postcode takes the nudge away', () => {
+  function Host({ homePlace, light, onSetPostcode }) {
     return (
       <>
-        <button type="button" id="menu-btn">⋯</button>
+        <button type="button" data-testid="menu">menu</button>
         <MastheadTickLine
-          light={LIGHT}
+          phone
+          light={light}
           origin={null}
-          homePlace="Durham"
-          onOpenSearch={undefined}
+          homePlace={homePlace}
+          onOpenSearch={vi.fn()}
           onGoHome={vi.fn()}
-          onSetPostcode={vi.fn()}
-          isMapTab
-          hideAtHome
-          fallbackFocus={fallback}
-          {...props}
+          onSetPostcode={onSetPostcode}
+          fallbackFocus={() => screen.getByTestId('menu')}
         />
       </>
     );
   }
 
-  it('renders nothing at Home with no Find handler, decided by its own rule', () => {
-    renderTick({ hideAtHome: true, isMapTab: true, onOpenSearch: undefined });
-    expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+  it('resolves the settings dialog\'s return target to the fallback once the slot is gone', () => {
+    const onSetPostcode = vi.fn();
+    const { rerender } = render(<Host homePlace={null} light={null} onSetPostcode={onSetPostcode} />);
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    const resolve = onSetPostcode.mock.calls[0][0];
+    expect(resolve()).toBe(screen.getByTestId('masthead-set-postcode'));
+    rerender(<Host homePlace="Durham" light={LIGHT} onSetPostcode={onSetPostcode} />);
+    expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
+    expect(resolve()).toBe(screen.getByTestId('menu'));
   });
 
-  it('renders nothing while the place is still unknown with no Find handler — Home is still the origin', () => {
-    renderTick({
-      hideAtHome: true, isMapTab: true, homePlace: undefined, light: LIGHT, onOpenSearch: undefined,
-    });
-    expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+  it('hands focus to the fallback when the nudge that held it leaves, never to <body>', () => {
+    const { rerender } = render(<Host homePlace={null} light={null} onSetPostcode={vi.fn()} />);
+    act(() => screen.getByTestId('masthead-set-postcode').focus());
+    rerender(<Host homePlace="Durham" light={LIGHT} onSetPostcode={vi.fn()} />);
+    expect(document.activeElement).toBe(screen.getByTestId('menu'));
   });
 
-  it('⚠️ at Home with Find on the Map, draws the Find button ALONE — no origin, no hairline', () => {
-    const onOpenSearch = vi.fn();
-    const { container } = renderTick({ hideAtHome: true, isMapTab: true, onOpenSearch });
-    expect(screen.getByTestId('window-first-tickline')).toHaveAttribute('data-compact', 'true');
-    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-    expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
-    expect(container.querySelector('.wf-tick-sep')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Find a place, region or day/ }));
-    expect(onOpenSearch).toHaveBeenCalledTimes(1);
-  });
-
-  it('also draws it while the place is still unknown — Home is still the origin', () => {
-    renderTick({ hideAtHome: true, isMapTab: true, homePlace: undefined, light: LIGHT });
-    expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
-    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
-  });
-
-  it.each([
-    ['away', { origin: LAKES }, 'window-first-origin-chip'],
-    ['unset', { homePlace: null, light: null }, 'masthead-set-postcode'],
-  ])('draws the compact row when %s', (_label, props, testId) => {
-    renderTick({ hideAtHome: true, isMapTab: true, onOpenSearch: undefined, ...props });
-    expect(screen.getByTestId('window-first-tickline')).toHaveAttribute('data-compact', 'true');
-    expect(screen.getByTestId(testId === 'window-first-origin-chip' ? 'window-first-origin-statement' : testId))
-      .toBeInTheDocument();
-  });
-
-  it('puts ⌂ BEFORE the group when away, in DOM order so Tab follows the picture', () => {
-    renderTick({ hideAtHome: true, isMapTab: true, origin: LAKES });
-    const home = screen.getByTestId('window-first-origin-home');
-    const group = document.querySelector('.wf-tick-group');
-    expect(home.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  });
-
-  it('keeps ⌂ AFTER the group everywhere else (desktop and tablet unchanged)', () => {
-    renderTick({ origin: LAKES });
-    const home = screen.getByTestId('window-first-origin-home');
-    const group = document.querySelector('.wf-tick-group');
-    expect(group.compareDocumentPosition(home) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(screen.getByTestId('window-first-tickline')).not.toHaveAttribute('data-compact');
-  });
-
-  it('⚠️ ⌂ (Away to Home) hands focus to the fallback, never <body>', () => {
-    function Away() {
-      const [origin, setOrigin] = useState(LAKES);
-      return <WithMenuButton origin={origin} onGoHome={() => setOrigin(null)} />;
-    }
-    render(<Away />);
-    const home = screen.getByTestId('window-first-origin-home');
-    home.focus();
-
-    fireEvent.click(home);
-
-    expect(screen.queryByTestId('window-first-tickline')).toBeNull();
-    expect(document.activeElement).toBe(document.getElementById('menu-btn'));
-  });
-
-  it('⚠️ a saved postcode (Unset to Home) hands focus to the fallback, never <body>', () => {
-    const { rerender } = render(<WithMenuButton homePlace={null} light={null} />);
-    screen.getByTestId('masthead-set-postcode').focus();
-
-    rerender(<WithMenuButton homePlace="Durham" light={LIGHT} />);
-
-    expect(screen.queryByTestId('window-first-tickline')).toBeNull();
-    expect(document.activeElement).toBe(document.getElementById('menu-btn'));
-  });
-
-  it('does not take focus from a reader who was elsewhere when the row went', () => {
-    const outside = document.createElement('input');
-    document.body.appendChild(outside);
-    const { rerender } = render(<WithMenuButton homePlace={null} light={null} />);
-    outside.focus();
-
-    rerender(<WithMenuButton homePlace="Durham" light={LIGHT} />);
-
-    expect(document.activeElement).toBe(outside);
-    outside.remove();
-  });
-
-  it('answers the nudge\'s resolver with the fallback once the slot is empty', () => {
+  it('resolves to null (not a throw) with no fallback and no slot', () => {
     const onSetPostcode = vi.fn();
     const { rerender } = render(
-      <WithMenuButton homePlace={null} light={null} onSetPostcode={onSetPostcode} />,
+      <MastheadTickLine phone light={null} origin={null} homePlace={null} onGoHome={vi.fn()} onSetPostcode={onSetPostcode} />,
     );
     fireEvent.click(screen.getByTestId('masthead-set-postcode'));
-    const resolver = onSetPostcode.mock.calls[0][0];
-    expect(resolver(), 'while the nudge stands, the nudge')
-      .toBe(screen.getByTestId('masthead-set-postcode'));
-
-    rerender(<WithMenuButton homePlace="Durham" light={LIGHT} onSetPostcode={onSetPostcode} />);
-
-    expect(resolver(), 'once it is gone, ⋯').toBe(document.getElementById('menu-btn'));
-  });
-
-  it('without a fallback the resolver is null once the slot is empty, as before', () => {
-    const onSetPostcode = vi.fn();
-    const props = { onGoHome: vi.fn(), onSetPostcode, isMapTab: true, hideAtHome: true };
-    const { rerender } = render(
-      <MastheadTickLine {...props} light={null} origin={null} homePlace={null} />,
+    rerender(
+      <MastheadTickLine phone light={LIGHT} origin={null} homePlace="Durham" onGoHome={vi.fn()} onSetPostcode={onSetPostcode} />,
     );
-    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
-    const resolver = onSetPostcode.mock.calls[0][0];
-
-    rerender(<MastheadTickLine {...props} light={LIGHT} origin={null} homePlace="Durham" />);
-
-    expect(resolver()).toBeNull();
+    expect(onSetPostcode.mock.calls[0][0]()).toBeNull();
   });
 });
 
-describe('MastheadTickLine — showTimes (the phone moves them into the masthead)', () => {
-  it('draws the times by default and withholds them when told', () => {
-    const { unmount } = renderTick();
-    expect(screen.getByTestId('masthead-light-times')).toBeInTheDocument();
-    unmount();
-    renderTick({ showTimes: false });
-    expect(screen.queryByTestId('masthead-light-times')).toBeNull();
-    expect(screen.getByTestId('window-first-tickline')).toBeInTheDocument();
+describe('MastheadTickLine — the desktop and tablet times are labelled "today"', () => {
+  it('draws a visible today label inside the times, ahead of the clock times', () => {
+    renderTick();
+    const times = screen.getByTestId('masthead-light-times');
+    const today = screen.getByTestId('masthead-light-today');
+    expect(times).toContainElement(today);
+    expect(today).toHaveTextContent('today');
+    expect(today).not.toHaveAttribute('aria-hidden');
+    expect(today.compareDocumentPosition(screen.getAllByTestId('masthead-light-golden')[0]))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+});
+
+describe('MastheadFind — the phone brand row\'s Find button', () => {
+  it('names itself by its visible word, takes the press, and carries the shortcut hint', () => {
+    const onOpen = vi.fn();
+    render(<MastheadFind onOpen={onOpen} />);
+    const button = screen.getByRole('button', { name: 'Find' });
+    expect(button).toHaveAttribute('aria-keyshortcuts', 'Meta+K Control+K');
+    expect(button).not.toHaveAttribute('aria-label');
+    expect(button.querySelector('[aria-hidden="true"]')).toHaveTextContent('⌕');
+    fireEvent.click(button);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the Tab order while the search panel covers it', () => {
+    const { rerender } = render(<MastheadFind onOpen={() => {}} />);
+    expect(screen.getByTestId('window-first-search')).not.toHaveAttribute('tabindex');
+    rerender(<MastheadFind onOpen={() => {}} searchOpen />);
+    expect(screen.getByTestId('window-first-search')).toHaveAttribute('tabindex', '-1');
   });
 });

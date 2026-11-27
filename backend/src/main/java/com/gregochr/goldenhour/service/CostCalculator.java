@@ -57,6 +57,31 @@ public class CostCalculator {
     }
 
     /**
+     * The per-million-token USD rates a model is priced at, a read-only snapshot of what
+     * {@link #calculateCostMicroDollars} uses.
+     *
+     * @param inputUsdPerMtok         standard input
+     * @param outputUsdPerMtok        output
+     * @param cacheWriteUsdPerMtok    cache writes with the 5-minute lifetime
+     * @param cacheWrite1hUsdPerMtok  cache writes with the 1-hour lifetime
+     * @param cacheReadUsdPerMtok     cache reads
+     */
+    public record ModelRates(double inputUsdPerMtok, double outputUsdPerMtok, double cacheWriteUsdPerMtok,
+            double cacheWrite1hUsdPerMtok, double cacheReadUsdPerMtok) {
+    }
+
+    /**
+     * Reads the rates a model is priced at, from the same getters the cost calculation uses.
+     *
+     * @param model the Anthropic model
+     * @return its five per-million-token rates (all zero for a free model)
+     */
+    public ModelRates ratesFor(EvaluationModel model) {
+        return new ModelRates(getInputRate(model), getOutputRate(model), getCacheWriteRate(model),
+                getCacheWrite1hRate(model), getCacheReadRate(model));
+    }
+
+    /**
      * Calculates flat cost for non-Anthropic services in micro-dollars.
      *
      * @param service the external service

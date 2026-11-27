@@ -41,7 +41,7 @@ import { ANY_RATING_ID, LENS_RATING_FLOORS, ratingFloorById } from './ratingLens
  * <h2>What the counts are allowed to be</h2>
  *
  * <p>Plan §3 rule 5 bans counting our own data as a fact about the sky. These counts are not that:
- * "N locations in your regions" is the same statement {@code formatLensReadout} already makes on the
+ * "N locations in your regions" is the same kind of statement the lens count ({@code formatLensCount}) makes on the
  * bar a few pixels above — places you could go — and the nearest drive is a fact about the roads.
  * Neither says anything about how many were <em>scored</em>.
  */

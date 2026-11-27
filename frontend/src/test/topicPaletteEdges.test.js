@@ -10,6 +10,7 @@ const EXPECTED = {
   INVERSION: { colour: TIDE, glyph: '☁️', name: 'Inversion' },
   MIST: { colour: '#8FA3B8', glyph: '🌫️', name: 'Mist' },
   SEA_MIST: { colour: '#D5DCD6', glyph: '🌁', name: 'Sea mist' },
+  FROST_MIST: { colour: '#38bdf8', glyph: '🧊', name: 'Frost and mist' },
   DUST: { colour: '#f97316', glyph: '🏜️', name: 'Dust' },
   SNOW_TOPS: { colour: '#bfdbfe', glyph: '🏔️', name: 'Snow on the tops' },
   SNOW_MIST: { colour: '#cbd5e1', glyph: '❄️', name: 'Snow and mist' },
@@ -33,10 +34,10 @@ describe('topicPalette tables', () => {
     expect(SWATCH_COLOR).toEqual(Object.fromEntries(Object.entries(EXPECTED).map(([k, v]) => [k, v.colour])));
   });
 
-  it('styles each of the nineteen types in full', async () => {
+  it('styles each of the twenty types in full', async () => {
     vi.resetModules();
     const { topicStyle } = await import('../utils/topicPalette.js');
-    expect(Object.keys(EXPECTED)).toHaveLength(19);
+    expect(Object.keys(EXPECTED)).toHaveLength(20);
     for (const [type, style] of Object.entries(EXPECTED)) {
       expect(topicStyle(type, 'ignored label')).toEqual(style);
     }

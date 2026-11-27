@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.config.CiSpendProperties;
 import com.gregochr.goldenhour.config.WarningsProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import com.gregochr.goldenhour.entity.ScheduleType;
@@ -91,11 +92,15 @@ public class DynamicSchedulerService {
     /** Config source value that indicates dependency on photocast.warnings.enabled. */
     static final String WARNINGS_CONFIG_SOURCE = "photocast.warnings.enabled";
 
+    /** Config source value that indicates dependency on photocast.ci-spend.enabled (and a GitHub token). */
+    static final String CI_SPEND_CONFIG_SOURCE = "photocast.ci-spend.enabled";
+
     private final SchedulerJobConfigRepository repository;
     private final SchedulerFireLogRepository fireLogRepository;
     private final TaskScheduler taskScheduler;
     private final AuroraProperties auroraProperties;
     private final WarningsProperties warningsProperties;
+    private final CiSpendProperties ciSpendProperties;
     private final SolarTriggerFactory solarTriggers;
     private final SolarCatchUpPolicy solarCatchUp;
     private final Clock clock;
@@ -128,8 +133,8 @@ public class DynamicSchedulerService {
     }
 
     /**
-     * Constructs the dynamic scheduler service, with the weather-warnings flag it gates
-     * {@code weather_warning_poll} on. This is the constructor Spring uses.
+     * Constructs the dynamic scheduler service with the weather-warnings flag it gates
+     * {@code weather_warning_poll} on, and a default (switched-off) CI-spend configuration.
      *
      * @param repository         the job config repository
      * @param fireLogRepository  the scheduler fire-log repository
@@ -140,7 +145,6 @@ public class DynamicSchedulerService {
      * @param solarCatchUp       decides whether a solar job that missed today's fire runs at startup
      * @param clock              the application clock, used for the displayed next fire of a solar job
      */
-    @Autowired
     public DynamicSchedulerService(SchedulerJobConfigRepository repository,
             SchedulerFireLogRepository fireLogRepository,
             TaskScheduler taskScheduler,
@@ -149,11 +153,40 @@ public class DynamicSchedulerService {
             SolarTriggerFactory solarTriggers,
             SolarCatchUpPolicy solarCatchUp,
             Clock clock) {
+        this(repository, fireLogRepository, taskScheduler, auroraProperties, warningsProperties,
+                new CiSpendProperties(), solarTriggers, solarCatchUp, clock);
+    }
+
+    /**
+     * Constructs the dynamic scheduler service, with the weather-warnings and CI-spend flags it gates
+     * {@code weather_warning_poll} and {@code ci_spend_poll} on. This is the constructor Spring uses.
+     *
+     * @param repository         the job config repository
+     * @param fireLogRepository  the scheduler fire-log repository
+     * @param taskScheduler      the dedicated task scheduler bean
+     * @param auroraProperties   aurora configuration for checking enabled state
+     * @param warningsProperties weather-warnings configuration for checking enabled state
+     * @param ciSpendProperties  CI-spend configuration for checking enabled state
+     * @param solarTriggers      builds the trigger for a {@code SOLAR_OFFSET} job
+     * @param solarCatchUp       decides whether a solar job that missed today's fire runs at startup
+     * @param clock              the application clock, used for the displayed next fire of a solar job
+     */
+    @Autowired
+    public DynamicSchedulerService(SchedulerJobConfigRepository repository,
+            SchedulerFireLogRepository fireLogRepository,
+            TaskScheduler taskScheduler,
+            AuroraProperties auroraProperties,
+            WarningsProperties warningsProperties,
+            CiSpendProperties ciSpendProperties,
+            SolarTriggerFactory solarTriggers,
+            SolarCatchUpPolicy solarCatchUp,
+            Clock clock) {
         this.repository = repository;
         this.fireLogRepository = fireLogRepository;
         this.taskScheduler = taskScheduler;
         this.auroraProperties = auroraProperties;
         this.warningsProperties = warningsProperties;
+        this.ciSpendProperties = ciSpendProperties;
         this.solarTriggers = solarTriggers;
         this.solarCatchUp = solarCatchUp;
         this.clock = clock;
@@ -1192,6 +1225,9 @@ public class DynamicSchedulerService {
         }
         if (WARNINGS_CONFIG_SOURCE.equals(configSource)) {
             return warningsProperties::isActive;
+        }
+        if (CI_SPEND_CONFIG_SOURCE.equals(configSource)) {
+            return ciSpendProperties::isActive;
         }
         return null;
     }

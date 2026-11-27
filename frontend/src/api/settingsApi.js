@@ -168,3 +168,15 @@ export async function markPostcodePromptDismissed() {
   const response = await apiClient.put(`${BASE_URL}/postcode-prompt-dismissed`, undefined, { timeout: 10000 });
   return response.data;
 }
+
+/**
+ * Records that the caller dismissed the one-time "Bookmark places and watch dates" hint (screen-spec.md D8). The
+ * `markPostcodePromptDismissed` shape: its own endpoint, no body, idempotent, open to every role (a Lite reader sees
+ * the hint too). The server stamps the same flag on the reader's first favourite of any kind.
+ *
+ * @returns {Promise<Object>} UserSettingsResponse, with `placesHintDue` now false
+ */
+export async function markPlacesHintDismissed() {
+  const response = await apiClient.put(`${BASE_URL}/places-hint-dismissed`, undefined, { timeout: 10000 });
+  return response.data;
+}

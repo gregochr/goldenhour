@@ -1,12 +1,12 @@
 /**
  * `App.jsx`'s `openMapTabFromPlan` (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 1) — the
- * sending side of the SAME `mapTabHandoff`/`tabRequest` channel `openFullMapTab` already uses,
+ * sending side of the SAME `mapTabHandoff` channel `openFullMapTab` already uses,
  * distinguished downstream by `source: 'plan'`.
  *
  * No door UI ships in this phase (D3/D4 add the real buttons), so — the same problem
  * `WindowFirstShellLocationSheetHandoff.test.jsx` solves for `openLocationSheet`'s reverse-direction
  * cousin — the shell is stubbed to a probe exposing exactly the two props under test
- * (`onOpenMapTab`, `tabRequest`) plus a button standing in for "a door was pressed", and
+ * (`onOpenMapTab`) plus a button standing in for "a door was pressed", and
  * `WindowFirstMapPane` is stubbed too so the payload App actually builds (`mapTabHandoff`, forwarded
  * as `handoff`) can be read straight off it rather than mounting the real Leaflet-backed pane.
  */
@@ -189,22 +189,21 @@ describe('App — openMapTabFromPlan (doors D2)', () => {
     expect(typeof handoff.nonce).toBe('number');
   });
 
-  it('requests the Map tab with its OWN nonce, distinct from the handoff\'s — proven by a genuine '
-      + 'inequality, not just "both are numbers" (a regression collapsing tabRequestNonce and '
-      + 'handoffNonce onto one shared ref would still pass a same-type check)', async () => {
+  it('raises no tab request: the shell shows the map view itself (openMap), App only hands the map its landing', async () => {
     renderApp();
     await screen.findByTestId('stub-map-pane');
+    const before = ShellStub.lastProps.operationsOpen ?? false;
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('trigger-door'));
     });
 
-    expect(ShellStub.lastProps.tabRequest.id).toBe('map');
-    expect(typeof ShellStub.lastProps.tabRequest.nonce).toBe('number');
-    expect(ShellStub.lastProps.tabRequest.nonce).not.toBe(MapPaneStub.lastProps.handoff.nonce);
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(before);
+    expect(MapPaneStub.lastProps.handoff.source).toBe('plan');
+    expect(typeof MapPaneStub.lastProps.handoff.nonce).toBe('number');
   });
 
-  it('an inPlace door carries NO source, NO lens and NO tabRequest — the reader is already there', async () => {
+  it('an inPlace door carries NO source, NO lens and NO Operations request — the reader is already there', async () => {
     // ⚠️ The four-day sheet can now be open OVER the Map tab (the callout's `Four days here ›`
     // peek), and its footer's `Show on map → <window>` presses this same entry from there. A door
     // payload would be destructive rather than redundant: `MapView`'s landing effect writes
@@ -238,16 +237,16 @@ describe('App — openMapTabFromPlan (doors D2)', () => {
     expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
   });
 
-  it('an inPlace door raises no tabRequest — a tab move would only steal focus to the tab in force', async () => {
+  it('an inPlace door raises no Operations request — nothing here moves off the screen', async () => {
     renderApp();
     await screen.findByTestId('stub-map-pane');
-    const before = ShellStub.lastProps.tabRequest;
+    const before = ShellStub.lastProps.operationsOpen ?? false;
 
     await act(async () => {
       ShellStub.lastProps.onOpenMapTab({ ...DOOR, inPlace: true });
     });
 
-    expect(ShellStub.lastProps.tabRequest).toBe(before);
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(before);
   });
 
   it('a null field on the door (no region/rating/reach/location) lands as null, never undefined, '
@@ -278,9 +277,14 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
 
   it('a plain door\'s payload carries NONE of the new fields - absent, not null', async () => {
     const handoff = await press(DOOR);
-    for (const key of ['night', 'focusNames', 'focusPoints', 'filterAction', 'darkSky', 'title', 'caption']) {
+    for (const key of ['night', 'focusNames', 'focusPoints', 'filterAction', 'darkSky', 'frame']) {
       expect(handoff).not.toHaveProperty(key);
     }
+  });
+
+  it('a window door\'s frame rides the handoff for the map\'s camera', async () => {
+    const handoff = await press({ ...DOOR, frame: 'home-and-place' });
+    expect(handoff).toMatchObject({ source: 'plan', frame: 'home-and-place' });
   });
 
   it('a door that already names its fields passes them through to the handoff', async () => {
@@ -290,8 +294,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       focusPoints: [[55.608, -1.719]],
       filterAction: 'SEASCAPE',
       darkSky: true,
-      title: 'Coastal',
-      caption: 'Tomorrow sunset',
     });
     expect(handoff).toMatchObject({
       source: 'plan',
@@ -299,8 +301,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       focusPoints: [[55.608, -1.719]],
       filterAction: 'SEASCAPE',
       darkSky: true,
-      title: 'Coastal',
-      caption: 'Tomorrow sunset',
     });
   });
 
@@ -312,7 +312,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       source: 'plan', eventType: 'SUNSET', date: TOMORROW, locationName: 'Bamburgh', region: null,
     });
     expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
-    expect(handoff.title).toBe('Bamburgh');
   });
 
   it('a trigger carrying the Plan lens lands in the handoff with it, not as nulls', async () => {
@@ -332,13 +331,12 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
 
   it('a kind:\'coming-up\' trigger carries the exact spot set, the subject filter and its headline', async () => {
     const handoff = await press({
-      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: TOMORROW,
+      kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: TOMORROW,
     });
     expect(handoff.source).toBe('plan');
     expect(handoff.focusNames).toEqual(['Bamburgh']);
     expect(handoff.focusPoints).toHaveLength(1);
     expect(handoff.filterAction).toBe('SEASCAPE');
-    expect(handoff.title).toBe('Spring tide run');
     // A coming-up card names no solar event: the handoff carries none rather than inventing one.
     expect(handoff.eventType).toBeNull();
     expect(handoff).not.toHaveProperty('darkSky');
@@ -354,10 +352,9 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
     // spots lands on its TOP spot's callout, the crumb headline naming the region.
     expect(handoff).toMatchObject({
       source: 'plan', locationName: 'Bamburgh', eventType: 'SUNSET', date: TOMORROW,
-      minRating: 3, limitMinutes: 45, title: 'Northumberland',
+      minRating: 3, limitMinutes: 45,
     });
     expect(handoff).not.toHaveProperty('night');
-    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'map' });
   });
 
   it('a region trigger whose top spot is a marked neighbour outlier lands on the region with NO spot', async () => {
@@ -393,10 +390,10 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
 
   it('C4: a dark-sky coming-up trigger carries the dark-sky lens and the card\'s headline, no subject filter', async () => {
     const handoff = await press({
-      kind: 'coming-up', darkSky: true, filterAction: null, label: 'Meteor shower', date: TOMORROW,
+      kind: 'further-ahead', darkSky: true, filterAction: null, label: 'Meteor shower', date: TOMORROW,
       minRating: null, limitMinutes: null, inPlace: false,
     });
-    expect(handoff).toMatchObject({ source: 'plan', darkSky: true, title: 'Meteor shower' });
+    expect(handoff).toMatchObject({ source: 'plan', darkSky: true });
     expect(handoff).not.toHaveProperty('filterAction');
   });
 
@@ -407,7 +404,6 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
       eventType: 'AURORA',
       date: TOMORROW,
       night: { kind: 'aurora', date: TOMORROW },
-      title: 'Aurora tonight',
     });
     expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
   });
@@ -437,9 +433,9 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
     expect(MapPaneStub.lastProps.selectedDate).not.toBe(YESTERDAY);
   });
 
-  it('a trigger still asks for the Map tab, with its own nonce', async () => {
+  it('a trigger raises no tab request either', async () => {
     await press({ kind: 'aurora', date: TOMORROW });
-    expect(ShellStub.lastProps.tabRequest.id).toBe('map');
+    expect(ShellStub.lastProps.operationsOpen ?? false).toBe(false);
   });
 });
 
@@ -452,7 +448,7 @@ describe('App — a door never gives the Plan tab a date (plan 4 #7)', () => {
     'a plain door': DOOR,
     'a location trigger': { kind: 'location', locationName: 'Bamburgh', date: TOMORROW, eventType: 'SUNSET' },
     'a coming-up trigger': {
-      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Coastal', date: TOMORROW,
+      kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: false, label: 'Coastal', date: TOMORROW,
     },
     'an aurora trigger': { kind: 'aurora', date: TOMORROW },
     'a region trigger': { kind: 'region', region: 'Northumberland', date: TOMORROW, eventType: 'SUNSET' },
@@ -460,7 +456,7 @@ describe('App — a door never gives the Plan tab a date (plan 4 #7)', () => {
   };
 
   for (const [name, arg] of Object.entries(KINDS)) {
-    it(`${name}: the shell is given no selected date before or after, and ← Plan asks for the tab alone`, async () => {
+    it(`${name}: the shell is given no selected date before or after, and the pane is handed no return`, async () => {
       renderApp();
       await screen.findByTestId('stub-map-pane');
       const planKeys = () => Object.keys(ShellStub.lastProps).filter((k) => /date/i.test(k));
@@ -473,37 +469,10 @@ describe('App — a door never gives the Plan tab a date (plan 4 #7)', () => {
       // ...and the Plan side learned of no date.
       expect(planKeys()).toEqual(before);
 
-      await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
-      expect(Object.keys(ShellStub.lastProps.tabRequest).sort()).toEqual(['id', 'nonce']);
-      expect(ShellStub.lastProps.tabRequest.id).toBe('plan');
+      // The landing strip's `← Plan` return is gone with the tab: the pane is handed no way back.
+      expect(MapPaneStub.lastProps).not.toHaveProperty('onReturnToPlan');
     });
   }
-});
-
-describe('App — returnToPlan (the breadcrumb\'s ← Plan, doors D2)', () => {
-  it('requests the plan tab, with no window key carried (plan §6 Q2, decided)', async () => {
-    renderApp();
-    await screen.findByTestId('stub-map-pane');
-
-    await act(async () => {
-      MapPaneStub.lastProps.onReturnToPlan();
-    });
-
-    expect(ShellStub.lastProps.tabRequest.id).toBe('plan');
-    expect(typeof ShellStub.lastProps.tabRequest.nonce).toBe('number');
-  });
-
-  it('is a nonce that moves on every call, so a repeat press still lands', async () => {
-    renderApp();
-    await screen.findByTestId('stub-map-pane');
-
-    await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
-    const first = ShellStub.lastProps.tabRequest.nonce;
-    await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
-    const second = ShellStub.lastProps.tabRequest.nonce;
-
-    expect(second).not.toBe(first);
-  });
 });
 
 describe('App — the forecast dates handed to the shell (plan §11.24)', () => {

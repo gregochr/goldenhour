@@ -1,5 +1,7 @@
 # Coming up — keep near-term entries in the chronology
 
+> **Tab parts superseded (one-screen-plan.md O2 and O3, 2026-11-24).** Coming up is **Further ahead**, a section of the one screen, not a tab. See `docs/engineering/one-screen-plan.md`.
+
 **Status:** planned 2026-10-27. One PR.
 **Amends:** `coming-up-plan.md` D1's eligibility rule and §11.10.
 

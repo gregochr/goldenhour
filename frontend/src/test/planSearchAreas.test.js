@@ -187,7 +187,7 @@ describe('an area row', () => {
   });
 
   it('is worded "Show" on the Map', () => {
-    expect(rows('hadrian', { tab: 'map' })[0].action).toBe('Show');
+    expect(rows('hadrian', { context: 'map' })[0].action).toBe('Show');
   });
 
   it('absent directory is no rows and no error', () => {

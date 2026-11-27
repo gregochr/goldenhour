@@ -60,7 +60,7 @@ class RunProgressTrackerSseEdgeTest {
             }
             StringBuilder text = new StringBuilder();
             builder.build().forEach(part -> text.append(part.getData()));
-            names.add(text.toString().replace("event:", "").split("\n")[0]);
+            names.add(text.toString().replaceFirst("event: ?", "").split("\n")[0]);
             super.send(builder);
         }
 

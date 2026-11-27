@@ -6,7 +6,7 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
 /**
  * The shell's wiring of the Plan tab's "show this on the map" producers (overlay convergence C4,
- * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the Coming up cards and day chips.
+ * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the Further ahead cards and day chips.
  * Each used to be handed `App`'s overlay trigger (`onShowOnMap`); the shell now builds ONE function,
  * over its `openMapTab`, and hands that to every producer - so each sends the normalised trigger and
  * carries the Plan's live lens.
@@ -17,14 +17,14 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  * can be wrong about is the join between them.
  */
 
-vi.mock('../components/WindowFirstComingUp.jsx', () => ({
+vi.mock('../components/FurtherAhead.jsx', () => ({
   default: ({ onShowOnMap }) => (
     <div data-testid="stub-coming-up">
       <button
         type="button"
         data-testid="coming-up-coastal"
         onClick={() => onShowOnMap({
-          kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: '2026-08-10',
+          kind: 'further-ahead', filterAction: 'SEASCAPE', label: 'Spring tide run', date: '2026-08-10',
         })}
       >
         coastal
@@ -33,7 +33,7 @@ vi.mock('../components/WindowFirstComingUp.jsx', () => ({
         type="button"
         data-testid="coming-up-dark-sky"
         onClick={() => onShowOnMap({
-          kind: 'coming-up', darkSky: true, label: 'Meteor shower', date: '2026-08-11',
+          kind: 'further-ahead', darkSky: true, label: 'Meteor shower', date: '2026-08-11',
         })}
       >
         dark sky
@@ -118,8 +118,8 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
     await act(async () => { fireEvent.click(screen.getByTestId('coming-up-coastal')); });
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith({
-      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
-      date: '2026-08-10', inPlace: false, from: 'plan', minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
+      kind: 'further-ahead', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run',
+      date: '2026-08-10', inPlace: false, minRating: 4, limitMinutes: 60, outlierKeys: expect.any(Set),
     });
   });
 
@@ -129,7 +129,7 @@ describe('WindowFirstShell — the Plan tab\'s map producers share one structure
     await act(async () => { fireEvent.click(screen.getByTestId('coming-up-dark-sky')); });
 
     expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      kind: 'coming-up', darkSky: true, filterAction: null, date: '2026-08-11',
+      kind: 'further-ahead', darkSky: true, filterAction: null, date: '2026-08-11',
       minRating: 4, limitMinutes: 60,
     }));
   });

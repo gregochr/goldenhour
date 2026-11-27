@@ -1,9 +1,10 @@
+import { openMapView, pressMenuRow, registerMapDoor } from './shellMapDoor.js';
 import React, { useCallback, useRef, useState } from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  cleanup, fireEvent, render, screen, waitFor,
+  act, cleanup, fireEvent, render, screen, waitFor,
 } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import { AskProvider } from '../context/AskContext.jsx';
@@ -52,13 +53,13 @@ function Rig({ shellProps }) {
   const closeShellDialogs = useCallback(() => closer.current?.(), []);
   return (
     <AskProvider>
-      <GuideProvider closeShellDialogs={closeShellDialogs} activeTab={tab}>
-        <WindowFirstShell
+      <GuideProvider closeShellDialogs={closeShellDialogs} activeScreen={tab}>
+        <WindowFirstShell registerOpenMap={registerMapDoor}
           onOpenSettings={vi.fn()}
           onSignOut={vi.fn()}
           onShowOnMap={vi.fn()}
           locations={[]}
-          onTabChange={setTab}
+          onScreenChange={setTab}
           registerCloseDialogs={register}
           {...shellProps}
         />
@@ -75,9 +76,13 @@ function mount({ width = 1280, ctx = {}, props = {} } = {}) {
   return { ...view, viewport, rerenderShell: (next) => view.rerender(<Rig shellProps={{ ...props, ...next }} />) };
 }
 
-// jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
-const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
-const door = () => screen.queryByTestId('window-first-guide');
+const menuButton = () => screen.getByTestId('masthead-menu-button');
+/** The guide's one door: the ☰ menu's Guide row (the masthead's old `?` is gone). */
+const openGuide = () => pressMenuRow('masthead-menu-guide');
+const guideRow = () => {
+  if (!screen.queryByTestId('masthead-menu')) fireEvent.click(menuButton());
+  return screen.queryByTestId('masthead-menu-guide');
+};
 const guideDock = () => screen.queryByTestId('guide-dock');
 const askDock = () => screen.queryByTestId('ask-dock');
 const frameSrc = () => screen.getByTestId('guide-frame').getAttribute('src');
@@ -108,87 +113,78 @@ afterEach(() => {
   resetViewport();
 });
 
-describe('the masthead door on desktop and tablet', () => {
-  it.each([
-    ['At a Glance', 'at-a-glance'],
-    ['Coming up', 'coming-up'],
-    ['Map', 'map'],
-  ])('on %s it opens that tab\'s page in the docked column', async (name, guidePage) => {
+describe('the guide\'s door on desktop and tablet is the ☰ menu\'s Guide row', () => {
+  it('on This week it opens that screen\'s page in the docked column', async () => {
     mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
-    fireEvent.click(tab(name));
-    expect(door()).toHaveAccessibleName('Guide for this tab');
-    fireEvent.click(door());
-    expect(frameSrc()).toBe(page(guidePage));
+    expect(guideRow()).toHaveTextContent('Guide');
+    openGuide();
+    expect(frameSrc()).toBe(page('planning'));
     expect(guideDock()).toHaveAttribute('data-guide-surface');
     expect(guideDock().tagName).toBe('ASIDE');
     expect(modalCount()).toBe(0);
   });
 
-  it('sits between the cog and Sign out, styled as the cog', async () => {
-    mount();
+  it('follows the reader onto the map view: opened on the screen, it loads the map page when the view opens', async () => {
+    mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
-    const cog = screen.getByTestId('window-first-settings');
-    const signOut = screen.getByTestId('window-first-signout');
-    expect(cog.nextElementSibling).toBe(door());
-    expect(door().nextElementSibling).toBe(signOut);
-    expect(door().className).toBe(cog.className);
+    openGuide();
+    expect(frameSrc()).toBe(page('planning'));
+    openMapView();
+    await waitFor(() => expect(frameSrc()).toBe(page('map')));
   });
 
-  it('is a toggle: aria-expanded follows it, aria-controls names the docked column, a second press closes', async () => {
+  it('is a toggle: a second press of the Guide row closes the docked column', async () => {
     mount();
     await screen.findByTestId('ask-field');
-    expect(door()).toHaveAttribute('aria-expanded', 'false');
-    expect(door()).not.toHaveAttribute('aria-controls');
-    fireEvent.click(door());
-    expect(door()).toHaveAttribute('aria-expanded', 'true');
-    expect(door()).toHaveAttribute('aria-controls', guideDock().id);
-    fireEvent.click(door());
+    openGuide();
+    expect(guideDock()).not.toBeNull();
+    openGuide();
     expect(guideDock()).toBeNull();
-    expect(door()).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('is absent on Operations, and entering it closes the docked guide', async () => {
-    mount({ props: { operationsPane: OPERATIONS_PANE } });
+    const { rerenderShell } = mount({ props: { operationsPane: OPERATIONS_PANE } });
     await screen.findByTestId('ask-field');
-    fireEvent.click(door());
+    openGuide();
     expect(guideDock()).not.toBeNull();
-    fireEvent.click(tab('Operations'));
-    expect(door()).toBeNull();
+    rerenderShell({ operationsOpen: true });
     expect(guideDock()).toBeNull();
+    // The menu holds no Guide row while Operations is up (it has no guide page).
+    expect(guideRow()).toBeNull();
   });
 
   it('turns the shell root into the docked row, as the Ask dock does', async () => {
     mount();
     await screen.findByTestId('ask-field');
     expect(screen.getByTestId('window-first-shell')).not.toHaveClass('wf-shell--docked');
-    fireEvent.click(door());
+    openGuide();
     expect(screen.getByTestId('window-first-shell')).toHaveClass('wf-shell--docked');
     expect(guideDock().parentElement).toBe(screen.getByTestId('window-first-shell'));
     expect(guideDock()).toHaveAttribute('data-band', 'wide');
-    fireEvent.click(door());
+    openGuide();
     expect(screen.getByTestId('window-first-shell')).not.toHaveClass('wf-shell--docked');
   });
 
-  it('follows the reader across tabs when it is showing the old tab\'s page', async () => {
+  it('follows the reader onto the map view when it is showing the screen\'s page', async () => {
     mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
-    fireEvent.click(door());
-    expect(frameSrc()).toBe(page('at-a-glance'));
-    fireEvent.click(tab('Coming up'));
-    await waitFor(() => expect(frameSrc()).toBe(page('coming-up')));
-    fireEvent.click(tab('Map'));
+    openGuide();
+    expect(frameSrc()).toBe(page('planning'));
+    // Coming up is a door onto Further ahead, the bottom of the same screen (O2): the page does not move.
+    fireEvent.click(screen.getByTestId('further-ahead-jump'));
+    await act(async () => { await Promise.resolve(); });
+    expect(frameSrc()).toBe(page('planning'));
+    openMapView();
     await waitFor(() => expect(frameSrc()).toBe(page('map')));
   });
 
   it('at tablet width opens the sheet, not the column, and names no controlled element', async () => {
     mount({ width: 800 });
     await screen.findByTestId('ask-field');
-    fireEvent.click(door());
+    openGuide();
     expect(guideDock()).toBeNull();
     expect(screen.getByRole('dialog', { name: 'PhotoCast guide' })).toBe(screen.getByTestId('bottom-sheet'));
-    expect(door()).toHaveAttribute('aria-expanded', 'true');
-    expect(door()).not.toHaveAttribute('aria-controls');
   });
 });
 
@@ -196,27 +192,30 @@ describe('review round 1', () => {
   it('a docked guide following the reader to another tab reloads the frame WITHOUT taking focus (arrow keys keep working)', async () => {
     mount({ props: { mapPane: MAP_PANE } });
     await screen.findByTestId('ask-field');
-    fireEvent.click(door());
+    openGuide();
     expect(screen.getByTestId('guide-close')).toHaveFocus();
-    const plan = tab('At a Glance');
+    const plan = screen.getByTestId('this-week-heading');
     plan.focus();
     fireEvent.keyDown(plan, { key: 'ArrowRight' });
-    await waitFor(() => expect(frameSrc()).toBe(page('coming-up')));
-    expect(tab('Coming up')).toHaveFocus();
+    // Arrows skip the Coming up door: the guide stays on the screen's page and focus stays on the tab.
+    await act(async () => { await Promise.resolve(); });
+    expect(plan).toHaveFocus();
+    expect(frameSrc()).toBe(page('planning'));
     expect(screen.getByTestId('guide-close')).not.toHaveFocus();
-    fireEvent.keyDown(tab('Coming up'), { key: 'ArrowRight' });
+    // The Map is a view now: opening it moves the docked guide to the map page, and focus is the view's title.
+    openMapView();
     await waitFor(() => expect(frameSrc()).toBe(page('map')));
-    expect(tab('Map')).toHaveFocus();
+    expect(screen.getByTestId('map-screen-title')).toHaveFocus();
   });
 
-  it('a click that left focus on <body> (Safari) still returns focus to the masthead ? on close', async () => {
+  it('a click that left focus on <body> (Safari) still returns focus to the ☰ button on close', async () => {
     mount();
     await screen.findByTestId('ask-field');
     document.activeElement?.blur();
-    fireEvent.click(door());
+    openGuide();
     expect(guideDock()).not.toBeNull();
     fireEvent.click(screen.getByTestId('guide-close'));
-    expect(door()).toHaveFocus();
+    expect(menuButton()).toHaveFocus();
   });
 
   it('the phone menu\'s Guide row returns focus to the ⋯ trigger', async () => {
@@ -232,28 +231,27 @@ describe('review round 1', () => {
 });
 
 describe('the phone', () => {
-  it('has no masthead `?`; the ⋯ menu carries a Guide row that closes the menu and opens the sheet', async () => {
+  it('the ☰ menu carries a Guide row that closes the menu and opens the sheet', async () => {
     mount({ width: 390 });
     await screen.findByTestId('ask-bar');
-    expect(door()).toBeNull();
     fireEvent.click(screen.getByTestId('masthead-menu-button'));
     fireEvent.click(screen.getByTestId('masthead-menu-guide'));
     expect(screen.queryByTestId('masthead-menu')).toBeNull();
     expect(screen.getByRole('dialog', { name: 'PhotoCast guide' })).toBe(screen.getByTestId('bottom-sheet'));
-    expect(frameSrc()).toBe(page('at-a-glance'));
+    expect(frameSrc()).toBe(page('planning'));
   });
 
-  it('the Guide row follows the tab, and is absent on Operations', async () => {
-    mount({ width: 390, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
+  it('the Guide row follows the screen, and is absent on Operations', async () => {
+    const { rerenderShell } = mount({ width: 390, props: { mapPane: MAP_PANE, operationsPane: OPERATIONS_PANE } });
     await screen.findByTestId('ask-bar');
-    fireEvent.click(tab('Map'));
+    openMapView();
     fireEvent.click(screen.getByTestId('masthead-menu-button'));
     fireEvent.click(screen.getByTestId('masthead-menu-guide'));
     expect(frameSrc()).toBe(page('map'));
     fireEvent.click(screen.getByTestId('bottom-sheet-close'));
-    fireEvent.click(tab('Operations'));
-    fireEvent.click(screen.getByTestId('masthead-menu-button'));
-    expect(screen.queryByTestId('masthead-menu-guide')).toBeNull();
+    fireEvent.click(screen.getByTestId('map-screen-close'));
+    rerenderShell({ operationsOpen: true });
+    expect(guideRow()).toBeNull();
   });
 
   it('leaves the existing rows in order, with Guide before Sign out', async () => {
@@ -270,7 +268,7 @@ describe('the docked guide and the Ask dock share one slot', () => {
   it('opening the guide hides an open dock, and closing the guide brings it back', async () => {
     mount();
     await openAskDock();
-    fireEvent.click(door());
+    openGuide();
     expect(askDock()).toBeNull();
     expect(guideDock()).not.toBeNull();
     fireEvent.click(screen.getByTestId('guide-close'));
@@ -281,18 +279,18 @@ describe('the docked guide and the Ask dock share one slot', () => {
   it('restores the dock WITHOUT stealing focus from the door that opened the guide', async () => {
     mount();
     await openAskDock();
-    door().focus();
-    fireEvent.click(door());
+    menuButton().focus();
+    openGuide();
     fireEvent.click(screen.getByTestId('guide-close'));
     expect(askDock()).not.toBeNull();
-    expect(door()).toHaveFocus();
+    expect(menuButton()).toHaveFocus();
     expect(screen.getByTestId('ask-input')).not.toHaveFocus();
   });
 
   it('a dock that was not open stays closed when the guide closes', async () => {
     mount();
     await screen.findByTestId('ask-field');
-    fireEvent.click(door());
+    openGuide();
     fireEvent.click(screen.getByTestId('guide-close'));
     expect(askDock()).toBeNull();
   });
@@ -300,7 +298,7 @@ describe('the docked guide and the Ask dock share one slot', () => {
   it('opening the dock closes the guide, and focus goes to the dock\'s field', async () => {
     mount();
     await screen.findByTestId('ask-field');
-    fireEvent.click(door());
+    openGuide();
     expect(guideDock()).not.toBeNull();
     fireEvent.click(screen.getByTestId('ask-field'));
     expect(guideDock()).toBeNull();
@@ -323,8 +321,8 @@ describe('the docked guide and the Ask dock share one slot', () => {
   it('a dock reopened later by the reader focuses its field as ever (the quiet restore is one-shot)', async () => {
     mount();
     await openAskDock();
-    door().focus();
-    fireEvent.click(door());
+    menuButton().focus();
+    openGuide();
     fireEvent.click(screen.getByTestId('guide-close'));
     fireEvent.click(screen.getByTestId('ask-dock-close'));
     expect(askDock()).toBeNull();
@@ -336,7 +334,7 @@ describe('the docked guide and the Ask dock share one slot', () => {
   it('the guide is inert, never the page, under a shell dialog', async () => {
     const { rerenderShell } = mount();
     await screen.findByTestId('ask-field');
-    fireEvent.click(door());
+    openGuide();
     expect(guideDock()).not.toHaveAttribute('inert');
     rerenderShell({ settingsOpen: true });
     expect(guideDock()).toHaveAttribute('inert');
@@ -358,7 +356,7 @@ describe('stacked over the shell\'s own dialogs', () => {
   it('over the four-day location sheet it is a dialog, and the sheet is told it is stacked: inert, no aria-modal', async () => {
     const sheet = await mountWithSheet();
     expect(sheet).toHaveAttribute('aria-modal', 'true');
-    fireEvent.click(door());
+    openGuide();
     expect(screen.getByTestId('guide-dialog')).toHaveAttribute('aria-modal', 'true');
     expect(sheet).not.toHaveAttribute('aria-modal');
     expect(sheet).toHaveAttribute('inert');
@@ -368,7 +366,7 @@ describe('stacked over the shell\'s own dialogs', () => {
 
   it('Escape closes only the guide; the sheet answers the next one', async () => {
     await mountWithSheet();
-    fireEvent.click(door());
+    openGuide();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByTestId('guide-dialog')).toBeNull();
     expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
@@ -383,7 +381,7 @@ describe('stacked over the shell\'s own dialogs', () => {
     await screen.findByTestId('wf-heat-strip');
     fireEvent.click(screen.getByTestId('window-first-search'));
     const search = await screen.findByTestId('plan-search', {}, SLOW);
-    fireEvent.click(door());
+    openGuide();
     expect(screen.getByTestId('guide-dialog')).toBeInTheDocument();
     expect(search).toHaveAttribute('inert');
     expect(search).not.toHaveAttribute('aria-modal');

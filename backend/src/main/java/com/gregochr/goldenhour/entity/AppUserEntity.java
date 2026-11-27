@@ -227,6 +227,21 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "postcode_prompt_dismissed_at", updatable = false)
     private Instant postcodePromptDismissedAt;
 
+    /**
+     * When this user dismissed the one-time "Bookmark places and watch dates" hint, or made their first
+     * favourite of any kind (a place, an area or a date), whichever came first; {@code null} when neither
+     * has happened (V230, screen-spec D8).
+     *
+     * <p>The hint is due while this is null, which {@code UserSettingsService} serves as
+     * {@code placesHintDue}. Once set it is never cleared, so removing every favourite does not bring
+     * the hint back.
+     *
+     * <p>Not updatable through the entity - see the class Javadoc. Written by
+     * {@code AppUserRepository.updatePlacesHintDismissedAtByUsernameIfNull}.
+     */
+    @Column(name = "places_hint_dismissed_at", updatable = false)
+    private Instant placesHintDismissedAt;
+
     /** When the user accepted the Terms &amp; Conditions. */
     @Column(name = "terms_accepted_at")
     private Instant termsAcceptedAt;

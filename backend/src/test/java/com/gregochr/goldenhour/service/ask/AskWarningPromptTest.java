@@ -33,13 +33,17 @@ class AskWarningPromptTest {
      * reproduce exactly), for 2026-10-05, every region, no window or night, keyed by hasUser then hasThread. Pinned,
      * not derived from the code under test, so a change to the false path fails here. The two typed (hasUser) entries
      * were re-pinned for find-and-favourites F4b (two sentences in {@code WITH_USER}) and again when the
-     * colour score was renamed from Fiery Sky to Red Sky.
+     * colour score was renamed from Fiery Sky to Red Sky. All four were re-pinned for the Ask regression triage
+     * (B1 adds a clause to {@code RULES}; B3 and B5 reword {@code WITH_USER}; B4 adds a sentence for the typed prompt).
+     * They were re-pinned once more for the B1 "marginal" ban and the move of the B5 areaName sentence.
+     * All four were re-pinned again for the Part C prompt nudges (B7 adds two sentences to the typed prompt's
+     * look_up_place rules; B8 adds the stay-home first-sentence rule to {@code RULES}).
      */
     private static final Map<String, String> PRE_W6 = Map.of(
-            "true,true", "13406:88ddfe5c9c6e268e492222d664df34476310ef297797af5c3d9189b11a057cc0",
-            "true,false", "12135:5c81378142c72faf945036688eff1c577267c5866b6a68d585a7afb48fe71f53",
-            "false,true", "7337:0b85c1a6d491d428d368d7a0f6ed1721701c36fd58385b9ff110177b83e85e2a",
-            "false,false", "6066:f3450faa9057041e05b61f91c42a91e32c250b289647dcad37d28f5aa3a8d608");
+            "true,true", "14281:7e6471978865397a8e348e5cedc0636e22b68e138399d6117aae4ecb351290ef",
+            "true,false", "13010:9cf75c10b271d1552a32ca8f4b0a9120bbbc178575a30ea2b0800aa9eadd1030",
+            "false,true", "7601:93ba7ad56681193437f55da605881994c0a565c91c764ab094b8a1345e09be78",
+            "false,false", "6330:e4d96f0380cb693891cb641a778efd532df8ba8ab4a47cad73e3ecf1a0128180");
 
     private static String fingerprint(String text) throws Exception {
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));

@@ -97,7 +97,7 @@ describe('buildWindowCards — the reach-scoped headline', () => {
     expect(card.topMeanRating).toBe(2.0);
     // STAND_DOWN carries no haze: the served tier is not borrowed.
     expect(card.confidence).toBeNull();
-    expect(card.verdictBlanked).toBe(false);
+    expect(card.blankedReason).toBeNull();
     expect(card.pick).toBeNull();
     expect(card.verdictScope).toEqual({ tierMinutes: 45 });
   });
@@ -172,9 +172,48 @@ describe('buildWindowCards — the reach-scoped headline', () => {
     expect(cardWith({ limitMinutes: 90, reachVerdicts: TIERS }, { picksLocked: true }).pick).toBeNull();
   });
 
+  it.each([
+    [{ coverageReason: 'NOT_ATTEMPTED' }, 'NOT_ATTEMPTED'],
+    [{ coverageReason: 'FAILED' }, 'FAILED'],
+    [{ coverageReason: 'STOOD_DOWN', fog: true }, 'FOG'],
+    [{ coverageReason: 'STOOD_DOWN' }, 'STOOD_DOWN'],
+    [{ coverageReason: 'UNKNOWN' }, null],
+    [{ coverageReason: 'AWAY' }, null],
+  ])('a tier window emptied with %j says %s, read from the tier window and not the served one', (fields, expected) => {
+    const emptied = { displayVerdict: 'AWAITING', meanRating: null, topMeanRating: null, topRegionName: null, ...fields };
+    const card = cardWith({ reachVerdicts: { 45: [entry(emptied)] } });
+    expect(card.blankedReason).toBe(expected);
+  });
+
+  it('a tier window with no reason falls back to the legacy blanked flag, and says nothing otherwise', () => {
+    expect(cardWith({ reachVerdicts: { 45: [entry({ blanked: true })] } }).blankedReason).toBe('STOOD_DOWN');
+    expect(cardWith({ reachVerdicts: { 45: [entry({ displayVerdict: 'AWAITING' })] } }).blankedReason).toBeNull();
+  });
+
+  it('the tier window wins over a served reason, and the served one speaks again when no tier is worn', () => {
+    const served = days();
+    served[0].eventSummaries[0].window = { verdict: 'AWAITING', badges: [], coverageReason: 'FAILED' };
+    const withServed = (lens) => buildWindowCards(EV, served, TODAY, TOMORROW, new Set(), REACH, {
+      limitMinutes: 45, defaultLimitMinutes: 45, reachMeasured: true, ...lens,
+    }, false)[0];
+    expect(withServed({ reachVerdicts: { 45: [entry({ coverageReason: 'NOT_ATTEMPTED' })] } }).blankedReason)
+      .toBe('NOT_ATTEMPTED');
+    expect(withServed({ reachVerdicts: null }).blankedReason).toBe('FAILED');
+  });
+
+  it('a tier window with no reason and blanked:false never borrows the served window\'s reason', () => {
+    const served = days();
+    served[0].eventSummaries[0].window = { verdict: 'AWAITING', badges: [], coverageReason: 'FAILED' };
+    const card = buildWindowCards(EV, served, TODAY, TOMORROW, new Set(), REACH, {
+      limitMinutes: 45, defaultLimitMinutes: 45, reachMeasured: true,
+      reachVerdicts: { 45: [entry({ blanked: false })] },
+    }, false)[0];
+    expect(card.blankedReason).toBeNull();
+  });
+
   it('prints a blanked qualifier the server reports, and a thin count only from the server', () => {
     const blanked = cardWith({ reachVerdicts: { 45: [entry({ blanked: true, meanRating: null })] } });
-    expect(blanked.verdictBlanked).toBe(true);
+    expect(blanked.blankedReason).toBe('STOOD_DOWN');
     expect(blanked.verdictMean).toBeNull();
     expect(blanked.scopedThinCount).toBeNull();
   });

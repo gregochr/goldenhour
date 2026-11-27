@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.BriefingWindowTide;
 import com.gregochr.goldenhour.model.Confidence;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
@@ -1660,6 +1661,76 @@ class PlanWindowProjectorTest {
     private static BriefingRegion blankedRegion(String name, DisplayVerdict verdict) {
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), List.of(),
                 14.0, 13.0, 4.5, 3, null, null, verdict, 0);
+    }
+
+    /** A region the honesty filter blanked: no slots, the verdict its reason is worded with, and the reason. */
+    private static BriefingRegion blankedFor(String name, CoverageReason reason, Boolean fog) {
+        DisplayVerdict verdict = reason == CoverageReason.STOOD_DOWN ? DisplayVerdict.STAND_DOWN
+                : DisplayVerdict.AWAITING;
+        return new BriefingRegion(name, Verdict.GO, "summary", List.of(), List.of(), 14.0, 13.0, 4.5, 3, null, null,
+                verdict, 0, "label", null, null, null, null, null, null, reason, null, fog);
+    }
+
+    private static BriefingWindow windowOf(BriefingRegion... regions) {
+        DailyBriefingResponse in = response(
+                List.of(new BriefingDay(TODAY, List.of(new BriefingEventSummary(
+                        TargetType.SUNSET, List.of(regions), List.of())))),
+                List.of());
+        return PlanWindowProjector.apply(in, NOW, TODAY, Map.of(), Map.of())
+                .days().get(0).eventSummaries().get(0).window();
+    }
+
+    @Test
+    @DisplayName("blanked FAILED and blanked NOT_ATTEMPTED: the window's reason is NOT_ATTEMPTED whichever name "
+            + "sorts first (a fact about the date before a failed run)")
+    void blankedReasonIsChosenByRuleNotByName() {
+        for (String[] names : new String[][] {{"Alpha", "Zulu"}, {"Zulu", "Alpha"}}) {
+            BriefingWindow window = windowOf(blankedFor(names[0], CoverageReason.FAILED, null),
+                    blankedFor(names[1], CoverageReason.NOT_ATTEMPTED, null));
+
+            assertThat(window.coverageReason()).as("names %s/%s", names[0], names[1])
+                    .isEqualTo(CoverageReason.NOT_ATTEMPTED);
+            assertThat(window.fog()).isNull();
+            assertThat(window.verdict()).isEqualTo(DisplayVerdict.AWAITING);
+        }
+    }
+
+    @Test
+    @DisplayName("blanked AWAY outranks a failed run, and a failed run outranks a record that cannot say")
+    void blankedReasonPriorityOrder() {
+        for (String[] names : new String[][] {{"Alpha", "Zulu"}, {"Zulu", "Alpha"}}) {
+            assertThat(windowOf(blankedFor(names[0], CoverageReason.UNKNOWN, null),
+                    blankedFor(names[1], CoverageReason.FAILED, null)).coverageReason())
+                    .as("failed over unknown, names %s/%s", names[0], names[1]).isEqualTo(CoverageReason.FAILED);
+            assertThat(windowOf(blankedFor(names[0], CoverageReason.FAILED, null),
+                    blankedFor(names[1], CoverageReason.AWAY, null)).coverageReason())
+                    .as("away over failed, names %s/%s", names[0], names[1]).isEqualTo(CoverageReason.AWAY);
+        }
+    }
+
+    @Test
+    @DisplayName("a blanked stand-down carries its fog marker onto the window, and outranks a blanked AWAITING one")
+    void blankedFogRidesTheWindow() {
+        BriefingWindow window = windowOf(blankedFor("Alpha", CoverageReason.NOT_ATTEMPTED, null),
+                blankedFor("Zulu", CoverageReason.STOOD_DOWN, Boolean.TRUE));
+
+        assertThat(window.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(window.coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(window.fog()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a rated window, and a region with no reason or with slots, carry no reason on the window")
+    void unblankedWindowsCarryNoReason() {
+        BriefingRegion rated = new BriefingRegion("Rated", Verdict.GO, "summary", List.of(),
+                List.of(unratedSlot("Bamburgh")), 14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
+                DisplayVerdict.WORTH_IT, 1, null, Confidence.HIGH, 4.0, 4, null, true, null,
+                CoverageReason.NOT_ATTEMPTED, null, Boolean.TRUE);
+
+        assertThat(windowOf(rated).coverageReason()).as("a region with slots is not blanked").isNull();
+        assertThat(windowOf(rated).fog()).isNull();
+        assertThat(windowOf(blankedRegion("Legacy", DisplayVerdict.AWAITING)).coverageReason())
+                .as("a legacy blank with no reason").isNull();
     }
 
     // ── The tide rollup ──────────────────────────────────────────────────────

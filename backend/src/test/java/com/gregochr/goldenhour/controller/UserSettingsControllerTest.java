@@ -10,6 +10,8 @@ import com.gregochr.goldenhour.model.TodaysLightResponse;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
@@ -28,6 +30,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -50,7 +53,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                        null, Instant.parse("2026-04-01T10:00:00Z"), null, null, null, false, false));
+                        null, Instant.parse("2026-04-01T10:00:00Z"), null, null, null, false, true, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
@@ -65,7 +68,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getSettings_servesMarketingEmailOptInTrue() throws Exception {
         when(settingsService.getSettings(argThat(auth -> auth != null && "user".equals(auth.getName())))).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, null, null, null, false, true));
+                        null, null, null, null, null, null, null, null, null, false, true, true));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
@@ -101,7 +104,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveHome_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveHome(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, false, false));
+                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, false, true, false));
 
         mockMvc.perform(put("/api/user/settings/home")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -116,7 +119,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapColourPreferences_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveMapColourPreferences(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, "temp", null, null, false, false));
+                        null, null, null, null, null, null, "temp", null, null, false, true, false));
 
         mockMvc.perform(put("/api/user/settings/map-colours")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -153,7 +156,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapTideMode_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveMapTideMode(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, null, null, "always", false, false));
+                        null, null, null, null, null, null, null, null, "always", false, true, false));
 
         mockMvc.perform(put("/api/user/settings/map-tide-mode")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -191,7 +194,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.markComingUpSeen(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         null, null, null, null, null, null, null,
-                        java.time.LocalDate.of(2026, 8, 29), null, false, false));
+                        java.time.LocalDate.of(2026, 8, 29), null, false, true, false));
 
         mockMvc.perform(put("/api/user/settings/coming-up-seen"))
                 .andExpect(status().isOk())
@@ -326,7 +329,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getSettings_liteAllowed() throws Exception {
         when(settingsService.getSettings(any(Authentication.class))).thenReturn(
                 new UserSettingsResponse("lite", "lite@example.com", "LITE_USER", null, null, null, null,
-                        null, null, null, null, null, false, false));
+                        null, null, null, null, null, false, true, false));
 
         mockMvc.perform(get("/api/user/settings")).andExpect(status().isOk());
     }
@@ -580,7 +583,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.markPostcodePromptDismissed(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         null, null, null, null, null, null, null, null, null,
-                        false, false));
+                        false, true, false));
 
         mockMvc.perform(put("/api/user/settings/postcode-prompt-dismissed"))
                 .andExpect(status().isOk())
@@ -594,10 +597,35 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.markPostcodePromptDismissed(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "LITE_USER",
                         null, null, null, null, null, null, null, null, null,
-                        false, false));
+                        false, true, false));
 
         mockMvc.perform(put("/api/user/settings/postcode-prompt-dismissed"))
                 .andExpect(status().isOk());
+    }
+
+    // ---- PUT /places-hint-dismissed (screen-spec D8) ----
+
+    @ParameterizedTest
+    @ValueSource(strings = {"LITE_USER", "PRO_USER", "ADMIN"})
+    @DisplayName("PUT /places-hint-dismissed takes no body, answers 200 with placesHintDue false, "
+            + "and is open to every role")
+    void markPlacesHintDismissed_everyRoleAllowed(String role) throws Exception {
+        when(settingsService.markPlacesHintDismissed(argThat(auth -> "reader".equals(auth.getName()))))
+                .thenReturn(new UserSettingsResponse("reader", "test@example.com", role,
+                        null, null, null, null, null, null, null, null, null,
+                        false, false, false));
+
+        mockMvc.perform(put("/api/user/settings/places-hint-dismissed")
+                        .with(user("reader").roles(role)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.placesHintDue").value(false));
+    }
+
+    @Test
+    @DisplayName("PUT /places-hint-dismissed returns 401 without authentication")
+    void markPlacesHintDismissed_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(put("/api/user/settings/places-hint-dismissed"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -614,7 +642,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getSettings_carriesThePromptFlag() throws Exception {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, null, null, null, true, false));
+                        null, null, null, null, null, null, null, null, null, true, true, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())

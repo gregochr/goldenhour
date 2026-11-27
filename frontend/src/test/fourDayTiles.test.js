@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildFourDayTiles, buildGlanceLanes, ALMANAC_TYPES_BY_TOPIC } from '../utils/fourDayTiles.js';
 
 /**
- * The "Next four days" tiles model (coming-up-glance-plan §3 T1), now feeding At a Glance's days-ahead lanes
+ * The "Next four days" tiles model (coming-up-glance-plan §3 T1), now feeding This week's days-ahead lanes
  * (days-ahead-lanes-plan.md). Pure data in, tiles out; the component has its own suite for markup, names and taps.
  *
  * <p>TODAY is Sat 24 Oct 2026, passed in — no wall clock — so the four days are Sat 24, Sun 25,

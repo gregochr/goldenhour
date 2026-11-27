@@ -5,7 +5,7 @@
 A full-stack app that evaluates sunrise/sunset colour potential at configured locations.
 
 - **Backend**: Spring Boot 4 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, H2/PostgreSQL persistence, scheduled runs, admin alert emails and user emails.
-- **Frontend**: React 19 + Vite + Tailwind — Map tab (Leaflet, v2: heat field default, chronological window control), Plan matrix (labelled *At a Glance*; day × event heatmap whose cards open the Map; location sheet), Coming up feed, Operations tab, JWT-authenticated, and **Ask PhotoCast** (Pro and Admin; a flag-gated plain-English question box over the served forecasts, linked to the Map and the Plan matrix). Outcome recording has one UI: the Map tab's "How was it?" block, where Pro and Admin readers rate a past sunrise or sunset in the location callout (`docs/engineering/outcome-rating-plan.md`); the older free-text `POST /api/outcome` stack was deleted in code (`docs/engineering/v1-retirement-plan.md` §8; its `actual_outcome` table was dropped in V195, its one row moved to `outcome_rating`).
+- **Frontend**: React 19 + Vite + Tailwind — one screen with no tabs (This week: the day × event heatmap whose cards open the map, Your places and the location sheet; then Further ahead, the almanac feed), the map as a full-screen view (Leaflet, v2: heat field default, chronological window control), Operations as an admin-only view in the ☰ menu, JWT-authenticated, and **Ask PhotoCast** (Pro and Admin; a flag-gated plain-English question box over the served forecasts, linked to the map view and This week). Outcome recording has one UI: the map view's "How was it?" block, where Pro and Admin readers rate a past sunrise or sunset in the location callout (`docs/engineering/outcome-rating-plan.md`); the older free-text `POST /api/outcome` stack was deleted in code (`docs/engineering/v1-retirement-plan.md` §8; its `actual_outcome` table was dropped in V195, its one row moved to `outcome_rating`).
 
 ---
 
@@ -53,9 +53,11 @@ plans and this file may be written by the planning session.)
    both immediately before `gh pr merge`.
    **One exception (owner, 2026-11-07):** the `E2E — accessibility (advisory)` workflow (`.github/workflows/a11y.yml`)
    never blocks a merge until the owner makes it a required check; report a red run in the PR summary instead.
-   **Second exception (owner, 2026-11-08):** the `Prompt regression — sky` and `Prompt regression — ask` jobs
-   (`.github/workflows/prompt-regression.yml`) wait for the owner's approval because they spend real Anthropic money.
-   Waiting, skipped or expired is normal: never wait on them, never approve them; report a red run in the PR summary.
+   **Second exception (owner, 2026-11-08; amended 2026-11-27):** the `Prompt regression — sky` and `Prompt regression — ask`
+   jobs (`.github/workflows/prompt-regression.yml`) are never required. They run only when the `run-prompt-regression` label is added
+   (the session adds it as the last step, once Codex is clean on the head), as a smoke (sky quick check +
+   `AskPromptRegressionTest`); the full suites run from a manual `workflow_dispatch` with `scope=full`. They spend real
+   Anthropic money; skipped is normal. Never block a merge on them; report a red run in the PR summary.
 7. **Multi-phase plans repeat steps 2–6 for each phase**: one PR per phase, each branched from the
    updated `main` after the previous phase merged.
 
@@ -68,6 +70,7 @@ Still never done by a session: creating or deleting tags, cutting a release (the
 
 | Area | File |
 |---|---|
+| **The one screen's specification** (the owner's single source of truth for the screen; amend it rather than work around it; phases in `docs/engineering/screen-spec-plan.md`) | `docs/engineering/screen-spec.md` |
 | Core pipeline, scoring, evaluation, cost tracking, job metrics and per-location failure tracking, resilience, batch cache primer | `docs/engineering/reference/pipeline.md` |
 | Daily Briefing, the Plan tab matrix (cards, location sheet, dialog stacking, Back), Plan-screen confidence, `VerdictSampleGate`, neighbour guard | `docs/engineering/reference/plan-tab.md` |
 | Map tab (v2), locations, thin-sample hatch, verdict and picks, phone peek sheet, past windows, "How was it?" rating | `docs/engineering/reference/map-tab.md` |
@@ -104,7 +107,7 @@ Search them with `grep -rn '<ClassName or term>' docs/engineering/reference/` ra
 - **No marker clustering, anywhere, at any scale.** If density ever bites, the answer is canvas rendering.
 - **Simulations never reach user surfaces** (aurora and hot-topic simulation are gated by `isSimulated()` / `simulated` columns).
 - Lite ratings outside the reader's sub-region picks are stripped and marked `gated` at the controller edge (`LitePickShaper`); never on the client. See `sub-regions-plan.md`.
-- **Dialogs**: at most two stacked; every route out of the Plan tab closes its dialogs via `selectTab`; all Map Escape/outside-press rules read `utils/mapForeignModal.js`; `.wf-map-tab` is a selector (`MAP_PANE_SELECTOR`), not just CSS. **Back**: a layer Escape closes takes `back="close"`; history entries go only through `utils/dialogHistory.js`; every `replaceState` copies `history.state`; never register a `#manage` panel (see `plan-tab.md`, 'Back'). A Glance card, lane or Find pick that lands on the Map registers one arrival Back layer (`mapArrival` in the shell; cap `MAX_LAYER_DEPTH` is 3 for it) that returns to the tab it left; any other tab selection ends it.
+- **Dialogs**: at most two stacked; every route off the screen closes its dialogs via `closeShellLayers` (there are no tabs); all Map Escape/outside-press rules read `utils/mapForeignModal.js`; `.wf-map-tab` is a selector (`MAP_PANE_SELECTOR`), not just CSS. **Back**: a layer Escape closes takes `back="close"`; history entries go only through `utils/dialogHistory.js` (Operations' own `#manage` hash and its close `pushState` are the one exception); every `replaceState` copies `history.state`; never register a `#manage` panel (see `plan-tab.md`, 'Back'). The map **view** (`MapScreen`, a labelled `role=region`, deliberately not `aria-modal`; `docs/engineering/one-screen-plan.md`) is the base Back layer and carries its own `#map/...` url on the layer (the engine writes it; callers never `replaceState` it): `MAX_LAYER_DEPTH` is 3 = the map view plus two. Every door onto the map is `openMap`, and `closeShellLayers` is the one list of what a dialog is. Operations is an admin-only view driven by the `#manage` hash (`useOperationsRoute`), reached from the ☰ menu row only an admin sees.
 - **Phone-only work stays phone-only** (`hooks/useIsMobile.js`, `(max-width: 639px)`); desktop and tablet must be provably unchanged.
 - **Which model runs a run type is the database `model_selection` row**, not the code. Production's Batch Near-Term runs on Sonnet 5.5 and Batch Far-Term on Haiku 4.5 (since 2026-11-02; Haiku 5.5 under-rated a clear-horizon high-canvas morning in the Sky Eval).
 - **Ask PhotoCast is off by default** (`photocast.ask.enabled`). `stub: true` under `prod` fails startup; turning `stub` off locally bills the real Anthropic key.
@@ -216,7 +219,7 @@ Every commit that touches the UI gets an **adversarial review before it lands**:
 
 ## Roles (summary)
 
-`ADMIN` (everything, Operations tab) · `PRO_USER` (enhanced scores, aurora, past-window ratings, drive times) · `LITE_USER` (basic scores; read-only forecast). New UI must be assessed for role gating: admin-only features are hidden; PRO features show LITE a "Pro" pill and open a worded upsell (greyed only where too small to carry one; never a link; `/upgrade` is not a route). Backend 403 is the real enforcement. See `roles-and-gating.md`.
+`ADMIN` (everything, the Operations view) · `PRO_USER` (enhanced scores, aurora, past-window ratings, drive times) · `LITE_USER` (basic scores; read-only forecast). New UI must be assessed for role gating: admin-only features are hidden; PRO features show LITE a "Pro" pill and open a worded upsell (greyed only where too small to carry one; never a link; `/upgrade` is not a route). Backend 403 is the real enforcement. See `roles-and-gating.md`.
 
 ---
 

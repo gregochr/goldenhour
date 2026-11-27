@@ -371,7 +371,7 @@ is drawn on the map**. The server still stores geometry and does all matching.
 
 | Piece | Role |
 |---|---|
-| `components/map/MapWarningChips.jsx` | A row of its own inside `.wf-map-chrome-tl`, **under `MapTopicChips`, never inside the hot-topics bar** (`wf-topics`). Renders `WarningStrip` (the W2 chips, "Updated", the attribution line, the stale line) in a small panel. |
+| `components/map/MapWarningChips.jsx` | A row of its own inside `.wf-map-chrome-tl`, **under `MapTopicChips`, never inside the hot-topics bar** (`wf-topics`). Renders `WarningStrip` (the W2 chips, "Updated", the attribution line, the stale line) in a small panel. The collapsed row prints each warning's validity in UK time (`validityShort`, e.g. `Fri 27 Nov, 04:00–14:00`, or both days when it crosses UK midnight) between the chip and the Details button, so the timing is readable without opening Details. |
 | `utils/warnings.js` `warningsForMapWindow(served, {event, locations})` | The warnings for the active EV row: the union over the **whole roster** (`MapView`'s `locations`, not the filtered pins, so a star floor or type filter never makes the chip flicker) of `warningsForWindow`, i.e. the W2/W3 rule: the polled list's `locationIds` (compared as numbers) and validity span at the window's event instant, in the style guide's order. Each place's instant comes from the **one shared helper** `utils/locationSheet.js` `warningInputsFor(location, event, slotIndex, scoreIndex)` that `MapCallout` also uses: the place's own stored row's `solarEventTime`, else its own briefing slot's `eventTime`, else the instant of its own score row; a place with none is not matched (no borrowing from another place or from the window's tide), so the chip and the callout never disagree about a place. `MapView` passes its `slotIndex` and `scoreIndex` to `MapWarningChips`. |
 
 **Scope.** Solar windows only, not past (the server keys a warning to a sunrise or sunset; same gate as the callout). A night, High
@@ -400,8 +400,8 @@ Tests: `warningsMapWindow.test.js`, `MapWarningChips.test.jsx`, `MapViewWarnings
 ## W5: guides, landing pages and the guide doors
 
 Phase W5 is documentation and help links only; no warning behaviour changed. The guide is a new static page `landing/guide/weather-warnings.html`
-(sections `what`, `levels`, `matrix`, `updated`, `where`, `ratings`, `fresh`, `act`, `credit`), a `#warnings` section on the At a Glance, Map, Coming up
-and Reading the forecast pages (the location sheet and callout are covered inside the At a Glance "Opening a sunrise or sunset" and Map "Locations"
+(sections `what`, `levels`, `matrix`, `updated`, `where`, `ratings`, `fresh`, `act`, `credit`), a `#warnings` section on the Planning a shoot (was At a Glance and Coming up; one-screen-plan.md O4a), Map
+and Reading the forecast pages (the location sheet and callout are covered inside the Planning a shoot "Opening a sunrise or sunset" and Map "Locations and the callout"
 sections), a hub card and Lite/Pro row, search registration (`guide-search.js`), and the landing index, FAQ, acknowledgements and terms. `utils/guide.js`
 gains the `weather-warnings` page and two `GUIDE_SECTIONS` (`warnings` to `#what`, `warningsFresh` to `#fresh`); `guideSections.test.js` pins the new ids, the
 exact attribution, the official colours and both Met Office links. In the app, `WarningFooter` ends with one `GuideLink` (`wf-warning-guide`), so the lane,

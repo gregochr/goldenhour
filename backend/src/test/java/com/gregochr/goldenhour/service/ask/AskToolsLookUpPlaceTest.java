@@ -309,7 +309,8 @@ class AskToolsLookUpPlaceTest {
         assertThat(info.status()).isEqualTo("NEIGHBOUR_OUTLIER");
         assertThat(info.rating()).isEqualTo(4);
         assertThat(reason(info))
-                .isEqualTo("Rated well above the places beside it, so PhotoCast is not suggesting it.");
+                .isEqualTo("Its rating is well above the places beside it, so PhotoCast doubts that star and "
+                        + "is not suggesting it.");
     }
 
     @Test

@@ -44,7 +44,8 @@ class UserFavouritesControllerTest extends AbstractControllerTest {
         return new FavouritesResponse(
                 List.of(new FavouritesResponse.Place(4L, LocalDateTime.of(2019, 3, 4, 10, 15))),
                 List.of(new FavouritesResponse.Area(9L, LocalDateTime.of(2019, 3, 5, 11, 30))),
-                List.of(4L, 5L, 6L));
+                List.of(4L, 5L, 6L),
+                List.of(new FavouritesResponse.Date("king-tide:2026-12-03", LocalDateTime.of(2019, 3, 6, 9, 0))));
     }
 
     private ResultActions call(MockHttpServletRequestBuilder request, String role) throws Exception {
@@ -68,12 +69,15 @@ class UserFavouritesControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.areas[0].areaId").value(9))
                 .andExpect(jsonPath("$.locationIds.length()").value(3))
                 .andExpect(jsonPath("$.locationIds[2]").value(6))
+                .andExpect(jsonPath("$.dates[0].key").value("king-tide:2026-12-03"))
+                .andExpect(jsonPath("$.dates[0].createdAt").value("2019-03-06T09:00:00"))
                 .andExpect(header().doesNotExist("ETag"))
                 .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
     }
 
     @ParameterizedTest(name = "Lite is refused {0}")
-    @ValueSource(strings = {"GET", "PUT", "POST-place", "POST-area", "DELETE-place", "DELETE-area"})
+    @ValueSource(strings = {"GET", "PUT", "POST-place", "POST-area", "POST-date", "DELETE-place", "DELETE-area",
+            "DELETE-date"})
     @DisplayName("every method is 403 for a Lite reader and never reaches the service")
     void lite_isRefusedEverywhere(String which) throws Exception {
         MockHttpServletRequestBuilder request = switch (which) {
@@ -81,6 +85,8 @@ class UserFavouritesControllerTest extends AbstractControllerTest {
             case "PUT" -> withBody(put(BASE), "{\"locationIds\":[1],\"areaIds\":[]}");
             case "POST-place" -> post(BASE + "/places/1");
             case "POST-area" -> post(BASE + "/areas/1");
+            case "POST-date" -> post(BASE + "/dates/king-tide:2026-12-03");
+            case "DELETE-date" -> delete(BASE + "/dates/king-tide:2026-12-03");
             case "DELETE-place" -> delete(BASE + "/places/1");
             default -> delete(BASE + "/areas/1");
         };
@@ -151,6 +157,32 @@ class UserFavouritesControllerTest extends AbstractControllerTest {
         call(post(BASE + "/places/4"), "PRO_USER").andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("You can keep up to 25 places."));
         call(post(BASE + "/areas/99"), "PRO_USER").andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("POST and DELETE a date watch and un-watch it, returning the list with its dates")
+    void dates_watchAndUnwatch() throws Exception {
+        when(userFavouritesService.addDate("pat", "king-tide:2026-12-03")).thenReturn(list());
+        when(userFavouritesService.removeDate("pat", "king-tide:2026-12-03")).thenReturn(list());
+
+        call(post(BASE + "/dates/king-tide:2026-12-03"), "PRO_USER").andExpect(status().isOk())
+                .andExpect(jsonPath("$.dates[0].key").value("king-tide:2026-12-03"))
+                .andExpect(header().doesNotExist("ETag"));
+        call(delete(BASE + "/dates/king-tide:2026-12-03"), "ADMIN").andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("a bad date key is 400, and a new watch at the cap is 409 with the reader-facing message")
+    void dates_badKeyAndCap() throws Exception {
+        when(userFavouritesService.addDate("pat", "nonsense")).thenThrow(new IllegalArgumentException("bad key"));
+        when(userFavouritesService.removeDate("pat", "nonsense")).thenThrow(new IllegalArgumentException("bad key"));
+        when(userFavouritesService.addDate("pat", "king-tide:2026-12-03"))
+                .thenThrow(new FavouritesLimitException("You can keep up to 25 places and dates."));
+
+        call(post(BASE + "/dates/nonsense"), "PRO_USER").andExpect(status().isBadRequest());
+        call(delete(BASE + "/dates/nonsense"), "PRO_USER").andExpect(status().isBadRequest());
+        call(post(BASE + "/dates/king-tide:2026-12-03"), "PRO_USER").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("You can keep up to 25 places and dates."));
     }
 
     @Test

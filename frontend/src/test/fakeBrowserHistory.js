@@ -22,24 +22,33 @@ export function createFakeBrowser({
   foreignBelow = false, navigation = false,
 } = {}) {
   // `scroll` is per ENTRY and copied onto an entry when it is pushed, as in browsers.
-  const entries = [{ state: null, scroll: scrollInitial }];
+  const entries = [{ state: null, scroll: scrollInitial, hash: '' }];
   // A foreign entry (another site) below the base, so that leaving the app is observable: index 0.
-  if (foreignBelow) entries.unshift({ state: null, scroll: 'auto', foreign: true });
+  if (foreignBelow) entries.unshift({ state: null, scroll: 'auto', foreign: true, hash: '' });
   let index = foreignBelow ? 1 : 0;
   const queue = [];
   const listeners = new Set();
   const log = [];
 
+  // A URL argument moves only the HASH here (the one part the app's layers write); undefined keeps the entry's own,
+  // as in browsers, and a URL with no hash ("/" or "/?q=1") clears it.
+  const hashOf = (url, fallback) => {
+    if (url === undefined || url === null) return fallback;
+    const at = String(url).indexOf('#');
+    return at === -1 ? '' : String(url).slice(at);
+  };
   const history = {
     get state() { return entries[index].state; },
-    pushState: vi.fn((state) => {
+    pushState: vi.fn((state, _title, url) => {
+      const hash = hashOf(url, entries[index].hash);
       entries.splice(index + 1);
-      entries.push({ state, scroll: entries[index].scroll });
+      entries.push({ state, scroll: entries[index].scroll, hash });
       index += 1;
       log.push('push');
     }),
-    replaceState: vi.fn((state) => {
+    replaceState: vi.fn((state, _title, url) => {
       entries[index].state = state;
+      entries[index].hash = hashOf(url, entries[index].hash);
       log.push('replace');
     }),
     go: vi.fn((delta) => { if (!dropGo) queue.push(delta); }),
@@ -58,6 +67,7 @@ export function createFakeBrowser({
   const win = {
     history,
     document,
+    location: { get hash() { return entries[index].hash ?? ''; }, pathname: '/', search: '' },
     navigator: { userActivation: { isActive: activation } },
     ...(navigation ? { navigation: { get currentEntry() { return { index }; } } } : {}),
     addEventListener: (type, fn) => { if (type === 'popstate') listeners.add(fn); },

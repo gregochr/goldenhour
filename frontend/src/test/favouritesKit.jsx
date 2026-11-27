@@ -8,26 +8,32 @@ import { FavouritesContext } from '../context/FavouritesContext.jsx';
  *
  * @param {object} [o]
  * @param {string} [o.status]
- * @param {number[]} [o.places] starred place ids
- * @param {number[]} [o.areas] starred area ids
+ * @param {number[]} [o.places] bookmarked place ids
+ * @param {number[]} [o.areas] bookmarked area ids
  * @param {number[]} [o.locationIds] the served merged ids
- * @param {Array} [o.starredAreas] directory entries of the starred areas
+ * @param {Array} [o.bookmarkedAreas] directory entries of the bookmarked areas
+ * @param {string[]} [o.dates] watched almanac date keys (one-screen-plan.md D16)
  * @returns {object} a context value
  */
 export function favouritesValue({
-  status = 'ready', places = [], areas = [], locationIds = places, starredAreas = [],
+  status = 'ready', places = [], areas = [], locationIds = places, bookmarkedAreas = [], dates = [],
 } = {}) {
   const placeIds = new Set(places);
   const areaIds = new Set(areas);
+  const dateKeys = new Set(dates);
   return {
     status,
     placeIds,
     areaIds,
     locationIds: new Set(locationIds),
-    starredAreas,
-    areasUnresolved: Math.max(0, areaIds.size - starredAreas.length),
+    dateKeys,
+    dates: dates.map((key) => ({ key, createdAt: null })),
+    bookmarkedAreas,
+    areasUnresolved: Math.max(0, areaIds.size - bookmarkedAreas.length),
     isPlaceStarred: (id) => placeIds.has(id),
     isAreaStarred: (id) => areaIds.has(id),
+    isDateWatched: (key) => dateKeys.has(key),
+    registerWatchHome: vi.fn(() => () => {}),
     setStar: vi.fn(() => Promise.resolve(true)),
     toggle: vi.fn(() => Promise.resolve(true)),
   };

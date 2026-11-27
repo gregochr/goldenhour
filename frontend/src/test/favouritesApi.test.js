@@ -30,4 +30,15 @@ describe('favouritesApi', () => {
     await setFavourite('area', 9, false);
     expect(apiClient.delete).toHaveBeenLastCalledWith('/api/user/settings/favourites/areas/9');
   });
+
+  it('watches and un-watches a date on its own path, by the key (one-screen-plan.md D16)', async () => {
+    apiClient.post.mockResolvedValue({ data: { dates: [{ key: 'king-tide:2026-12-03' }] } });
+    apiClient.delete.mockResolvedValue({ data: { dates: [] } });
+
+    await expect(setFavourite('date', 'king-tide:2026-12-03', true))
+      .resolves.toEqual({ dates: [{ key: 'king-tide:2026-12-03' }] });
+    expect(apiClient.post).toHaveBeenCalledWith('/api/user/settings/favourites/dates/king-tide:2026-12-03');
+    await expect(setFavourite('date', 'king-tide:2026-12-03', false)).resolves.toEqual({ dates: [] });
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/user/settings/favourites/dates/king-tide:2026-12-03');
+  });
 });

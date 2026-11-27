@@ -3,10 +3,17 @@ import React, {
 } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
+import BookmarkMark from './shared/BookmarkMark.jsx';
 import {
   buildSearchGroups, firstSelectable, flattenRows, nextSelectable,
 } from '../utils/planSearch.js';
 import { useFavourites } from '../context/FavouritesContext.jsx';
+
+/** The tick line counts as scrolled out of view once its bottom edge is above this line (CSS px from the viewport top). */
+const OFF_SCREEN_BELOW = 8;
+
+/** Where the panel sits when the tick line is out of view: just inside the top edge of the viewport. */
+const OFF_SCREEN_TOP = 8;
 
 /**
  * The tick line's box in viewport coordinates, kept fresh — or null when it cannot be measured.
@@ -65,11 +72,18 @@ function useTickLineBox() {
     // working, centred, with nothing failing — `null` is a legitimate return here, so the degrade
     // path would swallow the breakage. `.wf-tick` is a layout hook the responsive suite already
     // pins, which is the nearest thing this arm has to a structural selector.
-    const node = document.querySelector('.wf-tick');
+    // ⚠️ On a phone the tick line is drawn only while no postcode is saved (screen-spec.md P4), so the anchor there is the
+    // masthead's brand row (`.wf-mast-row`), which is always present: the panel's place never depends on postcode state.
+    const phone = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 639px)').matches;
+    const node = (phone ? document.querySelector('.wf-mast-row') : null) ?? document.querySelector('.wf-tick');
     const rect = node?.getBoundingClientRect?.();
     if (!rect || rect.width <= 0) { cache.current = null; return null; }
+    // The tick line is not sticky, so a reader scrolled far down (Further ahead is the bottom of the screen) has it
+    // above the viewport, and a panel that followed it would open off-screen. Out of view, the panel sits at the top
+    // of the viewport instead, over whatever is there (the Modal covers the sticky bars too).
+    const outOfView = rect.bottom < OFF_SCREEN_BELOW;
     const next = {
-      top: Math.round(rect.top), left: Math.round(rect.left), width: Math.round(rect.width),
+      top: outOfView ? OFF_SCREEN_TOP : Math.round(rect.top), left: Math.round(rect.left), width: Math.round(rect.width),
     };
     const prev = cache.current;
     if (prev && prev.top === next.top && prev.left === next.left && prev.width === next.width) {
@@ -163,21 +177,21 @@ Highlight.propTypes = {
  * @param {?object}  [props.origin]    the origin descriptor, for that clause's wording
  * @param {boolean}  [props.stacked]   the guide's dialog is over this one (G2): inert, no
  *        {@code aria-modal}, and Escape withheld, as {@code Modal}'s stacked protocol requires
- * @param {string}   [props.tab]       the tab Find is open on ({@code 'plan'}, {@code 'coming-up'} or
- *        {@code 'map'}); only the Map words its rows differently — see {@code buildSearchGroups}
+ * @param {'screen'|'map'} [props.context] where Find is open (one-screen-plan.md D13): on the screen, or in the map
+ *        view; only the map words its rows differently — see {@code buildSearchGroups}
  */
 export default function PlanSearch({
   windows, regions, locations, originId = null, initialQuery = '',
   onClose, onPickWindow, onPickRegion, onPickLocation, onPickArea,
   areas = null, areaOutlook = null,
   reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, stacked = false,
-  tab = 'plan',
+  context = 'screen',
 }) {
   // Seeded once. The caller keys this component on the seed, so a new seed mounts a fresh box
   // rather than overwriting what the reader has since typed into an open one.
   const [query, setQuery] = useState(initialQuery);
   const inputRef = useRef(null);
-  // Your places (F4): a Pro reader's starred sets, for the resting group, the marks and the within-tier tie-break.
+  // Your places (F4): a Pro reader's bookmarked sets, for the resting group, the marks and the within-tier tie-break.
   // Null for Lite and for no provider, so the box is exactly what it was.
   const favouriteState = useFavourites();
   const favourites = useMemo(
@@ -188,11 +202,11 @@ export default function PlanSearch({
 
   const groups = useMemo(
     () => buildSearchGroups(query, {
-      windows, regions, locations, originId, reachById, scoreIndex, scopeRegionNames, origin, tab,
+      windows, regions, locations, originId, reachById, scoreIndex, scopeRegionNames, origin, context,
       areas, areaOutlook, favourites,
     }),
     [query, windows, regions, locations, originId, reachById, scoreIndex,
-      scopeRegionNames, origin, tab, areas, areaOutlook, favourites],
+      scopeRegionNames, origin, context, areas, areaOutlook, favourites],
   );
   const rows = useMemo(() => flattenRows(groups), [groups]);
 
@@ -311,7 +325,10 @@ export default function PlanSearch({
           className="wf-search-list" data-testid="plan-search-list">
           {groups.map((group) => (
             <div key={group.id} role="group" aria-label={group.title}>
-              <p className="wf-search-head" data-testid="plan-search-group">{group.title}</p>
+              <p className="wf-search-head" data-testid="plan-search-group">
+                {group.mark && <BookmarkMark className="wf-yp-mark" />}
+                {group.title}
+              </p>
               {group.rows.map((row) => {
                 const index = rows.indexOf(row);
                 return (
@@ -340,11 +357,13 @@ export default function PlanSearch({
                   >
                     {/* Decorative: the group heading above already names the kind, and a screen
                         reader hearing "white diamond" learns nothing. */}
-                    <span aria-hidden="true" className="wf-search-glyph-col">{row.starred ? '★' : row.glyph}</span>
+                    <span aria-hidden="true" className="wf-search-glyph-col">
+                      {row.bookmarked ? <BookmarkMark /> : row.glyph}
+                    </span>
                     <span className="wf-search-text">
                       <span className="wf-search-label">
                         <Highlight text={row.label} range={row.marks} />
-                        {row.starred && <span className="sr-only">, your place</span>}
+                        {row.bookmarked && <span className="sr-only">, bookmarked</span>}
                       </span>
                       {/* Clauses rather than one joined string, and the reason is truncation: the
                           sub-line's LAST clause is the one that changes what the row means
@@ -433,7 +452,7 @@ PlanSearch.propTypes = {
   originId: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   initialQuery: PropTypes.string,
   stacked: PropTypes.bool,
-  tab: PropTypes.oneOf(['plan', 'coming-up', 'map']),
+  context: PropTypes.oneOf(['screen', 'map']),
   onClose: PropTypes.func.isRequired,
   onPickWindow: PropTypes.func,
   onPickRegion: PropTypes.func,

@@ -36,6 +36,7 @@ public class HotTopicAggregator {
     private final HotTopicGlanceDecorator glanceDecorator;
     private final SlotSignalReader slotSignalReader;
     private final LocationRepository locationRepository;
+    private final SnowStateReader snowStateReader;
 
     /**
      * Constructs a {@code HotTopicAggregator} with all registered strategies.
@@ -47,6 +48,7 @@ public class HotTopicAggregator {
      * @param glanceDecorator   fills in each topic's Coming up chip line, last of all
      * @param slotSignalReader  the slot read model, read once per serve and shared by the strategies
      * @param locationRepository the location rosters, each read once per serve
+     * @param snowStateReader   the fresh {@code snow_state} rows, read once per serve for the snow strategies
      */
     public HotTopicAggregator(List<HotTopicStrategy> strategies,
                                HotTopicSimulationService simulationService,
@@ -54,7 +56,8 @@ public class HotTopicAggregator {
                                HotTopicEventEnricher eventEnricher,
                                HotTopicGlanceDecorator glanceDecorator,
                                SlotSignalReader slotSignalReader,
-                               LocationRepository locationRepository) {
+                               LocationRepository locationRepository,
+                               SnowStateReader snowStateReader) {
         this.strategies = strategies;
         this.simulationService = simulationService;
         this.travelDayService = travelDayService;
@@ -62,6 +65,7 @@ public class HotTopicAggregator {
         this.glanceDecorator = glanceDecorator;
         this.slotSignalReader = slotSignalReader;
         this.locationRepository = locationRepository;
+        this.snowStateReader = snowStateReader;
     }
 
     /**
@@ -82,7 +86,8 @@ public class HotTopicAggregator {
                 locationRepository::findAllByEnabledTrueOrderByNameAsc,
                 locationRepository::findByBortleClassIsNotNullAndEnabledTrue,
                 locationRepository::findBluebellLocations,
-                travelDayService::isTravelDay);
+                travelDayService::isTravelDay,
+                () -> snowStateReader.freshRows(fromDate, toDate));
         if (simulationService.isEnabled()) {
             return glanceDecorator.decorate(
                     eventEnricher.enrich(simulationService.getSimulatedTopics(fromDate, toDate), inputs));

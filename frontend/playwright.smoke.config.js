@@ -85,7 +85,9 @@ export default defineConfig({
   projects: [
     {
       name: 'smoke',
-      testIgnore: ['**/logout.spec.js', '**/roles-write.spec.js', '**/deploy-smoke.spec.js'],
+      testIgnore: [
+        '**/logout.spec.js', '**/roles-write.spec.js', '**/your-places-phone-width.spec.js', '**/deploy-smoke.spec.js',
+      ],
       use: { ...devices['Desktop Chrome'], ...localChromium },
     },
     // Why roles-write is its own project: it is the only spec that WRITES shared server state (the Pro reader rates
@@ -95,7 +97,7 @@ export default defineConfig({
     // that "sign-out runs last" stays one rule. (The read-only role specs, roles.spec.js, run in `smoke`.)
     {
       name: 'roles-write',
-      testMatch: '**/roles-write.spec.js',
+      testMatch: ['**/roles-write.spec.js', '**/your-places-phone-width.spec.js'],
       dependencies: ['smoke'],
       workers: 1,
       use: { ...devices['Desktop Chrome'], ...localChromium },

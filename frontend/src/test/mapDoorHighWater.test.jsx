@@ -1,15 +1,12 @@
 /**
- * `utils/mapDoor.js` and `MapBreadcrumb` and `bigSeasCopy` on the daylight High-water window
+ * `utils/mapDoor.js` and `bigSeasCopy` on the daylight High-water window
  * (hot-topics-by-day-plan §3 M3). The row is never a door's window, but the `=== 'SUNRISE' ? … : sunset`
  * fallbacks in `ratingFor` and `solarTimeFor` would hand it the sunset's rating and clock time if a trigger
  * ever named it; the explicit guards pin that they do not.
  */
-import React from 'react';
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
 import { resolveDoor } from '../utils/mapDoor.js';
 import { bigSeasCopy } from '../utils/bigSeas.js';
-import MapBreadcrumb from '../components/map/MapBreadcrumb.jsx';
 import { FRIDAY_HW } from './bigSeasFixtures.js';
 
 const DATE = '2026-07-04';
@@ -45,26 +42,6 @@ describe('mapDoor: HIGH_WATER is never a door window', () => {
     // No sunset time is borrowed for it, and the sunset's 5★ does not pick the place.
     expect(hw.subLine).not.toContain('21:49');
     expect(hw.handoff.locationName).not.toBe('Top');
-  });
-});
-
-describe('MapBreadcrumb: the window clause', () => {
-  it('says "high water", not the raw enum', () => {
-    render(
-      <MapBreadcrumb
-        carried={{ title: 'Big seas' }}
-        minStars={3}
-        driveTimeFilter={0}
-        activeRow={{ dayLabel: 'Tomorrow', eventType: 'HIGH_WATER' }}
-        onBack={() => {}}
-        onClearRating={() => {}}
-        onClearReach={() => {}}
-        onClearScope={() => {}}
-        onClearOrigin={() => {}}
-      />,
-    );
-    expect(screen.getByTestId('wf-map-breadcrumb-window')).toHaveTextContent('Tomorrow high water');
-    expect(document.body.textContent).not.toMatch(/high_water/i);
   });
 });
 

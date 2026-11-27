@@ -191,10 +191,11 @@ Status rules: `SUCCEEDED` = did its job (including "nothing to do"); `SKIPPED` =
 | `drive_time_refresh` | `SUCCEEDED` "2 refreshed · 0 superseded · 0 failed · 1 unchanged" / "No users with a home location"; `PARTIAL`/`FAILED` by failed vs due users (manual-aware: Run now reports the same way) |
 | `region_drive_time_refresh` | `SUCCEEDED` "2 of 2 regions refreshed · 0 failed" / "No regions have a base town"; `PARTIAL`/`FAILED` |
 | `wildlife_comfort_refresh` | `SUCCEEDED` "2 hides · 12 of 12 days written" / "No wildlife hides to refresh"; `PARTIAL`; `FAILED` "Open-Meteo forecast failed: …"; `SKIPPED` already running |
+| `snow_state_refresh` | `SUCCEEDED` "276 of 276 points fetched · 2640 rows written"; `PARTIAL`/`FAILED` by points fetched (a cool-off or refusal fetches none: `FAILED`); `FAILED` "Open-Meteo fetch failed: …" / "Writing snow state failed: …"; `SKIPPED` already running |
 | `astro_conditions_refresh` | `SUCCEEDED` "526 location-nights scored"; `FAILED` "Nothing scored: …" or "Refresh failed: …"; `SKIPPED` already running |
 | `grid_cell_backfill` | `SUCCEEDED` "2 of 2 locations filled" / "Every location already has a grid cell"; `PARTIAL`; `PARTIAL`/`FAILED` "Gave up after 5 lookup failures in a row · N filled" |
 | `topic_daily_log` | `SUCCEEDED` "7 of 7 topic groups logged for 2027-03-05"; `PARTIAL`/`FAILED` "· N failed" |
-| `cloud_verification_backfill` | `SUCCEEDED` "100 verified · 0 remaining"; `PARTIAL`/`FAILED` "100 verified · stopped: …"; `SKIPPED` already running |
+| `cloud_verification_backfill` | `SUCCEEDED` "100 verified · 0 remaining"; `PARTIAL`/`FAILED` "100 verified · stopped: …"; `SKIPPED` already running; Open-Meteo archive allowance spent (daily or hourly): `SKIPPED` "0 verified · paused: Open-Meteo archive allowance used up; resumes when it resets", or `PARTIAL` "<n> verified · paused: …" when the tick had already verified some (a pause, not a failure; a blank batch with no quota message stays `FAILED`). A tick stops after 2,500 archive calls (one per unique coordinate) |
 
 ## Operations → Runs → Model Config (formerly Run Config): measured costs (run-config-accuracy-plan.md)
 

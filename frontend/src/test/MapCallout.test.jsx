@@ -1977,11 +1977,11 @@ describe('MapCallout — Your places (find-and-favourites-plan.md F4)', () => {
   beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
   afterEach(() => restore());
 
-  it('puts the toggle in the header beside Close, pressed for a starred place', async () => {
+  it('puts the toggle in the header beside Close, pressed for a bookmarked place', async () => {
     await mount({}, (node) => withFavourites(node, { places: [LOCATION.id] }));
     const toggle = within(screen.getByTestId('map-callout')).getByTestId('map-callout-favourite');
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(toggle).toHaveAccessibleName('Your place');
+    expect(toggle).toHaveAttribute('data-starred', 'true');
+    expect(toggle).toHaveAccessibleName('Bookmarked');
     expect(screen.getByTestId('map-callout-close')).toBeInTheDocument();
   });
 
@@ -1990,7 +1990,7 @@ describe('MapCallout — Your places (find-and-favourites-plan.md F4)', () => {
     expect(screen.queryByTestId('map-callout-favourite')).toBeNull();
   });
 
-  it('a Lite reader gets ☆ with the Pro pill and the upsell inside the card', async () => {
+  it('a Lite reader gets the outline mark with the Pro pill and the upsell inside the card', async () => {
     await mount({}, (node) => withFavourites(node, { status: 'locked' }));
     fireEvent.click(screen.getByTestId('map-callout-favourite-locked'));
     expect(within(screen.getByTestId('map-callout')).getByTestId('favourite-upsell-panel')).toBeInTheDocument();

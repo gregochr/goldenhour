@@ -300,6 +300,11 @@ same slot: 16,233 re-ratings, $44.36.
   moved off in October.
 - In Operations → Sky Eval → Weekly run, Opus 4.6 and Sonnet 4.6 should be unticked.
 - Optional: an index on `api_call_log.called_at` for the 30-day cost query.
+- CI prompt regression (2026-11-27): the CI key hit its spend cap after four pushes each ran both full suites (access returns
+  2026-12-01). The paid suites are now a label-triggered smoke, once per PR (about $0.25: sky 13 Sonnet calls, one Ask class);
+  the full suites run only from a manual `scope=full` dispatch. See "Prompt regression in CI" in `reference/dev-and-testing.md`.
+- Once a month, cross-check the Testing figure on Runs › Cost trends against the CI key's own spend in the Anthropic
+  console (see "Testing (CI prompt regression)"). The two should agree to within the errored-call under-count.
 
 ## Remaining levers, ranked
 
@@ -342,3 +347,29 @@ at the foot of `cost-queries/measured-costs.sql`.
 - **Not part of this saving, and unchanged: force-evaluating headline contenders.** `ForceEvalHeadlineSelector`,
   `ForecastTaskCollector` and `ScheduledBatchEvaluationService` still force-evaluate far-out cells because their
   ratings feed `PlanWindowProjector`. That spend is a separate line and stays.
+
+## Testing (CI prompt regression) (2026-11-27, `ci-spend-plan.md`)
+
+The two paid CI jobs (`Prompt regression — sky`, `Prompt regression — ask`) call real Claude on a **separate,
+spend-capped key** (`PROMPT_REGRESSION_ANTHROPIC_API_KEY`), not the production key. That spend is not in `api_call_log`,
+so none of the figures above include it. From C2 the production host pulls the token counts each job uploads, prices
+them with `CostCalculator` (non-batch rates, the same table as the app) and stores them in `ci_spend_run`; Runs › Cost
+trends shows them as a **Testing** group beside the app's figures and never inside them (C3). CI spend follows pull
+requests, not the schedule, so a busy week of development must never read as "the app got dearer".
+
+- **What it costs.** No measured figure yet: measured figures arrive once `ci_spend_poll` has run against real
+  workflow runs. This section should be filled in then, from `ci_spend_run`, not estimated.
+- **Its own cap.** The CI key's spend cap is the only cost limit on the paid jobs. The Testing figure is not counted in
+  any alert, budget, spend cap or app figure.
+- **When the suites run.** Once per pull request that changes prompt or evaluation code (as decided by
+  `scripts/prompt-regression-paths.sh`), as a **smoke**, when the `run-prompt-regression` label is added: the session
+  adds it as the last step, once Codex is clean on the head (owner, 2026-11-27). The smoke is the sky quick check plus
+  `AskPromptRegressionTest`, about $0.25. A push never runs them. The full suites run only by hand (`workflow_dispatch`
+  with `scope=full`). There is no approval click: the `prompt-regression` environment has no required reviewer.
+  Same-repository PRs only. A skipped run is normal.
+- **A slight under-count.** The recorder counts only calls that returned. A call that threw (a client timeout, say) is
+  counted as an errored call but its tokens are unknown, and Anthropic can still bill it. The Testing figure is
+  therefore a slight under-count of the key's real spend, and a run with errored calls says so.
+- **Unknown is not zero.** A suite that ran but left no readable artifact (never uploaded, expired, or rejected by
+  validation) is stored `UNKNOWN`, and a model id the price table does not know is stored `UNPRICED`. Neither is shown as £0.
+- **Watch item: monthly manual cross-check** of the Testing figure against the CI key's spend in the Anthropic console.

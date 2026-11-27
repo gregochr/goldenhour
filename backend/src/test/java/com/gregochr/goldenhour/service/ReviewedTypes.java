@@ -37,12 +37,19 @@ final class ReviewedTypes {
                 "glossHeadline", "meanRating", "meanRatingDelta", "picksBestRating",
                 "regionApparentTemperatureCelsius", "regionName", "regionTemperatureCelsius",
                 "regionWeatherCode", "regionWindSpeedMs", "sampleSufficient", "scoredLocationCount", "slots",
-                "summary", "tideHighlights", "verdict", "verdictLabel")),
+                "summary", "tideHighlights", "verdict", "verdictLabel",
+                // fog (unscored-reason-card C1): a blanked region's visibility marker; a fact about the weather
+                // triage, no rating and no prose, the same for every role.
+                "fog")),
         entry("BriefingSlot", Set.of(
                 "canopy", "claudeHeadline", "claudeRating", "claudeSummary", "displayVerdict", "eclipse",
                 "fierySkyPotential", "flags", "gated", "goldenHourPotential", "locationId", "locationName",
                 "neighbourOutlier", "skyRating", "solarEventTime", "tide", "verdict",
-                "weather", "forced", "triaged")),
+                "weather", "forced", "triaged", "disposition")),
+        // The pipeline's latest disposition of a slot (unscored-reason-card C1): a @JsonIgnore re-run input for the
+        // drive tiers, never on the wire, no rating and no prose.
+        entry("EvaluationViewService$LatestDisposition", Set.of(
+                "category", "cycleEnded", "lowVisibility")),
         entry("BriefingSlot$WeatherConditions", Set.of(
                 "apparentTemperatureCelsius", "highCloudPercent", "humidityPercent", "lowCloudPercent",
                 "midCloudPercent", "precipitationMm", "temperatureCelsius", "visibilityMetres", "weatherCode",
@@ -66,7 +73,10 @@ final class ReviewedTypes {
         // role, so Lite keeps them (and they ride gated slots untouched).
         entry("BriefingWindow", Set.of(
                 "badges", "bestRating", "confidence", "eventTime", "pick", "tide", "tideFacts",
-                "verdict", "warningIds", "warningPlaceCounts")),
+                "verdict", "warningIds", "warningPlaceCounts",
+                // coverageReason and fog (unscored-reason-card C1): why a blanked window has no forecast; a fact
+                // about the pipeline's record, not a rating or prose, the same for every role.
+                "coverageReason", "fog")),
         entry("BriefingWindow$WarningPlaceCount", Set.of(
                 "covered", "regionName", "total", "warningId")),
         entry("BriefingWindow$Pick", Set.of(

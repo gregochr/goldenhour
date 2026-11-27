@@ -10,7 +10,7 @@ import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.FavouriteLocations;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
-import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.goldenhour.testsupport.promptusage.RecordingAnthropicApiClient;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -78,7 +78,8 @@ class AskFavouritesRegressionTest {
     private static final long CULLERCOATS = 3L;
 
     private static final Pattern WILDCARD = Pattern.compile("wild ?card", Pattern.CASE_INSENSITIVE);
-    private static final Pattern SAME = Pattern.compile("same|equal|tie|also", Pattern.CASE_INSENSITIVE);
+    /** States a tie. Owner-approved 2026-11-27 (plan A3): "both rated 4★" and "as well" count. */
+    static final Pattern SAME = Pattern.compile("same|equal|tie|also|both|as well", Pattern.CASE_INSENSITIVE);
     private static final Pattern MARYS_FOUR = Pattern.compile("Mary'?s[^.]{0,60}4\\s?★|4\\s?★[^.]{0,60}Mary'?s",
             Pattern.CASE_INSENSITIVE);
 
@@ -118,7 +119,7 @@ class AskFavouritesRegressionTest {
         AskJobRunService jobRuns = mock(AskJobRunService.class);
         when(jobRuns.dailyRunId()).thenReturn(DAILY_RUN_ID);
         when(jobRuns.accountingAvailable()).thenReturn(true);
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(),
+        engine = new ClaudeAskEngine(new RecordingAnthropicApiClient(client), new AskProperties(),
                 AskModelFixtures.haiku(), jobRuns,
                 mock(DriveTimeResolver.class), new AskAnswerValidator(), new AskPromptBuilder(),
                 new ObjectMapper().findAndRegisterModules(), Clock.systemUTC(), AskLocationNames.NONE);
@@ -151,7 +152,7 @@ class AskFavouritesRegressionTest {
             if (!summary.contains("Bamburgh")) {
                 faults.add("Bamburgh, the tied place, is not named: " + summary);
             }
-            if (!SAME.matcher(summary).find()) {
+            if (!tieStatedWith(summary, "Bamburgh")) {
                 faults.add("the tie is not said to score the same: " + summary);
             }
             addWildcardFault(summary, faults);
@@ -248,6 +249,20 @@ class AskFavouritesRegressionTest {
     }
 
     // -- running ----------------------------------------------------------------------------
+
+    /**
+     * Whether some sentence of the summary names {@code place} and also matches {@link #SAME}, so the tie is said
+     * of that place and not elsewhere in the summary (owner-approved 2026-11-27, plan A3). Sentences end at
+     * {@code ". "}, {@code "! "}, {@code "? "} or the end of the text.
+     */
+    static boolean tieStatedWith(String summary, String place) {
+        for (String sentence : summary.split("(?<=[.!?])\\s+")) {
+            if (sentence.contains(place) && SAME.matcher(sentence).find()) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     private static List<String> answered(AskRun run) {
         List<String> faults = new ArrayList<>();
