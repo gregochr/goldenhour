@@ -1,13 +1,18 @@
 name: Prompt regression (approval-gated)
 
-# Runs the real-Claude prompt-regression suites on PRs that change prompt or evaluation code
-# (docs/engineering/engineering-gaps-plan.md, Phase 5b; the owner steps are in "Prompt regression in CI" in
+# A paid SMOKE TEST of the real-Claude prompt-regression suites for PRs that change prompt or evaluation code
+# (docs/engineering/engineering-gaps-plan.md, Phase 5b; "Prompt regression in CI" in
 # docs/engineering/reference/dev-and-testing.md).
 #
+# ⚠️ Owner decision 2026-11-27: the paid jobs run ONCE per PR, as the last step before merge, when the
+# `run-prompt-regression` label is added (re-add it to rerun). They never run on a push. The smoke is the sky quick
+# check (SKY_RUNS=1) plus AskPromptRegressionTest. The full suites (all Ask classes, ValleyMist advisory) run only from a
+# manual workflow_dispatch with scope=full.
+#
 # ⚠️ Its own workflow and NEVER a required check, like the advisory a11y workflow. The `sky` and `ask` jobs run in the
-# `prompt-regression` GitHub environment, which holds the key and has NO required reviewer (owner's choice, 2026-11-27): a
-# prompt-changing PR runs the paid jobs as soon as it is opened or pushed. A skipped run (no prompt code changed) is normal;
-# a red run is reported, never awaited, before a merge. The name above still says "approval-gated" because it is the check name.
+# `prompt-regression` GitHub environment, which holds the key and has NO required reviewer (owner's choice, 2026-11-27).
+# A skipped run (no label, or no prompt code changed) is normal; a red run is reported, never awaited, before a merge.
+# The name above still says "approval-gated" because it is the check name.
 #
 # ⚠️ There is no click between a PR and the key. The PR head's workflow file, tests, pom plugins and Maven wrapper all run
 # with it, so the key is a separate, spend-capped one (PROMPT_REGRESSION_ANTHROPIC_API_KEY) and the spend cap is the only
@@ -19,7 +24,7 @@ name: Prompt regression (approval-gated)
 # prompt text or model output. Production reads it later to price CI spend on Runs > Cost trends; nothing here waits on it.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_dispatch:
     inputs:
       suite:
@@ -32,6 +37,11 @@ on:
         type: choice
         options: ['1', '8']
         default: '1'
+      scope:
+        description: smoke (sky quick check + AskPromptRegressionTest) or full (every suite, ValleyMist included)
+        type: choice
+        options: [smoke, full]
+        default: full
 
 permissions:
   contents: read
@@ -51,6 +61,8 @@ jobs:
     outputs:
       sky: ${{ steps.paths.outputs.sky }}
       ask: ${{ steps.paths.outputs.ask }}
+      # The paid jobs run only on a manual run or when the run-prompt-regression label is added.
+      paid: ${{ steps.paths.outputs.paid }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,6 +77,8 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           INPUT_SUITE: ${{ inputs.suite }}
+          EVENT_ACTION: ${{ github.event.action }}
+          LABEL_NAME: ${{ github.event.label.name }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
@@ -88,6 +102,12 @@ jobs:
           fi
           echo "sky=$sky" >> "$GITHUB_OUTPUT"
           echo "ask=$ask" >> "$GITHUB_OUTPUT"
+          paid=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] ||
+            { [ "$EVENT_ACTION" = "labeled" ] && [ "$LABEL_NAME" = "run-prompt-regression" ]; }; then
+            paid=true
+          fi
+          echo "paid=$paid" >> "$GITHUB_OUTPUT"
           {
             echo "### Prompt regression: what runs"
             echo
@@ -96,6 +116,9 @@ jobs:
             if [ "$sky" = "false" ] && [ "$ask" = "false" ]; then
               echo
               echo "No prompt or evaluation code changed, so no paid suite is needed."
+            elif [ "$EVENT_NAME" = "pull_request" ] && [ "$paid" = "false" ]; then
+              echo
+              echo "The paid smoke runs only when the \`run-prompt-regression\` label is added (re-add it to rerun)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -103,17 +126,19 @@ jobs:
   sky:
     name: Prompt regression — sky
     needs: changes
-    if: needs.changes.outputs.sky == 'true'
+    if: needs.changes.outputs.sky == 'true' && needs.changes.outputs.paid == 'true'
     runs-on: ubuntu-latest
     environment: prompt-regression
     # Eval mode (8 runs per fixture) takes 20-40 minutes; the quick check about 5.
     timeout-minutes: ${{ inputs.sky_runs == '8' && 60 || 30 }}
-    # B10: a newer push cancels a stale run, so it is not paid for twice.
+    # B10: a newer labelled run cancels a stale one. The paid flag is in the group so a push never cancels a labelled smoke.
     concurrency:
-      group: prompt-regression-${{ github.head_ref || github.ref }}-sky
+      group: prompt-regression-${{ github.head_ref || github.ref }}-sky-${{ needs.changes.outputs.paid }}
       cancel-in-progress: true
     env:
       ANTHROPIC_API_KEY: ${{ secrets.PROMPT_REGRESSION_ANTHROPIC_API_KEY }}
+      # A PR runs the smoke; a manual run uses the chosen scope (default full).
+      SCOPE: ${{ inputs.scope || 'smoke' }}
       # B11: the CI model setting is SKY_MODEL only.
       SKY_MODEL: SONNET_55
       SKY_RUNS: ${{ inputs.sky_runs || '1' }}
@@ -164,7 +189,7 @@ jobs:
       # Reported, never failing, until the owner approves ValleyMistPromptRegressionTest's assertions (its Javadoc).
       # No `clean` between the steps, so the first step's reports survive for the summary.
       - name: ValleyMist (advisory, does not fail the job)
-        if: ${{ !cancelled() && steps.key.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.key.outcome == 'success' && env.SCOPE == 'full' }}
         continue-on-error: true
         run: |
           ./mvnw -B --no-transfer-progress test -Pprompt-regression \
@@ -209,15 +234,17 @@ jobs:
   ask:
     name: Prompt regression — ask
     needs: changes
-    if: needs.changes.outputs.ask == 'true'
+    if: needs.changes.outputs.ask == 'true' && needs.changes.outputs.paid == 'true'
     runs-on: ubuntu-latest
     environment: prompt-regression
     # About 145 asks on Haiku, 30-50 minutes.
     timeout-minutes: 75
     concurrency:
-      group: prompt-regression-${{ github.head_ref || github.ref }}-ask
+      group: prompt-regression-${{ github.head_ref || github.ref }}-ask-${{ needs.changes.outputs.paid }}
       cancel-in-progress: true
     env:
+      # A PR runs the smoke; a manual run uses the chosen scope (default full).
+      SCOPE: ${{ inputs.scope || 'smoke' }}
       ANTHROPIC_API_KEY: ${{ secrets.PROMPT_REGRESSION_ANTHROPIC_API_KEY }}
       PROMPT_REGRESSION_USAGE_DIR: ${{ github.workspace }}/backend/target/prompt-regression-usage
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -258,8 +285,9 @@ jobs:
       - name: Ask regression tests
         run: |
           chmod +x mvnw
+          if [ "$SCOPE" = full ]; then T='Ask*RegressionTest'; else T='AskPromptRegressionTest'; fi
           ./mvnw -B --no-transfer-progress test -Pprompt-regression \
-            -Dtest='Ask*RegressionTest' \
+            -Dtest="$T" \
             -DforkCount=1 \
             -DfailIfNoSpecifiedTests=true
 

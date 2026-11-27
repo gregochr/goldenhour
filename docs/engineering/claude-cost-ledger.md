@@ -300,6 +300,9 @@ same slot: 16,233 re-ratings, $44.36.
   moved off in October.
 - In Operations → Sky Eval → Weekly run, Opus 4.6 and Sonnet 4.6 should be unticked.
 - Optional: an index on `api_call_log.called_at` for the 30-day cost query.
+- CI prompt regression (2026-11-27): the CI key hit its spend cap after four pushes each ran both full suites (access returns
+  2026-12-01). The paid suites are now a label-triggered smoke, once per PR (about $0.25: sky 13 Sonnet calls, one Ask class);
+  the full suites run only from a manual `scope=full` dispatch. See "Prompt regression in CI" in `reference/dev-and-testing.md`.
 - Once a month, cross-check the Testing figure on Runs › Cost trends against the CI key's own spend in the Anthropic
   console (see "Testing (CI prompt regression)"). The two should agree to within the errored-call under-count.
 
@@ -358,10 +361,12 @@ requests, not the schedule, so a busy week of development must never read as "th
   workflow runs. This section should be filled in then, from `ci_spend_run`, not estimated.
 - **Its own cap.** The CI key's spend cap is the only cost limit on the paid jobs. The Testing figure is not counted in
   any alert, budget, spend cap or app figure.
-- **When the suites run.** On pull requests that change prompt or evaluation code, as decided by
-  `scripts/prompt-regression-paths.sh`, and by hand (`workflow_dispatch`). There is no approval click: the
-  `prompt-regression` environment has no required reviewer (owner, 2026-11-27), so a prompt-changing PR runs the paid
-  jobs as soon as it is opened or pushed. Same-repository PRs only. A skipped run is normal.
+- **When the suites run.** Once per pull request that changes prompt or evaluation code (as decided by
+  `scripts/prompt-regression-paths.sh`), as a **smoke**, when the `run-prompt-regression` label is added: the session
+  adds it as the last step, once Codex is clean on the head (owner, 2026-11-27). The smoke is the sky quick check plus
+  `AskPromptRegressionTest`, about $0.25. A push never runs them. The full suites run only by hand (`workflow_dispatch`
+  with `scope=full`). There is no approval click: the `prompt-regression` environment has no required reviewer.
+  Same-repository PRs only. A skipped run is normal.
 - **A slight under-count.** The recorder counts only calls that returned. A call that threw (a client timeout, say) is
   counted as an errored call but its tokens are unknown, and Anthropic can still bill it. The Testing figure is
   therefore a slight under-count of the key's real spend, and a run with errored calls says so.
