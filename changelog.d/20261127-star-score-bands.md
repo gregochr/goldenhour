@@ -1,3 +1,3 @@
 ### Fixed — a 3★ sky no longer shows 2★ score bars
 
-Under the combined cloud-approach signal, when the sky is rated 3★ its score penalty now stops once the higher of Red Sky and Golden Hour reaches 40, so a 3★ never shows 2★ bars. The `prompt_hash` changes, so the evaluations start a new calibration bucket.
+When the combined cloud-approach signal fires, the location's message now tells the model that a 3★ answer's score penalty stops at 40, so a 3★ never shows 2★ bars. The shared system prompt is unchanged.

@@ -412,26 +412,15 @@ public class PromptBuilderTest {
         }
 
         @Test
-        @DisplayName("rating, fiery_sky and golden_hour descriptions carry the star-score coherence text")
-        void outputConfig_scoreFieldsCarryBandText() {
+        @DisplayName("the golden_hour schema description does not carry the 40 floor (user message only)")
+        void outputConfig_goldenHourDescription_hasNoFloor() {
             String configStr = promptBuilder.buildOutputConfig().toString();
-
-            String rating = configStr.substring(configStr.indexOf("rating={"));
-            rating = rating.substring(0, rating.indexOf("}"));
-            assertThat(rating)
-                    .contains("MAXIMUM 3 when the CLOUD APPROACH RISK")
-                    .doesNotContain("upwind sample alone");
-
-            String fiery = configStr.substring(configStr.indexOf("fiery_sky={"));
-            fiery = fiery.substring(0, fiery.indexOf("}"));
-            assertThat(fiery).contains("description=0-100 inclusive.").doesNotContain("star band");
 
             String golden = configStr.substring(configStr.indexOf("golden_hour={"));
             golden = golden.substring(0, golden.indexOf("}"));
             assertThat(golden)
                     .contains("description=0-100 inclusive. 20-30 points LOWER")
-                    .contains("When the rating given is 3, that penalty stops once the higher of "
-                            + "fiery_sky and golden_hour reaches 40.")
+                    .doesNotContain("reaches 40")
                     .doesNotContain("band");
         }
 
@@ -774,6 +763,76 @@ public class PromptBuilderTest {
                 .contains("Upwind sample (87km along 228\u00b0 SW): current=70%, at-event=15%");
     }
 
+    private static SolarCloudTrend buildingTrend() {
+        return new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 5),
+                new SolarCloudTrend.SolarCloudSlot(2, 15),
+                new SolarCloudTrend.SolarCloudSlot(1, 35),
+                new SolarCloudTrend.SolarCloudSlot(0, 60)));
+    }
+
+    private static SolarCloudTrend steadyTrend() {
+        return new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 30),
+                new SolarCloudTrend.SolarCloudSlot(2, 30),
+                new SolarCloudTrend.SolarCloudSlot(1, 30),
+                new SolarCloudTrend.SolarCloudSlot(0, 30)));
+    }
+
+    @Test
+    @DisplayName("combined approach signal line appears at BUILDING + upwind current exactly 60")
+    void buildUserMessage_buildingAndUpwind60_includesCombinedSignalLine() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(buildingTrend(), new UpwindCloudSample(87, 228, 60, 15)))
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data))
+                .contains(PromptBuilder.COMBINED_APPROACH_SIGNAL_LINE)
+                .contains("a 3 never carries scores that describe a 2.");
+    }
+
+    @Test
+    @DisplayName("combined approach signal line is absent at BUILDING + upwind current 59")
+    void buildUserMessage_buildingAndUpwind59_omitsCombinedSignalLine() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(buildingTrend(), new UpwindCloudSample(87, 228, 59, 15)))
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("COMBINED APPROACH SIGNAL");
+    }
+
+    @Test
+    @DisplayName("combined approach signal line is absent when the trend is not BUILDING")
+    void buildUserMessage_notBuildingAndUpwind90_omitsCombinedSignalLine() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(steadyTrend(), new UpwindCloudSample(87, 228, 90, 15)))
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("COMBINED APPROACH SIGNAL");
+    }
+
+    @Test
+    @DisplayName("combined approach signal line is absent when a thin strip is confirmed")
+    void buildUserMessage_buildingUpwind90ThinStrip_omitsCombinedSignalLine() {
+        DirectionalCloudData dc = new DirectionalCloudData(60, 20, 10, 5, 45, 30, 25);
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(dc)
+                .cloudApproach(new CloudApproachData(buildingTrend(), new UpwindCloudSample(87, 228, 90, 15)))
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data))
+                .contains("THIN STRIP CONFIRMED")
+                .doesNotContain("COMBINED APPROACH SIGNAL");
+    }
+
+    @Test
+    @DisplayName("combined approach signal line is absent when there is no cloud approach data")
+    void buildUserMessage_noCloudApproach_omitsCombinedSignalLine() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("COMBINED APPROACH SIGNAL");
+    }
+
     @Test
     @DisplayName("a cloudy near horizon with a clear-ish far corridor and a small drop carries neither structure label")
     void buildUserMessage_nearCloudyFarBelowThreshold_noStructureLabel() {
@@ -1011,12 +1070,8 @@ public class PromptBuilderTest {
                 // own moved golden_hour by 4.4 points against the 20-30 it asks for (mean 71.4 ->
                 // 67.0 over 12 Haiku runs), the same way the rating cap was ignored until it was
                 // restated on the field. Keep BOTH placements; see the schema description too.
-                // Reworded 2026-11-27 (star-score-coherence-plan.md v3): the 20-30 clause stays on the
-                // field list but stops once the higher score reaches 40 when the rating given is 3.
-                .contains("20-30 points LOWER than the conditions alone would "
-                        + "give when that same combined approach signal is present; when the rating "
-                        + "given is 3, the penalty stops once the higher of fiery_sky and "
-                        + "golden_hour reaches 40")
+                .contains("golden_hour (0-100; 20-30 points LOWER than the conditions alone would "
+                        + "give when that same combined approach signal is present)")
                 // Round 2 (2026-08-18): with no precedence at all the cap lost outright to the
                 // IDEAL-scenario and rate-4-floor imperatives — copt-hill-11mar rated 4 on 8/8
                 // eval runs. Precedence is what makes the cap bind, so it is pinned separately.
@@ -1046,17 +1101,10 @@ public class PromptBuilderTest {
     }
 
     @Test
-    @DisplayName("the combined approach penalty stops at 40 when the rating is 3, in rules prose and field list")
-    void getSystemPrompt_approachPenalty_stopsAtFortyWhenRatingIsThree() {
-        // Both placements pinned: smaller models follow constraints on the output field list better.
-        String prompt = promptBuilder.getSystemPrompt();
-
-        assertThat(prompt)
-                .contains("When the rating given is 3, the score penalty stops once the higher of "
-                        + "fiery_sky and golden_hour reaches 40, so a 3 never carries scores that "
-                        + "describe a 2")
-                .contains("signal is present; when the rating given is 3, the penalty stops once the "
-                        + "higher of fiery_sky and golden_hour reaches 40), summary")
+    @DisplayName("the system prompt carries no 40 floor and no band text (it lives in the user message only)")
+    void getSystemPrompt_approachPenalty_hasNoFloor() {
+        assertThat(promptBuilder.getSystemPrompt())
+                .doesNotContain("reaches 40")
                 .doesNotContain("STAR AND SCORE BANDS")
                 .doesNotContain("band floor");
     }

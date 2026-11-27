@@ -259,8 +259,7 @@ public class PromptBuilder {
             + "rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a [BUILDING] "
             + "trend AND upwind current ≥60%), fiery_sky (0-100), golden_hour (0-100; 20-30 "
             + "points LOWER than the conditions alone would give when that same combined approach "
-            + "signal is present; when the rating given is 3, the penalty stops once the higher "
-            + "of fiery_sky and golden_hour reaches 40), summary (1 sentence).\n\n"
+            + "signal is present), summary (1 sentence).\n\n"
             + "fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. "
             + "Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.\n"
             + "golden_hour: overall light quality. Clear sky with good visibility scores well. "
@@ -278,9 +277,7 @@ public class PromptBuilder {
             + "risk, not a veto. While both signals stand, three constraints hold on the output: "
             + "fiery_sky is 20-30 points lower than the conditions alone would give, golden_hour "
             + "is likewise 20-30 points lower, and rating is the LOWER of what the sky earns and "
-            + "3. When the rating given is 3, the score penalty stops once the higher of "
-            + "fiery_sky and golden_hour reaches 40, so a 3 never carries scores that describe a 2. "
-            + "The rating constraint binds against "
+            + "3. The rating constraint binds against "
             + "every rule that authorises 4 or 5, including the IDEAL scenario and the "
             + "thick-mid-cloud rate-4 floor: those state what the sky is worth if the event-time "
             + "snapshot can be trusted, and both approach signals say it may not be. It "
@@ -342,6 +339,20 @@ public class PromptBuilder {
     static final String PROMPT_SUFFIX =
             "Rate 1-5, estimate Red Sky Potential (0-100) and Golden Hour Potential (0-100), "
             + "then summarise in exactly one sentence.";
+
+    /** Upwind current low cloud (%) at or above which the combined approach signal's upwind half stands. */
+    private static final int COMBINED_APPROACH_UPWIND_PERCENT = 60;
+
+    /**
+     * Appended to the CLOUD APPROACH RISK block, in the per-location user message only, when the
+     * combined approach signal fires (BUILDING trend, no confirmed thin strip, upwind current at or
+     * above {@link #COMBINED_APPROACH_UPWIND_PERCENT}). Kept out of the system prompt and schema
+     * because Haiku over-generalises any always-present wording into a blanket rule.
+     */
+    static final String COMBINED_APPROACH_SIGNAL_LINE =
+            "COMBINED APPROACH SIGNAL: [BUILDING] and upwind current >=60% both stand. If you rate "
+            + "this 3, the 20-30 point score penalty stops once the higher of fiery_sky and "
+            + "golden_hour reaches 40, so a 3 never carries scores that describe a 2.";
 
     /** AOD threshold above which the dust context block is included. */
     private static final double DUST_AOD_THRESHOLD = 0.3;
@@ -618,6 +629,10 @@ public class PromptBuilder {
                         upwind.distanceKm(), upwind.windFromBearing(),
                         toCardinal(upwind.windFromBearing()),
                         upwind.currentLowCloudPercent(), upwind.eventLowCloudPercent()));
+                if (trend != null && trend.isBuilding() && !thinStripConfirmed
+                        && upwind.currentLowCloudPercent() >= COMBINED_APPROACH_UPWIND_PERCENT) {
+                    sb.append(String.format("%n%s", COMBINED_APPROACH_SIGNAL_LINE));
+                }
             }
         }
 
@@ -766,9 +781,7 @@ public class PromptBuilder {
                                                         + "conditions alone would give when the "
                                                         + "CLOUD APPROACH RISK block shows BOTH a "
                                                         + "[BUILDING] trend AND upwind current "
-                                                        + ">= 60%. When the rating given is 3, "
-                                                        + "that penalty stops once the higher of "
-                                                        + "fiery_sky and golden_hour reaches 40.")),
+                                                        + ">= 60%.")),
                                         Map.entry("summary", PromptUtils.ordered(
                                                 "type", "string",
                                                 "description",

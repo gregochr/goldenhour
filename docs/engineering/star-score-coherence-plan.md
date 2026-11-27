@@ -185,3 +185,16 @@ golden 40–50). **Owner decision: keep only the approach-rule floor.** The head
 to `main`'s wording and the upwind-alone ≤2 cap is removed from the prose, field list and `rating`
 schema description. Note: far-corridor misses 1/8 on `main` too, so the bar is "no worse than
 `main`", not 8/8.
+
+## 11. v5, 2026-11-27: the floor moves into the approach block
+
+The Haiku eval on `7718bd1` (floor in the system prompt) gave far-corridor-blanket-canvas 3★ ×8 at
+48/52 (`main` 3★ ×1) and the clear-sky cap 1★ ×8 at golden 35 (`main` 3★ ×7): Haiku read the
+always-present sentence as a general "3★ needs a score of 40" rule, both ways. copt-hill-15mar
+returned to `main`'s 3★ and copt-hill-11mar held 3★ with golden 40-52. So the sentence now appears
+only in the per-location user message, as the last line of the `CLOUD APPROACH RISK:` block, and only
+when the combined signal fires (`[BUILDING]` trend, no confirmed thin strip, upwind current >= 60%;
+`PromptBuilder.COMBINED_APPROACH_SIGNAL_LINE`). The system prompt and the schema are back to
+`main`'s, so the prompt cache prefix and `prompt_hash` are unchanged. `CoastalPromptBuilder`
+inherits the user-message builder, so it carries the line too. The golden masters are identical to
+`main`'s (no golden fixture has the combined signal).
