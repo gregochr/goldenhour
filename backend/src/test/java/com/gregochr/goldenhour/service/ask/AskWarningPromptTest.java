@@ -36,12 +36,14 @@ class AskWarningPromptTest {
      * colour score was renamed from Fiery Sky to Red Sky. All four were re-pinned for the Ask regression triage
      * (B1 adds a clause to {@code RULES}; B3 and B5 reword {@code WITH_USER}; B4 adds a sentence for the typed prompt).
      * They were re-pinned once more for the B1 "marginal" ban and the move of the B5 areaName sentence.
+     * All four were re-pinned again for the Part C prompt nudges (B7 adds two sentences to the typed prompt's
+     * look_up_place rules; B8 adds the stay-home first-sentence rule to {@code RULES}).
      */
     private static final Map<String, String> PRE_W6 = Map.of(
-            "true,true", "13980:4ed0468f450e6b1ee287cd33740e9c1f8e14705dfe7278677b8eb64ebc888c89",
-            "true,false", "12709:7b1b0e3e777f0733ddf7d5a96832db9d0e58ca11a269db09be69fad6f8389dab",
-            "false,true", "7447:d9f07e629d45a7d67439a26d136462f15c432633e5039fd775bf86167b861302",
-            "false,false", "6176:4ecf648d514c2b8377917cb9f5d45fff4df746e838abf02af9334043e295a717");
+            "true,true", "14281:7e6471978865397a8e348e5cedc0636e22b68e138399d6117aae4ecb351290ef",
+            "true,false", "13010:9cf75c10b271d1552a32ca8f4b0a9120bbbc178575a30ea2b0800aa9eadd1030",
+            "false,true", "7601:93ba7ad56681193437f55da605881994c0a565c91c764ab094b8a1345e09be78",
+            "false,false", "6330:e4d96f0380cb693891cb641a778efd532df8ba8ab4a47cad73e3ecf1a0128180");
 
     private static String fingerprint(String text) throws Exception {
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));

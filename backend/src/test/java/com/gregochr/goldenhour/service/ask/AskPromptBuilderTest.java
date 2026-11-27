@@ -700,4 +700,31 @@ class AskPromptBuilderTest {
                 .doesNotContain("13 October");
         assertThat(tail.split("has no place worth going to|have no place worth going to", -1)).hasSize(2);
     }
+
+    @Test
+    @DisplayName("B7: a typed prompt tells the model to call look_up_place for a named area even beside "
+            + "rank_spots, and to name the place by its listed name in the summary; Ready has no such tool")
+    void typedPromptCarriesTheNamedAreaRules() {
+        String typed = builder.systemPrompt(MONDAY, TestScopes.of(), null, true);
+        String ready = builder.systemPrompt(MONDAY, TestScopes.of(), null, false);
+
+        assertThat(typed)
+                .contains("For a question about how a named area looks, call look_up_place even when you also "
+                        + "call rank_spots.")
+                .contains("call it by its listed name, adding the name the reader used. Name it in the summary "
+                        + "by its listed name too.");
+        assertThat(ready).doesNotContain("call look_up_place even when you also call rank_spots")
+                .doesNotContain("Name it in the summary by its listed name too.");
+    }
+
+    @Test
+    @DisplayName("B8: both prompts say a stay-home window is framed first, with the forecast's pick as the "
+            + "first exception")
+    void bothPromptsFrameAStayHomeWindowFirst() {
+        String sentence = "When every window the question is about is a stay-home one, the summary's first "
+                + "sentence says so, and the forecast's pick follows as the first exception.";
+
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true)).contains(sentence);
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false)).contains(sentence);
+    }
 }

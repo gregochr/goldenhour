@@ -68,11 +68,14 @@ public class AskPromptBuilder {
             note says the place is outside the regions this question is about, say exactly that, never \
             that it is not in the forecast; otherwise the place is not in the forecast. The name may be \
             a named area, a group of places such as a landmark ("Hadrian's Wall"): look_up_place then \
-            returns how its places rate in each window; answer from those stars, never as picks. To \
+            returns how its places rate in each window; answer from those stars, never as picks. \
+            For a question about how a named area looks, call look_up_place even when you also call \
+            rank_spots. To \
             suggest places in a named area, call rank_spots with areaName. Each call covers one named \
             area: when the question names several ("Swaledale or Wensleydale"), call once per area; \
             a result's "Also matched areas" note lists the ones it did not answer. A place may also be found by \
             another name ("the Heugh"); call it by its listed name, adding the name the reader used. \
+            Name it in the summary by its listed name too. \
             If the result has closestTo, the reader's spelling matched no place and the result is for \
             the closest name: start the answer "Assuming you mean <name>,". If it has suggestions, call \
             look_up_place again with the one the reader plainly meant and start the answer the same way. \
@@ -134,7 +137,9 @@ public class AskPromptBuilder {
             rated places are nearly all 3★ or below, with a handful at 4★, is a stay-home window with \
             a few exceptions, not a good window: say so plainly, never calling the window marginal \
             (marginal is one place's 3★), quoting the figures as returned ("of 180 rated places, 2 are \
-            4★"), and name the exceptions as exceptions, with their region. A \
+            4★"), and name the exceptions as exceptions, with their region. \
+            When every window the question is about is a stay-home one, the summary's first sentence says so, \
+            and the forecast's pick follows as the first exception. A \
             window that is broadly worth going is one to get excited about: say so and give picks. A \
             window whose regions were all ruled out by the weather is poor everywhere: say so. A \
             window whose regions are mostly not scored or thin is mostly unlooked-at: say that, never \

@@ -248,6 +248,8 @@ public class AskTools {
     private final Set<String> warningsShown = new LinkedHashSet<>();
     private WarningsInfo warningFacts;
     private boolean warningFactsBuilt;
+    /** The lead, companion and kind of the latest {@code rank_spots} result; null when it had no companion. */
+    private CompanionPairing lastCompanion;
     private boolean warningsDelivered;
     private int charsUsed;
     private boolean personal;
@@ -1085,6 +1087,27 @@ public class AskTools {
     }
 
     /**
+     * The lead, the companion and why it is named, as the latest {@code rank_spots} result returned them.
+     *
+     * @param lead          the lead the answer to a "best" question is built on
+     * @param companion     the other place named beside the lead
+     * @param companionKind why the companion is named
+     */
+    public record CompanionPairing(SpotInfo lead, SpotInfo companion, CompanionKind companionKind) {
+    }
+
+    /**
+     * The pairing of the latest {@code rank_spots} result, read-only. Every {@code rank_spots} call replaces it,
+     * and a result with no companion, an early exit (no favourites, an empty pool, a cap refusal) or a failure
+     * clears it, so it is only ever the last call's own pairing.
+     *
+     * @return the pairing, or empty when the last call had no companion (or none was made)
+     */
+    public Optional<CompanionPairing> lastCompanionPairing() {
+        return Optional.ofNullable(lastCompanion);
+    }
+
+    /**
      * {@code rank_spots}: pick-eligible slots, best first (rating, then the forecast's own pick,
      * then tide preference met, then name).
      *
@@ -1092,6 +1115,8 @@ public class AskTools {
      * @return the spots, or an error result for a bad argument
      */
     public AskToolResult<RankSpotsResult> rankSpots(RankSpotsArgs args) {
+        // Every call replaces the pairing; only a result that is accepted with a companion sets it again below.
+        lastCompanion = null;
         RankSpotsArgs a = args == null ? new RankSpotsArgs(null, null, null, null, null, null, null, null)
                 : args;
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_SPOTS);
@@ -1272,6 +1297,9 @@ public class AskTools {
                 if (s != null) {
                     pairs.add(new AskEvidence.Pair(s.locationId(), s.windowId()));
                 }
+            }
+            if (result.lead() != null && result.companion() != null && result.companionKind() != null) {
+                lastCompanion = new CompanionPairing(result.lead(), result.companion(), result.companionKind());
             }
         });
     }
