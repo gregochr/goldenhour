@@ -1,7 +1,8 @@
 # Plan: the star and its two scores must agree
 
-**Status: DRAFT v1, 2026-11-27. One phase, one PR.** Owner decisions taken 2026-11-27 are in §2;
-the draft bands in §4 need the owner's sign-off before merge.
+**Status: DRAFT v2, 2026-11-27. One phase, one PR.** v1 was reviewed the same day by two read-only
+agents (prompt-rule consistency; regression and model risk), §8. Owner decisions taken so far are in
+§2; the open ones are in §7 and must be answered before the build.
 
 ## 1. The problem, as seen
 
@@ -35,101 +36,118 @@ independent judgments emitted by one call, so nothing stops a 3★ with bars at 
   omission and was measured only for compliance, never for size. So on the evidence the
   over-penalised figures are the scores, not the star. The rating cap stays exactly as it is.
 - **No code-side consistency check.** No shadow log, no clamp. The fix is the prompt.
-- Not in scope: the tide lift in `RatingCombiner` (the owner may raise it separately).
+- Not in scope: the tide lift in `RatingCombiner`.
 
-## 3. The change
+## 3. The principle the prompt will state
 
-All edits in `PromptBuilder` (the coastal builder appends a suffix to the same system prompt, so it
-inherits them). No migration, no frontend, no new field.
-
-**3a. A STAR AND SCORE BANDS rule in `SYSTEM_PROMPT`**, placed directly after the three scale
-definitions. It states that `rating` is decided first and both scores must then be consistent with
-it, using the §4 table, and that every other rule's numeric instruction (penalties, ceilings, the
-IDEAL / thick-mid / blocked / clear-sky ranges) is applied *within* the band for the rating given.
-
-**3b. The approach rule reworded** so its score penalty cannot leave the band. Today:
-"fiery_sky is 20-30 points lower than the conditions alone would give, golden_hour is likewise
-20-30 points lower, and rating is the LOWER of what the sky earns and 3". New intent: the rating
-clause is **unchanged**; each score is still 20-30 points lower than the conditions alone would
-give, **but never below the floor that the STAR AND SCORE BANDS set for the rating given**. The
-schema descriptions get the same clause (see 3c).
-
-**3c. Binding placement on the output fields.** The veto doc measured that a constraint stated only
-in rules prose is advisory (golden_hour moved 4.4 points against 20-30) and one restated on the
-output field is binding (19.5 points). So:
-
-- the system prompt's "Output your evaluation as JSON with these fields" line names the band rule
-  against `fiery_sky` and `golden_hour`;
-- `buildOutputConfig`'s `fiery_sky` and `golden_hour` descriptions carry the compact §4 band
-  (one line each) and, for `golden_hour`, the reworded approach clause. `rating` stays first in
-  the fixed property order, so the model commits to the star before writing either score, which
-  is what "scores follow the star" needs.
+1. **The rating comes only from the rules.** The bands never raise or lower a star; the star is
+   decided first (it is the first schema property) by the existing rules.
+2. **The bands then bound the HIGHER of the two scores** (§4). The other score may sit anywhere
+   lower. A per-score floor is wrong: `copt-hill-15mar-overcast` caps `fiery_sky` at 40 at up to
+   3★ (`SkyRatingEvalFixtures.java:140`).
+3. **`golden_hour` carries the band; `fiery_sky` is never raised to meet it.** Red Sky is colour
+   in the sky and must stay honest; Golden Hour is overall light quality, the score that moves
+   when the light is worth more than the colour (a muted canvas, the thick-mid rate-4 floor).
+4. **Hard ceilings win over the bands.** Where a rule states a score ceiling ("non-negotiable"
+   blocked horizon; upwind-alone fiery ≤25, golden ≤30), the scores keep the ceiling and the
+   exceptions in §7 decide the star.
 
 ## 4. Draft bands (owner sign-off needed)
-
-Keyed on the **higher of the two scores** ("best"): the star says how good the best thing the sky
-offers is. A per-score band cannot work: the prompt's own CLEAR SKY rule rates a cloudless sky
-≤3★ with `fiery_sky` 20-40 and `golden_hour` 65-85, and the BLOCKED rule gives 1-2★ with
-`golden_hour` 15-30.
 
 | Star | Higher of the two scores |
 |---|---|
 | 1 | 0–35 |
-| 2 | 20–55 |
+| 2 | 15–55 |
 | 3 | 40–85 |
 | 4 | 55–95 |
 | 5 | 70–100 |
 
-Bands overlap on purpose: a one-star wobble is acceptable, a two-star flip is not
-(`rating-band-plan.md` §1).
+v1's 2★ floor was 20; the blocked rule (golden 15-30), overcast golden (10-30) and fiery (5-15)
+allow a 2★ best of 15–19, so the floor drops to 15. Bands overlap on purpose: a one-star wobble is
+acceptable, a two-star flip is not (`rating-band-plan.md` §1).
 
-Checked against every existing prompt rule:
+Every rule that states star or score numbers:
 
-| Rule | Its stated numbers | Fits |
+| Rule (PromptBuilder line) | Its stated numbers | Under the bands |
 |---|---|---|
-| Blocked solar horizon, 1-2★ | fiery 5-20, golden 15-30 (best ≤30) | 1★ ≤35, 2★ ≥20 ✓ |
-| Overcast | fiery 5-15, golden 10-30 | 1★ ✓ |
-| Clear sky, ≤3★ | fiery 20-40, golden 65-85 | 3★ 40–85 ✓ |
-| IDEAL, 4-5★ | fiery 70-90 | 4★ and 5★ ✓ |
-| Thick mid, rate 4 | fiery reduced, unstated | needs best ≥55 (normally golden) |
-| Approach signal, ≤3★ | 20-30 off each score | floored at 40 for 3★, 20 for 2★ |
+| Blocked solar horizon, 1-2★ (:119-122) | fiery 5-20, golden 15-30 | ✓ |
+| Overcast scale (:263-265) | fiery 5-15, golden 10-30 | 1★ ✓ (2★ needs best ≥15) |
+| Clear sky, ≤3★ (:181-183, :262-265) | fiery 20-40, golden 65-85 | 3★ ✓. A clear sky held to 2★ (orientation cap, haze) needs golden ≤55: accepted, the 65-85 assumes good air and a facing horizon |
+| IDEAL, 4-5★ (:126-127) | fiery 70-90 | ✓ |
+| Thick mid, rate 4 (:128-140) | fiery reduced, golden unstated | golden ≥55 carries the 4★ (principle 3). Narrows today's `st-marys` latitude (golden 30-85) but stays inside it |
+| [BUILDING] alone (:271-272) | fiery −15-30, no star cap | IDEAL 5★ with fiery 40-75 needs golden ≥70 or the star stays 4: compliant |
+| Combined approach signal, ≤3★ (:273-287) | scores −20-30 | **reworded:** the penalty stops at the band floor for the star given (3★: higher score ≥40) |
+| Upwind alone, persists (:288-289) | fiery ≤25, golden ≤30 | best ≤30 fits only 1-2★. Collides with IDEAL / thick-mid 4★: **§7 Q1** |
+| Inversion boost (:229-233) | MODERATE +1★, STRONG → 5★ | needs best ≥55 / ≥70, often over a blocked horizon whose ceiling is 30: **§7 Q2** |
+| Valley mist "may rate 4-5" (:356-360) | no horizon colour | same as inversion: **§7 Q2** |
+| Orientation, cap 3, fiery −10-20 (:210-214) | — | ✓ |
+| THIN STRIP 3-4, FAR CORRIDOR "3 available", [CLEARING], coastal suffix | no scores | ✓ |
 
-And against every guard band in `SkyRatingEvalFixtures` (these are regression assertions; this
-change must stay inside them, never edit them):
+Every guard band in `SkyRatingEvalFixtures` (regression assertions: stay inside, never edit) was
+checked by both reviewers against `RegressionBounds(rating, fieryMin, fieryMax, goldenMin,
+goldenMax)` and all eight are satisfiable under the bands.
 
-| Fixture bounds | Compatible |
-|---|---|
-| ≤2★, fiery ≤25, golden ≤35 | ✓ |
-| exactly 4★, fiery 30-85, golden 30-85 | ✓ (best ≥55 inside 85) |
-| 1-3★, fiery ≤70, golden ≤65 (ApproachFalsePositive) | ✓ |
-| 1-3★, fiery ≤40, golden ≤55 (OvercastWithApproach) | ✓ (a 3★ needs golden 40-55) |
-| 3-4★, fiery ≥25 | ✓ |
-| ≤3★, fiery ≤40 | ✓ |
-| exactly 4★, fiery 55-85, golden ≥55 | ✓ |
-| exactly 4★, fiery 60-90 | ✓ |
+**The Low Hauxley card under the bands:** 3★ needs the higher score ≥40, so the approach penalty
+stops there: expect a sky of 3★ with Golden Hour about 40-50. Two things will NOT change: the tide
+still lifts it to 4★ on the card (below the 4★ band, as the combiner is out of scope), and the
+summary's tone is not driven by this change, so "muted and brief" may persist. If it does, that is
+a follow-up on the summary, not a reason to widen this one.
 
-**The Low Hauxley card under the bands:** 3★ needs the best score ≥40, so the approach penalty
-stops there. Expect 3★ with a golden hour of about 40-50, and a sentence that matches "maybe"
-rather than "muted and brief".
+## 5. The change
 
-## 5. Gates
+All edits in `PromptBuilder` (`CoastalPromptBuilder` appends a number-free suffix to the same
+system prompt). The bluebell and woodland builders have their own prompts and are untouched.
 
-Local (Sonnet runs these to green):
-- `PromptBuilderTest` pins the old approach wording (l.978-995). Update those pins to the new text
-  (these are unit tests of the prompt string, not prompt-regression assertions) and add pins for
-  the band rule in the system prompt and on both schema fields.
+- **5a. A STAR AND SCORE BANDS block** after the three scale definitions, stating §3's four
+  principles and §4's table, plus the §7 rulings.
+- **5b. The combined approach clause reworded:** rating clause unchanged; "fiery_sky and
+  golden_hour are each 20-30 points lower than the conditions alone would give, but the HIGHER of
+  the two never falls below the floor of the band for the rating given".
+- **5c. Binding placement** (veto doc: prose moved golden_hour 4.4 points, the field restatement
+  19.5): the "Output your evaluation as JSON with these fields" line and the `golden_hour` schema
+  description both carry the band and the reworded clause; `fiery_sky`'s schema description says
+  it is never raised to meet the band. Both descriptions must still start `0-100 inclusive.`
+  (pinned, `PromptBuilderTest:446`). `rating` stays first in the property order.
+- **5d.** The 3★ headline example "Soft pastels overhead but the horizon's blocked" (:317)
+  contradicts the blocked ceiling; reword to "half-blocked".
+
+## 6. Gates
+
+Local (Sonnet, to green):
+- `PromptBuilderTest` l.978-995: update the old-wording pins to the new text, **keeping both
+  placements pinned** (rules prose and the field list: the measured lesson), add a pin on the
+  `golden_hour` and `fiery_sky` schema descriptions (none exists today), pins for the band block.
+- `PromptGoldenMasterTest`: regenerate `src/test/resources/prompt-golden/*.txt` with
+  `-Dprompt.golden.regenerate=true`; the planner reviews the diff.
 - Backend build ladder through the CI-equivalent `clean verify`.
 
-Stop-points (owner-owned, not run by the session):
-- `Prompt regression — sky` (CI, waits for owner approval; spends real money). Report its result;
-  change no assertion. The eval fixtures in §4 are expected to stay green.
-- `SystemPromptTokenCountTest` (tagged prompt-regression): the change only adds text, so the
-  4,096-token cache floor cannot be crossed downwards. One cache write on deploy (the system
-  prompt and output_config change).
+Owner-run before merge (real money; the session does not run these or change any assertion):
+- **Sky Eval on Haiku 4.5** (Batch Far-Term's model, and the one that ignored prose twice):
+  `-Dsky.runs=8 -Dsky.model=HAIKU`, plus `copt-hill-11mar` and `-15mar` against the 12-run table
+  in `cloud-approach-veto-fix.md`. Watch for golden bunching at a floor (exactly 40), the table
+  read backwards (a high golden lifting the star), and 2★ golden drifting up.
+- `Prompt regression — sky` in CI (waits for owner approval). `ValleyMistPromptRegressionTest`
+  asserts star ranges only.
+- Cost: about four cache writes (inland and coastal × two models). `prompt_hash` starts a new
+  calibration bucket; note it in the changelog.
 
-## 6. After it ships
+## 7. Open owner questions
 
-The sentence that names the approach risk stays (the prompt still asks for it). Cards with the
-approach signal should show bars that match their star. No other rule's star moves by design; if
-the prompt-regression run shows a star moving, that is the finding to report, not to fix by
-editing bounds.
+- **Q1 — upwind alone, the model agrees the cloud persists** (fiery ≤25, golden ≤30), on a sky
+  that IDEAL or thick-mid would rate 4. Either the star comes down to ≤2 (the one place the star
+  follows the scores; it is a blocked horizon in all but name), or that ceiling is lifted.
+  Recommended: star ≤2.
+- **Q2 — foreground boosts (inversion, valley mist).** Their star rates the foreground, not the
+  sky. Either exempt them from the bands (bars stay low under a 4-5★, the summary names the
+  inversion or mist), or let golden_hour rise into the band (breaking the blocked ceiling on
+  inversion mornings). Recommended: exempt.
+- **Q3 — the §4 bands as drafted.**
+
+## 8. Review record, 2026-11-27
+
+Two read-only reviewers. Taken: upwind-alone collision (blocker, §7 Q1); boosts forcing scores up
+(§7 Q2); thick-mid and which score carries the band (§3.3); 2★ floor 15; headline example; "each
+score" read per-score would break `copt-hill-15mar` (§3.2); clear sky at 2★ (§4); Haiku measurement
+(§6); keep both pin placements and pin the schema text (§6); golden masters (§6); "bands never move
+the star" (§3.1); the tide-lifted card and summary tone (§4). Confirmed not a problem: the eight
+fixture bounds, cost beyond four cache writes, other regression tests.
