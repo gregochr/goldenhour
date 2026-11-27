@@ -301,3 +301,27 @@ After "call it by its listed name, adding the name the reader used.", insert:
 `The summary's first sentence says it is a stay-home window; the exceptions follow.`
 - This applies to Ready too: its stay-home tests pass, and this reinforces them.
 - `doesNotSayStayHome` reads only the first sentence (A1). A game-on window is not a stay-home window, so this does not invite a false hit.
+
+**Part C, revised after review (supersedes the text above where they differ):**
+
+*B6, where it runs and when it fires:*
+- The append runs in `AskConversation.submit`, after status is set from `answerable`, never in `ClaudeAskEngine`.
+- It runs only when `answerable()` is true.
+- It runs only when the answer's **first pick has the stored lead's `locationId` and `windowId`**, so it does not fire on an answer about another window, a named area, or another call.
+- Every `rank_spots` result replaces the stored pairing. A result with no companion clears it, and so do the early exits: no favourites, an empty pool, a failure.
+
+*B6, the "already named" test:*
+- Find the companion name's span first (case-insensitive). Then look from there to the sentence end, where a full stop that belongs to an abbreviation inside the name, such as "St.", is not an end.
+- Look for the companion's own rating as `<n>\s?★`.
+- For `TIED`, the same sentence must also match `same|equal|tie|also|both|as well`.
+
+*B6, the sentences:*
+- `YOUR_FAVOURITE` → `<name>, your favourite, is <n>★.` This also reads correctly for names starting "The".
+- `TIED` → `<name> also scores <n>★, the same as <lead>.`
+- `HIGHER_ELSEWHERE` → `<name> scores higher, at <n>★.`
+- When the summary lacks terminal punctuation, add ". " before the sentence.
+- Append only if the result stays within both `SUMMARY_WORDS` and `THREAD_SUMMARY_MAX_CODE_POINTS`.
+
+*B8, reworded:* `When every window the question is about is a stay-home one, the summary's first sentence says so, and the forecast's pick follows as the first exception.` This reconciles B8 with the bestBet rule, and keeps it off the game-on weekend, whose Sunday alone is stay-home.
+
+*Pins:* all four `AskWarningPromptTest` `PRE_W6` digests are re-pinned, with a line added to their comment, and `contains` assertions cover each new sentence.
