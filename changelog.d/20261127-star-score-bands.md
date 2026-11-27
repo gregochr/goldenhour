@@ -1,12 +1,9 @@
-### Changed — the sky star now agrees with its two scores
+### Changed — the combined approach rule's score penalty stops at 40 when the star is 3
 
-The sky prompt now ties the star to its red-sky and golden-hour scores. The higher of the two
-scores must sit in the band for the star given (1: 0-35, 2: 15-55, 3: 40-85, 4: 55-95,
-5: 70-100); golden hour carries the band and red sky is never raised to meet it. The bands never
-raise or lower the star, which still comes only from the rules, and the hard score ceilings
-(blocked solar horizon, upwind cloud alone) win over them. The combined cloud-approach penalty of
-20-30 points now stops at the band floor, so a 3-star can no longer carry scores of 30 and 25.
-Upwind cloud that the model agrees persists now caps the star at 2, binding against the ideal
-scenario and the thick-mid-cloud floor. A star raised by a cloud inversion or valley mist rates
-the foreground, so the bands do not apply to it. The 3-star headline example no longer says
-"blocked". The prompt text changes, so `prompt_hash` changes and a new calibration bucket starts.
+When the cloud-approach rule caps the sky star at 3, its 20-30 point penalty on the red-sky and
+golden-hour scores now stops once the higher of the two reaches 40, so a 3-star no longer carries
+scores that describe a 2-star. Upwind cloud that the model agrees persists (current 60% or more,
+at-event 50% or more, no building trend) now caps the star at 2, binding against the ideal
+scenario and the thick-mid-cloud floor. The 3-star headline example says "half-blocked" rather
+than "blocked". There is no global score-band table. The prompt text changes, so `prompt_hash`
+changes and a new calibration bucket starts.

@@ -425,17 +425,15 @@ public class PromptBuilderTest {
 
             String fiery = configStr.substring(configStr.indexOf("fiery_sky={"));
             fiery = fiery.substring(0, fiery.indexOf("}"));
-            assertThat(fiery).contains("description=0-100 inclusive. Never raised to meet the star band.");
+            assertThat(fiery).contains("description=0-100 inclusive.").doesNotContain("star band");
 
             String golden = configStr.substring(configStr.indexOf("golden_hour={"));
             golden = golden.substring(0, golden.indexOf("}"));
             assertThat(golden)
                     .contains("description=0-100 inclusive. 20-30 points LOWER")
-                    .contains("The higher of fiery_sky and golden_hour sits in the rating's band: "
-                            + "1:0-35, 2:15-55, 3:40-85, 4:55-95, 5:70-100")
-                    .contains("golden_hour carries it")
-                    .contains("the approach penalty stops at the band floor")
-                    .contains("inversion or valley-mist boosted stars are exempt");
+                    .contains("When the rating given is 3, that penalty stops once the higher of "
+                            + "fiery_sky and golden_hour reaches 40.")
+                    .doesNotContain("band");
         }
 
         @Test
@@ -1014,11 +1012,12 @@ public class PromptBuilderTest {
                 // own moved golden_hour by 4.4 points against the 20-30 it asks for (mean 71.4 ->
                 // 67.0 over 12 Haiku runs), the same way the rating cap was ignored until it was
                 // restated on the field. Keep BOTH placements; see the schema description too.
-                // Reworded 2026-11-27 (star-score-coherence-plan.md): the 20-30 clause stays on the
-                // field list but now stops at the band floor, and carries the star band.
+                // Reworded 2026-11-27 (star-score-coherence-plan.md v3): the 20-30 clause stays on the
+                // field list but stops once the higher score reaches 40 when the rating given is 3.
                 .contains("20-30 points LOWER than the conditions alone would "
-                        + "give when that same combined approach signal is present, but that "
-                        + "penalty stops at the band floor")
+                        + "give when that same combined approach signal is present; when the rating "
+                        + "given is 3, the penalty stops once the higher of fiery_sky and "
+                        + "golden_hour reaches 40")
                 // Round 2 (2026-08-18): with no precedence at all the cap lost outright to the
                 // IDEAL-scenario and rate-4-floor imperatives — copt-hill-11mar rated 4 on 8/8
                 // eval runs. Precedence is what makes the cap bind, so it is pinned separately.
@@ -1049,40 +1048,19 @@ public class PromptBuilderTest {
     }
 
     @Test
-    @DisplayName("the star and score bands are stated, with the rules that outrank them")
-    void getSystemPrompt_starScoreBands_areStated() {
-        // docs/engineering/star-score-coherence-plan.md: nothing used to relate the star to its two
-        // scores, so a 3-star could carry bars of 30 and 25. The bands bound the HIGHER score.
+    @DisplayName("the combined approach penalty stops at 40 when the rating is 3, in rules prose and field list")
+    void getSystemPrompt_approachPenalty_stopsAtFortyWhenRatingIsThree() {
+        // Both placements pinned: smaller models follow constraints on the output field list better.
         String prompt = promptBuilder.getSystemPrompt();
 
         assertThat(prompt)
-                .contains("STAR AND SCORE BANDS")
-                .contains("these bands never raise or lower a rating")
-                .contains("Decide the rating first")
-                .contains("the HIGHER of fiery_sky and golden_hour must sit in the band")
-                .contains("1 = 0-35, 2 = 15-55, 3 = 40-85, 4 = 55-95, 5 = 70-100")
-                .contains("golden_hour carries the band; fiery_sky is never raised to meet it")
-                .contains("Hard score ceilings in the rules below")
-                .contains("win over the bands")
-                .contains("a star raised by a cloud inversion boost or by valley mist rates the "
-                        + "foreground, not the sky; the bands do not apply to it");
-        assertThat(prompt.indexOf("STAR AND SCORE BANDS"))
-                .as("the band block follows the three scale definitions")
-                .isGreaterThan(prompt.indexOf("3. Golden Hour Potential"));
-    }
-
-    @Test
-    @DisplayName("the combined approach penalty stops at the band floor, in rules prose and field list")
-    void getSystemPrompt_approachPenalty_stopsAtBandFloor() {
-        String prompt = promptBuilder.getSystemPrompt();
-
-        assertThat(prompt)
-                .contains("The score penalty stops at the band floor: the HIGHER of the two scores "
-                        + "never falls below the floor of the band for the rating given")
-                .contains("golden_hour (0-100; the HIGHER of fiery_sky and golden_hour sits in the "
-                        + "rating's band, 1: 0-35, 2: 15-55, 3: 40-85, 4: 55-95, 5: 70-100, and "
-                        + "golden_hour carries it")
-                .contains("fiery_sky (0-100; never raised to meet the star band)");
+                .contains("When the rating given is 3, the score penalty stops once the higher of "
+                        + "fiery_sky and golden_hour reaches 40, so a 3 never carries scores that "
+                        + "describe a 2")
+                .contains("signal is present; when the rating given is 3, the penalty stops once the "
+                        + "higher of fiery_sky and golden_hour reaches 40), summary")
+                .doesNotContain("STAR AND SCORE BANDS")
+                .doesNotContain("band floor");
     }
 
     @Test

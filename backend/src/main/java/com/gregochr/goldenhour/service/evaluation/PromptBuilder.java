@@ -94,16 +94,6 @@ public class PromptBuilder {
             + "at 4. Thick mid cloud (>80%) at the solar horizon limits colour variety — cap at 4.\n"
             + "  2. Red Sky Potential: 0\u2013100 (dramatic colour, vivid reds/oranges)\n"
             + "  3. Golden Hour Potential: 0\u2013100 (overall light quality, softness)\n\n"
-            + "STAR AND SCORE BANDS: the rating comes only from the rules in this prompt; these "
-            + "bands never raise or lower a rating. Decide the rating first. Then the HIGHER of "
-            + "fiery_sky and golden_hour must sit in the band for that rating: 1 = 0-35, "
-            + "2 = 15-55, 3 = 40-85, 4 = 55-95, 5 = 70-100. The other score may sit lower. "
-            + "golden_hour carries the band; fiery_sky is never raised to meet it. Hard score "
-            + "ceilings in the rules below (the blocked solar horizon, the upwind-alone ceiling) "
-            + "win over the bands. Exemption: a star raised by a cloud inversion boost or by "
-            + "valley mist rates the foreground, not the sky; the bands do not apply to it, the "
-            + "scores stay what the sky earns, and the summary names the inversion or mist as "
-            + "the reason.\n\n"
             + "Key criteria: clear horizon critical (high low cloud >70% = poor for red sky); "
             + "mid/high cloud above clear horizon = ideal canvas for red sky; "
             + "post-rain clearing often vivid; "
@@ -267,12 +257,10 @@ public class PromptBuilder {
             + "Output your evaluation as JSON with these fields: "
             + "rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a [BUILDING] "
             + "trend AND upwind current ≥60%; MAXIMUM 2 when the upwind sample alone shows "
-            + "current ≥60% and at-event ≥50%), fiery_sky (0-100; never raised to meet the star "
-            + "band), golden_hour (0-100; the HIGHER of fiery_sky and golden_hour sits in the "
-            + "rating's band, 1: 0-35, 2: 15-55, 3: 40-85, 4: 55-95, 5: 70-100, and golden_hour "
-            + "carries it; 20-30 points LOWER than the conditions alone would give when that same "
-            + "combined approach signal is present, but that penalty stops at the band floor), "
-            + "summary (1 sentence).\n\n"
+            + "current ≥60% and at-event ≥50%), fiery_sky (0-100), golden_hour (0-100; 20-30 "
+            + "points LOWER than the conditions alone would give when that same combined approach "
+            + "signal is present; when the rating given is 3, the penalty stops once the higher "
+            + "of fiery_sky and golden_hour reaches 40), summary (1 sentence).\n\n"
             + "fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. "
             + "Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.\n"
             + "golden_hour: overall light quality. Clear sky with good visibility scores well. "
@@ -290,9 +278,10 @@ public class PromptBuilder {
             + "risk, not a veto. While both signals stand, three constraints hold on the output: "
             + "fiery_sky is 20-30 points lower than the conditions alone would give, golden_hour "
             + "is likewise 20-30 points lower, and rating is the LOWER of what the sky earns and "
-            + "3. The score penalty stops at the band floor: the HIGHER of the two scores never "
-            + "falls below the floor of the band for the rating given. The rating constraint binds against "
-            + "every rule that authorises 4 or 5, including the IDEAL scenario and the "
+            + "3. When the rating given is 3, the score penalty stops once the higher of "
+            + "fiery_sky and golden_hour reaches 40, so a 3 never carries scores that describe a 2. "
+            + "The rating constraint binds against every rule that authorises 4 or 5, including the "
+            + "IDEAL scenario and the "
             + "thick-mid-cloud rate-4 floor: those state what the sky is worth if the event-time "
             + "snapshot can be trusted, and both approach signals say it may not be. It "
             + "constrains the output only; it discards no evidence. The coned solar-horizon "
@@ -748,9 +737,7 @@ public class PromptBuilder {
                                                         + "current >= 60% and at-event >= 50%.")),
                                         Map.entry("fiery_sky", PromptUtils.ordered(
                                                 "type", "integer",
-                                                "description",
-                                                "0-100 inclusive. Never raised to meet "
-                                                        + "the star band.")),
+                                                "description", "0-100 inclusive.")),
                                         Map.entry("golden_hour", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description",
@@ -758,13 +745,9 @@ public class PromptBuilder {
                                                         + "conditions alone would give when the "
                                                         + "CLOUD APPROACH RISK block shows BOTH a "
                                                         + "[BUILDING] trend AND upwind current "
-                                                        + ">= 60%. The higher of fiery_sky and "
-                                                        + "golden_hour sits in the rating's band: "
-                                                        + "1:0-35, 2:15-55, 3:40-85, 4:55-95, "
-                                                        + "5:70-100; golden_hour carries it; the "
-                                                        + "approach penalty stops at the band "
-                                                        + "floor; inversion or valley-mist boosted "
-                                                        + "stars are exempt.")),
+                                                        + ">= 60%. When the rating given is 3, "
+                                                        + "that penalty stops once the higher of "
+                                                        + "fiery_sky and golden_hour reaches 40.")),
                                         Map.entry("summary", PromptUtils.ordered(
                                                 "type", "string",
                                                 "description",
