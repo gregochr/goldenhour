@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   MATRIX_COLOURS, MATRIX_GRID, buildWarningLanes, cardMarker, matrixCell, matrixText, matrixValue, placeCountLines,
-  validityText, warningsForCard,
+  validityShort, validityText, warningsForCard,
 } from '../utils/warnings.js';
 import { warning } from './warningsFixture.js';
 
@@ -216,6 +216,27 @@ describe('text built from served values', () => {
     expect(validityText({ validFrom: null, validTo: '2026-08-15T07:30:00Z' })).toBeNull();
     expect(validityText({ validFrom: 'x', validTo: 'y' })).toBeNull();
     expect(validityText(null)).toBeNull();
+  });
+
+  it('prints a short validity: once for one UK day, both days otherwise', () => {
+    // BST, same UK day
+    expect(validityShort({ validFrom: '2026-08-14T03:00:00Z', validTo: '2026-08-14T13:00:00Z' }))
+      .toBe('Fri 14 Aug, 04:00\u201314:00');
+    // GMT, same UK day (offset zero)
+    expect(validityShort({ validFrom: '2026-11-27T04:00:00Z', validTo: '2026-11-27T14:00:00Z' }))
+      .toBe('Fri 27 Nov, 04:00\u201314:00');
+    // 23:30Z in summer is 00:30 the next UK day, so these are two UK days
+    expect(validityShort({ validFrom: '2026-08-14T22:00:00Z', validTo: '2026-08-14T22:59:00Z' }))
+      .toBe('Fri 14 Aug, 23:00\u201323:59');
+    expect(validityShort({ validFrom: '2026-08-14T10:00:00Z', validTo: '2026-08-14T23:30:00Z' }))
+      .toBe('Fri 14 Aug, 11:00 \u2013 Sat 15 Aug, 00:30');
+    // different days
+    expect(validityShort({ validFrom: '2026-11-27T04:00:00Z', validTo: '2026-11-28T09:00:00Z' }))
+      .toBe('Fri 27 Nov, 04:00 \u2013 Sat 28 Nov, 09:00');
+    expect(validityShort({ validFrom: null, validTo: '2026-08-15T07:30:00Z' })).toBeNull();
+    expect(validityShort({ validFrom: '2026-08-15T07:30:00Z', validTo: undefined })).toBeNull();
+    expect(validityShort({ validFrom: 'x', validTo: 'y' })).toBeNull();
+    expect(validityShort(null)).toBeNull();
   });
 
   it('lists only the places counts of the named warning, and only where something is covered', () => {

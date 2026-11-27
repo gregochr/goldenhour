@@ -156,6 +156,7 @@ jobs:
         run: |
           ./mvnw -B --no-transfer-progress test -Pprompt-regression \
             -Dtest='ValleyMistPromptRegressionTest' \
+            -Dregression.model="$SKY_MODEL" \
             -DfailIfNoSpecifiedTests=true
 
       - name: Summarise

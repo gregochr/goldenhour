@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.InversionClearance;
 import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.service.InversionScoreCalculator;
 import com.gregochr.goldenhour.service.ValleyMistCalculator;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
@@ -256,8 +257,7 @@ public class PromptBuilder {
             + "separated by a semicolon, dash, or conjunction.\n\n"
             + "Output your evaluation as JSON with these fields: "
             + "rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a [BUILDING] "
-            + "trend AND upwind current ≥60%; MAXIMUM 2 when the upwind sample alone shows "
-            + "current ≥60% and at-event ≥50%), fiery_sky (0-100), golden_hour (0-100; 20-30 "
+            + "trend AND upwind current ≥60%), fiery_sky (0-100), golden_hour (0-100; 20-30 "
             + "points LOWER than the conditions alone would give when that same combined approach "
             + "signal is present; when the rating given is 3, the penalty stops once the higher "
             + "of fiery_sky and golden_hour reaches 40), summary (1 sentence).\n\n"
@@ -280,8 +280,8 @@ public class PromptBuilder {
             + "is likewise 20-30 points lower, and rating is the LOWER of what the sky earns and "
             + "3. When the rating given is 3, the score penalty stops once the higher of "
             + "fiery_sky and golden_hour reaches 40, so a 3 never carries scores that describe a 2. "
-            + "The rating constraint binds against every rule that authorises 4 or 5, including the "
-            + "IDEAL scenario and the "
+            + "The rating constraint binds against "
+            + "every rule that authorises 4 or 5, including the IDEAL scenario and the "
             + "thick-mid-cloud rate-4 floor: those state what the sky is worth if the event-time "
             + "snapshot can be trusted, and both approach signals say it may not be. It "
             + "constrains the output only; it discards no evidence. The coned solar-horizon "
@@ -294,9 +294,7 @@ public class PromptBuilder {
             + "\n"
             + "- Upwind sample alone (no [BUILDING] trend): use at-event value to judge dissipation:\n"
             + "  - current ≥60%, at-event ≥50%: model agrees cloud persists → "
-            + "hard ceiling: fiery_sky ≤25, golden_hour ≤30, and rating is at most 2. That "
-            + "rating cap binds against the IDEAL scenario and the thick-mid-cloud rate-4 floor, "
-            + "as the combined-signal cap does.\n"
+            + "hard ceiling: fiery_sky ≤25, golden_hour ≤30.\n"
             + "  - current ≥60%, at-event <25%: model predicts dissipation in transit → "
             + "apply moderate scepticism — reduce fiery_sky by 15-25 points, do not assume blockage.\n"
             + "  - current ≥60%, at-event 25-50%: uncertain → penalise fiery_sky by 10-20 points.\n"
@@ -324,7 +322,7 @@ public class PromptBuilder {
             + "becomes the card header in the UI, so it must read naturally on its own. Write "
             + "in Claude's voice, not as a clinical assessment. Examples:\n"
             + "  - 4-5★ \"Pre-frontal fire — mid cloud catches colour\"\n"
-            + "  - 3★ \"Soft pastels overhead but the horizon's half-blocked\"\n"
+            + "  - 3★ \"Soft pastels overhead but the horizon's blocked\"\n"
             + "  - 1-2★ \"Blanket overcast — no canvas, no colour\"\n"
             + "  - 1-2★ \"Heavy rain — stay in and edit\"\n"
             + "  - 1-2★ \"Sun blocked at the eastern horizon\"\n"
@@ -364,6 +362,29 @@ public class PromptBuilder {
             + "thin mist with a clear sky above at sunrise is the shot here, and may rate 4\u20135 "
             + "with no horizon colour at all. Fog under 300 m with no clearing is a white frame: "
             + "rate 2.";
+
+    /**
+     * The clearing line a FOGBOUND {@code mist_prone} message carries in place of the generic
+     * "read the MIST/VISIBILITY TREND" line (valley-mist-fogbound-cap-plan). The generic line invited
+     * the model to read a small rise inside the fog as clearing and to write that the fog "will lift".
+     * This one states the answer: none in the window.
+     */
+    public static final String VALLEY_MIST_FOGBOUND_CLEARING =
+            "Clearing: none in the window. Every later slot in the MIST/VISIBILITY TREND stays under "
+            + "300 m, so a small rise inside the fog is not clearing; do not describe the fog as "
+            + "lifting or burning off.";
+
+    /**
+     * The site sentence a FOGBOUND {@code mist_prone} message carries in place of
+     * {@link #VALLEY_MIST_SITE_SENTENCE}. The cloud-approach-veto lesson: a cap stated in prose next to
+     * a "may rate 4-5" permission was overridden by the model (a fogbound Brathay sunrise rated 4), so
+     * FOGBOUND gets its own sentences with no permission in them, and the cap is restated on the
+     * schema's {@code rating} and {@code mist_potential} descriptions.
+     */
+    public static final String VALLEY_MIST_FOGBOUND_SITE_SENTENCE =
+            "This location is a valley-floor / riverside site, and it is fogbound: fog under 300 m with "
+            + "no clearing is a white frame, not the thin-mist shot. MAXIMUM rating 2; the score above "
+            + "measures how sure the fog is, not how good the shot is.";
 
     /** The echo instruction, in the user message so the system prompt stays byte-identical. */
     public static final String VALLEY_MIST_ECHO_INSTRUCTION =
@@ -732,9 +753,9 @@ public class PromptBuilder {
                                                 "description",
                                                 "1-5. MAXIMUM 3 when the CLOUD APPROACH RISK "
                                                         + "block shows BOTH a [BUILDING] trend "
-                                                        + "AND upwind current >= 60%. MAXIMUM 2 "
-                                                        + "when the upwind sample alone shows "
-                                                        + "current >= 60% and at-event >= 50%.")),
+                                                        + "AND upwind current >= 60%. "
+                                                        + "MAXIMUM 2 when the VALLEY MIST "
+                                                        + "CONDITIONS block's band is FOGBOUND.")),
                                         Map.entry("fiery_sky", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
@@ -771,7 +792,8 @@ public class PromptBuilder {
                                                         "FOGBOUND"),
                                                 "description",
                                                 "Only when the message carries a VALLEY MIST "
-                                                        + "CONDITIONS block; omit otherwise.")))))
+                                                        + "CONDITIONS block; omit otherwise. "
+                                                        + "FOGBOUND caps rating at 2.")))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties",
@@ -981,6 +1003,11 @@ public class PromptBuilder {
                 sb.append(String.format("%nSky overnight: mean total cloud %.0f%%",
                         facts.meanCloudPercent()));
             }
+        }
+        if (data.mistPotential() == MistPotential.FOGBOUND) {
+            sb.append(String.format("%n%s%n%s%n%s", VALLEY_MIST_FOGBOUND_CLEARING,
+                    VALLEY_MIST_FOGBOUND_SITE_SENTENCE, VALLEY_MIST_ECHO_INSTRUCTION));
+            return;
         }
         sb.append(String.format(
                 "%nClearing: read the MIST/VISIBILITY TREND above for whether visibility is "

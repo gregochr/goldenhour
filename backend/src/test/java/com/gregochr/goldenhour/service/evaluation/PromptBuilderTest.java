@@ -420,8 +420,7 @@ public class PromptBuilderTest {
             rating = rating.substring(0, rating.indexOf("}"));
             assertThat(rating)
                     .contains("MAXIMUM 3 when the CLOUD APPROACH RISK")
-                    .contains("MAXIMUM 2 when the upwind sample alone shows current >= 60% "
-                            + "and at-event >= 50%");
+                    .doesNotContain("upwind sample alone");
 
             String fiery = configStr.substring(configStr.indexOf("fiery_sky={"));
             fiery = fiery.substring(0, fiery.indexOf("}"));
@@ -1038,8 +1037,7 @@ public class PromptBuilderTest {
                 // attached to the output FIELD better than constraints stated in rules prose, so
                 // the cap is restated where the field itself is declared.
                 .contains("rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a "
-                        + "[BUILDING] trend AND upwind current ≥60%; MAXIMUM 2 when the upwind "
-                        + "sample alone shows current ≥60% and at-event ≥50%)")
+                        + "[BUILDING] trend AND upwind current ≥60%)")
                 // The evidence-nullification clauses and the summary gag are what made this a veto.
                 .doesNotContain("the forecast is UNRELIABLE")
                 .doesNotContain("output rating 1 or 2")
@@ -1061,24 +1059,6 @@ public class PromptBuilderTest {
                         + "higher of fiery_sky and golden_hour reaches 40), summary")
                 .doesNotContain("STAR AND SCORE BANDS")
                 .doesNotContain("band floor");
-    }
-
-    @Test
-    @DisplayName("an upwind-alone persisting cloud caps the rating at 2, binding against IDEAL")
-    void getSystemPrompt_upwindAlonePersists_capsRatingAtTwo() {
-        String prompt = promptBuilder.getSystemPrompt();
-
-        assertThat(prompt)
-                .contains("hard ceiling: fiery_sky ≤25, golden_hour ≤30, and rating is at most 2")
-                .contains("binds against the IDEAL scenario and the thick-mid-cloud rate-4 floor");
-    }
-
-    @Test
-    @DisplayName("the 3-star headline example no longer contradicts the blocked-horizon ceiling")
-    void getSystemPrompt_headlineExample_isHalfBlocked() {
-        assertThat(promptBuilder.getSystemPrompt())
-                .contains("horizon's half-blocked")
-                .doesNotContain("horizon's blocked");
     }
 
     @Test

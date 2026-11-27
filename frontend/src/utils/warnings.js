@@ -437,6 +437,31 @@ export function validityText(warning) {
 }
 
 /**
+ * A warning's validity in the shortest honest form, for the Map's collapsed warning row. UK time throughout; the
+ * caller says so (the row prints "UK time" for screen readers).
+ *
+ * <p>The same UK civil day prints once: {@code "Fri 27 Nov, 04:00–14:00"}. Two UK days print both:
+ * {@code "Fri 27 Nov, 04:00 – Sat 28 Nov, 09:00"}. The day is decided on the UK date, never the UTC one, so a
+ * 23:30Z summer instant is already the next UK day.
+ *
+ * @param {object} warning a served {@code WarningDto}
+ * @returns {?string} null when either instant is missing or unreadable
+ */
+export function validityShort(warning) {
+  if (!warning) return null;
+  const fromMs = instantMs(warning.validFrom);
+  const toMs = instantMs(warning.validTo);
+  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return null;
+  const from = formatDayClockUk(warning.validFrom);
+  const to = formatDayClockUk(warning.validTo);
+  if (from == null || to == null) return null;
+  if (ukDateStr(new Date(fromMs)) === ukDateStr(new Date(toMs))) {
+    return `${from}\u2013${to.slice(to.lastIndexOf(', ') + 2)}`;
+  }
+  return `${from} \u2013 ${to}`;
+}
+
+/**
  * The text marker on a Plan window card: the most severe warning's level word and first weather type, and a
  * count of the others, never a glyph. {@code name} carries every warning's full phrase.
  *
