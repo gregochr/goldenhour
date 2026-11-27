@@ -347,3 +347,26 @@ The owner chose this on 2026-11-27, with a threshold of 5%.
 - The mixed weekend's Saturday is weather-ruled-out (`rated` 0, or `gameOn` 0), and Sunday is game-on, so it is not.
 
 *Tests:* all-stay-home adds the line; one window over 5% does not; exactly 5% does not (a strict `<`); a window with no spread does not; a mostly unlooked-at window does not; typed and night-bound questions do not; overload byte-for-byte equality.
+
+**B9, revised after review (supersedes the text above where they differ):**
+
+*When `allStayHome` is computed:*
+- Only when `basis.question().anchored()`, which means BEST_WEEKEND, BEST_SOON and BEST_NEXT.
+- Never for COASTAL_HIGH: its spread counts every place, not the high-water ones, and ReadyRelevance refuses an inland pick there.
+- Never for AM_OR_PM, which is a comparison.
+
+*Every condition required for the line:*
+- the per-window conditions above hold for every covered window;
+- some covered window carries a `BEST` pick;
+- at least one covered window has `gameOn > 0`. When none does, B2's empty-day lines and "no picks" apply instead.
+
+*The line:*
+`Every window this question covers is a stay-home one: open the summary by saying so, then name the forecast's pick, and any places worth going to as exceptions.`
+This rewording is safe for a 3★ BEST BET, which USER_LESS lets through only as the forecast's pick.
+
+*Fixture figure corrected:* the stay-home Sunday sunset is 4 of 180.
+
+*Additional tests:*
+- COASTAL_HIGH and AM_OR_PM never get the line;
+- no BEST pick in the covered set: no line;
+- every covered window with `gameOn` 0: no B9 line, the B2 lines only.
