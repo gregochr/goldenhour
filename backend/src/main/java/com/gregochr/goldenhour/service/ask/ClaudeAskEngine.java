@@ -21,6 +21,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
+import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
@@ -38,8 +39,12 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -108,6 +113,9 @@ public class ClaudeAskEngine implements AskEngine {
      * forces {@code submit_answer}. Kept out of the system prompt so the fresh and thread prompts
      * are untouched.
      */
+    /** A window is a stay-home one when fewer than this percent of its rated places are game-on (B9). */
+    static final int STAY_HOME_GAME_ON_PCT = 5;
+
     static final String LAST_TURN_LINE = "This is your last turn: call submit_answer now with what you have, "
             + "or with answerable:false and what is missing.";
 
@@ -214,6 +222,102 @@ public class ClaudeAskEngine implements AskEngine {
         return basis == null || basis.question().nightBound() ? List.of() : basis.offer().coveredWindowIds();
     }
 
+    /**
+     * The covered dates of a Ready conversation's question with no place rated 4★ or better in scope, and
+     * mostly scored, which its prompt names so the answer says there is nothing that day (ask regression
+     * triage, B2). The BEST BET's date is left out, and a typed question or a night one has none.
+     */
+    private static List<LocalDate> emptyCoveredDates(AskConversation conversation, AskSnapshot snapshot) {
+        AskAnswerValidator.ReadyBasis basis = conversation.options().readyBasis();
+        if (basis == null || basis.question().nightBound()) {
+            return List.of();
+        }
+        return emptyCoveredDates(basis.offer().coveredWindowIds(), snapshot, conversation.scope());
+    }
+
+    /**
+     * The dates of the covered windows that have no place rated 4★ or better in scope, in date order,
+     * leaving out the date of the window that carries the BEST BET. A date is empty only when every covered
+     * window on it has a spread over {@code scope} with no game-on place and mostly scored regions: the
+     * thin and not-scored regions are fewer than half of the in-scope regions (a region the weather stood
+     * down counts as scored and poor). A covered window with no spread makes its date not empty. The
+     * offer's candidate ids are not read: a question's candidates are filtered further than "worth going
+     * to" (a coastal-high one keeps only high-water windows, a best one drops thin regions), so absence
+     * from them says nothing about the day.
+     *
+     * @param coveredWindowIds the windows the question is about
+     * @param snapshot         the snapshot the windows are read from
+     * @param scope            the regions the conversation is about
+     * @return the dates, earliest first
+     */
+    static List<LocalDate> emptyCoveredDates(List<String> coveredWindowIds, AskSnapshot snapshot,
+            AskScope scope) {
+        Set<LocalDate> notEmpty = new HashSet<>();
+        Set<LocalDate> seen = new HashSet<>();
+        for (String id : coveredWindowIds) {
+            Optional<AskSnapshot.Window> window = snapshot.window(id);
+            if (window.isEmpty()) {
+                continue;
+            }
+            LocalDate date = window.get().date();
+            seen.add(date);
+            boolean bestBet = window.get().pick() != null
+                    && window.get().pick().kind() == BriefingWindow.PickKind.BEST;
+            if (bestBet || !isEmptySpread(snapshot.spread(id, scope))) {
+                notEmpty.add(date);
+            }
+        }
+        return seen.stream().filter(d -> !notEmpty.contains(d)).sorted().toList();
+    }
+
+    /** Whether a window's spread holds no game-on place and is mostly scored; a missing spread is not empty. */
+    private static boolean isEmptySpread(Optional<AskSnapshot.Spread> spread) {
+        return spread.isPresent() && spread.get().gameOn() == 0 && isMostlyScored(spread.get());
+    }
+
+    /**
+     * Whether a spread is mostly scored: the thin and not-scored regions are fewer than half of the in-scope
+     * regions (a region the weather stood down counts as scored). The unlooked-at rule B2 and B9 share.
+     */
+    private static boolean isMostlyScored(AskSnapshot.Spread spread) {
+        AskSnapshot.Spread.Regions regions = spread.regions();
+        int unlooked = orZero(regions.thin()) + orZero(regions.notScored());
+        int total = regions.counted() + orZero(regions.stoodDown()) + unlooked;
+        return total > 0 && unlooked * 2 < total;
+    }
+
+    /**
+     * Whether every window an anchored Ready question covers is a stay-home one (ask regression triage, B9):
+     * each has a spread over the conversation's scope that is mostly scored, rates places, and has fewer than
+     * {@link #STAY_HOME_GAME_ON_PCT} percent of them game-on; some covered window carries the BEST BET; and at
+     * least one has a game-on place (when none does, B2's empty-day lines apply instead). A window with no
+     * spread makes it false, and so does a typed, night-bound, coastal-high or AM-or-PM question.
+     */
+    private static boolean allStayHome(AskConversation conversation, AskSnapshot snapshot) {
+        AskAnswerValidator.ReadyBasis basis = conversation.options().readyBasis();
+        if (basis == null || !basis.question().anchored() || basis.offer().coveredWindowIds().isEmpty()) {
+            return false;
+        }
+        boolean best = false;
+        boolean anyGameOn = false;
+        for (String id : basis.offer().coveredWindowIds()) {
+            Optional<AskSnapshot.Window> window = snapshot.window(id);
+            Optional<AskSnapshot.Spread> spread = snapshot.spread(id, conversation.scope());
+            if (window.isEmpty() || spread.isEmpty() || spread.get().rated() <= 0
+                    || spread.get().gameOn() * 100 >= STAY_HOME_GAME_ON_PCT * spread.get().rated()
+                    || !isMostlyScored(spread.get())) {
+                return false;
+            }
+            best |= window.get().pick() != null && window.get().pick().kind() == BriefingWindow.PickKind.BEST;
+            anyGameOn |= spread.get().gameOn() > 0;
+        }
+        return best && anyGameOn;
+    }
+
+    private static int orZero(Integer n) {
+        return n == null ? 0 : n;
+    }
+
     /** The model for one conversation: the Ready run's pinned model, else the run type's row. */
     private EvaluationModel resolveModel(AskConversation conversation, boolean ready) {
         if (ready) {
@@ -236,7 +340,8 @@ public class ClaudeAskEngine implements AskEngine {
                         .filter(n -> n.kind() != AskWindowKind.AURORA || user.canSeeAurora()).orElse(null);
         AskPromptBuilder.SystemPrompt system = promptBuilder.systemPromptBlocks(snapshot.today(),
                 conversation.scope(), contextWindow, contextNight, snapshot.nights().tonight(), user.hasUser(),
-                !thread.isEmpty(), coveredWindows(conversation), conversation.tools().hasWarningFacts());
+                !thread.isEmpty(), coveredWindows(conversation), conversation.tools().hasWarningFacts(),
+                emptyCoveredDates(conversation, snapshot), allStayHome(conversation, snapshot));
         // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
         // the forecast, one query for names, neither of which should repeat each turn.
         String userMessage = promptBuilder.userMessage(question.sanitised(), thread);

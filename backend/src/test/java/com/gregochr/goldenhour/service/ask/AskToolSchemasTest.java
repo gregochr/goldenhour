@@ -151,7 +151,10 @@ class AskToolSchemasTest {
         assertThat(properties(tool(tools, AskToolSchemas.RANK_SPOTS))).isEqualTo(withoutArea);
         assertThat(properties(tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.RANK_SPOTS)))
                 .isEqualTo(components(AskTools.RankSpotsArgs.class));
-        assertThat(properties(tool(tools, AskToolSchemas.RANK_NIGHT_SPOTS)))
+        Set<String> nightWithoutArea = components(AskTools.RankNightSpotsArgs.class);
+        nightWithoutArea.remove("areaName");
+        assertThat(properties(tool(tools, AskToolSchemas.RANK_NIGHT_SPOTS))).isEqualTo(nightWithoutArea);
+        assertThat(properties(tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.RANK_NIGHT_SPOTS)))
                 .isEqualTo(components(AskTools.RankNightSpotsArgs.class));
         assertThat(properties(tool(tools, AskToolSchemas.GET_HOT_TOPICS)))
                 .isEqualTo(components(AskTools.HotTopicsArgs.class));
@@ -185,6 +188,36 @@ class AskToolSchemasTest {
         assertThat(withUser.description().orElseThrow()).contains("astroWindowId").contains("auroraWindowId")
                 .contains("clear skies tonight");
         assertThat(property(withUser, "kind").get("enum")).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("areaName is on the typed night tool, never the Ready list's, and shares rank_spots' description")
+    void nightAreaNameIsATypedQuestionArgument() {
+        Tool typed = tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.RANK_NIGHT_SPOTS);
+
+        assertThat(properties(typed)).contains("areaName");
+        assertThat(property(typed, "areaName").get("type").asText()).isEqualTo("string");
+        assertThat(property(typed, "areaName").get("description").asText())
+                .isEqualTo(property(tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.RANK_SPOTS),
+                        "areaName").get("description").asText());
+        assertThat(properties(tool(AskToolSchemas.tools(true, true, true), AskToolSchemas.RANK_NIGHT_SPOTS)))
+                .contains("areaName");
+        assertThat(properties(tool(AskToolSchemas.tools(true, false, false), AskToolSchemas.RANK_NIGHT_SPOTS)))
+                .doesNotContain("areaName");
+        assertThat(properties(tool(AskToolSchemas.tools(false, false, false), AskToolSchemas.RANK_NIGHT_SPOTS)))
+                .doesNotContain("areaName");
+    }
+
+    @Test
+    @DisplayName("the favourites description limits itself to the reader's own places and leaves a where-is-best "
+            + "question unset")
+    void favouritesIsLimitedToOwnPlaceQuestions() {
+        String description = property(tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.RANK_SPOTS),
+                "favourites").get("description").asText();
+
+        assertThat(description).contains("True only when the question limits itself to the reader's own bookmarked")
+                .contains("(\"which of my places...\")")
+                .contains("A question asking where is best and also how their favourite looks leaves it unset");
     }
 
     @Test

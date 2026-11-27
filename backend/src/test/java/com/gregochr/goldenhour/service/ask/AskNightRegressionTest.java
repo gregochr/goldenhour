@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -94,7 +95,11 @@ class AskNightRegressionTest {
     private static final Instant GENERATION = Instant.parse("2026-10-09T14:30:00Z");
     private static final Instant LATER_GENERATION = Instant.parse("2026-10-09T15:00:00Z");
 
-    private static final String DURHAM = "County Durham";
+    /**
+     * The region the Durham places sit in, as in production (V191): "Durham coast" is not a region but an alias of
+     * the sub-region {@link #DURHAM_COAST}, inside it. Owner-approved 2026-11-27 (plan A7).
+     */
+    private static final String TYNESIDE = "Northumberland & Tyneside";
     private static final String PENNINES = "North Pennines";
     private static final String NORTHUMBERLAND = "Northumberland";
 
@@ -105,6 +110,22 @@ class AskNightRegressionTest {
     private static final long KIELDER = 105L;
     private static final long DUNSTANBURGH = 106L;
     private static final long WOOD = 107L;
+
+    /** The named area the owner's "Durham coast" resolves to: the coastal places, not the inland wood. */
+    private static final AskSnapshot.Area DURHAM_COAST = new AskSnapshot.Area("Sunderland & the Durham Coast",
+            List.of("Durham coast"), Set.of(SEAHAM, EASINGTON, HARTLEPOOL));
+
+    /**
+     * How "closer to home" names the radius: the nearHome form ("within 25 miles of home") or a drive limit ("within
+     * 40 minutes of home"), which the prompt allows too. Owner-approved 2026-11-27 (plan A8).
+     */
+    /** An alert level overstated in prose: "strong"/"severe" describing the aurora, alert or geomagnetic activity. */
+    static final Pattern OVERSTATED_ALERT = Pattern.compile(
+            "\\b(strong|severe)\\s+(aurora|auroral|geomagnetic|alert|activity|storm)"
+                    + "|\\b(alert|aurora|geomagnetic activity)\\s+(is|was|at)\\s+(strong|severe)",
+            Pattern.CASE_INSENSITIVE);
+
+    static final Pattern AT_RADIUS = Pattern.compile("(miles|minutes) of home", Pattern.CASE_INSENSITIVE);
 
     /** A served aurora sentence unlike anything a model would write on its own, to spot a leak to LITE. */
     private static final String AURORA_MARKER = "clear northern horizon after midnight";
@@ -192,8 +213,8 @@ class AskNightRegressionTest {
                 });
         assertThat(answer.picks()).extracting(AskPick::locationId)
                 .as("a wood is never a night pick, whatever its Bortle class and stars").doesNotContain(WOOD);
-        assertThat(answer.picks()).as("at least one pick is on the Durham coast")
-                .anyMatch(pick -> DURHAM.equals(pick.regionName()));
+        assertThat(answer.picks()).as("at least one pick is on the Durham coast: a location of its named area")
+                .anyMatch(pick -> DURHAM_COAST.locationIds().contains(pick.locationId()));
         assertThat(whys(answer)).as("the reasons quote the served clear-sky forecast")
                 .anyMatch(why -> why.contains("clear") || why.contains("cloud"));
         assertThat(whys(answer)).as("the reasons quote the served Bortle class")
@@ -205,7 +226,11 @@ class AskNightRegressionTest {
 
     /**
      * A PRO asker gets an aurora pick on tonight's aurora night at the place with a result, never the
-     * weather-triaged place, and the alert level in the words.
+     * weather-triaged place, and never an alert level stronger than the state cache's: while the state is
+     * MODERATE the prose does not say "strong" or "severe". Owner-approved 2026-11-27 (plan A6): no prompt text
+     * asks Ask to name the level, so it is not required, and the fixture's aurora sentence is now neutral.
+     * Narrowed 2026-11-27 (owner-approved, "yes, narrow A6"): the ban applies only when strong/severe describes
+     * the aurora, alert or geomagnetic activity, so "strong stargazing conditions" is allowed.
      */
     @Test
     void auroraTonightForAProAsker() {
@@ -221,8 +246,8 @@ class AskNightRegressionTest {
                 .noneMatch(pick -> pick.targetType() == AskWindowKind.AURORA
                         && pick.locationId() == ALLENHEADS);
         assertThat(answer.picks()).extracting(AskPick::locationId).doesNotContain(WOOD);
-        assertThat(prose(answer)).as("the summary names the alert level the state cache reports")
-                .containsAnyOf("moderate", "kp 6", "kp6");
+        assertThat(prose(answer)).as("the summary never overstates the alert level: the state is MODERATE")
+                .doesNotContainPattern(OVERSTATED_ALERT);
         assertLiveAndRanked(answer, PRO);
     }
 
@@ -305,7 +330,7 @@ class AskNightRegressionTest {
             assertThat(outcome.personal()).as("closer to home is personal (nearHome or a drive limit)").isTrue();
         }
         assertThat(answer.summary() + " " + answer.missing()).as("the answer names the radius")
-                .containsIgnoringCase("miles of home");
+                .containsPattern(AT_RADIUS);
         assertThat(answer.picks()).as("each pick is inside the radius or one the earlier answer gave")
                 .allSatisfy(pick -> assertThat(milesFromHome(pick.locationId()) <= RADIUS_MILES
                         || earlier.contains(new AskPickKey(pick.locationId(), pick.windowId())))
@@ -434,13 +459,13 @@ class AskNightRegressionTest {
         LocalDateTime dawn = TOMORROW.atTime(5, 10);
 
         Night astroTonight = new Night(TONIGHT_ASTRO, TONIGHT, AskWindowKind.ASTRO, dusk, dawn, astroRun, List.of(
-                astro(SEAHAM, DURHAM, 5, 4, "Clear skies: 4% low cloud, 6% mid, 3% high cloud"),
-                astro(EASINGTON, DURHAM, 4, 4, "Mostly clear: 12% low cloud, 9% mid, 5% high cloud"),
-                astro(HARTLEPOOL, DURHAM, 3, 5, "Some cloud: 35% low cloud, 20% mid, 10% high cloud"),
+                astro(SEAHAM, TYNESIDE, 5, 4, "Clear skies: 4% low cloud, 6% mid, 3% high cloud"),
+                astro(EASINGTON, TYNESIDE, 4, 4, "Mostly clear: 12% low cloud, 9% mid, 5% high cloud"),
+                astro(HARTLEPOOL, TYNESIDE, 3, 5, "Some cloud: 35% low cloud, 20% mid, 10% high cloud"),
                 astro(ALLENHEADS, PENNINES, 4, 3, "Mostly clear: 10% low cloud, 8% mid, 4% high cloud"),
                 astro(KIELDER, NORTHUMBERLAND, 5, 2, "Clear skies: 2% low cloud, 3% mid, 2% high cloud"),
                 astro(DUNSTANBURGH, NORTHUMBERLAND, 4, 4, "Mostly clear: 14% low cloud, 6% mid, 4% high cloud"),
-                canopy(astro(WOOD, DURHAM, 5, 2, "Clear skies: 3% low cloud, 4% mid, 2% high cloud"))));
+                canopy(astro(WOOD, TYNESIDE, 5, 2, "Clear skies: 3% low cloud, 4% mid, 2% high cloud"))));
         Night auroraTonight = new Night(TONIGHT_AURORA, TONIGHT, AskWindowKind.AURORA, dusk, dawn, astroRun,
                 List.of(aurora(DUNSTANBURGH, NORTHUMBERLAND, 4, 4),
                         triaged(aurora(ALLENHEADS, PENNINES, 4, 3))));
@@ -448,12 +473,12 @@ class AskNightRegressionTest {
                 dawn.plusDays(1), astroRun, List.of(
                 astro(ALLENHEADS, PENNINES, 5, 3, "Clear skies: 3% low cloud, 4% mid, 2% high cloud"),
                 astro(KIELDER, NORTHUMBERLAND, 4, 2, "Mostly clear: 11% low cloud, 7% mid, 4% high cloud"),
-                astro(SEAHAM, DURHAM, 3, 4, "Some cloud: 38% low cloud, 22% mid, 12% high cloud")));
+                astro(SEAHAM, TYNESIDE, 3, 4, "Some cloud: 38% low cloud, 22% mid, 12% high cloud")));
 
         return new AskSnapshot(base.generatedAt(), base.runLabel(), base.today(), base.windows(),
                 base.hotTopics(), base.comingUp(), base.briefingStale(),
                 new Nights(TONIGHT, List.of(astroTonight, auroraTonight, astroTomorrow),
-                        new AuroraState("MODERATE", 6.0)));
+                        new AuroraState("MODERATE", 6.0))).withNames(List.of(DURHAM_COAST), Map.of());
     }
 
     private static NightSpot astro(long id, String region, int stars, int bortle, String cloud) {
@@ -468,7 +493,7 @@ class AskNightRegressionTest {
         return new NightSpot(id, place.name(), region, place.lat(), place.lon(), false, bortle, 21.4, auroraStars,
                 "Astro conditions " + auroraStars + " of 5", "Mostly clear: 10% low cloud", "Excellent visibility",
                 "Moon below the horizon", "WAXING_CRESCENT", 12.0, auroraStars,
-                "Strong geomagnetic activity with a " + AURORA_MARKER, false, null, "MODERATE", 6.0);
+                "Active geomagnetic conditions with a " + AURORA_MARKER, false, null, "MODERATE", 6.0);
     }
 
     private static NightSpot triaged(NightSpot spot) {

@@ -72,7 +72,7 @@ final class AskToolArguments {
         JsonNode in = object(input);
         return new RankNightSpotsArgs(text(in, "night"), text(in, "kind"), strings(in, "regionNames"),
                 whole(in, "minStars"), whole(in, "maxBortle"), whole(in, "maxDriveMinutes"),
-                bool(in, "nearHome"), whole(in, "limit"));
+                bool(in, "nearHome"), whole(in, "limit"), text(in, "areaName"));
     }
 
     /**

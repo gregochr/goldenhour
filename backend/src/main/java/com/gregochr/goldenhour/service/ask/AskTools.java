@@ -35,6 +35,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 /**
  * The read-only tools Claude may call to answer a question (plan §2.2), over one
@@ -247,6 +248,8 @@ public class AskTools {
     private final Set<String> warningsShown = new LinkedHashSet<>();
     private WarningsInfo warningFacts;
     private boolean warningFactsBuilt;
+    /** The lead, companion and kind of the latest {@code rank_spots} result; null when it had no companion. */
+    private CompanionPairing lastCompanion;
     private boolean warningsDelivered;
     private int charsUsed;
     private boolean personal;
@@ -411,9 +414,28 @@ public class AskTools {
      * @param nearHome        true to keep only spots within the asker's saved local radius of home, as the
      *                        crow flies (exactly as {@code rank_spots})
      * @param limit           how many spots, at most {@value AskTools#MAX_NIGHT_SPOTS}
+     * @param areaName        only places in this named area, by its name or another name for it; typed
+     *                        conversations only
      */
     public record RankNightSpotsArgs(String night, String kind, List<String> regionNames, Integer minStars,
-            Integer maxBortle, Integer maxDriveMinutes, Boolean nearHome, Integer limit) {
+            Integer maxBortle, Integer maxDriveMinutes, Boolean nearHome, Integer limit, String areaName) {
+
+        /**
+         * Arguments with no {@code areaName}.
+         *
+         * @param night           the night
+         * @param kind            astro, aurora or any
+         * @param regionNames     regions to rank within
+         * @param minStars        the least rating
+         * @param maxBortle       the highest Bortle class
+         * @param maxDriveMinutes a drive limit in minutes
+         * @param nearHome        true to keep only spots near home
+         * @param limit           how many spots
+         */
+        public RankNightSpotsArgs(String night, String kind, List<String> regionNames, Integer minStars,
+                Integer maxBortle, Integer maxDriveMinutes, Boolean nearHome, Integer limit) {
+            this(night, kind, regionNames, minStars, maxBortle, maxDriveMinutes, nearHome, limit, null);
+        }
     }
 
     // -- result records ---------------------------------------------------------------------
@@ -1065,6 +1087,27 @@ public class AskTools {
     }
 
     /**
+     * The lead, the companion and why it is named, as the latest {@code rank_spots} result returned them.
+     *
+     * @param lead          the lead the answer to a "best" question is built on
+     * @param companion     the other place named beside the lead
+     * @param companionKind why the companion is named
+     */
+    public record CompanionPairing(SpotInfo lead, SpotInfo companion, CompanionKind companionKind) {
+    }
+
+    /**
+     * The pairing of the latest {@code rank_spots} result, read-only. Every {@code rank_spots} call replaces it,
+     * and a result with no companion, an early exit (no favourites, an empty pool, a cap refusal) or a failure
+     * clears it, so it is only ever the last call's own pairing.
+     *
+     * @return the pairing, or empty when the last call had no companion (or none was made)
+     */
+    public Optional<CompanionPairing> lastCompanionPairing() {
+        return Optional.ofNullable(lastCompanion);
+    }
+
+    /**
      * {@code rank_spots}: pick-eligible slots, best first (rating, then the forecast's own pick,
      * then tide preference met, then name).
      *
@@ -1072,6 +1115,8 @@ public class AskTools {
      * @return the spots, or an error result for a bad argument
      */
     public AskToolResult<RankSpotsResult> rankSpots(RankSpotsArgs args) {
+        // Every call replaces the pairing; only a result that is accepted with a companion sets it again below.
+        lastCompanion = null;
         RankSpotsArgs a = args == null ? new RankSpotsArgs(null, null, null, null, null, null, null, null)
                 : args;
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_SPOTS);
@@ -1111,8 +1156,7 @@ public class AskTools {
             for (String name : a.regionNames()) {
                 String canonical = canonicalRegion(name);
                 if (canonical == null) {
-                    return fail("rank_spots", "Unknown region '" + name
-                            + "'. Region names appear in the list_windows and rank_spots results.");
+                    return fail("rank_spots", unknownRegionMessage(name));
                 }
                 if (!scope.contains(canonical)) {
                     return fail("rank_spots", "Region '" + canonical
@@ -1130,10 +1174,7 @@ public class AskTools {
             }
             AskSnapshot.Area area = matchArea(snapshot.areas(), placeWords(a.areaName()));
             if (area == null) {
-                String known = snapshot.areas().isEmpty() ? "none"
-                        : String.join(", ", snapshot.areas().stream().map(AskSnapshot.Area::name).toList());
-                return fail("rank_spots", "Unknown named area '" + cap(a.areaName().strip(), 40) + "'. Known: "
-                        + cap(known, KNOWN_AREAS_CAP) + ".");
+                return fail("rank_spots", unknownAreaMessage(a.areaName()));
             }
             areaIds = area.locationIds();
         }
@@ -1256,6 +1297,9 @@ public class AskTools {
                 if (s != null) {
                     pairs.add(new AskEvidence.Pair(s.locationId(), s.windowId()));
                 }
+            }
+            if (result.lead() != null && result.companion() != null && result.companionKind() != null) {
+                lastCompanion = new CompanionPairing(result.lead(), result.companion(), result.companionKind());
             }
         });
     }
@@ -1926,7 +1970,8 @@ public class AskTools {
                                     ? "ruled out by the weather." : "not scored.");
             case CANOPY -> "A woodland canopy rating: how good the light under the trees is, not the sky.";
             case NEIGHBOUR_OUTLIER ->
-                    "Rated well above the places beside it, so PhotoCast is not suggesting it.";
+                    "Its rating is well above the places beside it, so PhotoCast doubts that star and is not "
+                            + "suggesting it.";
             case THIN_SAMPLE -> "Too few places in this region were rated to recommend one.";
             case BELOW_GAME_ON, PICK -> null;
         };
@@ -2101,8 +2146,7 @@ public class AskTools {
             for (String name : a.regionNames()) {
                 String canonical = canonicalRegion(name);
                 if (canonical == null) {
-                    return fail(RANK_NIGHT, "Unknown region '" + cap(name, 40)
-                            + "'. Region names appear in the list_windows and rank_night_spots results.");
+                    return fail(RANK_NIGHT, unknownRegionMessage(name));
                 }
                 if (!scope.contains(canonical)) {
                     return fail(RANK_NIGHT, "Region '" + canonical
@@ -2111,6 +2155,18 @@ public class AskTools {
                 regionFilter.add(canonical);
             }
         }
+        AskSnapshot.Area area = null;
+        if (a.areaName() != null && !a.areaName().isBlank()) {
+            // The Ready test is "no user" (ClaudeAskEngine); a named area is a typed-conversation filter only.
+            if (!user.hasUser()) {
+                return fail(RANK_NIGHT, "areaName is not available in this conversation.");
+            }
+            area = matchArea(snapshot.areas(), placeWords(a.areaName()));
+            if (area == null) {
+                return fail(RANK_NIGHT, unknownAreaMessage(a.areaName()) + " Or use regionNames.");
+            }
+        }
+        Set<Long> areaIds = area == null ? null : area.locationIds();
         Integer maxDrive = a.maxDriveMinutes();
         if (maxDrive != null) {
             if (!user.hasUser()) {
@@ -2164,11 +2220,16 @@ public class AskTools {
             return finish(RANK_NIGHT, nightResult(date, when, List.of(), null, canSeeAurora, auroraState, null),
                     consulted);
         }
-        List<NightRow> inScope = pool.values().stream().filter(r -> scope.contains(r.spot().regionName())).toList();
+        // A wood's star is the light under the trees, never a sky star: defence only, as the builder drops woods.
+        List<NightRow> inScope = pool.values().stream().filter(r -> scope.contains(r.spot().regionName()))
+                .filter(r -> !r.spot().canopy())
+                .filter(r -> areaIds == null || areaIds.contains(r.spot().locationId())).toList();
 
         String emptyNote = missing;
         if (!regionFilter.isEmpty() && inScope.stream().noneMatch(r -> regionFilter.contains(r.spot().regionName()))) {
             emptyNote = "no night-scored places in " + String.join(", ", regionFilter);
+        } else if (area != null && inScope.isEmpty()) {
+            emptyNote = "no night-scored places in " + area.name();
         }
         int minStars = a.minStars() == null ? DEFAULT_MIN_NIGHT_STARS : Math.clamp(a.minStars(), 1, MAX_NIGHT_STARS);
         Integer maxBortle = a.maxBortle() == null ? null : Math.clamp(a.maxBortle(), 1, MAX_BORTLE);
@@ -2194,6 +2255,8 @@ public class AskTools {
             note = emptyNote;
         } else if (nearHome) {
             note = "Nothing within " + radius + " miles of home matches those filters.";
+        } else if (area != null) {
+            note = "Nothing in " + area.name() + " matches those filters. Try fewer filters or a lower minStars.";
         } else {
             note = NOTHING_NIGHT_MATCHES_NOTE;
         }
@@ -2603,15 +2666,41 @@ public class AskTools {
             return null;
         }
         String wanted = name.strip().toLowerCase(Locale.ROOT);
+        return regionUniverse().stream()
+                .filter(n -> n.toLowerCase(Locale.ROOT).equals(wanted))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** Every region name a region argument may name: the windows' regions and the night spots' regions. */
+    private TreeSet<String> regionUniverse() {
         TreeSet<String> names = new TreeSet<>();
         snapshot.windows().forEach(w -> w.regions().forEach(r -> names.add(r.name())));
         // The night spots' regions count too: a question about a region that has night forecasts and no
         // solar window in the set must still be able to name it.
         snapshot.nights().nights().forEach(n -> n.spots().forEach(s -> names.add(s.regionName())));
-        return names.stream()
-                .filter(n -> n.toLowerCase(Locale.ROOT).equals(wanted))
-                .findFirst()
-                .orElse(null);
+        return names;
+    }
+
+    /**
+     * What a region name that is no region says. In a typed conversation a name that is a named area is told to
+     * be passed as {@code areaName}; otherwise the regions this question may name are listed, so the model can
+     * correct itself ({@code areaName} is mentioned only where it exists).
+     */
+    private String unknownRegionMessage(String name) {
+        if (user.hasUser() && matchArea(snapshot.areas(), placeWords(name)) != null) {
+            return "'" + cap(name, 40) + "' is a named area: pass it as areaName.";
+        }
+        String known = regionUniverse().stream().filter(scope::contains).collect(Collectors.joining(", "));
+        return "Unknown region '" + cap(name, 40) + "'. Known: "
+                + cap(known.isEmpty() ? "none" : known, KNOWN_AREAS_CAP) + ".";
+    }
+
+    /** The failure for an {@code areaName} no named area matches: the names that do. */
+    private String unknownAreaMessage(String areaName) {
+        String known = snapshot.areas().isEmpty() ? "none"
+                : String.join(", ", snapshot.areas().stream().map(AskSnapshot.Area::name).toList());
+        return "Unknown named area '" + cap(areaName.strip(), 40) + "'. Known: " + cap(known, KNOWN_AREAS_CAP) + ".";
     }
 
     private <T> AskToolResult<T> fail(String tool, String message) {

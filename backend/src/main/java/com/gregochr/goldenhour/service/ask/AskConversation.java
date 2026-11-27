@@ -215,7 +215,17 @@ final class AskConversation {
         }
         AskOutcome.Status status = result.answer().answerable() ? AskOutcome.Status.OK
                 : AskOutcome.Status.CANT;
-        return new AskRun(new AskOutcome(status, result.answer(), tools.personal(), turns, tools.uncacheable(),
+        AskAnswer answer = result.answer();
+        if (status == AskOutcome.Status.OK) {
+            // The engine says the favourite companion itself when the model left it out (see AskCompanionLine).
+            String named = AskCompanionLine.apply(answer.summary(), answer.picks(),
+                    tools.lastCompanionPairing().orElse(null));
+            if (!named.equals(answer.summary())) {
+                answer = new AskAnswer(answer.answerable(), named, answer.picks(), answer.events(),
+                        answer.missing(), answer.windows(), answer.warnings());
+            }
+        }
+        return new AskRun(new AskOutcome(status, answer, tools.personal(), turns, tools.uncacheable(),
                 tools.nightsConsulted()), full, null);
     }
 

@@ -29,6 +29,16 @@ public class AskPromptBuilder {
      */
     private static final DateTimeFormatter DAY_MONTH = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH);
 
+    /** Told to an anchored Ready question whose every covered window is a stay-home one (B9). */
+    static final String STAY_HOME_LINE = "Every window this question covers is a stay-home one: open the summary "
+            + "by saying so, then name the forecast's pick, and any places worth going to as exceptions.";
+
+    /** Up to this many covered days with no place worth going to each get their own line in a Ready prompt. */
+    private static final int MAX_EMPTY_DAY_LINES = 2;
+
+    /** More than {@link #MAX_EMPTY_DAY_LINES} such days share one line that lists at most this many. */
+    private static final int MAX_EMPTY_DAYS_LISTED = 3;
+
     /** The sentence of {@link #RULES} that a typed question's prompt rewords for {@code look_up_place}. */
     static final String PLACE_FIT_BEFORE =
             "Questions this does not fit (one place, one tide, one event, the night) need none of it.\n";
@@ -54,18 +64,22 @@ public class AskPromptBuilder {
             reason, then why PhotoCast is or is not suggesting it, then the rest. The summary is cut \
             at 60 words, so keep within that. If its status is not PICK, explain the rating and say \
             in one clause why PhotoCast is not suggesting the place, using the reason given for its \
-            status. Never give it as a pick. If the reader also wants somewhere to go, call \
-            rank_spots. \
+            status. Never give it as a pick. A rated row with no detail is still answerable true: give its \
+            rating, then the reason given for its status as the explanation. If the reader also wants \
+            somewhere to go, call rank_spots. \
             If look_up_place returns no places, no laterTides, no named area, no closestTo and no suggestions, read \
             its note and answer answerable false: when the \
             note says the place is outside the regions this question is about, say exactly that, never \
             that it is not in the forecast; otherwise the place is not in the forecast. The name may be \
             a named area, a group of places such as a landmark ("Hadrian's Wall"): look_up_place then \
-            returns how its places rate in each window; answer from those stars, never as picks. To \
+            returns how its places rate in each window; answer from those stars, never as picks. \
+            For a question about how a named area looks, call look_up_place even when you also call \
+            rank_spots. To \
             suggest places in a named area, call rank_spots with areaName. Each call covers one named \
             area: when the question names several ("Swaledale or Wensleydale"), call once per area; \
             a result's "Also matched areas" note lists the ones it did not answer. A place may also be found by \
             another name ("the Heugh"); call it by its listed name, adding the name the reader used. \
+            Name it in the summary by its listed name too. \
             If the result has closestTo, the reader's spelling matched no place and the result is for \
             the closest name: start the answer "Assuming you mean <name>,". If it has suggestions, call \
             look_up_place again with the one the reader plainly meant and start the answer the same way. \
@@ -125,8 +139,11 @@ public class AskPromptBuilder {
             its field stoodDown counts the regions or places the weather ruled out; those are field \
             names, not words for the reader. Read the spread before the best rating. A window whose \
             rated places are nearly all 3★ or below, with a handful at 4★, is a stay-home window with \
-            a few exceptions, not a good window: say so plainly, quoting the figures as returned ("of \
-            180 rated places, 2 are 4★"), and name the exceptions as exceptions, with their region. A \
+            a few exceptions, not a good window: say so plainly, never calling the window marginal \
+            (marginal is one place's 3★), quoting the figures as returned ("of 180 rated places, 2 are \
+            4★"), and name the exceptions as exceptions, with their region. \
+            When every window the question is about is a stay-home one, the summary's first sentence says so, \
+            and the forecast's pick follows as the first exception. A \
             window that is broadly worth going is one to get excited about: say so and give picks. A \
             window whose regions were all ruled out by the weather is poor everywhere: say so. A \
             window whose regions are mostly not scored or thin is mostly unlooked-at: say that, never \
@@ -134,9 +151,10 @@ public class AskPromptBuilder {
             spread says otherwise. Picks are the places worth going to, best first, up to three at \
             different spots: on a stay-home window only the exceptions worth going to (one is fine, \
             none is fine), each named as an exception.
-            - Never write "game on", "game-on", "stand down", "standing down" or "stood down" in the \
-            summary or a pick's why. Say instead that places are worth going to, or that most places \
-            are not worth going out for, or that the weather rules most places out.
+            - Never write "game on", "game-on", "stand down", "standing down", "stood down" or "marginal" in \
+            the summary or a pick's why. Say instead that places are worth going to, that a window is a \
+            stay-home one, or that most places are not worth going out for, or that the weather rules \
+            most places out.
             - A good investigation usually runs: list_windows; if none of the windows the question \
             is about holds a place worth going to, say so and stop; if one of them is broadly worth \
             going, rank_spots there; if they have pockets, even a couple of exceptions on a stay-home \
@@ -192,13 +210,17 @@ public class AskPromptBuilder {
             'Closer' in a follow-up: pass a maxDriveMinutes smaller than the earlier \
             picks' drive, or nearHome true if it was not used. When nearHome was used, say in the \
             summary that the places are within N miles of home, with N the radius the result returned, and \
-            never say within reach. Quote a drive time for a spot only when a tool returned it. A 3★ \
+            never say within reach. For a named area or a stretch of coast, pass it to \
+            rank_night_spots as areaName. Quote a drive time for a spot only when a tool returned it. A 3★ \
             place is worth considering only close to the reader's home; say so when you offer one. \
             When you quote the spread, say which area it counts, as the result's over says. The \
             spread counts the whole area, not the places within the reader's drive; a drive filter \
             is rank_spots' alone. A rank_spots result may name the reader's favourite places without being asked: \
-            pass favourites true only for a question about their own places. A result with a lead: the lead \
-            is the answer. A companion whose companionKind is TIED also scores the same as the lead: say so. \
+            pass favourites true only when the question limits itself to their own places ("which of my places..."); a \
+            question asking where is best and also how their favourite looks leaves it unset, because the result \
+            already names their favourite. A result with a lead: the lead is the answer. When rank_spots returns a \
+            companion, the summary names it by name with its stars: \
+            A companion whose companionKind is TIED also scores the same as the lead: say so. \
             A companion whose companionKind is YOUR_FAVOURITE is the reader's favourite and ranks lower: \
             say your <name> is <n>★. A companion whose companionKind is HIGHER_ELSEWHERE scores higher than \
             the lead: say <name> scores higher elsewhere. Never call a favourite the best unless it is the \
@@ -378,6 +400,57 @@ public class AskPromptBuilder {
     public SystemPrompt systemPromptBlocks(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
             AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
             List<String> coveredWindowIds, boolean warningsInForce) {
+        return systemPromptBlocks(today, scope, contextWindow, contextNight, tonight, hasUser, hasThread,
+                coveredWindowIds, warningsInForce, List.of());
+    }
+
+    /**
+     * The two-part system prompt, which also names the covered days that hold no place rated 4★ or better, so a
+     * Ready answer says so for each (ask regression triage, B2). With none it is byte for byte the prompt of
+     * the overload above; the cached static part never changes.
+     *
+     * @param today         today on the UK civil calendar
+     * @param scope         the regions asked about; {@link AskScope#ALL} means every region
+     * @param contextWindow the solar window the reader is looking at, or null
+     * @param contextNight  the night the reader is looking at, or null
+     * @param tonight       the date of the night in progress, or null
+     * @param hasUser       whether a user is behind the conversation
+     * @param hasThread     whether the question follows earlier exchanges
+     * @param coveredWindowIds the windows a Ready question is about; empty for a typed question
+     * @param warningsInForce whether a Met Office warning covers a place the question is about
+     * @param emptyDates    the covered dates with no place rated 4★ or better in scope, and mostly scored,
+     *                      the BEST BET's date left out; empty for a typed question
+     * @return the two parts
+     */
+    public SystemPrompt systemPromptBlocks(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
+            AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
+            List<String> coveredWindowIds, boolean warningsInForce, List<LocalDate> emptyDates) {
+        return systemPromptBlocks(today, scope, contextWindow, contextNight, tonight, hasUser, hasThread,
+                coveredWindowIds, warningsInForce, emptyDates, false);
+    }
+
+    /**
+     * The two-part system prompt, which also tells an anchored Ready question that every window it covers is a
+     * stay-home one, so the summary opens by saying so (ask regression triage, B9). With {@code allStayHome}
+     * false it is byte for byte the prompt of the overload above; the cached static part never changes.
+     *
+     * @param today         today on the UK civil calendar
+     * @param scope         the regions asked about; {@link AskScope#ALL} means every region
+     * @param contextWindow the solar window the reader is looking at, or null
+     * @param contextNight  the night the reader is looking at, or null
+     * @param tonight       the date of the night in progress, or null
+     * @param hasUser       whether a user is behind the conversation
+     * @param hasThread     whether the question follows earlier exchanges
+     * @param coveredWindowIds the windows a Ready question is about; empty for a typed question
+     * @param warningsInForce whether a Met Office warning covers a place the question is about
+     * @param emptyDates    the covered dates with no place rated 4★ or better in scope
+     * @param allStayHome   whether every covered window is a stay-home one and the forecast has a pick
+     * @return the two parts
+     */
+    public SystemPrompt systemPromptBlocks(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
+            AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread,
+            List<String> coveredWindowIds, boolean warningsInForce, List<LocalDate> emptyDates,
+            boolean allStayHome) {
         // A typed question (a user behind it) is given look_up_place; the Ready precompute is not, so its rules
         // are RULES byte for byte (AskToolSchemas.tools' withPlaceLookup is the same split).
         String rules = hasUser ? RULES.replace(PLACE_FIT_BEFORE, PLACE_FIT_AFTER) : RULES;
@@ -395,6 +468,10 @@ public class AskPromptBuilder {
             sb.append("The question is about these windows: ")
                     .append(String.join(", ", coveredWindowIds))
                     .append(". Every pick must be on one of these windows.\n");
+        }
+        appendEmptyDays(sb, emptyDates);
+        if (allStayHome) {
+            sb.append(STAY_HOME_LINE).append('\n');
         }
         if (contextWindow != null) {
             sb.append("The reader is looking at ")
@@ -418,6 +495,27 @@ public class AskPromptBuilder {
         }
         String whole = sb.toString();
         return new SystemPrompt(whole.substring(0, staticLength), whole.substring(staticLength));
+    }
+
+    /**
+     * Names the covered days that have no place worth going to: one line for each of one or two days, or one
+     * line listing the first three when there are more.
+     */
+    private static void appendEmptyDays(StringBuilder sb, List<LocalDate> emptyDates) {
+        if (emptyDates == null || emptyDates.isEmpty()) {
+            return;
+        }
+        if (emptyDates.size() <= MAX_EMPTY_DAY_LINES) {
+            for (LocalDate date : emptyDates) {
+                sb.append(DAY_MONTH.format(date))
+                        .append(" has no place worth going to: say so in the summary, naming the day.\n");
+            }
+            return;
+        }
+        List<String> days = emptyDates.stream().limit(MAX_EMPTY_DAYS_LISTED).map(DAY_MONTH::format).toList();
+        sb.append(String.join(", ", days.subList(0, days.size() - 1))).append(" and ")
+                .append(days.get(days.size() - 1))
+                .append(" have no place worth going to: say so in the summary, naming each day.\n");
     }
 
     /**
