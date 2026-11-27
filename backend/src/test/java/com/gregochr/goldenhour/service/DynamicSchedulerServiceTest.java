@@ -167,6 +167,53 @@ class DynamicSchedulerServiceTest {
     }
 
     @Test
+    @DisplayName("initSchedules disables ci_spend_poll while photocast.ci-spend is off or has no token")
+    void initSchedules_disablesCiSpendJobWhenOffOrTokenless() {
+        com.gregochr.goldenhour.config.CiSpendProperties ciSpend =
+                new com.gregochr.goldenhour.config.CiSpendProperties();
+        ciSpend.setEnabled(true);
+        DynamicSchedulerService gated = new DynamicSchedulerService(repository, fireLog, taskScheduler,
+                auroraProperties, new com.gregochr.goldenhour.config.WarningsProperties(), ciSpend, solarTriggers,
+                solarCatchUp, java.time.Clock.systemUTC());
+        SchedulerJobConfigEntity poll = fixedDelayJob("ci_spend_poll", 3600000L, SchedulerJobStatus.ACTIVE);
+        poll.setConfigSource(DynamicSchedulerService.CI_SPEND_CONFIG_SOURCE);
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
+
+        gated.initSchedules();
+
+        assertThat(DynamicSchedulerService.CI_SPEND_CONFIG_SOURCE).isEqualTo("photocast.ci-spend.enabled");
+        assertThat(poll.getStatus()).isEqualTo(SchedulerJobStatus.DISABLED_BY_CONFIG);
+        assertThat(poll.getStatusBeforeConfigDisable()).isEqualTo(SchedulerJobStatus.ACTIVE);
+        verify(taskScheduler, never()).scheduleWithFixedDelay(any(Runnable.class), any(Duration.class));
+    }
+
+    @Test
+    @DisplayName("initSchedules restores ci_spend_poll to ACTIVE and schedules it once enabled with a token")
+    void initSchedules_enablesCiSpendJobWhenActive() {
+        com.gregochr.goldenhour.config.CiSpendProperties ciSpend =
+                new com.gregochr.goldenhour.config.CiSpendProperties();
+        ciSpend.setEnabled(true);
+        ciSpend.setGithubToken("a_token");
+        DynamicSchedulerService gated = new DynamicSchedulerService(repository, fireLog, taskScheduler,
+                auroraProperties, new com.gregochr.goldenhour.config.WarningsProperties(), ciSpend, solarTriggers,
+                solarCatchUp, java.time.Clock.systemUTC());
+        SchedulerJobConfigEntity poll = fixedDelayJob("ci_spend_poll", 3600000L,
+                SchedulerJobStatus.DISABLED_BY_CONFIG);
+        poll.setConfigSource(DynamicSchedulerService.CI_SPEND_CONFIG_SOURCE);
+        poll.setStatusBeforeConfigDisable(SchedulerJobStatus.ACTIVE);
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
+        when(taskScheduler.scheduleWithFixedDelay(org.mockito.ArgumentMatchers.argThat(r -> r != null),
+                org.mockito.ArgumentMatchers.eq(Duration.ofMillis(3600000L))))
+                .thenReturn(mock(ScheduledFuture.class));
+        gated.registerJobTarget("ci_spend_poll", () -> { });
+
+        gated.initSchedules();
+
+        assertThat(poll.getStatus()).isEqualTo(SchedulerJobStatus.ACTIVE);
+        assertThat(poll.getStatusBeforeConfigDisable()).isNull();
+    }
+
+    @Test
     @DisplayName("a warnings-gated job is not touched by the aurora flag")
     void initSchedules_auroraFlagDoesNotGateWarningsJob() {
         SchedulerJobConfigEntity poll = fixedDelayJob("weather_warning_poll", 300000L,

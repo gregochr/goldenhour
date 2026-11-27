@@ -68,4 +68,48 @@ class SecretRedactorTest {
         assertThat(SecretRedactor.redactKeys("https://x.test/a?monkey=1&turkey=2"))
                 .isEqualTo("https://x.test/a?monkey=1&turkey=2");
     }
+
+    @Test
+    @DisplayName("an Authorization Bearer header and a bare bearer token are masked, in any case")
+    void masksBearer() {
+        assertThat(SecretRedactor.redactKeys("Authorization: Bearer abc123.DEF-456_xyz"))
+                .isEqualTo("Authorization: Bearer ***");
+        assertThat(SecretRedactor.redactKeys("sent bearer TOKENVALUE99 to the host"))
+                .isEqualTo("sent bearer *** to the host");
+    }
+
+    @Test
+    @DisplayName("the word bearer in prose is left alone")
+    void leavesProseBearer() {
+        assertThat(SecretRedactor.redactKeys("the bearer of bad news")).isEqualTo("the bearer of bad news");
+    }
+
+    @Test
+    @DisplayName("GitHub fine-grained and classic token shapes are masked wherever they appear")
+    void masksGithubTokens() {
+        assertThat(SecretRedactor.redactKeys("token github_pat_11ABCDEFG0abcdefghij_klmnopqrst failed"))
+                .isEqualTo("token *** failed");
+        assertThat(SecretRedactor.redactKeys("ghs_abcdefghijklmnopqrstuvwx and ghp_0123456789abcdefghij"))
+                .isEqualTo("*** and ***");
+    }
+
+    @Test
+    @DisplayName("a signed blob URL has its sig, se, skoid, sktid and sv values masked")
+    void masksSignedUrlParameters() {
+        String url = "I/O error on GET request for \"https://blob.test/a/b?sv=2024-01-01&se=2026-11-27T10%3A00Z"
+                + "&skoid=11111111&sktid=22222222&sig=AbCd%2Fef%3D&rscd=attachment\": timed out";
+
+        String masked = SecretRedactor.redactKeys(url);
+
+        assertThat(masked).isEqualTo("I/O error on GET request for \"https://blob.test/a/b?sv=***&se=***"
+                + "&skoid=***&sktid=***&sig=***&rscd=attachment\": timed out");
+        assertThat(masked).doesNotContain("AbCd");
+    }
+
+    @Test
+    @DisplayName("parameters that merely contain sig or se are untouched")
+    void leavesSimilarParameters() {
+        assertThat(SecretRedactor.redactKeys("https://x.test/a?design=1&user=2"))
+                .isEqualTo("https://x.test/a?design=1&user=2");
+    }
 }
