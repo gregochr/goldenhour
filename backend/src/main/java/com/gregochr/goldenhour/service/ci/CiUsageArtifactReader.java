@@ -192,10 +192,14 @@ public class CiUsageArtifactReader {
         }
         int calls = requiredRange(m.calls(), MAX_CALLS, "calls");
         int errored = requiredRange(m.erroredCalls(), MAX_CALLS, "erroredCalls");
+        long cacheWrite = requiredTokens(m.cacheWrite(), "cacheWrite");
+        long cacheWrite1h = requiredTokens(m.cacheWrite1h(), "cacheWrite1h");
+        if (cacheWrite1h > cacheWrite) {
+            throw new InvalidArtifactException("cacheWrite1h exceeds cacheWrite");
+        }
         return new ModelUsage(m.model(), calls, errored,
                 requiredTokens(m.input(), "input"), requiredTokens(m.output(), "output"),
-                requiredTokens(m.cacheRead(), "cacheRead"), requiredTokens(m.cacheWrite(), "cacheWrite"),
-                requiredTokens(m.cacheWrite1h(), "cacheWrite1h"));
+                requiredTokens(m.cacheRead(), "cacheRead"), cacheWrite, cacheWrite1h);
     }
 
     private static void requireRange(Integer value, int max, String field) throws InvalidArtifactException {

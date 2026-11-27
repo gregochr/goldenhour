@@ -54,10 +54,10 @@ class GitHubActionsConfigTest {
     @Test
     @DisplayName("the bean sends the configured token as a Bearer credential")
     void beanSendsTheToken() {
-        GitHubActionsClient client = new GitHubActionsConfig().gitHubActionsClient(properties("real-token-1"));
+        GitHubActionsClient client = new GitHubActionsConfig().gitHubActionsClient(properties("real_token_1"));
 
         assertThat(client.listCommitPulls("o", "r", "sha")).isEqualTo("[]");
-        assertThat(authorization).containsExactly("Bearer real-token-1");
+        assertThat(authorization).containsExactly("Bearer real_token_1");
     }
 
     @Test

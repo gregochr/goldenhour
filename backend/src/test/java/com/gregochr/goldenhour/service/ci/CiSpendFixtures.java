@@ -41,7 +41,14 @@ final class CiSpendFixtures {
     static String attemptJson(String status, String event, String sha, String displayTitle, String pullRequests) {
         return "{\"id\":1,\"status\":\"" + status + "\",\"conclusion\":\"success\",\"event\":\"" + event
                 + "\",\"head_sha\":\"" + sha + "\",\"display_title\":\"" + displayTitle + "\",\"pull_requests\":"
-                + pullRequests + ",\"run_started_at\":\"2026-11-27T09:00:00Z\"}";
+                + pullRequests + ",\"run_started_at\":\"2026-11-27T09:00:00Z\","
+                + "\"updated_at\":\"2026-11-27T11:30:00Z\"}";
+    }
+
+    /** The same attempt with an explicit last-updated time. */
+    static String attemptJsonUpdatedAt(String updatedAt, String pullRequests) {
+        return attemptJson("completed", "pull_request", "0123456789abcdef0123456789abcdef01234567", "feat: a title",
+                pullRequests).replace("2026-11-27T11:30:00Z", updatedAt);
     }
 
     /** One job with a paid step; {@code stepStartedAt} may be null (the step never started). */

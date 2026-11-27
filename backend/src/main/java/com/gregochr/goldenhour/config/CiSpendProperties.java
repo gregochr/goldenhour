@@ -27,6 +27,8 @@ import org.springframework.validation.annotation.Validated;
 @Setter
 public class CiSpendProperties {
 
+    private static final java.util.regex.Pattern TOKEN_SHAPE = java.util.regex.Pattern.compile("[A-Za-z0-9_]+");
+
     /** Default look-back window in days. */
     static final int DEFAULT_LOOKBACK_DAYS = 14;
 
@@ -41,11 +43,13 @@ public class CiSpendProperties {
 
     /** The repository as {@code owner/name}. */
     @NotBlank
-    @Pattern(regexp = "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", message = "must be owner/name")
+    @Pattern(regexp = "(?!\\.{1,2}/)[A-Za-z0-9_.-]{1,100}/(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,100}",
+            message = "must be owner/name")
     private String repository = "gregochr/goldenhour";
 
     /** The workflow file whose runs are read. */
     @NotBlank
+    @Pattern(regexp = "[A-Za-z0-9_.-]+\\.ya?ml", message = "must be a workflow file name ending .yml or .yaml")
     private String workflowFile = "prompt-regression.yml";
 
     /** How many days back to look for workflow runs. Set 90 once to backfill. */
@@ -59,6 +63,7 @@ public class CiSpendProperties {
 
     /** The GitHub API root. */
     @NotBlank
+    @Pattern(regexp = "https://[^/?#@]+(/.*)?", message = "must be an https URL with no credentials")
     private String apiBaseUrl = "https://api.github.com";
 
     /**
@@ -67,7 +72,18 @@ public class CiSpendProperties {
      * @return true when a token is present
      */
     public boolean hasToken() {
-        return githubToken != null && !githubToken.isBlank();
+        return githubToken != null && TOKEN_SHAPE.matcher(githubToken).matches();
+    }
+
+    /**
+     * Sets the token, trimmed. A value that is not letters, digits and underscores is kept but never counts as a
+     * token ({@link #hasToken()} is false), so it can neither activate the job nor reach a header, and no message
+     * ever carries it.
+     *
+     * @param githubToken the raw configured value
+     */
+    public void setGithubToken(String githubToken) {
+        this.githubToken = githubToken == null ? "" : githubToken.trim();
     }
 
     /**

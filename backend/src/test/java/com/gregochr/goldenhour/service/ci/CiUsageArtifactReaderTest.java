@@ -159,6 +159,13 @@ class CiUsageArtifactReaderTest {
                 "cacheWrite1h");
     }
 
+    @Test
+    @DisplayName("a 1-hour cache write larger than the total cache write is rejected")
+    void rejectsOneHourAboveTotal() {
+        assertRejected(skyZip(valid(model("m1", "1", "1").replace("\"cacheWrite1h\":9000", "\"cacheWrite1h\":21001"))),
+                "exceeds cacheWrite");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
         "not json at all TOP-SECRET-FILE-CONTENT",

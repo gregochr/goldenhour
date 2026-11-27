@@ -45,11 +45,61 @@ class CiSpendPropertiesTest {
         p.setGithubToken(null);
         assertThat(p.hasToken()).isFalse();
 
-        p.setGithubToken("a-token");
+        p.setGithubToken("a_token");
         assertThat(p.isActive()).isTrue();
 
         p.setEnabled(false);
         assertThat(p.isActive()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the token is trimmed on bind, and only letters, digits and underscores count as a token")
+    void tokenShape() {
+        CiSpendProperties p = new CiSpendProperties();
+        p.setEnabled(true);
+
+        p.setGithubToken("  github_pat_ABC123  ");
+        assertThat(p.getGithubToken()).isEqualTo("github_pat_ABC123");
+        assertThat(p.isActive()).isTrue();
+
+        for (String bad : new String[] {"abc\ndef", "abc def", "abc\r\nX-Evil: 1", "tok-en", "tok.en", "to\tken"}) {
+            p.setGithubToken(bad);
+            assertThat(p.hasToken()).as("bad token").isFalse();
+            assertThat(p.isActive()).isFalse();
+            assertThat(p.toString()).doesNotContain("Evil").contains("tokenConfigured=false");
+        }
+    }
+
+    @Test
+    @DisplayName("repository, workflow file and API URL reject dot segments, non-yaml names, non-https and userinfo")
+    void shapeValidation() {
+        for (String bad : new String[] {"./x", "../x", "x/.", "x/..", "a/b/c", "/x", "x/", "a b/c"}) {
+            CiSpendProperties p = new CiSpendProperties();
+            p.setRepository(bad);
+            assertThat(VALIDATOR.validate(p)).as(bad).extracting(v -> v.getPropertyPath().toString())
+                    .containsExactly("repository");
+        }
+        for (String bad : new String[] {"x.txt", "../x.yml", "a/b.yml", "x"}) {
+            CiSpendProperties p = new CiSpendProperties();
+            p.setWorkflowFile(bad);
+            assertThat(VALIDATOR.validate(p)).as(bad).extracting(v -> v.getPropertyPath().toString())
+                    .containsExactly("workflowFile");
+        }
+        String[] badUrls = {"http://api.github.com", "https://", "https://u:p@api.github.com", "https://a@b.test",
+                "ftp://x"};
+        for (String bad : badUrls) {
+            CiSpendProperties p = new CiSpendProperties();
+            p.setApiBaseUrl(bad);
+            assertThat(VALIDATOR.validate(p)).as(bad).extracting(v -> v.getPropertyPath().toString())
+                    .containsExactly("apiBaseUrl");
+        }
+        CiSpendProperties ok = new CiSpendProperties();
+        ok.setRepository("my-org/my.repo_1");
+        ok.setWorkflowFile("ci.yaml");
+        ok.setApiBaseUrl("https://github.example.com/api/v3");
+        assertThat(VALIDATOR.validate(ok)).isEmpty();
+        ok.setRepository(".github/.x");
+        assertThat(VALIDATOR.validate(ok)).isEmpty();
     }
 
     @Test

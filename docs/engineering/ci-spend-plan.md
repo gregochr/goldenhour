@@ -68,7 +68,8 @@ records `SystemPromptTokenCountTest`, which uses the free `countTokens`. `Prompt
 ### Merging and uploading (workflow)
 
 - New `scripts/prompt-regression-usage.py` (stdlib only, `python3 -I`, always exits 0, like the summary script).
-  - Arguments: `--suite`, `--shards DIR`, `--reports DIR`, `--out FILE`.
+  - Arguments: `--suite` only. Every path is derived from the script's own location (the repository root is two
+    levels up), so no caller-supplied text reaches the filesystem.
   - It reads `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `HEAD_SHA`, `PR_NUMBER` and `STARTED_AT` from the
     environment.
   - It sums `shard-*.json` only. It ignores `*.tmp`, and skips a malformed shard with a warning.
@@ -82,7 +83,7 @@ records `SystemPromptTokenCountTest`, which uses the free `countTokens`. `Prompt
   ```
   - `erroredCalls`, `cacheWrite1h` and `complete` extend the handoff's example. `complete` is false when no
     surefire report exists. With no shards it writes `models: []`.
-  - It appends one line of token totals to `$GITHUB_STEP_SUMMARY`.
+  - It prints one line of token totals to stdout, and the workflow appends that line to `$GITHUB_STEP_SUMMARY`.
 - `prompt-regression.yml`, in **both** paid jobs:
   - Job env:
     - `PROMPT_REGRESSION_USAGE_DIR: ${{ github.workspace }}/backend/target/prompt-regression-usage`;
@@ -215,8 +216,15 @@ endpoints, so config is never served.
       A job cancelled while queued or before Maven spent nothing and gets no row.
    3. For each suite that ran, find the artifact `prompt-regression-usage-<suite>-<n>` (`/runs/{id}/artifacts`,
       filtered by `name`), and check `expired` and `size_in_bytes` ≤ 1 MB before downloading.
-   4. When every suite that ran ends with a stored row, insert the `ci_spend_attempt` row. A suite whose
-      artifact was invalid leaves the attempt unsettled, so it is retried until it leaves the window.
+   4. Settle the attempt (insert the `ci_spend_attempt` row) when every suite that ran is final:
+      - a `KNOWN` or `UNPRICED` row is final;
+      - an artifact-less suite (`UNKNOWN`) is final only once the attempt's `updated_at` is more than **one hour**
+        old. Artifacts upload during the job, so a completed attempt cannot gain one later; the hour is a
+        listing-lag grace, during which the attempt stays unsettled and an `UNKNOWN` row can still be upgraded;
+      - an invalid artifact is retried and the attempt settles anyway after **3 rejected polls** (logged once at
+        settle; the count is in memory, so a restart only means a few more tries).
+      Identity note: `pull_requests` on the attempt is usually empty for an open same-repository PR, so the
+      `commits/{sha}/pulls` fallback (step 5) is the normal way a PR number is found, not an edge case.
 5. **Untrusted input.** A same-repository PR head controls the workflow, so the artifact is attacker-influenced.
    - The download stream is capped at 1 MB, whatever `Content-Length` says.
    - The zip is read in memory with `ZipInputStream`, through a counting stream that fails past 64 KB

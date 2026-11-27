@@ -193,7 +193,7 @@ class DynamicSchedulerServiceTest {
         com.gregochr.goldenhour.config.CiSpendProperties ciSpend =
                 new com.gregochr.goldenhour.config.CiSpendProperties();
         ciSpend.setEnabled(true);
-        ciSpend.setGithubToken("a-token");
+        ciSpend.setGithubToken("a_token");
         DynamicSchedulerService gated = new DynamicSchedulerService(repository, fireLog, taskScheduler,
                 auroraProperties, new com.gregochr.goldenhour.config.WarningsProperties(), ciSpend, solarTriggers,
                 solarCatchUp, java.time.Clock.systemUTC());
@@ -202,7 +202,8 @@ class DynamicSchedulerServiceTest {
         poll.setConfigSource(DynamicSchedulerService.CI_SPEND_CONFIG_SOURCE);
         poll.setStatusBeforeConfigDisable(SchedulerJobStatus.ACTIVE);
         when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(poll));
-        when(taskScheduler.scheduleWithFixedDelay(any(Runnable.class), any(Duration.class)))
+        when(taskScheduler.scheduleWithFixedDelay(org.mockito.ArgumentMatchers.argThat(r -> r != null),
+                org.mockito.ArgumentMatchers.eq(Duration.ofMillis(3600000L))))
                 .thenReturn(mock(ScheduledFuture.class));
         gated.registerJobTarget("ci_spend_poll", () -> { });
 

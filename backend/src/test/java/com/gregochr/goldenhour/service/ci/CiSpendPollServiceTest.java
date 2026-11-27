@@ -31,6 +31,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
@@ -55,6 +56,7 @@ import static com.gregochr.goldenhour.service.ci.CiSpendFixtures.SONNET_55_ID;
 import static com.gregochr.goldenhour.service.ci.CiSpendFixtures.artifactDoc;
 import static com.gregochr.goldenhour.service.ci.CiSpendFixtures.artifactsJson;
 import static com.gregochr.goldenhour.service.ci.CiSpendFixtures.attemptJson;
+import static com.gregochr.goldenhour.service.ci.CiSpendFixtures.attemptJsonUpdatedAt;
 import static com.gregochr.goldenhour.service.ci.CiSpendFixtures.jobJson;
 import static com.gregochr.goldenhour.service.ci.CiSpendFixtures.jobsJson;
 import static com.gregochr.goldenhour.service.ci.CiSpendFixtures.manyRunsJson;
@@ -68,6 +70,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -200,7 +203,12 @@ class CiSpendPollServiceTest {
 
     /** Stubs a completed PR attempt on which only the sky suite ran, and returns nothing: the zip is the caller's. */
     private void stubSkyOnly(long runId, int attempt, byte[] zip) throws ArtifactDownloadException {
-        stubAttempt(runId, attempt, pullRequestAttempt());
+        stubSkyOnly(runId, attempt, zip, pullRequestAttempt());
+    }
+
+    private void stubSkyOnly(long runId, int attempt, byte[] zip, String attemptJson)
+            throws ArtifactDownloadException {
+        stubAttempt(runId, attempt, attemptJson);
         stubJobs(runId, attempt, skyJob(attempt),
                 jobJson(CiSpendPollService.ASK_JOB_NAME, attempt, "skipped", CiSpendPollService.ASK_STEP_NAME,
                         null));
@@ -285,7 +293,11 @@ class CiSpendPollServiceTest {
     @DisplayName("first poll: reads the attempt and jobs, stores a priced KNOWN row from the API's identity, settles")
     void firstPollInsertsAKnownRow() throws Exception {
         stubList(RUN, 1);
-        stubSkyOnly(RUN, 1, skyZip(RUN, 1, SONNET_MODEL));
+        // GitHub reports an empty pull_requests for an open same-repository PR, so the commits fallback is the
+        // normal way a PR number is found.
+        stubSkyOnly(RUN, 1, skyZip(RUN, 1, SONNET_MODEL),
+                attemptJson("completed", "pull_request", SHA, "feat: a title", "[]"));
+        when(client.listCommitPulls(OWNER, REPO, SHA)).thenReturn("[{\"number\":1912}]");
         when(exchangeRateService.getRate(JOB_DAY)).thenReturn(0.8);
 
         SchedulerFireOutcome.Report report = poll();
@@ -504,7 +516,7 @@ class CiSpendPollServiceTest {
     }
 
     @Test
-    @DisplayName("an UNKNOWN row is upgraded in place when a valid artifact turns up, and then the attempt settles")
+    @DisplayName("within the one-hour grace an UNKNOWN row is upgraded when a valid artifact turns up, then it settles")
     void unknownIsUpgraded() throws Exception {
         CiSpendRunEntity unknown = existingRow(3L, "UNKNOWN", null);
         stubList(RUN, 1);
@@ -843,6 +855,105 @@ class CiSpendPollServiceTest {
     }
 
     @Test
+    @DisplayName("a title cut at 300 characters never splits a surrogate pair")
+    void titleTruncationKeepsSurrogatePairsWhole() throws Exception {
+        stubList(RUN, 1);
+        stubAttempt(RUN, 1, attemptJson("completed", "pull_request", SHA,
+                "x".repeat(299) + "\uD83D\uDE00tail", PR_ARRAY));
+        stubJobs(RUN, 1, skyJob(1));
+        stubArtifacts(RUN, 1, "sky", artifactsJson("prompt-regression-usage-sky-1", ARTIFACT, false, 100));
+        stubZipRedirect(ARTIFACT, LOCATION);
+        stubDownload(LOCATION, skyZip(RUN, 1, ""));
+        when(exchangeRateService.getRate(JOB_DAY)).thenReturn(0.8);
+
+        poll();
+
+        assertThat(savedRun().getPrTitle()).isEqualTo("x".repeat(299));
+    }
+
+    @Test
+    @DisplayName("the exchange rate is looked up before the write transaction opens, never inside it")
+    void exchangeRateIsLookedUpBeforeTheTransaction() throws Exception {
+        stubList(RUN, 1);
+        stubSkyOnly(RUN, 1, skyZip(RUN, 1, SONNET_MODEL));
+        when(exchangeRateService.getRate(JOB_DAY)).thenReturn(0.8);
+
+        poll();
+
+        InOrder order = inOrder(exchangeRateService, transactionManager);
+        order.verify(exchangeRateService).getRate(JOB_DAY);
+        order.verify(transactionManager).getTransaction(argThat(d -> true));
+    }
+
+    @Test
+    @DisplayName("an aged attempt with no artifact settles after one poll, then costs no calls")
+    void agedArtifactlessAttemptSettlesAndThenCostsNothing() {
+        stubList(RUN, 1);
+        when(attemptRepository.existsById(new CiSpendAttemptEntity.Key(RUN, 1))).thenReturn(false, true);
+        stubAttempt(RUN, 1, attemptJsonUpdatedAt("2026-11-27T10:30:00Z", PR_ARRAY));
+        stubJobs(RUN, 1, skyJob(1));
+        stubArtifacts(RUN, 1, "sky", noArtifactsJson());
+
+        poll();
+
+        assertThat(savedRun().getUsageState()).isEqualTo("UNKNOWN");
+        assertThat(savedAttempt().getSuitesRan()).isEqualTo("sky");
+        SchedulerFireOutcome.Report second = poll();
+
+        verify(client, times(1)).getRunAttempt(OWNER, REPO, RUN, 1);
+        verify(client, times(1)).listAttemptJobs(OWNER, REPO, RUN, 1, 100);
+        verify(client, times(1)).listRunArtifacts(OWNER, REPO, RUN, "prompt-regression-usage-sky-1", 100);
+        assertThat(second.summary()).contains("1 calls");
+    }
+
+    @Test
+    @DisplayName("an attempt updated exactly an hour ago is still inside the grace; a missing time counts as old")
+    void graceBoundaryAndMissingTime() {
+        stubList(RUN, 1);
+        stubAttempt(RUN, 1, attemptJsonUpdatedAt("2026-11-27T11:00:00Z", PR_ARRAY));
+        stubJobs(RUN, 1, skyJob(1));
+        stubArtifacts(RUN, 1, "sky", noArtifactsJson());
+
+        poll();
+
+        verify(attemptRepository, never()).save(argThat(a -> true));
+        service = newService();
+        stubAttempt(RUN, 1, attemptJsonUpdatedAt("2026-11-27T11:00:00Z", PR_ARRAY)
+                .replace(",\"updated_at\":\"2026-11-27T11:00:00Z\"", ""));
+        poll();
+        assertThat(savedAttempt().getSuitesRan()).isEqualTo("sky");
+    }
+
+    @Test
+    @DisplayName("an invalid artifact is retried, and the attempt settles on the third rejected poll, logged once")
+    void thirdRejectSettlesTheAttempt() throws Exception {
+        stubList(RUN, 1);
+        stubSkyOnly(RUN, 1, zip("other.json", "{}"));
+
+        poll();
+        poll();
+        verify(attemptRepository, never()).save(argThat(a -> true));
+        poll();
+
+        assertThat(savedAttempt().getSuitesRan()).isEqualTo("sky");
+        verify(runRepository, never()).save(argThat(r -> true));
+        assertThat(logMessages()).filteredOn(m -> m.contains("settling without it")).hasSize(1);
+        assertThat(logMessages()).filteredOn(m -> m.contains("rejected:")).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("any runtime failure ends the poll with a redacted summary, even one that is not a REST error")
+    void anyRuntimeFailureIsRedacted() {
+        when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1))
+                .thenThrow(new IllegalStateException("boom Bearer " + TOKEN + " sig=1"));
+
+        SchedulerFireOutcome.Report report = poll();
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary() + String.join("", logMessages())).doesNotContain("TOKENVALUE");
+    }
+
+    @Test
     @DisplayName("a job with no start time falls back to its paid step's start")
     void jobStartFallsBackToTheStep() throws Exception {
         stubList(RUN, 1);
@@ -1038,6 +1149,7 @@ class CiSpendPollServiceTest {
         SchedulerFireOutcome.Report report = poll();
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).contains("0 stored");
         assertThat(savedAttempt().getSuitesRan()).isEqualTo("sky");
         assertThat(logMessages()).anyMatch(m -> m.contains("stored concurrently"));
     }

@@ -30,10 +30,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -43,6 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -105,6 +106,12 @@ public class CiSpendPollService {
     /** The longest stored pull request title. */
     static final int MAX_TITLE_LENGTH = 300;
 
+    /** How long a completed attempt may stay artifact-less before UNKNOWN is final (listing-lag grace). */
+    static final Duration GRACE = Duration.ofHours(1);
+
+    /** Rejected polls after which an attempt with an invalid artifact is settled anyway. */
+    static final int MAX_REJECTS = 3;
+
     private static final String EVENT_PULL_REQUEST = "pull_request";
     private static final String STATUS_COMPLETED = "completed";
     private static final String CONCLUSION_SKIPPED = "skipped";
@@ -134,6 +141,9 @@ public class CiSpendPollService {
 
     /** Guards against overlap: the schedule, Run Now and a reschedule can all call {@link #poll()}. */
     private final AtomicBoolean running = new AtomicBoolean(false);
+
+    /** Rejected-artifact counts per run, attempt and suite; in memory, so a restart only means a few more tries. */
+    private final ConcurrentHashMap<String, Integer> rejects = new ConcurrentHashMap<>();
 
     /**
      * Creates the service.
@@ -208,7 +218,7 @@ public class CiSpendPollService {
             finish(poll, false);
         } catch (BudgetExhausted e) {
             finish(poll, true);
-        } catch (RestClientException | PollAbort e) {
+        } catch (RuntimeException e) {
             String why = describe(e);
             LOG.warn("CI spend poll ended early: {}", why);
             SchedulerFireOutcome.report(SchedulerFireStatus.FAILED, summary(poll, "ended early: " + why));
@@ -280,14 +290,35 @@ public class CiSpendPollService {
             return;
         }
         IdentityMemo identity = new IdentityMemo(attemptJson, runId, attempt, poll);
+        boolean aged = isAged(attemptJson);
         boolean allSettled = true;
         for (Map.Entry<String, RanJob> e : ran.entrySet()) {
-            Outcome outcome = handleSuite(runId, attempt, e.getKey(), e.getValue(), identity, poll);
-            allSettled &= outcome == Outcome.SETTLED;
+            String suite = e.getKey();
+            Outcome outcome = handleSuite(runId, attempt, suite, e.getValue(), identity, poll);
+            boolean finished = outcome == Outcome.SETTLED
+                    || (outcome == Outcome.UNKNOWN && aged)
+                    || (outcome == Outcome.INVALID && rejects.getOrDefault(rejectKey(runId, attempt, suite), 0)
+                            >= MAX_REJECTS);
+            if (outcome == Outcome.INVALID && finished) {
+                LOG.warn("CI usage artifact for run {} attempt {} suite {} rejected {} times; settling without it",
+                        runId, attempt, suite, MAX_REJECTS);
+            }
+            allSettled &= finished;
         }
         if (allSettled) {
             settle(runId, attempt, String.join(",", ran.keySet()));
+            ran.keySet().forEach(suite -> rejects.remove(rejectKey(runId, attempt, suite)));
         }
+    }
+
+    /** Whether the attempt was last updated more than {@link #GRACE} ago (a missing time counts as old). */
+    private boolean isAged(JsonNode attemptJson) {
+        Instant updated = instant(attemptJson, "updated_at");
+        return updated == null || updated.plus(GRACE).isBefore(clock.instant());
+    }
+
+    private static String rejectKey(long runId, int attempt, String suite) {
+        return runId + "/" + attempt + "/" + suite;
     }
 
     /** The suite's job when it ran in this attempt, with its start time, or null. */
@@ -340,6 +371,7 @@ public class CiSpendPollService {
     private Outcome reject(long runId, int attempt, String suite, String reason, Poll poll) {
         LOG.warn("CI usage artifact rejected: run {} attempt {} suite {}: {}", runId, attempt, suite, reason);
         poll.invalid++;
+        rejects.merge(rejectKey(runId, attempt, suite), 1, Integer::sum);
         return Outcome.INVALID;
     }
 
@@ -439,8 +471,19 @@ public class CiSpendPollService {
      */
     private Outcome store(long runId, int attempt, String suite, RanJob job, Identity identity,
             CiUsageArtifactReader.Usage usage, Poll poll) {
+        // The exchange rate may hit the network, so it is looked up before the transaction (and its row lock) opens.
+        Double rate = usage == null ? null
+                : rateIfPriceable(usage.models().stream().map(CiSpendPollService::tokensOf).toList(),
+                        job.startedAt());
         try {
-            return transactions.execute(status -> write(runId, attempt, suite, job, identity, usage, poll));
+            WriteResult result = transactions.execute(status -> write(runId, attempt, suite, job, identity, usage,
+                    rate));
+            if (result.wrote() == Wrote.INSERT) {
+                poll.stored++;
+            } else if (result.wrote() == Wrote.UPGRADE) {
+                poll.upgraded++;
+            }
+            return result.outcome();
         } catch (DataIntegrityViolationException e) {
             LOG.info("CI spend run {} attempt {} suite {} was stored concurrently; treating it as stored", runId,
                     attempt, suite);
@@ -455,18 +498,14 @@ public class CiSpendPollService {
                 .orElse(Outcome.UNKNOWN);
     }
 
-    private Outcome write(long runId, int attempt, String suite, RanJob ran, Identity identity,
-            CiUsageArtifactReader.Usage usage, Poll poll) {
+    private WriteResult write(long runId, int attempt, String suite, RanJob ran, Identity identity,
+            CiUsageArtifactReader.Usage usage, Double rate) {
         JsonNode job = ran.job();
         Optional<CiSpendRunEntity> locked = runRepository.lockByKey(runId, attempt, suite);
         if (locked.isPresent() && !CiSpendRunEntity.STATE_UNKNOWN.equals(locked.get().getUsageState())) {
-            return Outcome.SETTLED;
+            return new WriteResult(Outcome.SETTLED, Wrote.NONE);
         }
-        if (locked.isPresent()) {
-            poll.upgraded++;
-        } else {
-            poll.stored++;
-        }
+        Wrote wrote = locked.isPresent() ? Wrote.UPGRADE : Wrote.INSERT;
         CiSpendRunEntity row = locked.orElseGet(CiSpendRunEntity::new);
         row.setGithubRunId(runId);
         row.setRunAttempt(attempt);
@@ -489,13 +528,21 @@ public class CiSpendPollService {
             row.setExchangeRateGbpPerUsd(null);
             row.getModels().clear();
             runRepository.save(row);
-            return Outcome.UNKNOWN;
+            return new WriteResult(Outcome.UNKNOWN, wrote);
         }
         row.setCases(usage.cases());
         row.setFailed(usage.failed());
-        applyPricing(row, usage.models().stream().map(CiSpendPollService::tokensOf).toList());
+        applyPricing(row, usage.models().stream().map(CiSpendPollService::tokensOf).toList(), rate);
         runRepository.save(row);
-        return Outcome.SETTLED;
+        return new WriteResult(Outcome.SETTLED, wrote);
+    }
+
+    /** The exchange rate for the job's UTC start date when every model prices, else null (nothing is looked up). */
+    private Double rateIfPriceable(List<ModelTokens> tokens, Instant startedAt) {
+        if (!tokens.stream().allMatch(t -> EvaluationModel.fromModelId(t.model()).isPresent())) {
+            return null;
+        }
+        return exchangeRateService.getRate(startedAt.atZone(ZoneOffset.UTC).toLocalDate());
     }
 
     private void settle(long runId, int attempt, String suitesRan) {
@@ -514,7 +561,7 @@ public class CiSpendPollService {
      * and the exchange rate when every model resolves with {@link EvaluationModel#fromModelId}; otherwise
      * {@code UNPRICED} with the tokens only and a null cost.
      */
-    private void applyPricing(CiSpendRunEntity row, List<ModelTokens> tokens) {
+    private void applyPricing(CiSpendRunEntity row, List<ModelTokens> tokens, Double rate) {
         List<Optional<EvaluationModel>> resolved = tokens.stream()
                 .map(t -> EvaluationModel.fromModelId(t.model())).toList();
         boolean priceable = resolved.stream().allMatch(Optional::isPresent);
@@ -544,8 +591,7 @@ public class CiSpendPollService {
         if (priceable) {
             row.setUsageState(CiSpendRunEntity.STATE_KNOWN);
             row.setCostMicroDollars(total);
-            row.setExchangeRateGbpPerUsd(exchangeRateService.getRate(
-                    row.getStartedAt().atZone(ZoneOffset.UTC).toLocalDate()));
+            row.setExchangeRateGbpPerUsd(rate);
         } else {
             row.setUsageState(CiSpendRunEntity.STATE_UNPRICED);
             row.setCostMicroDollars(null);
@@ -584,24 +630,39 @@ public class CiSpendPollService {
         List<Long> ids = runRepository.findByUsageStateOrderByStartedAtAsc(CiSpendRunEntity.STATE_UNPRICED).stream()
                 .map(CiSpendRunEntity::getId).toList();
         for (Long id : ids) {
-            Boolean repriced = transactions.execute(status -> repriceOne(id));
-            if (Boolean.TRUE.equals(repriced)) {
+            // Phase 1 (own transaction): is the row still UNPRICED with every model now known, and from when?
+            Instant startedAt = transactions.execute(status -> repriceableStart(id));
+            if (startedAt == null) {
+                continue;
+            }
+            // Phase 2 (no transaction): the exchange rate, which may use the network.
+            double rate = exchangeRateService.getRate(startedAt.atZone(ZoneOffset.UTC).toLocalDate());
+            // Phase 3 (own transaction): re-check and write.
+            if (Boolean.TRUE.equals(transactions.execute(status -> repriceOne(id, rate)))) {
                 poll.repriced++;
             }
         }
     }
 
-    private Boolean repriceOne(Long id) {
+    private Instant repriceableStart(Long id) {
+        Optional<CiSpendRunEntity> found = runRepository.findById(id);
+        if (found.isEmpty() || !CiSpendRunEntity.STATE_UNPRICED.equals(found.get().getUsageState())) {
+            return null;
+        }
+        CiSpendRunEntity row = found.get();
+        boolean allKnown = row.getModels().stream().map(CiSpendPollService::tokensOf)
+                .allMatch(t -> EvaluationModel.fromModelId(t.model()).isPresent());
+        return allKnown ? row.getStartedAt() : null;
+    }
+
+    private Boolean repriceOne(Long id, double rate) {
         Optional<CiSpendRunEntity> found = runRepository.findById(id);
         if (found.isEmpty() || !CiSpendRunEntity.STATE_UNPRICED.equals(found.get().getUsageState())) {
             return false;
         }
         CiSpendRunEntity row = found.get();
         List<ModelTokens> tokens = row.getModels().stream().map(CiSpendPollService::tokensOf).toList();
-        if (!tokens.stream().allMatch(t -> EvaluationModel.fromModelId(t.model()).isPresent())) {
-            return false;
-        }
-        applyPricing(row, tokens);
+        applyPricing(row, tokens, rate);
         row.setFetchedAt(clock.instant());
         runRepository.save(row);
         return true;
@@ -638,7 +699,8 @@ public class CiSpendPollService {
         if (value == null || value.length() <= max) {
             return value;
         }
-        return value.substring(0, max);
+        int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
+        return value.substring(0, end);
     }
 
     private static String describe(RuntimeException e) {
@@ -653,6 +715,11 @@ public class CiSpendPollService {
     // ---- value types ------------------------------------------------------------------------------------------
 
     private enum Outcome { SETTLED, UNKNOWN, INVALID }
+
+    private enum Wrote { NONE, INSERT, UPGRADE }
+
+    private record WriteResult(Outcome outcome, Wrote wrote) {
+    }
 
     private record SuiteSpec(String jobName, String stepName) {
     }
