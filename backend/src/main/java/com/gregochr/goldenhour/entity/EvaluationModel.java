@@ -4,6 +4,7 @@ import com.anthropic.models.messages.Model;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Identifies which evaluation path produced a {@code ForecastEvaluationEntity} row.
@@ -152,6 +153,21 @@ public enum EvaluationModel {
      */
     public String getModelId() {
         return modelId;
+    }
+
+    /**
+     * Resolves a model by its exact Anthropic model id, in declaration order, with no substring or prefix
+     * fallback. Several constants share an id ({@code SONNET_ET} with {@code SONNET}, {@code OPUS_ET} with
+     * {@code OPUS}); the first declared wins, which is the base model. {@code WILDLIFE} has no id and never matches.
+     *
+     * @param modelId the id exactly as {@link #getModelId()} returns it, or null
+     * @return the first constant with that id, or empty when none has it
+     */
+    public static Optional<EvaluationModel> fromModelId(String modelId) {
+        if (modelId == null) {
+            return Optional.empty();
+        }
+        return Arrays.stream(values()).filter(m -> modelId.equals(m.getModelId())).findFirst();
     }
 
     /**

@@ -345,6 +345,13 @@ public final class SchedulerJobCatalogue {
                         + "switched on.",
                 "On a repeating interval, because the Met Office publishes no push and warnings can be issued or "
                         + "cancelled at any time."));
+        add(draft("ci_spend_poll", "CI prompt-test spend", Purpose.TESTING, false,
+                List.of("GitHub"),
+                "Reads the token counts the paid CI prompt-regression tests upload to GitHub, prices them with the "
+                        + "app's own rate table and stores them so the Runs cost page can show what testing cost, "
+                        + "apart from the app's own spend. Changes no rating and costs nothing in Claude. Off until "
+                        + "a GitHub token is set and the switch is on.",
+                "On a repeating interval, because CI runs follow pull requests, not the clock."));
         add(draft("nlc_sighting_scrape", "Noctilucent cloud sightings", Purpose.NIGHT_SKY, false,
                 List.of("NLCNET"),
                 "Checks NLCNET for fresh noctilucent-cloud reports from observers, to drive the NLC "

@@ -124,11 +124,11 @@ class SchedulerFireLogMigrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("after V231 there are 31 scheduler jobs (30 after V224, plus the snow state refresh)")
-    void jobCountIsThirtyOne() {
+    @DisplayName("after V232 there are 32 scheduler jobs (V231 made 31, V232 adds the CI spend poll)")
+    void jobCountIsThirtyTwo() {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM scheduler_job_config", Integer.class);
 
-        assertThat(count).isEqualTo(31);
+        assertThat(count).isEqualTo(32);
     }
 
     private static Map<String, Object> column(List<Map<String, Object>> columns, String name) {
