@@ -412,6 +412,33 @@ public class PromptBuilderTest {
         }
 
         @Test
+        @DisplayName("rating, fiery_sky and golden_hour descriptions carry the star-score coherence text")
+        void outputConfig_scoreFieldsCarryBandText() {
+            String configStr = promptBuilder.buildOutputConfig().toString();
+
+            String rating = configStr.substring(configStr.indexOf("rating={"));
+            rating = rating.substring(0, rating.indexOf("}"));
+            assertThat(rating)
+                    .contains("MAXIMUM 3 when the CLOUD APPROACH RISK")
+                    .contains("MAXIMUM 2 when the upwind sample alone shows current >= 60% "
+                            + "and at-event >= 50%");
+
+            String fiery = configStr.substring(configStr.indexOf("fiery_sky={"));
+            fiery = fiery.substring(0, fiery.indexOf("}"));
+            assertThat(fiery).contains("description=0-100 inclusive. Never raised to meet the star band.");
+
+            String golden = configStr.substring(configStr.indexOf("golden_hour={"));
+            golden = golden.substring(0, golden.indexOf("}"));
+            assertThat(golden)
+                    .contains("description=0-100 inclusive. 20-30 points LOWER")
+                    .contains("The higher of fiery_sky and golden_hour sits in the rating's band: "
+                            + "1:0-35, 2:15-55, 3:40-85, 4:55-95, 5:70-100")
+                    .contains("golden_hour carries it")
+                    .contains("the approach penalty stops at the band floor")
+                    .contains("inversion or valley-mist boosted stars are exempt");
+        }
+
+        @Test
         @DisplayName("rating field is constrained to enum [1, 5] — "
                 + "Anthropic rejects minimum/maximum on integer types")
         void outputConfig_ratingIsBoundedOneToFive() {
@@ -987,8 +1014,11 @@ public class PromptBuilderTest {
                 // own moved golden_hour by 4.4 points against the 20-30 it asks for (mean 71.4 ->
                 // 67.0 over 12 Haiku runs), the same way the rating cap was ignored until it was
                 // restated on the field. Keep BOTH placements; see the schema description too.
-                .contains("golden_hour (0-100; 20-30 points LOWER than the conditions alone would "
-                        + "give when that same combined approach signal is present)")
+                // Reworded 2026-11-27 (star-score-coherence-plan.md): the 20-30 clause stays on the
+                // field list but now stops at the band floor, and carries the star band.
+                .contains("20-30 points LOWER than the conditions alone would "
+                        + "give when that same combined approach signal is present, but that "
+                        + "penalty stops at the band floor")
                 // Round 2 (2026-08-18): with no precedence at all the cap lost outright to the
                 // IDEAL-scenario and rate-4-floor imperatives — copt-hill-11mar rated 4 on 8/8
                 // eval runs. Precedence is what makes the cap bind, so it is pinned separately.
@@ -1009,12 +1039,68 @@ public class PromptBuilderTest {
                 // attached to the output FIELD better than constraints stated in rules prose, so
                 // the cap is restated where the field itself is declared.
                 .contains("rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a "
-                        + "[BUILDING] trend AND upwind current ≥60%)")
+                        + "[BUILDING] trend AND upwind current ≥60%; MAXIMUM 2 when the upwind "
+                        + "sample alone shows current ≥60% and at-event ≥50%)")
                 // The evidence-nullification clauses and the summary gag are what made this a veto.
                 .doesNotContain("the forecast is UNRELIABLE")
                 .doesNotContain("output rating 1 or 2")
                 .doesNotContain("upwind CURRENT value matters")
                 .doesNotContain("write only about the approach risk");
+    }
+
+    @Test
+    @DisplayName("the star and score bands are stated, with the rules that outrank them")
+    void getSystemPrompt_starScoreBands_areStated() {
+        // docs/engineering/star-score-coherence-plan.md: nothing used to relate the star to its two
+        // scores, so a 3-star could carry bars of 30 and 25. The bands bound the HIGHER score.
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("STAR AND SCORE BANDS")
+                .contains("these bands never raise or lower a rating")
+                .contains("Decide the rating first")
+                .contains("the HIGHER of fiery_sky and golden_hour must sit in the band")
+                .contains("1 = 0-35, 2 = 15-55, 3 = 40-85, 4 = 55-95, 5 = 70-100")
+                .contains("golden_hour carries the band; fiery_sky is never raised to meet it")
+                .contains("Hard score ceilings in the rules below")
+                .contains("win over the bands")
+                .contains("a star raised by a cloud inversion boost or by valley mist rates the "
+                        + "foreground, not the sky; the bands do not apply to it");
+        assertThat(prompt.indexOf("STAR AND SCORE BANDS"))
+                .as("the band block follows the three scale definitions")
+                .isGreaterThan(prompt.indexOf("3. Golden Hour Potential"));
+    }
+
+    @Test
+    @DisplayName("the combined approach penalty stops at the band floor, in rules prose and field list")
+    void getSystemPrompt_approachPenalty_stopsAtBandFloor() {
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("The score penalty stops at the band floor: the HIGHER of the two scores "
+                        + "never falls below the floor of the band for the rating given")
+                .contains("golden_hour (0-100; the HIGHER of fiery_sky and golden_hour sits in the "
+                        + "rating's band, 1: 0-35, 2: 15-55, 3: 40-85, 4: 55-95, 5: 70-100, and "
+                        + "golden_hour carries it")
+                .contains("fiery_sky (0-100; never raised to meet the star band)");
+    }
+
+    @Test
+    @DisplayName("an upwind-alone persisting cloud caps the rating at 2, binding against IDEAL")
+    void getSystemPrompt_upwindAlonePersists_capsRatingAtTwo() {
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("hard ceiling: fiery_sky ≤25, golden_hour ≤30, and rating is at most 2")
+                .contains("binds against the IDEAL scenario and the thick-mid-cloud rate-4 floor");
+    }
+
+    @Test
+    @DisplayName("the 3-star headline example no longer contradicts the blocked-horizon ceiling")
+    void getSystemPrompt_headlineExample_isHalfBlocked() {
+        assertThat(promptBuilder.getSystemPrompt())
+                .contains("horizon's half-blocked")
+                .doesNotContain("horizon's blocked");
     }
 
     @Test

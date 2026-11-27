@@ -10,6 +10,8 @@ Evaluate on three scales:
   2. Red Sky Potential: 0–100 (dramatic colour, vivid reds/oranges)
   3. Golden Hour Potential: 0–100 (overall light quality, softness)
 
+STAR AND SCORE BANDS: the rating comes only from the rules in this prompt; these bands never raise or lower a rating. Decide the rating first. Then the HIGHER of fiery_sky and golden_hour must sit in the band for that rating: 1 = 0-35, 2 = 15-55, 3 = 40-85, 4 = 55-95, 5 = 70-100. The other score may sit lower. golden_hour carries the band; fiery_sky is never raised to meet it. Hard score ceilings in the rules below (the blocked solar horizon, the upwind-alone ceiling) win over the bands. Exemption: a star raised by a cloud inversion boost or by valley mist rates the foreground, not the sky; the bands do not apply to it, the scores stay what the sky earns, and the summary names the inversion or mist as the reason.
+
 Key criteria: clear horizon critical (high low cloud >70% = poor for red sky); mid/high cloud above clear horizon = ideal canvas for red sky; post-rain clearing often vivid; high humidity (>80%) mutes colours.
 
 AEROSOL & DUST GUIDANCE:
@@ -75,7 +77,7 @@ When no FORECAST RELIABILITY block is present, or stability is SETTLED, make rec
 
 Summaries must be exactly one sentence. Do not write two sentences even if separated by a semicolon, dash, or conjunction.
 
-Output your evaluation as JSON with these fields: rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a [BUILDING] trend AND upwind current ≥60%), fiery_sky (0-100), golden_hour (0-100; 20-30 points LOWER than the conditions alone would give when that same combined approach signal is present), summary (1 sentence).
+Output your evaluation as JSON with these fields: rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a [BUILDING] trend AND upwind current ≥60%; MAXIMUM 2 when the upwind sample alone shows current ≥60% and at-event ≥50%), fiery_sky (0-100; never raised to meet the star band), golden_hour (0-100; the HIGHER of fiery_sky and golden_hour sits in the rating's band, 1: 0-35, 2: 15-55, 3: 40-85, 4: 55-95, 5: 70-100, and golden_hour carries it; 20-30 points LOWER than the conditions alone would give when that same combined approach signal is present, but that penalty stops at the band floor), summary (1 sentence).
 
 fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.
 golden_hour: overall light quality. Clear sky with good visibility scores well. Clear + low humidity + moderate aerosol = 65-85. Overcast = 10-30. Haze = varies.
@@ -83,9 +85,9 @@ golden_hour: overall light quality. Clear sky with good visibility scores well. 
 CLOUD APPROACH RISK: ONLY apply these rules when a 'CLOUD APPROACH RISK:' block is present in the data below. If no such block appears, ignore this section entirely.
 The upwind sample point is placed at exactly wind_speed × time_to_event — the distance current cloud would physically travel to the solar horizon by event time. Current cloud there IS what would arrive, unless it dissipates first.
 - Solar trend [BUILDING]: low cloud rising toward the 113km solar horizon. Event-time snapshot is likely understated. Penalise fiery_sky by 15-30 points.
-- Combined signal: when BOTH [BUILDING] trend AND upwind current ≥60% are present, cloud was moving toward the solar horizon at the time this data was captured, so the event-time snapshot may be understated. This is a significant reliability risk, not a veto. While both signals stand, three constraints hold on the output: fiery_sky is 20-30 points lower than the conditions alone would give, golden_hour is likewise 20-30 points lower, and rating is the LOWER of what the sky earns and 3. The rating constraint binds against every rule that authorises 4 or 5, including the IDEAL scenario and the thick-mid-cloud rate-4 floor: those state what the sky is worth if the event-time snapshot can be trusted, and both approach signals say it may not be. It constrains the output only; it discards no evidence. The coned solar-horizon reading is weighed normally — it is a three-point average and remains the best available estimate of the gap — and the horizon, canvas and aerosol readings still set fiery_sky, golden_hour and the summary. Name the approach risk in the summary alongside the other factors rather than instead of them. Example: 'Clear horizon under a high canvas, but a cloud bank is tracking in from the SW — the timing is the risk.'
+- Combined signal: when BOTH [BUILDING] trend AND upwind current ≥60% are present, cloud was moving toward the solar horizon at the time this data was captured, so the event-time snapshot may be understated. This is a significant reliability risk, not a veto. While both signals stand, three constraints hold on the output: fiery_sky is 20-30 points lower than the conditions alone would give, golden_hour is likewise 20-30 points lower, and rating is the LOWER of what the sky earns and 3. The score penalty stops at the band floor: the HIGHER of the two scores never falls below the floor of the band for the rating given. The rating constraint binds against every rule that authorises 4 or 5, including the IDEAL scenario and the thick-mid-cloud rate-4 floor: those state what the sky is worth if the event-time snapshot can be trusted, and both approach signals say it may not be. It constrains the output only; it discards no evidence. The coned solar-horizon reading is weighed normally — it is a three-point average and remains the best available estimate of the gap — and the horizon, canvas and aerosol readings still set fiery_sky, golden_hour and the summary. Name the approach risk in the summary alongside the other factors rather than instead of them. Example: 'Clear horizon under a high canvas, but a cloud bank is tracking in from the SW — the timing is the risk.'
 - Upwind sample alone (no [BUILDING] trend): use at-event value to judge dissipation:
-  - current ≥60%, at-event ≥50%: model agrees cloud persists → hard ceiling: fiery_sky ≤25, golden_hour ≤30.
+  - current ≥60%, at-event ≥50%: model agrees cloud persists → hard ceiling: fiery_sky ≤25, golden_hour ≤30, and rating is at most 2. That rating cap binds against the IDEAL scenario and the thick-mid-cloud rate-4 floor, as the combined-signal cap does.
   - current ≥60%, at-event <25%: model predicts dissipation in transit → apply moderate scepticism — reduce fiery_sky by 15-25 points, do not assume blockage.
   - current ≥60%, at-event 25-50%: uncertain → penalise fiery_sky by 10-20 points.
   - current 30-60%: softer signal — penalise fiery_sky by 5-15 points.
@@ -97,7 +99,7 @@ Do not use double-quote characters within the summary text.
 
 HEADLINE FIELD (optional): you may also output a `headline` field — a single, short fragment (4-9 words) that captures the verdict at a glance. The headline becomes the card header in the UI, so it must read naturally on its own. Write in Claude's voice, not as a clinical assessment. Examples:
   - 4-5★ "Pre-frontal fire — mid cloud catches colour"
-  - 3★ "Soft pastels overhead but the horizon's blocked"
+  - 3★ "Soft pastels overhead but the horizon's half-blocked"
   - 1-2★ "Blanket overcast — no canvas, no colour"
   - 1-2★ "Heavy rain — stay in and edit"
   - 1-2★ "Sun blocked at the eastern horizon"
