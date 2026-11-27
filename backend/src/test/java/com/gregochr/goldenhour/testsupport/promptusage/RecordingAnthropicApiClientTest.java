@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.testsupport.promptusage;
 
 import com.anthropic.client.AnthropicClient;
+import com.anthropic.core.ClientOptions;
 import com.anthropic.core.RequestOptions;
 import com.anthropic.models.messages.CacheCreation;
 import com.anthropic.models.messages.Message;
@@ -17,14 +18,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,7 +40,6 @@ class RecordingAnthropicApiClientTest {
 
     private static final String REQUESTED = "claude-sonnet-5-5";
 
-    @Mock
     private AnthropicClient client;
 
     @Mock
@@ -48,9 +50,28 @@ class RecordingAnthropicApiClientTest {
 
     private PromptUsageRecorder recorder;
 
+    private final AtomicReference<Consumer<ClientOptions.Builder>> capturedOptions = new AtomicReference<>();
+
     @BeforeEach
     void setUp() {
         recorder = new PromptUsageRecorder(null);
+        client = Mockito.mock(AnthropicClient.class);
+    }
+
+    /**
+     * Makes {@code client.withOptions(...)} hand back {@code askClient} and remember the consumer it was given,
+     * without a broad argument matcher. Called before the recording client is built, as its constructor derives
+     * the Ask client.
+     */
+    @SuppressWarnings("unchecked")
+    private void wireAskClient() {
+        client = Mockito.mock(AnthropicClient.class, invocation -> {
+            if ("withOptions".equals(invocation.getMethod().getName())) {
+                capturedOptions.set(invocation.getArgument(0));
+                return askClient;
+            }
+            return Mockito.RETURNS_DEFAULTS.answer(invocation);
+        });
     }
 
     private static MessageCreateParams params() {
@@ -117,7 +138,7 @@ class RecordingAnthropicApiClientTest {
     @DisplayName("createAskMessage records the usage under the requested model")
     void createAskMessageRecords() {
         Message response = message(1, 2, 3, 4, 0);
-        when(client.withOptions(any())).thenReturn(askClient);
+        wireAskClient();
         when(askClient.messages()).thenReturn(messageService);
         MessageCreateParams params = params();
         RequestOptions options = RequestOptions.none();
@@ -133,10 +154,22 @@ class RecordingAnthropicApiClientTest {
     }
 
     @Test
+    @DisplayName("the Ask client is still derived with the SDK's own retries switched off")
+    void askClientDisablesSdkRetries() {
+        wireAskClient();
+        new RecordingAnthropicApiClient(client, recorder);
+
+        ClientOptions.Builder builder = Mockito.mock(ClientOptions.Builder.class);
+        capturedOptions.get().accept(builder);
+
+        verify(builder).maxRetries(0);
+    }
+
+    @Test
     @DisplayName("createAskMessage counts a thrown call as errored and rethrows it")
     void createAskMessageErrors() {
         RuntimeException boom = new IllegalStateException("boom");
-        when(client.withOptions(any())).thenReturn(askClient);
+        wireAskClient();
         when(askClient.messages()).thenReturn(messageService);
         MessageCreateParams params = params();
         RequestOptions options = RequestOptions.none();
@@ -151,7 +184,7 @@ class RecordingAnthropicApiClientTest {
     @Test
     @DisplayName("a refused gate made no request, so it is rethrown and not counted")
     void refusedGateIsNotCounted() {
-        when(client.withOptions(any())).thenReturn(askClient);
+        wireAskClient();
         MessageCreateParams params = params();
         RequestOptions options = RequestOptions.none();
         RecordingAnthropicApiClient api = new RecordingAnthropicApiClient(client, recorder);

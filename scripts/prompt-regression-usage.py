@@ -27,6 +27,25 @@ import xml.etree.ElementTree as ET
 FIELDS = ("calls", "erroredCalls", "input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
 
 
+def confined(path):
+    """The resolved absolute path, or None (with an error on stderr) when it is outside the working directory.
+
+    The workflow runs the script from the repository root with paths under backend/target; anything that resolves
+    elsewhere (an absolute path, `..`, a symlink out) is refused, so the script can only read and write inside the
+    checkout.
+    """
+    root = os.path.realpath(os.getcwd())
+    resolved = os.path.realpath(path)
+    try:
+        inside = os.path.commonpath([resolved, root]) == root
+    except ValueError:
+        inside = False
+    if not inside:
+        sys.stderr.write("error: path is outside the working directory, refusing: %s\n" % os.path.basename(path))
+        return None
+    return resolved
+
+
 def as_int(raw):
     """An integer, or None when absent or not a whole number."""
     raw = (raw or "").strip()
@@ -137,16 +156,21 @@ def summary_line(doc):
 def main(argv):
     """Entry point."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--suite", required=True)
+    parser.add_argument("--suite", required=True, choices=("sky", "ask"))
     parser.add_argument("--shards", required=True)
     parser.add_argument("--reports", required=True)
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
+    args.shards = confined(args.shards)
+    args.reports = confined(args.reports)
+    out = confined(args.out)
+    if args.shards is None or args.reports is None or out is None:
+        return 0
     doc = build(args, os.environ)
-    out_dir = os.path.dirname(args.out)
+    out_dir = os.path.dirname(out)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-    with open(args.out, "w", encoding="utf-8") as handle:
+    with open(out, "w", encoding="utf-8") as handle:
         json.dump(doc, handle, indent=2)
         handle.write("\n")
     target = os.environ.get("GITHUB_STEP_SUMMARY")

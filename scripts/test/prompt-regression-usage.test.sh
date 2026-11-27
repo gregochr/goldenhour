@@ -13,7 +13,10 @@ SCRIPTS="$(cd "$HERE/.." && pwd)"
 source "${HERE}/helpers.sh"
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+OUTSIDE="$(mktemp -d)"
+trap 'rm -rf "$WORK" "$OUTSIDE"' EXIT
+# The script only touches paths inside its working directory, as in the workflow (repository root).
+cd "$WORK" || exit 1
 
 # usage SUITE SHARDS REPORTS OUT: runs the script with a fixed environment
 usage() {
@@ -133,5 +136,29 @@ assert_file_has "keeps what was there" "$WORK/step-summary.md" "existing"
 assert_file_has "appends the totals" "$WORK/step-summary.md" "Prompt usage (sky): 3 calls (1 errored), 100 input, 20 output, 50 cache read, 10 cache write"
 assert_eq "one line appended" "2" "$(wc -l < "$WORK/step-summary.md" | tr -d ' ')"
 assert_eq "nothing on stdout" "0" "$(wc -c < "$WORK/stdout.txt" | tr -d ' ')"
+
+# ── paths are confined to the working directory ──────────────────────────────────────────────────────────────
+S="$(new_dir shards-conf)"
+printf '%s' "$SHARD_A" > "$S/shard-1-aaa.json"
+echo "-- path confinement"
+ERR="$(usage sky "$S" "$R" "$OUTSIDE/x.json" 2>&1 >/dev/null)"
+assert_eq "an --out outside the cwd exits 0" "0" "$(usage sky "$S" "$R" "$OUTSIDE/x.json" >/dev/null 2>&1; echo $?)"
+assert_file_missing "an --out outside the cwd writes nothing" "$OUTSIDE/x.json"
+assert_contains "and says why" "$ERR" "outside the working directory"
+usage sky "$S" "$R" "../escape-$$.json" >/dev/null 2>&1
+assert_file_missing "a ../ --out writes nothing" "$WORK/../escape-$$.json"
+mkdir -p "$OUTSIDE/shards" && printf '%s' "$SHARD_A" > "$OUTSIDE/shards/shard-1-aaa.json"
+usage sky "$OUTSIDE/shards" "$R" "$WORK/out/shards-outside.json" >/dev/null 2>&1
+assert_file_missing "--shards outside the cwd is refused" "$WORK/out/shards-outside.json"
+usage sky "$S" "$OUTSIDE" "$WORK/out/reports-outside.json" >/dev/null 2>&1
+assert_file_missing "--reports outside the cwd is refused" "$WORK/out/reports-outside.json"
+ln -s "$OUTSIDE" "$WORK/link"
+usage sky "$S" "$R" "$WORK/link/viasymlink.json" >/dev/null 2>&1
+assert_file_missing "a symlink out of the cwd is refused" "$OUTSIDE/viasymlink.json"
+usage sky "$S" "$R" "$WORK/out/inside.json" >/dev/null 2>&1
+assert_file_exists "a path inside the cwd still works" "$WORK/out/inside.json"
+echo "-- suite is validated"
+assert_eq "a bad --suite exits non-zero" "2" "$(usage evil "$S" "$R" "$WORK/out/evil.json" >/dev/null 2>&1; echo $?)"
+assert_file_missing "a bad --suite writes nothing" "$WORK/out/evil.json"
 
 finish_tests
