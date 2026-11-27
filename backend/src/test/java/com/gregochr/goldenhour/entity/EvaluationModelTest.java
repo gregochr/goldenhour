@@ -322,6 +322,32 @@ class EvaluationModelTest {
         }
     }
 
+    @Test
+    @DisplayName("fromModelId resolves every Claude model id to the first constant declared with it")
+    void fromModelId_resolvesBaseModelFirst() {
+        assertThat(EvaluationModel.fromModelId(EvaluationModel.SONNET.getModelId()))
+                .contains(EvaluationModel.SONNET);
+        assertThat(EvaluationModel.fromModelId(EvaluationModel.OPUS.getModelId())).contains(EvaluationModel.OPUS);
+        assertThat(EvaluationModel.fromModelId(EvaluationModel.SONNET_55.getModelId()))
+                .contains(EvaluationModel.SONNET_55);
+        assertThat(EvaluationModel.fromModelId(EvaluationModel.HAIKU.getModelId())).contains(EvaluationModel.HAIKU);
+        assertThat(EvaluationModel.fromModelId(EvaluationModel.HAIKU_55.getModelId()))
+                .contains(EvaluationModel.HAIKU_55);
+    }
+
+    @Test
+    @DisplayName("fromModelId is an exact match: no substring, prefix, case or whitespace tolerance, and null is empty")
+    void fromModelId_isExact() {
+        String id = EvaluationModel.SONNET_55.getModelId();
+
+        assertThat(EvaluationModel.fromModelId(id + "-20260101")).isEmpty();
+        assertThat(EvaluationModel.fromModelId(id.substring(0, id.length() - 1))).isEmpty();
+        assertThat(EvaluationModel.fromModelId(id.toUpperCase())).isEmpty();
+        assertThat(EvaluationModel.fromModelId(" " + id)).isEmpty();
+        assertThat(EvaluationModel.fromModelId("")).isEmpty();
+        assertThat(EvaluationModel.fromModelId(null)).isEmpty();
+    }
+
     /** Stands in for the SDK's constants, so the deprecation check is proven without depending on them. */
     private static final class DeprecationFixture {
         @Deprecated

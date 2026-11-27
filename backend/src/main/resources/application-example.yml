@@ -205,6 +205,19 @@ photocast:
   #     public-url: https://www.metoffice.gov.uk/public/weather/warnings/   # the Met Office link on every warning
   #     attribution: "Met Office Weather Warnings © Crown Copyright 2026"   # served beside warning text
   #     poll-stale-minutes: 10     # GET /api/warnings reports stale when the last good poll is older (min 1)
+  # CI prompt-regression spend (docs/engineering/ci-spend-plan.md, C2). Off by default. When enabled with a GitHub
+  # token, the hourly ci_spend_poll job reads the token-count artifacts the paid CI suites upload, prices them with
+  # CostCalculator and stores them in ci_spend_run. The token is a fine-grained GitHub token with Actions: read on
+  # the one repository; it is sent only as a Bearer header and is never logged or served. Changing enabled or the
+  # token needs a backend restart (the scheduler row syncs at startup).
+  #   ci-spend:
+  #     enabled: false              # PHOTOCAST_CI_SPEND_ENABLED; the job runs only when this AND a token are set
+  #     github-token: ""            # PHOTOCAST_CI_SPEND_GITHUB_TOKEN; empty = dormant, never calls GitHub
+  #     repository: gregochr/goldenhour   # owner/name
+  #     workflow-file: prompt-regression.yml
+  #     lookback-days: 14           # 1-90; set 90 once to backfill
+  #     max-calls-per-poll: 300     # the next poll resumes; settled attempts cost no calls
+  #     api-base-url: https://api.github.com
   # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; each default
   # is shown. Uncomment to change one. A value outside its stated range fails startup.
   #   ask:
