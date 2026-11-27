@@ -389,8 +389,9 @@ public class PromptBuilder {
      * The site sentence a FOGBOUND {@code mist_prone} message carries in place of
      * {@link #VALLEY_MIST_SITE_SENTENCE}. The cloud-approach-veto lesson: a cap stated in prose next to
      * a "may rate 4-5" permission was overridden by the model (a fogbound Brathay sunrise rated 4), so
-     * FOGBOUND gets its own sentences with no permission in them, and the cap is restated on the
-     * schema's {@code rating} and {@code mist_potential} descriptions.
+     * FOGBOUND gets its own sentences with no permission in them. The cap lives in this user message
+     * only, never on the output schema: an always-present schema clause made Haiku rate a clear sky 1
+     * (haiku-local-caps-plan.md section 2A).
      */
     public static final String VALLEY_MIST_FOGBOUND_SITE_SENTENCE =
             "This location is a valley-floor / riverside site, and it is fogbound: fog under 300 m with "
@@ -407,6 +408,18 @@ public class PromptBuilder {
      * Claude caps the rating at 4 rather than 5.
      */
     private static final int SOLAR_MID_CLOUD_THICK_PERCENT = 80;
+
+    /** Solar horizon low cloud above this percentage blocks the light (matches the system prompt's rule). */
+    private static final int SOLAR_LOW_CLOUD_BLOCKED_PERCENT = 60;
+
+    /**
+     * Label appended to the DIRECTIONAL CLOUD solar horizon line when the low cloud blocks the light
+     * and the strip is not thin. Stated here, in the location's own message, so it applies only where
+     * the condition holds (haiku-local-caps-plan.md section 2B).
+     */
+    private static final String SOLAR_BLOCKED_LABEL =
+            " [BLOCKED \u2014 light cannot reach the canvas: rating 1-2, fiery_sky \u226420, "
+            + "golden_hour \u226430; this overrides any rate-4 label]";
 
     /**
      * Horizon sampling distance in km, derived from the sampling geometry so the distance quoted
@@ -567,6 +580,9 @@ public class PromptBuilder {
                     dc.antisolarHighCloudPercent()));
             if (dc.solarMidCloudPercent() > SOLAR_MID_CLOUD_THICK_PERCENT) {
                 sb.append(" [THICK MID CLOUD — rate 4 (worth the trip), not 3, not 5]");
+            }
+            if (dc.solarLowCloudPercent() > SOLAR_LOW_CLOUD_BLOCKED_PERCENT && !isThinStrip(dc)) {
+                sb.append(SOLAR_BLOCKED_LABEL);
             }
             if (dc.farSolarLowCloudPercent() != null) {
                 int near = dc.solarLowCloudPercent();
@@ -768,9 +784,7 @@ public class PromptBuilder {
                                                 "description",
                                                 "1-5. MAXIMUM 3 when the CLOUD APPROACH RISK "
                                                         + "block shows BOTH a [BUILDING] trend "
-                                                        + "AND upwind current >= 60%. "
-                                                        + "MAXIMUM 2 when the VALLEY MIST "
-                                                        + "CONDITIONS block's band is FOGBOUND.")),
+                                                        + "AND upwind current >= 60%.")),
                                         Map.entry("fiery_sky", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
@@ -805,8 +819,7 @@ public class PromptBuilder {
                                                         "FOGBOUND"),
                                                 "description",
                                                 "Only when the message carries a VALLEY MIST "
-                                                        + "CONDITIONS block; omit otherwise. "
-                                                        + "FOGBOUND caps rating at 2.")))))
+                                                        + "CONDITIONS block; omit otherwise.")))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties",

@@ -256,16 +256,17 @@ class PromptBuilderValleyMistTest {
     }
 
     @Test
-    @DisplayName("the schema restates the FOGBOUND cap on rating and mist_potential")
-    void schema_restatesFogboundCap() throws Exception {
+    @DisplayName("the schema carries no FOGBOUND cap; the cap lives in the fogbound user message only")
+    void schema_carriesNoFogboundCap() throws Exception {
         var mapper = ObjectMappers.jsonMapper();
         JsonNode props = mapper.readTree(mapper.writeValueAsString(promptBuilder.buildOutputConfig()))
                 .path("format").path("schema").path("properties");
 
         assertThat(props.path("rating").path("description").asText())
-                .contains("MAXIMUM 2 when the VALLEY MIST CONDITIONS block's band is FOGBOUND")
+                .doesNotContain("FOGBOUND").doesNotContain("MAXIMUM 2")
                 .contains("CLOUD APPROACH RISK");
         assertThat(props.path("mist_potential").path("description").asText())
-                .contains("FOGBOUND caps rating at 2");
+                .doesNotContain("FOGBOUND").doesNotContain("MAXIMUM 2");
+        assertThat(PromptBuilder.VALLEY_MIST_FOGBOUND_SITE_SENTENCE).contains("MAXIMUM rating 2");
     }
 }
