@@ -173,3 +173,15 @@ Sonnet 5.5 passed in CI, but Batch Far-Term runs on Haiku. **Owner decision: nar
   example.
 - A general star↔score guarantee is not achieved by prompt on Haiku; a code-side check (§2, declined
   for now) is the route if it is revisited. Re-measure v3 on Haiku against the `main` run above.
+
+## 10. v4, 2026-11-27: the approach floor only
+
+The owner's Haiku 4.5 eval on v3 (`a3c6df4`, 8 runs per fixture) was still worse than `main`:
+far-corridor-blanket-canvas 3★ in 7/8 runs (`main` 1/8; one summary quoted the new "half-blocked"
+headline example back), copt-hill-15mar 2★ ×8 (`main` 3★; the summaries apply the new upwind
+"MAXIMUM 2" field-list clause to an upwind bank the model says dissipates), and the clear-sky cap
+1–2★ with golden 35 (`main` 3★, golden 62–72). The 40 floor itself held (copt-hill-11mar 3★,
+golden 40–50). **Owner decision: keep only the approach-rule floor.** The headline example returns
+to `main`'s wording and the upwind-alone ≤2 cap is removed from the prose, field list and `rating`
+schema description. Note: far-corridor misses 1/8 on `main` too, so the bar is "no worse than
+`main`", not 8/8.
