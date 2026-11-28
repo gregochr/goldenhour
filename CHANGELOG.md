@@ -5,6 +5,134 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.42.5] - 2026-11-28
+
+### Fixed — the card maps no longer go black when today folds as a quiet day
+
+When the first day of the week was a quiet day (every window two stars or less), the small map on every card stayed
+black. The page waited to measure the first card, which was folded away and so had no size, gave up, and never drew
+any of them. It now measures the first card that is actually showing, and draws the folded days' maps when they are
+opened.
+
+### Fixed — a fogbound valley-mist morning is capped at 2★
+
+A fogbound valley-floor sunrise (fog under 300 m with no clearing in the window) could still be rated 4★
+or 5★, because the 2★ cap sat in prose beside a "may rate 4–5" permission and the model overrode it. A
+FOGBOUND site now gets its own site sentence and a "no clearing in the window" line in place of the generic
+ones, and the cap is restated on the output schema's `rating` and `mist_potential` descriptions. The
+LIKELY, POSSIBLE and NONE messages are unchanged, and so is the system prompt. There are no extra Claude
+calls; the schema text change re-warms the batch cache once. The ValleyMist prompt-regression step now runs
+on the same model as the sky step instead of silently defaulting to Haiku.
+
+### Changed — The tide only embellishes a good sky
+
+A coastal star now needs a good sky: a tide never raises the star above the sky, except that a spring or king tide timed to the light lifts a 4★ sky to 5★. A badly timed tide costs at most one star. (`docs/engineering/tide-lift-plan.md`)
+
+### Fixed — a 3★ sky no longer shows 2★ score bars
+
+When the combined cloud-approach signal fires, the location's message now tells the model that a 3★ answer's score penalty stops at 40, so a 3★ never shows 2★ bars. The shared system prompt is unchanged.
+
+### Changed — Spring Boot 4.2.0
+
+The backend moves to Spring Boot 4.2.0. Its `SseEmitter` now writes `data: ` with a space after the colon; per the SSE spec clients strip one leading space, and the frontend parser already does, so the wire format stays compatible. The progress-tracker tests now read the optional space the same way.
+
+### Changed — paid prompt regression runs as a once-per-PR smoke, on a label
+
+The paid prompt-regression suites ran in full on every push of a prompt-changing PR, which exhausted the
+CI key's spend cap on 2026-11-27. They now run only when the `run-prompt-regression` label is added to the
+PR, as the last step before merge: the sky quick check plus `AskPromptRegressionTest`, about $0.25 a run.
+The full suites, ValleyMist included, run from a manual run with `scope=full`. Job and step names, the key
+and the never-required rule are unchanged.
+
+### Docs — prompt regression runs without an approval click
+
+The `prompt-regression` GitHub environment has no required reviewer, by the owner's choice, so the paid `Prompt regression — sky`
+and `— ask` jobs start as soon as a prompt-changing PR is opened or pushed. CLAUDE.md step 6, `dev-and-testing.md` and the
+workflow's header comment said they waited for the owner's approval; they now say what happens. The spend-capped key is the only
+cost limit, and same-repository PRs remain the security boundary.
+
+### Changed — cascade tests read resolved custom properties under jsdom 31
+
+jsdom 31 resolves `var()` in `getComputedStyle`, so the cascade tests that asserted the raw declared text (`var(--wf-hc-well)`, `var(--color-plex-text-secondary)` and so on) now assert resolved values. Colour tokens are given their real `@theme` values through a small shared helper (`frontend/src/test/cssTestKit.js`), so each assertion still fails when the wrong rule or token wins; the tests that compared long decimals, percentages and detached-element styles were adjusted to jsdom 31's serialisation. Test-only; no product code changed.
+
+### Fixed — Haiku rating caps stated only where they apply
+
+The FOGBOUND rating cap now lives only in the fogbound site's own message: an always-present clause on the
+output schema made Haiku rate clear skies 1 star. A solar horizon over 60% low cloud (and not a thin strip)
+now carries a BLOCKED label in the location's message, so the 1-2 star ceiling is stated beside the data
+it applies to.
+
+### Added — CI prompt-test spend on Runs › Cost trends and the Day view
+
+The two paid CI prompt-regression suites now show on Runs, in their own **Testing** block that is never mixed into the
+app's figures. Under the Cost trends headline a line says what the prompt tests cost in the window (with the previous
+window, or "since" in all time, and how many runs had unknown usage); the chart gains an off-by-default hatched
+"Prompt tests" layer (sky and ask) that stacks on top of the app's bars; the table gains an App subtotal, a Testing
+group with a row per suite, a Testing subtotal and a combined Total. When a day is opened, a "Prompt test runs" list
+shows each run's PR, suite, cases, failures, tokens, cost (or "usage unknown" / "unpriced", never £0) and a link to the
+GitHub run, with re-runs as their own attempts. With no CI run in the window the page is unchanged apart from "All
+types" now reading "All app types". Server side, `RunCostResponse` gains a nullable `testing` and `RunDayResponse` a
+`promptTestRuns` list, both composed by `AdminRunsController` from a new `CiSpendCostService` that sits beside
+`RunsCostService` and `RunsDayService` (which are untouched); a real-Postgres isolation test proves that adding CI rows
+changes nothing else the Runs endpoints serve. Completes `docs/engineering/ci-spend-plan.md` (C3).
+
+### Added — production fetches, prices and stores CI prompt-regression spend
+
+A new hourly job, `ci_spend_poll`, reads the token-count artifacts the two paid CI prompt-regression suites upload to
+GitHub Actions, prices them with the app's own `CostCalculator`, and stores them in new `ci_spend_run`,
+`ci_spend_model_usage` and `ci_spend_attempt` tables (V232). It is off until `photocast.ci-spend.enabled` is on and a
+read-only GitHub token (`PHOTOCAST_CI_SPEND_GITHUB_TOKEN`, Actions: read on the one repository) is set. Run identity, PR
+and times come from the GitHub API, never from the artifact, which is size-, zip-, schema- and bound-checked; the token is
+sent only to the API host (redirects are never followed) and never logged. A suite that ran without a readable artifact
+is stored `UNKNOWN` and a model the price table does not know `UNPRICED`; neither is shown as zero. The poller writes no
+`job_run` and no `api_call_log` row, so nothing the app reports changes. Nothing shows it yet: the Testing group on Runs ›
+Cost trends is C3 (`docs/engineering/ci-spend-plan.md`).
+
+### Added — CI prompt-regression runs record their token usage
+
+The two paid prompt-regression jobs (`Prompt regression — sky`, `Prompt regression — ask`) now record the tokens they
+spend, per requested model, and upload them as a small `prompt-regression-usage-<suite>-<attempt>` artifact (90 days).
+The paid test classes build a recording client (`RecordingAnthropicApiClient`) instead of `AnthropicApiClient`; no
+assertion changed. The artifact holds token counts and run identifiers only. Nothing reads it yet: pricing it and showing
+it on Runs › Cost trends follow in C2 and C3 (`docs/engineering/ci-spend-plan.md`). The jobs stay unapproved, unawaited and
+never required.
+
+### Fixed — Ask answers a stay-home window, a covered empty day, favourites, a no-detail place and a named night area
+
+Five faults found by the first keyed run of the Ask prompt regression (`docs/engineering/ask-regression-triage-2026-11-27-plan.md`,
+Part B). A window is never called "marginal" (that is one place's 3★), and "marginal" joins the words the summary never uses, with "a stay-home window" offered as the plain alternative. A Ready answer names a covered day with no place rated 4★ or
+better in scope and mostly scored, by its weekday, computed from the snapshot's spread rather than left to the model. `favourites` is passed only for a question limited
+to the reader's own places, and a companion is named with its stars. A looked-up place with no detail is still answered from its
+rating and status reason, and the neighbour-outlier reason now explains the star ("Its rating is well above the places beside it, so
+PhotoCast doubts that star and is not suggesting it."). `rank_night_spots` takes `areaName` (typed questions only), and a region name
+that misses, in either tool, says to pass the named area as `areaName` or lists the regions that exist.
+
+When every window an anchored Ready question covers is a stay-home one (fewer than 5% of its rated places game-on, mostly scored, the forecast has a BEST pick and some place somewhere is game-on), the engine now tells the prompt so, and the summary opens by saying it before naming the forecast's pick and any exceptions.
+
+### Changed — Ask prompt-regression assertions reworded (owner-approved A1–A8)
+
+The owner approved eight rewordings of the Ask prompt-regression assertions and fixtures after the first keyed
+run (`docs/engineering/ask-regression-triage-2026-11-27-plan.md`, Part A). The stay-home pattern accepts a hyphen
+and "most places are not worth …", and the game-on check reads only the summary's first sentence; the mixed
+weekend accepts "tomorrow", "nowhere" and "no place"; a tie is stated in the sentence that names Bamburgh and
+accepts "both" and "as well"; the thin-sample place carries a served summary; the Hadrian's Wall check requires
+`look_up_place` and the area's size, and rejects the whole region's count; the aurora fixture's summary is
+neutral and the test forbids "strong" and "severe" while the state is MODERATE; the Durham-coast night fixture
+mirrors production (a named area inside "Northumberland & Tyneside"); "closer to home" may name minutes or
+miles. A new plain unit test, `AskRegressionPatternsTest`, pins the accept and reject cases. No `src/main`
+change. The aurora ban was then narrowed (owner-approved) to "strong" or "severe" describing the aurora, alert or geomagnetic activity, so "strong stargazing conditions" passes.
+ The Heugh question now asks about Saturday instead of tomorrow (owner-approved), because the shared fixture's today is Monday 2026-10-05 and the rated window is Saturday.
+
+### Fixed — Ask names the favourite companion itself, looks up a named area, and frames a stay-home weekend first
+
+- When `rank_spots` pairs the lead with a favourite of the reader's (or a tied or higher-rated place), the engine now appends one fixed sentence naming it with its stars if the model's summary left it out, such as "Mary's Lighthouse, your favourite, is 4★." It fires only when the first pick is the paired lead, and only within the summary's word and character caps.
+- The typed Ask prompt tells the model to call `look_up_place` for a named area even when it also calls `rank_spots`, and to name the place by its listed name in the summary.
+- Both Ask prompts say that when every window asked about is a stay-home one, the summary's first sentence says so and the forecast's pick follows as the first exception.
+
+### Changed — the map's warning row shows when each warning is in force
+
+The Map's collapsed Met Office warning row now prints each warning's validity in UK time beside its chip (for example "Fri 27 Nov, 04:00–14:00"), so the timing no longer needs the Details panel opened. A warning that crosses UK midnight prints both days.
+
 ## [v2.42.4] - 2026-11-26
 
 ### Changed — the card says why a window was not scored
