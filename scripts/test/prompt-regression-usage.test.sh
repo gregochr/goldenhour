@@ -146,6 +146,39 @@ echo "existing" > "$WORK/step-summary.md"
 assert_eq "an env-named summary file is left alone" "existing" "$(cat "$WORK/step-summary.md")"
 assert_file_lacks "the script does not reference GITHUB_STEP_SUMMARY" "$SCRIPTS/prompt-regression-usage.py" "GITHUB_STEP_SUMMARY"
 
+# ── the daily smoke (C4): priced file with shards, nothing at all without ────────────────────────────────────
+T="$(new_tree smoke)"
+S="$T/backend/target/prompt-regression-usage"
+R="$T/backend/target/surefire-reports"
+printf '%s' '{"models":[{"model":"claude-haiku-4-5","calls":1,"erroredCalls":0,"input":900,"output":120,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":0}]}' > "$S/shard-1-aaa.json"
+printf '%s' '<testsuite name="com.x.ForecastBatchPipelineRealApiE2ETest" tests="1" errors="0" skipped="0" failures="0"/>' > "$R/TEST-com.x.ForecastBatchPipelineRealApiE2ETest.xml"
+printf '%s' '<testsuite name="com.x.Unrelated" tests="40" errors="0" skipped="0" failures="7"/>' > "$R/TEST-com.x.Unrelated.xml"
+OUT="$T/backend/target/prompt-regression-usage-smoke.json"
+echo "-- smoke with shards"
+assert_eq "exit status is 0" "0" "$(usage "$T" smoke >/dev/null 2>&1; echo $?)"
+assert_file_exists "smoke writes the smoke file" "$OUT"
+assert_eq "suite is smoke" "smoke" "$(jget "$OUT" "d['suite']")"
+assert_eq "tokens summed" "900" "$(jget "$OUT" "d['models'][0]['input']")"
+assert_eq "cases come from the smoke class only" "1" "$(jget "$OUT" "d['cases']")"
+assert_eq "failed comes from the smoke class only" "0" "$(jget "$OUT" "d['failed']")"
+assert_eq "complete" "True" "$(jget "$OUT" "d['complete']")"
+
+T="$(new_tree smokeempty)"
+printf '%s' '<testsuite name="com.x.ForecastBatchPipelineRealApiE2ETest" tests="1" errors="0" skipped="1" failures="0"/>' > "$T/backend/target/surefire-reports/TEST-com.x.ForecastBatchPipelineRealApiE2ETest.xml"
+echo "-- smoke without shards"
+usage "$T" smoke > "$WORK/smoke-stdout.txt" 2>/dev/null
+assert_eq "exit status is 0" "0" "$(usage "$T" smoke >/dev/null 2>&1; echo $?)"
+assert_file_missing "no shard means no file" "$T/backend/target/prompt-regression-usage-smoke.json"
+assert_file_has "says no usage was recorded" "$WORK/smoke-stdout.txt" "no usage recorded"
+assert_eq "one line on stdout" "1" "$(wc -l < "$WORK/smoke-stdout.txt" | tr -d ' ')"
+T="$(new_tree smokemalformed)"
+printf '%s' '{"models":' > "$T/backend/target/prompt-regression-usage/shard-1-aaa.json"
+usage "$T" smoke >/dev/null 2>&1
+assert_file_missing "a malformed-only shard set also writes no file" "$T/backend/target/prompt-regression-usage-smoke.json"
+T="$(new_tree skystillzero)"
+usage "$T" sky >/dev/null 2>&1
+assert_file_exists "sky with no shard still writes its zero-call file" "$T/backend/target/prompt-regression-usage-sky.json"
+
 # ── no path arguments, and the suite is validated ────────────────────────────────────────────────────────────
 T="$(new_tree args)"
 echo "-- arguments"

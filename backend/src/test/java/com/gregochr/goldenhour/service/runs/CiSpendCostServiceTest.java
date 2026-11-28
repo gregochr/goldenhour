@@ -123,7 +123,7 @@ class CiSpendCostServiceTest {
 
         assertThat(testing.types()).extracting(CostTestingType::suite).containsExactly(CiSuite.SKY, CiSuite.ASK);
         CostTestingType sky = testing.types().get(0);
-        assertThat(sky.label()).isEqualTo("Prompt tests · sky");
+        assertThat(sky.label()).isEqualTo("CI tests · sky");
         assertThat(sky.lastGbp()).isEqualByComparingTo("2.00");
         assertThat(sky.priorGbp()).isEqualByComparingTo("0.50");
         assertThat(sky.deltaGbp()).isEqualByComparingTo("1.50");
@@ -138,6 +138,36 @@ class CiSpendCostServiceTest {
         assertThat(testing.totals().priorRuns()).isEqualTo(1);
         assertThat(testing.totals().lastUsd()).isEqualByComparingTo("6.00");
         assertThat(testing.totals().unknownRuns()).isZero();
+    }
+
+    @Test
+    @DisplayName("a smoke run is a third type after sky and ask, served with its own label and day series")
+    void smokeIsAThirdType() {
+        known("smoke", "2026-10-27T10:00:00Z", 1_000_000);
+        known("sky", "2026-10-27T10:00:00Z", 2_000_000);
+
+        CostTesting testing = testing();
+
+        assertThat(testing.types()).extracting(CostTestingType::suite).containsExactly(CiSuite.SKY, CiSuite.SMOKE);
+        assertThat(testing.types().get(1).label()).isEqualTo("CI tests · smoke");
+        assertThat(testing.types().get(1).lastGbp()).isEqualByComparingTo("0.50");
+        assertThat(testing.days().get(8).byType().get("SMOKE")).isEqualByComparingTo("0.50");
+        assertThat(testing.days().get(8).byType().get("ASK")).isEqualByComparingTo("0.00");
+        assertThat(testing.totals().lastGbp()).isEqualByComparingTo("1.50");
+    }
+
+    @Test
+    @DisplayName("promptTestRuns serves the event: a scheduled smoke carries schedule, never a PR")
+    void dayRowsCarryTheEvent() {
+        CiSpendRunEntity r = known("smoke", "2026-11-01T06:05:00Z", 1_000_000);
+        r.setEvent("schedule");
+
+        List<PromptTestRunRow> rows = service.promptTestRuns(DAY_START, DAY_END);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).suite()).isEqualTo(CiSuite.SMOKE);
+        assertThat(rows.get(0).event()).isEqualTo("schedule");
+        assertThat(rows.get(0).prNumber()).isNull();
     }
 
     @Test
@@ -164,7 +194,7 @@ class CiSpendCostServiceTest {
             expected.add(d);
         }
         assertThat(testing.days()).extracting(d -> d.date()).containsExactlyElementsOf(expected);
-        assertThat(testing.days()).allSatisfy(d -> assertThat(d.byType()).containsKeys("SKY", "ASK"));
+        assertThat(testing.days()).allSatisfy(d -> assertThat(d.byType()).containsKeys("SKY", "ASK", "SMOKE"));
         assertThat(testing.days().get(8).date()).isEqualTo(LocalDate.parse("2026-10-27"));
         assertThat(testing.days().get(8).byType().get("SKY")).isEqualByComparingTo("2.00");
         assertThat(testing.days().get(8).totalGbp()).isEqualByComparingTo("2.00");

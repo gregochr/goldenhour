@@ -71,6 +71,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -87,6 +88,7 @@ class CiSpendPollServiceTest {
     private static final String OWNER = "gregochr";
     private static final String REPO = "goldenhour";
     private static final String WORKFLOW = "prompt-regression.yml";
+    private static final String SMOKE_WORKFLOW = "real-api-smoke.yml";
     private static final String CREATED = ">=2025-02-28";
     private static final long RUN = 5551L;
     private static final long ARTIFACT = 777L;
@@ -126,6 +128,9 @@ class CiSpendPollServiceTest {
     void setUp() {
         properties.setEnabled(true);
         properties.setGithubToken(TOKEN);
+        // By default the smoke workflow has no runs; tests about it re-stub this.
+        lenient().when(client.listWorkflowRuns(OWNER, REPO, SMOKE_WORKFLOW, CREATED, 100, 1))
+                .thenReturn(noRunsJson());
         service = newService();
         logger = (Logger) LoggerFactory.getLogger(CiSpendPollService.class);
         logs = new ListAppender<>();
@@ -387,11 +392,12 @@ class CiSpendPollServiceTest {
         SchedulerFireOutcome.Report report = poll();
 
         verify(client).listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1);
+        verify(client).listWorkflowRuns(OWNER, REPO, SMOKE_WORKFLOW, CREATED, 100, 1);
         verifyNoMoreInteractions(client, downloader);
         verify(runRepository, never()).save(argThat(r -> true));
         verify(attemptRepository, never()).save(argThat(a -> true));
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
-        assertThat(report.summary()).contains("1 calls");
+        assertThat(report.summary()).contains("2 calls");
     }
 
     @Test
@@ -903,7 +909,7 @@ class CiSpendPollServiceTest {
         verify(client, times(1)).getRunAttempt(OWNER, REPO, RUN, 1);
         verify(client, times(1)).listAttemptJobs(OWNER, REPO, RUN, 1, 100);
         verify(client, times(1)).listRunArtifacts(OWNER, REPO, RUN, "prompt-regression-usage-sky-1", 100);
-        assertThat(second.summary()).contains("1 calls");
+        assertThat(second.summary()).contains("2 calls");
     }
 
     @Test
@@ -990,7 +996,7 @@ class CiSpendPollServiceTest {
     @Test
     @DisplayName("the poll stops cleanly at the call budget and says the next poll resumes")
     void budgetStopsThePoll() {
-        properties.setMaxCallsPerPoll(2);
+        properties.setMaxCallsPerPoll(3);
         stubList(RUN, 1);
         stubAttempt(RUN, 1, pullRequestAttempt());
 
@@ -998,7 +1004,7 @@ class CiSpendPollServiceTest {
 
         verify(client, never()).listAttemptJobs(OWNER, REPO, RUN, 1, 100);
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
-        assertThat(report.summary()).contains("2 calls").contains("call budget");
+        assertThat(report.summary()).contains("3 calls").contains("call budget");
     }
 
     @Test
@@ -1111,7 +1117,7 @@ class CiSpendPollServiceTest {
 
         verify(client).listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 2);
         verify(client, never()).listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 3);
-        assertThat(report.summary()).contains("2 calls");
+        assertThat(report.summary()).contains("3 calls");
     }
 
     @Test
@@ -1183,5 +1189,200 @@ class CiSpendPollServiceTest {
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
         assertThat(logMessages()).anyMatch(m -> m.contains("settled concurrently"));
+    }
+
+    // ---- the daily real-API smoke (C4) -----------------------------------------------------------------------
+
+    private static final String HAIKU_ID = EvaluationModel.HAIKU.getModelId();
+
+    /** The prompt workflow has no runs; the smoke workflow has one run with the given latest attempt. */
+    private void stubSmokeList(long runId, int latestAttempt) {
+        when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
+        when(client.listWorkflowRuns(OWNER, REPO, SMOKE_WORKFLOW, CREATED, 100, 1))
+                .thenReturn(runsJson(runId, latestAttempt));
+    }
+
+    private static String scheduledAttempt() {
+        return attemptJson("completed", "schedule", SHA, "Real API Smoke", "[]");
+    }
+
+    private static String smokeJob(int runAttempt) {
+        return jobJson(CiSpendPollService.SMOKE_JOB_NAME, runAttempt, "success", CiSpendPollService.SMOKE_STEP_NAME,
+                STEP_START);
+    }
+
+    private static byte[] smokeZip(long runId, int attempt, String models) {
+        return zip(CiUsageArtifactReader.entryName("smoke"), artifactDoc("smoke", runId, attempt, models));
+    }
+
+    @Test
+    @DisplayName("both workflow files are listed, the smoke's after the prompt-regression's")
+    void listsBothWorkflowFiles() {
+        when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
+
+        poll();
+
+        InOrder order = inOrder(client);
+        order.verify(client).listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1);
+        order.verify(client).listWorkflowRuns(OWNER, REPO, SMOKE_WORKFLOW, CREATED, 100, 1);
+    }
+
+    @Test
+    @DisplayName("a smoke attempt is priced at the Batch rate: exact micro-dollars against CostCalculator batch")
+    void smokeIsPricedAtTheBatchRate() throws Exception {
+        stubSmokeList(RUN, 1);
+        stubAttempt(RUN, 1, scheduledAttempt());
+        stubJobs(RUN, 1, smokeJob(1));
+        stubArtifacts(RUN, 1, "smoke", artifactsJson("prompt-regression-usage-smoke-1", ARTIFACT, false, 100));
+        stubZipRedirect(ARTIFACT, LOCATION);
+        stubDownload(LOCATION, smokeZip(RUN, 1, modelJson(HAIKU_ID, 1, 0, 900, 120, 40, 30, 0)));
+        when(exchangeRateService.getRate(JOB_DAY)).thenReturn(0.8);
+
+        poll();
+
+        CiSpendRunEntity row = savedRun();
+        TokenUsage usage = new TokenUsage(900, 120, 30, 40, 0);
+        long batch = costCalculator.calculateCostMicroDollars(EvaluationModel.HAIKU, usage, true);
+        long standard = costCalculator.calculateCostMicroDollars(EvaluationModel.HAIKU, usage, false);
+        assertThat(batch).isPositive().isLessThan(standard);
+        assertThat(row.getSuite()).isEqualTo("smoke");
+        assertThat(row.getUsageState()).isEqualTo("KNOWN");
+        assertThat(row.getCostMicroDollars()).isEqualTo(batch);
+        assertThat(row.getModels().get(0).getCostMicroDollars()).isEqualTo(batch);
+        // The stored per-Mtok rates stay the standard ones, beside the halved cost.
+        assertThat(row.getModels().get(0).getInputUsdPerMtok())
+                .isEqualTo(costCalculator.ratesFor(EvaluationModel.HAIKU).inputUsdPerMtok());
+        assertThat(row.getEvent()).isEqualTo("schedule");
+        assertThat(row.getPrNumber()).isNull();
+        assertThat(row.getPrTitle()).isNull();
+        verify(client, never()).listCommitPulls(OWNER, REPO, SHA);
+        assertThat(savedAttempt().getSuitesRan()).isEqualTo("smoke");
+    }
+
+    @Test
+    @DisplayName("a sky row stays at the standard rate: only the suite decides batch, never the artifact")
+    void skyStaysAtTheStandardRate() throws Exception {
+        stubList(RUN, 1);
+        stubSkyOnly(RUN, 1, skyZip(RUN, 1, modelJson(HAIKU_ID, 1, 0, 900, 120, 40, 30, 0)));
+        when(exchangeRateService.getRate(JOB_DAY)).thenReturn(0.8);
+
+        poll();
+
+        assertThat(savedRun().getCostMicroDollars()).isEqualTo(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.HAIKU, new TokenUsage(900, 120, 30, 40, 0), false));
+    }
+
+    @Test
+    @DisplayName("a smoke run with no artifact is stored UNKNOWN and settles only after the grace")
+    void smokeWithoutAnArtifactIsUnknownAfterTheGrace() {
+        stubSmokeList(RUN, 1);
+        stubAttempt(RUN, 1, scheduledAttempt().replace("2025-03-14T11:30:00Z", "2025-03-14T10:30:00Z"));
+        stubJobs(RUN, 1, smokeJob(1));
+        stubArtifacts(RUN, 1, "smoke", noArtifactsJson());
+
+        poll();
+
+        CiSpendRunEntity row = savedRun();
+        assertThat(row.getSuite()).isEqualTo("smoke");
+        assertThat(row.getUsageState()).isEqualTo("UNKNOWN");
+        assertThat(row.getCostMicroDollars()).isNull();
+        assertThat(savedAttempt().getSuitesRan()).isEqualTo("smoke");
+    }
+
+    @Test
+    @DisplayName("a smoke run with no artifact inside the grace stays unsettled")
+    void smokeWithoutAnArtifactInsideTheGraceIsNotSettled() {
+        stubSmokeList(RUN, 1);
+        stubAttempt(RUN, 1, scheduledAttempt());
+        stubJobs(RUN, 1, smokeJob(1));
+        stubArtifacts(RUN, 1, "smoke", noArtifactsJson());
+
+        poll();
+
+        assertThat(savedRun().getUsageState()).isEqualTo("UNKNOWN");
+        verify(attemptRepository, never()).save(argThat(a -> true));
+    }
+
+    @Test
+    @DisplayName("a sky job inside a real-api-smoke.yml run is not matched, and settles the attempt empty")
+    void skyJobInsideTheSmokeWorkflowIsNotMatched() {
+        stubSmokeList(RUN, 1);
+        stubAttempt(RUN, 1, scheduledAttempt());
+        stubJobs(RUN, 1, skyJob(1), askJob(1));
+
+        poll();
+
+        verify(runRepository, never()).save(argThat(r -> true));
+        verify(client, never()).listRunArtifacts(OWNER, REPO, RUN, "prompt-regression-usage-sky-1", 100);
+        assertThat(savedAttempt().getSuitesRan()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the smoke job inside a prompt-regression.yml run is not matched, and settles the attempt empty")
+    void smokeJobInsideThePromptWorkflowIsNotMatched() {
+        stubList(RUN, 1);
+        stubAttempt(RUN, 1, pullRequestAttempt());
+        stubJobs(RUN, 1, smokeJob(1));
+
+        poll();
+
+        verify(runRepository, never()).save(argThat(r -> true));
+        verify(client, never()).listRunArtifacts(OWNER, REPO, RUN, "prompt-regression-usage-smoke-1", 100);
+        assertThat(savedAttempt().getSuitesRan()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a workflow_dispatch that carries pull_requests gets no PR number and no title")
+    void dispatchWithPullRequestsHasNoPrNumber() throws Exception {
+        stubList(RUN, 1);
+        stubAttempt(RUN, 1, attemptJson("completed", "workflow_dispatch", SHA, "Some manual title", PR_ARRAY));
+        stubJobs(RUN, 1, skyJob(1));
+        stubArtifacts(RUN, 1, "sky", artifactsJson("prompt-regression-usage-sky-1", ARTIFACT, false, 100));
+        stubZipRedirect(ARTIFACT, LOCATION);
+        stubDownload(LOCATION, skyZip(RUN, 1, ""));
+        when(exchangeRateService.getRate(JOB_DAY)).thenReturn(0.8);
+
+        poll();
+
+        CiSpendRunEntity row = savedRun();
+        assertThat(row.getEvent()).isEqualTo("workflow_dispatch");
+        assertThat(row.getPrNumber()).isNull();
+        assertThat(row.getPrTitle()).isNull();
+        verify(client, never()).listCommitPulls(OWNER, REPO, SHA);
+    }
+
+    @Test
+    @DisplayName("repricing a smoke row uses the Batch rate too, exactly CostCalculator's batch micro-dollars")
+    void repricingASmokeRowUsesTheBatchRate() {
+        CiSpendRunEntity row = existingRow(9L, "UNPRICED", SONNET_55_ID);
+        row.setSuite("smoke");
+        when(runRepository.findByUsageStateOrderByStartedAtAsc("UNPRICED")).thenReturn(List.of(row));
+        when(runRepository.findById(9L)).thenReturn(Optional.of(row));
+        when(exchangeRateService.getRate(LocalDate.of(2025, 3, 7))).thenReturn(0.79);
+        when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
+
+        poll();
+
+        TokenUsage usage = new TokenUsage(100_000, 5_000, 8_000, 50_000, 3_000);
+        assertThat(savedRun()).isSameAs(row);
+        assertThat(row.getUsageState()).isEqualTo("KNOWN");
+        assertThat(row.getCostMicroDollars())
+                .isEqualTo(costCalculator.calculateCostMicroDollars(EvaluationModel.SONNET_55, usage, true))
+                .isNotEqualTo(costCalculator.calculateCostMicroDollars(EvaluationModel.SONNET_55, usage, false));
+    }
+
+    @Test
+    @DisplayName("repricing a sky row still uses the standard rate")
+    void repricingASkyRowUsesTheStandardRate() {
+        CiSpendRunEntity row = existingRow(9L, "UNPRICED", SONNET_55_ID);
+        when(runRepository.findByUsageStateOrderByStartedAtAsc("UNPRICED")).thenReturn(List.of(row));
+        when(runRepository.findById(9L)).thenReturn(Optional.of(row));
+        when(exchangeRateService.getRate(LocalDate.of(2025, 3, 7))).thenReturn(0.79);
+        when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
+
+        poll();
+
+        assertThat(row.getCostMicroDollars()).isEqualTo(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.SONNET_55, new TokenUsage(100_000, 5_000, 8_000, 50_000, 3_000), false));
     }
 }

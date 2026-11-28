@@ -86,9 +86,9 @@ describe('with a testing block', () => {
     renderView(withTesting());
     expect(screen.getByTestId('runs-cost-headline')).toHaveTextContent('Yes. App spend is up 14% on the previous 14 days.');
     const line = screen.getByTestId('runs-cost-testing-line');
-    expect(line).toHaveTextContent('Plus £3.40 on prompt tests (14 runs, was £1.62)');
+    expect(line).toHaveTextContent('Plus £3.40 on CI tests (14 runs, was £1.62)');
     expect(line).toHaveTextContent('show in chart');
-    expect(screen.getByTestId('runs-cost-body')).not.toHaveTextContent('prompt tests');
+    expect(screen.getByTestId('runs-cost-body')).not.toHaveTextContent('CI tests');
   });
 
   it('shows the line even when the app spent nothing in either period', () => {
@@ -111,12 +111,12 @@ describe('with a testing block', () => {
     renderView(withTesting());
     const chip = screen.getByTestId('runs-cost-iso-testing');
     expect(chip).toHaveAttribute('aria-pressed', 'false');
-    expect(chip).toHaveTextContent('Prompt tests');
+    expect(chip).toHaveTextContent('CI tests');
     expect(barsWithTesting()).toHaveLength(0);
     expect(screen.getByTestId('runs-cost-testing-divider')).toBeInTheDocument();
-    expect(screen.getByTestId('runs-cost-svg').getAttribute('aria-label')).not.toContain('prompt tests');
+    expect(screen.getByTestId('runs-cost-svg').getAttribute('aria-label')).not.toContain('CI tests');
     expect(screen.getByTestId('runs-cost-testing-note'))
-      .toHaveTextContent('Hatched = prompt tests (CI), counted separately from the app. Off by default.');
+      .toHaveTextContent('Hatched = CI tests, counted separately from the app. Off by default.');
   });
 
   it('the chip and the headline link drive the same flag', () => {
@@ -127,7 +127,7 @@ describe('with a testing block', () => {
     expect(chip).toHaveAttribute('aria-pressed', 'true');
     expect(link).toHaveTextContent('hide in chart');
     expect(barsWithTesting().length).toBeGreaterThan(0);
-    expect(screen.getByTestId('runs-cost-svg').getAttribute('aria-label')).toMatch(/, including prompt tests$/);
+    expect(screen.getByTestId('runs-cost-svg').getAttribute('aria-label')).toMatch(/, including CI tests$/);
     fireEvent.click(link);
     expect(chip).toHaveAttribute('aria-pressed', 'false');
     expect(link).toHaveTextContent('show in chart');
@@ -162,8 +162,8 @@ describe('with a testing block', () => {
     };
     render(<><DailySpendChart {...props} /><DailySpendChart {...props} /></>);
     const ids = [...document.querySelectorAll('pattern')].map((p) => p.id);
-    expect(ids).toHaveLength(4);
-    expect(new Set(ids).size).toBe(4);
+    expect(ids).toHaveLength(6);
+    expect(new Set(ids).size).toBe(6);
   });
 
   it('only includes testing in the y-axis peak while it is shown', () => {
@@ -227,7 +227,7 @@ describe('with a testing block', () => {
     fireEvent.click(screen.getByTestId('runs-cost-iso-testing'));
     fireEvent.mouseEnter(screen.getByTestId(`runs-cost-day-${date}`));
     const tip = screen.getByTestId('runs-cost-tooltip');
-    expect(within(tip).getByTestId('runs-cost-tooltip-sky')).toHaveTextContent('Prompt tests · sky');
+    expect(within(tip).getByTestId('runs-cost-tooltip-sky')).toHaveTextContent('CI tests · sky');
     expect(within(tip).getByTestId('runs-cost-tooltip-sky')).toHaveTextContent('£0.95');
     expect(within(tip).getByTestId('runs-cost-tooltip-ask')).toHaveTextContent('£0.20');
     expect(within(tip).getByTestId('runs-cost-tooltip-app')).toHaveTextContent(`£${Number(day.totalGbp).toFixed(2)}`);
@@ -266,8 +266,8 @@ describe('with a testing block', () => {
     const label = slot.getAttribute('aria-label');
     expect(label).toContain(`£${(Number(data.days.at(-2).totalGbp) + 1.15).toFixed(2)} in total`);
     expect(label).toContain(`App £${Number(data.days.at(-2).totalGbp).toFixed(2)}`);
-    expect(label).toContain('Prompt tests · sky £0.95');
-    expect(label).toContain('Prompt tests · ask £0.20');
+    expect(label).toContain('CI tests · sky £0.95');
+    expect(label).toContain('CI tests · ask £0.20');
     expect(label.endsWith('Open this day.')).toBe(true);
   });
 
@@ -311,13 +311,13 @@ describe('the table with a testing block', () => {
     const cells = within(screen.getByTestId('runs-cost-testing-group')).getAllByRole('cell');
     expect(cells).toHaveLength(1);
     expect(cells[0]).toHaveClass('col-span-full');
-    expect(cells[0]).toHaveTextContent('Testing · CI prompt regression');
+    expect(cells[0]).toHaveTextContent('Testing · CI tests');
   });
 
   it('the suite rows show last, prior, change, why and a hatched sparkline', () => {
     renderView(withTesting());
     const sky = screen.getByTestId('runs-cost-testing-row-sky');
-    expect(sky).toHaveTextContent('Prompt tests · sky');
+    expect(sky).toHaveTextContent('CI tests · sky');
     expect(screen.getByTestId('runs-cost-testing-row-sky-last')).toHaveTextContent('£2.64');
     expect(sky).toHaveTextContent('£1.10');
     expect(screen.getByTestId('runs-cost-testing-row-sky-change')).toHaveTextContent('+£1.54');
@@ -411,7 +411,7 @@ describe('all time with a testing block', () => {
     renderView(allTimeWithTesting(), { range: 'all' });
     expect(screen.getByTestId('runs-cost-headline')).toHaveTextContent('£600.00 of app spend since 23 Oct 2026.');
     const line = screen.getByTestId('runs-cost-testing-line');
-    expect(line).toHaveTextContent('Plus £3.40 on prompt tests since 23 Oct 2026');
+    expect(line).toHaveTextContent('Plus £3.40 on CI tests since 23 Oct 2026');
     expect(line).not.toHaveTextContent('was');
     expect(line).toHaveTextContent('1 usage unknown');
   });
@@ -447,7 +447,7 @@ describe('all time with a testing block', () => {
   });
 });
 
-describe('the Day view\'s Prompt test runs', () => {
+describe('the Day view\'s CI test runs', () => {
   it('renders nothing for no runs', () => {
     const { container, rerender } = render(<PromptTestRuns runs={[]} />);
     expect(container).toBeEmptyDOMElement();
@@ -457,7 +457,7 @@ describe('the Day view\'s Prompt test runs', () => {
 
   it('lists a row with the PR, title, suite, outcome, cost, meta and link, plus the footnote', () => {
     render(<PromptTestRuns runs={[promptTestRun()]} />);
-    expect(screen.getByRole('heading', { name: 'Prompt test runs' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'CI test runs' })).toBeInTheDocument();
     expect(screen.getByTestId('runs-day-prompt-test-0-pr')).toHaveTextContent('PR #1912');
     const row = screen.getByTestId('runs-day-prompt-test-0');
     expect(row).toHaveTextContent('fix: valley mist wording');
@@ -531,5 +531,84 @@ describe('the Day view\'s empty app list', () => {
     const day = dayResponse([dayRow()], { promptTestRuns: [promptTestRun()] });
     render(<DayRunList {...props(day)} />);
     expect(screen.getByTestId('runs-chip-all-count')).toHaveTextContent('1');
+  });
+});
+
+describe('the daily smoke as the third suite (ci-spend-plan.md C4)', () => {
+  /** The 14-day response with sky, ask and smoke spend on the last four days. */
+  function withSmoke() {
+    const data = withTesting();
+    const dates = data.days.map((d) => d.date);
+    const last = dates.slice(-4);
+    data.testing.types = [testingType('SKY'), testingType('ASK'), testingType('SMOKE')];
+    data.testing.days = data.testing.days.map((d) => {
+      const smoke = d.date === last[2] ? 0.03 : 0;
+      return {
+        ...d,
+        byType: { ...d.byType, SMOKE: smoke },
+        totalGbp: d.totalGbp + smoke,
+        appPlusTestingGbp: d.appPlusTestingGbp + smoke,
+      };
+    });
+    return data;
+  }
+
+  it('draws three hatched suites on the day, smoke on top, each with its own pattern', () => {
+    renderView(withSmoke(), { selected: 'OVERNIGHT' });
+    fireEvent.click(screen.getByTestId('runs-cost-testing-toggle'));
+    const date = withSmoke().days.map((d) => d.date).slice(-4)[2];
+    const bar = screen.getByTestId(`runs-cost-bar-${date}`);
+    const testingRects = [...bar.querySelectorAll('rect[data-testing]')];
+    expect(testingRects.map((r) => r.getAttribute('data-testing'))).toEqual(['SKY', 'ASK', 'SMOKE']);
+    const ids = [...screen.getByTestId('runs-cost-svg').querySelectorAll('pattern')].map((p) => p.id);
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+    expect(testingRects[2].getAttribute('fill')).toBe(`url(#${ids.find((id) => id.endsWith('-smoke'))})`);
+    expect(testingRects[2]).toHaveClass('stroke-test-smoke');
+  });
+
+  it('labels the smoke line in the tooltip and the day label', () => {
+    const data = withSmoke();
+    renderView(data);
+    fireEvent.click(screen.getByTestId('runs-cost-iso-testing'));
+    const date = data.days.map((d) => d.date).slice(-4)[2];
+    expect(screen.getByTestId(`runs-cost-day-${date}`).getAttribute('aria-label')).toContain('CI tests · smoke £0.03');
+    fireEvent.mouseEnter(screen.getByTestId(`runs-cost-day-${date}`));
+    expect(within(screen.getByTestId('runs-cost-tooltip')).getByTestId('runs-cost-tooltip-smoke'))
+      .toHaveTextContent('CI tests · smoke');
+  });
+
+  it('the average line is unchanged with the layer on, smoke included', () => {
+    const plain = renderView(costResponse());
+    const plainPoints = screen.getByTestId('runs-cost-average').getAttribute('points');
+    plain.unmount();
+    renderView(withSmoke());
+    fireEvent.click(screen.getByTestId('runs-cost-iso-testing'));
+    expect(screen.getByTestId('runs-cost-average').getAttribute('points')).toBe(plainPoints);
+  });
+
+  it('the table gains a smoke row with its own hatched swatch, and a sparkline', () => {
+    renderView(withSmoke());
+    const row = screen.getByTestId('runs-cost-testing-row-smoke');
+    expect(row).toHaveTextContent('CI tests · smoke');
+    expect(row.querySelector('i')).toHaveClass('border-test-smoke');
+    expect(screen.getByTestId('runs-cost-testing-spark-smoke')).toBeInTheDocument();
+  });
+});
+
+describe('the Day view names a run with no PR by its event', () => {
+  it('"Daily smoke" for a schedule event and "Manual run" otherwise, with the suite word smoke', () => {
+    render(<PromptTestRuns runs={[
+      promptTestRun({ suite: 'SMOKE', prNumber: null, prTitle: null, event: 'schedule' }),
+      promptTestRun({ suite: 'SMOKE', prNumber: null, prTitle: null, event: 'workflow_dispatch' }),
+      promptTestRun({ suite: 'SKY', prNumber: null, prTitle: null, event: null }),
+      promptTestRun({ suite: 'SKY', event: 'pull_request' }),
+    ]}
+    />);
+    expect(screen.getByTestId('runs-day-prompt-test-0-pr')).toHaveTextContent('Daily smoke');
+    expect(screen.getByTestId('runs-day-prompt-test-0')).toHaveTextContent('smoke');
+    expect(screen.getByTestId('runs-day-prompt-test-1-pr')).toHaveTextContent('Manual run');
+    expect(screen.getByTestId('runs-day-prompt-test-2-pr')).toHaveTextContent('Manual run');
+    expect(screen.getByTestId('runs-day-prompt-test-3-pr')).toHaveTextContent('PR #1912');
   });
 });

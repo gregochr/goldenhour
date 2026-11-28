@@ -338,12 +338,13 @@ class AdminRunsControllerTest extends AbstractControllerTest {
                         com.gregochr.goldenhour.model.runs.CiSuite.SKY, 1, "success",
                         "https://github.com/o/r/actions/runs/1", Instant.parse("2026-11-01T10:00:00Z"), 42, 0,
                         612000L, 38000L, 434000L, new BigDecimal("0.41"), new BigDecimal("0.52"), "KNOWN",
-                        1046000L, 42)));
+                        1046000L, 42, "schedule")));
 
         mockMvc.perform(get("/api/admin/runs/day").param("date", "2026-11-01"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.promptTestRuns[0].prNumber").value(1912))
                 .andExpect(jsonPath("$.promptTestRuns[0].suite").value("SKY"))
+                .andExpect(jsonPath("$.promptTestRuns[0].event").value("schedule"))
                 .andExpect(jsonPath("$.runs").isEmpty());
     }
 

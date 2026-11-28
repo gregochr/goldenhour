@@ -51,13 +51,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@link CostCalculator} and stores them in {@code ci_spend_run} (docs/engineering/ci-spend-plan.md, C2).
  *
  * <p>Runs on the {@code ci_spend_poll} scheduler row and self-gates on {@code photocast.ci-spend.enabled} plus a
- * token. One poll: reprices {@code UNPRICED} rows whose models now resolve; lists the workflow's runs from the
- * look-back window (no status filter); then, for each attempt {@code 1..run_attempt} with no
+ * token. One poll: reprices {@code UNPRICED} rows whose models now resolve; lists the runs of each suite workflow
+ * ({@code prompt-regression.yml}, then {@code real-api-smoke.yml}, sharing the call budget) from the look-back
+ * window (no status filter); then, for each attempt {@code 1..run_attempt} with no
  * {@code ci_spend_attempt} row, reads the attempt and its jobs, decides which suites actually ran in <em>that</em>
  * attempt, and for each fetches, validates, prices and stores its artifact in its own {@code REQUIRES_NEW}
  * transaction. An attempt is settled (never read again) once every suite that ran holds a {@code KNOWN} or
  * {@code UNPRICED} row. A {@code UNKNOWN} row (the suite ran but no artifact exists) leaves the attempt unsettled,
  * so a later artifact can replace it; the look-back window and the call budget bound that retrying.
+ *
+ * <p>An attempt matches only the suites of its own workflow file, and the daily smoke is priced at the Batch rate
+ * (a property of the suite, never of the artifact).
  *
  * <p>A suite ran in attempt {@code n} only when its job (exact name) has {@code run_attempt == n} (a job carried
  * over by "Re-run failed jobs" does not count), is not {@code skipped}, and its paid Maven step has a non-null
@@ -82,6 +86,15 @@ public class CiSpendPollService {
     /** The ask suite's key. */
     public static final String SUITE_ASK = "ask";
 
+    /** The daily real-API smoke's key. */
+    public static final String SUITE_SMOKE = "smoke";
+
+    /** The workflow file of the sky and ask suites. */
+    static final String PROMPT_WORKFLOW_FILE = "prompt-regression.yml";
+
+    /** The workflow file of the daily real-API smoke. */
+    static final String SMOKE_WORKFLOW_FILE = "real-api-smoke.yml";
+
     /** Exact job name of the sky suite (em dash, U+2014). */
     static final String SKY_JOB_NAME = "Prompt regression — sky";
 
@@ -93,6 +106,12 @@ public class CiSpendPollService {
 
     /** Exact name of the ask suite's paid Maven step. */
     static final String ASK_STEP_NAME = "Ask regression tests";
+
+    /** Exact job name of the daily smoke. */
+    static final String SMOKE_JOB_NAME = "Real API completion smoke";
+
+    /** Exact name of the daily smoke's paid Maven step. */
+    static final String SMOKE_STEP_NAME = "Run real-API E2E test";
 
     /** The most bytes an artifact zip may be, checked against {@code size_in_bytes} and the stream. */
     static final int MAX_ARTIFACT_BYTES = 1024 * 1024;
@@ -119,12 +138,21 @@ public class CiSpendPollService {
     private static final int HTTP_UNPROCESSABLE = 422;
     private static final int MAX_LOGGED_MESSAGE = 200;
 
-    /** The suites in stack order, each with the exact names that identify its job and paid step. */
+    /**
+     * The suites, each with its workflow file, the exact names that identify its job and paid step, and whether it
+     * is priced at the Batch rate. Batch is a property of the suite, fixed here and never read from the artifact: an
+     * artifact claiming batch would let a run halve its own price.
+     */
     private static final Map<String, SuiteSpec> SUITES = Map.of(
-            SUITE_SKY, new SuiteSpec(SKY_JOB_NAME, SKY_STEP_NAME),
-            SUITE_ASK, new SuiteSpec(ASK_JOB_NAME, ASK_STEP_NAME));
+            SUITE_SKY, new SuiteSpec(PROMPT_WORKFLOW_FILE, SKY_JOB_NAME, SKY_STEP_NAME, false),
+            SUITE_ASK, new SuiteSpec(PROMPT_WORKFLOW_FILE, ASK_JOB_NAME, ASK_STEP_NAME, false),
+            SUITE_SMOKE, new SuiteSpec(SMOKE_WORKFLOW_FILE, SMOKE_JOB_NAME, SMOKE_STEP_NAME, true));
 
-    private static final List<String> SUITE_ORDER = List.of(SUITE_SKY, SUITE_ASK);
+    private static final List<String> SUITE_ORDER = List.of(SUITE_SKY, SUITE_ASK, SUITE_SMOKE);
+
+    /** Each distinct workflow file, in suite order: listed in turn, sharing the call budget. */
+    private static final List<String> WORKFLOW_FILES = SUITE_ORDER.stream()
+            .map(suite -> SUITES.get(suite).workflowFile()).distinct().toList();
 
     private final GitHubActionsClient client;
     private final GitHubArtifactDownloader downloader;
@@ -212,7 +240,7 @@ public class CiSpendPollService {
         Poll poll = new Poll(properties.getMaxCallsPerPoll());
         try {
             repriceUnpriced(poll);
-            for (JsonNode run : listRuns(poll)) {
+            for (WorkflowRun run : listRuns(poll)) {
                 processRun(run, poll);
             }
             finish(poll, false);
@@ -241,35 +269,38 @@ public class CiSpendPollService {
 
     // ---- listing ----------------------------------------------------------------------------------------------
 
-    private List<JsonNode> listRuns(Poll poll) {
+    private List<WorkflowRun> listRuns(Poll poll) {
         LocalDate since = LocalDate.now(clock.withZone(ZoneOffset.UTC)).minusDays(properties.getLookbackDays());
         String created = ">=" + since;
-        List<JsonNode> runs = new ArrayList<>();
-        for (int page = 1; page <= MAX_RUN_PAGES; page++) {
-            poll.spend();
-            JsonNode root = parse(client.listWorkflowRuns(properties.owner(), properties.repoName(),
-                    properties.getWorkflowFile(), created, PAGE_SIZE, page));
-            JsonNode items = root.path("workflow_runs");
-            items.forEach(runs::add);
-            if (items.size() < PAGE_SIZE) {
-                break;
+        List<WorkflowRun> runs = new ArrayList<>();
+        for (String workflowFile : WORKFLOW_FILES) {
+            for (int page = 1; page <= MAX_RUN_PAGES; page++) {
+                poll.spend();
+                JsonNode root = parse(client.listWorkflowRuns(properties.owner(), properties.repoName(),
+                        workflowFile, created, PAGE_SIZE, page));
+                JsonNode items = root.path("workflow_runs");
+                items.forEach(item -> runs.add(new WorkflowRun(item, workflowFile)));
+                if (items.size() < PAGE_SIZE) {
+                    break;
+                }
             }
         }
         return runs;
     }
 
-    private void processRun(JsonNode run, Poll poll) {
+    private void processRun(WorkflowRun workflowRun, Poll poll) {
+        JsonNode run = workflowRun.run();
         long runId = run.path("id").asLong();
         int latestAttempt = Math.max(1, run.path("run_attempt").asInt(1));
         for (int attempt = 1; attempt <= latestAttempt; attempt++) {
             if (attemptRepository.existsById(new CiSpendAttemptEntity.Key(runId, attempt))) {
                 continue;
             }
-            processAttempt(runId, attempt, poll);
+            processAttempt(runId, attempt, workflowRun.workflowFile(), poll);
         }
     }
 
-    private void processAttempt(long runId, int attempt, Poll poll) {
+    private void processAttempt(long runId, int attempt, String workflowFile, Poll poll) {
         poll.spend();
         JsonNode attemptJson = parse(client.getRunAttempt(properties.owner(), properties.repoName(), runId, attempt));
         if (!STATUS_COMPLETED.equals(attemptJson.path("status").asText())) {
@@ -280,6 +311,10 @@ public class CiSpendPollService {
                 PAGE_SIZE)).path("jobs");
         Map<String, RanJob> ran = new LinkedHashMap<>();
         for (String suite : SUITE_ORDER) {
+            // An attempt matches only the suites of its own workflow file.
+            if (!workflowFile.equals(SUITES.get(suite).workflowFile())) {
+                continue;
+            }
             RanJob job = ranJob(jobs, SUITES.get(suite), attempt);
             if (job != null) {
                 ran.put(suite, job);
@@ -435,10 +470,14 @@ public class CiSpendPollService {
         boolean pullRequest = EVENT_PULL_REQUEST.equals(event);
         Integer prNumber = null;
         JsonNode prs = attemptJson.path("pull_requests");
-        if (prs.isArray() && !prs.isEmpty() && prs.get(0).path("number").asInt() > 0) {
-            prNumber = prs.get(0).path("number").asInt();
-        } else if (pullRequest && sha != null) {
-            prNumber = pullNumberForCommit(sha, poll);
+        // Only a pull_request run has a PR: GitHub also fills pull_requests for a workflow_dispatch on an open PR's
+        // branch, and a schedule has none.
+        if (pullRequest) {
+            if (prs.isArray() && !prs.isEmpty() && prs.get(0).path("number").asInt() > 0) {
+                prNumber = prs.get(0).path("number").asInt();
+            } else if (sha != null) {
+                prNumber = pullNumberForCommit(sha, poll);
+            }
         }
         String title = pullRequest ? truncate(text(attemptJson, "display_title"), MAX_TITLE_LENGTH) : null;
         String url = "https://github.com/" + properties.getRepository() + "/actions/runs/" + runId + "/attempts/"
@@ -565,6 +604,10 @@ public class CiSpendPollService {
         List<Optional<EvaluationModel>> resolved = tokens.stream()
                 .map(t -> EvaluationModel.fromModelId(t.model())).toList();
         boolean priceable = resolved.stream().allMatch(Optional::isPresent);
+        // Batch comes from the row's suite, never the artifact. The stored per-Mtok rates stay the standard ones
+        // beside a halved cost; nothing in src/main reads that snapshot.
+        SuiteSpec spec = SUITES.get(row.getSuite());
+        boolean batch = spec != null && spec.batch();
         List<CiSpendModelUsageEntity> rows = new ArrayList<>();
         long total = 0;
         for (int i = 0; i < tokens.size(); i++) {
@@ -579,7 +622,7 @@ public class CiSpendPollService {
                 usageRow.setCacheWrite1hUsdPerMtok(rates.cacheWrite1hUsdPerMtok());
                 usageRow.setCacheReadUsdPerMtok(rates.cacheReadUsdPerMtok());
                 long cost = costCalculator.calculateCostMicroDollars(model, new TokenUsage(t.input(), t.output(),
-                        t.cacheWrite(), t.cacheRead(), t.cacheWrite1h()), false);
+                        t.cacheWrite(), t.cacheRead(), t.cacheWrite1h()), batch);
                 usageRow.setCostMicroDollars(cost);
                 total += cost;
             }
@@ -720,7 +763,10 @@ public class CiSpendPollService {
     private record WriteResult(Outcome outcome, Wrote wrote) {
     }
 
-    private record SuiteSpec(String jobName, String stepName) {
+    private record SuiteSpec(String workflowFile, String jobName, String stepName, boolean batch) {
+    }
+
+    private record WorkflowRun(JsonNode run, String workflowFile) {
     }
 
     private record RanJob(JsonNode job, Instant startedAt) {

@@ -16,7 +16,7 @@ class CiSpendPropertiesTest {
     private static final Validator VALIDATOR = Validation.buildDefaultValidatorFactory().getValidator();
 
     @Test
-    @DisplayName("defaults: off, no token, 14 days, 300 calls, the documented repository, workflow and API")
+    @DisplayName("defaults: off, no token, 14 days, 300 calls, the documented repository and API")
     void defaults() {
         CiSpendProperties p = new CiSpendProperties();
 
@@ -25,7 +25,6 @@ class CiSpendPropertiesTest {
         assertThat(p.getLookbackDays()).isEqualTo(14);
         assertThat(p.getMaxCallsPerPoll()).isEqualTo(300);
         assertThat(p.getRepository()).isEqualTo("gregochr/goldenhour");
-        assertThat(p.getWorkflowFile()).isEqualTo("prompt-regression.yml");
         assertThat(p.getApiBaseUrl()).isEqualTo("https://api.github.com");
         assertThat(VALIDATOR.validate(p)).isEmpty();
     }
@@ -71,19 +70,13 @@ class CiSpendPropertiesTest {
     }
 
     @Test
-    @DisplayName("repository, workflow file and API URL reject dot segments, non-yaml names, non-https and userinfo")
+    @DisplayName("repository and API URL reject dot segments, non-https and userinfo")
     void shapeValidation() {
         for (String bad : new String[] {"./x", "../x", "x/.", "x/..", "a/b/c", "/x", "x/", "a b/c"}) {
             CiSpendProperties p = new CiSpendProperties();
             p.setRepository(bad);
             assertThat(VALIDATOR.validate(p)).as(bad).extracting(v -> v.getPropertyPath().toString())
                     .containsExactly("repository");
-        }
-        for (String bad : new String[] {"x.txt", "../x.yml", "a/b.yml", "x"}) {
-            CiSpendProperties p = new CiSpendProperties();
-            p.setWorkflowFile(bad);
-            assertThat(VALIDATOR.validate(p)).as(bad).extracting(v -> v.getPropertyPath().toString())
-                    .containsExactly("workflowFile");
         }
         String[] badUrls = {"http://api.github.com", "https://", "https://u:p@api.github.com", "https://a@b.test",
                 "ftp://x"};
@@ -95,7 +88,6 @@ class CiSpendPropertiesTest {
         }
         CiSpendProperties ok = new CiSpendProperties();
         ok.setRepository("my-org/my.repo_1");
-        ok.setWorkflowFile("ci.yaml");
         ok.setApiBaseUrl("https://github.example.com/api/v3");
         assertThat(VALIDATOR.validate(ok)).isEmpty();
         ok.setRepository(".github/.x");

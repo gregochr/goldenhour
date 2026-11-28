@@ -97,10 +97,12 @@
   --color-run-evening: oklch(0.68 0.13 35);
   --color-run-briefing: oklch(0.74 0.08 145);
   --color-run-other: oklch(0.62 0.015 60);
-  /* The CI prompt-regression suites on Runs › Cost trends (ci-spend-plan.md C3), drawn hatched (an SVG pattern in the
-     chart, a repeating-linear-gradient swatch elsewhere): never a series colour, so the app's stack stays its own. */
+  /* The CI test suites on Runs › Cost trends (ci-spend-plan.md C3, C4), drawn hatched (an SVG pattern in the
+     chart, a repeating-linear-gradient swatch elsewhere): never a series colour, so the app's stack stays its own.
+     Defined once: the app has a single dark scheme. */
   --color-test-sky: #9CCBD1;
   --color-test-ask: #C6D8E3;
+  --color-test-smoke: #D8C79A;
 
   /* The Scheduler's Day picture (scheduler-redesign-plan.md D12): the sun-relative jobs' colour, and the repeating jobs'
      ink at half strength. Cron jobs use --color-tide. Static, so they survive with no scanned consumer. */

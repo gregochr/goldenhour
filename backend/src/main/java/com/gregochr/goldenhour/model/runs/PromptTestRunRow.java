@@ -4,9 +4,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
- * One CI prompt-regression run (one suite of one attempt) as the Day view lists it.
+ * One CI test run (one suite of one attempt) as the Day view lists it.
  *
- * @param prNumber   the pull request, or null for a manual run
+ * @param prNumber   the pull request, or null for a scheduled or manual run
  * @param prTitle    the pull request title, or null
  * @param suite      the suite
  * @param attempt    the run attempt (1 for the first)
@@ -23,8 +23,11 @@ import java.time.Instant;
  * @param usageState {@code KNOWN}, {@code UNKNOWN} or {@code UNPRICED}
  * @param inputTotal every input token read ({@code input + cacheRead}), null when usage is unknown
  * @param cachedPercent {@code cacheRead} as a whole percent of {@code inputTotal}, null when that is zero or unknown
+ * @param event      the GitHub event that started the run ({@code pull_request}, {@code schedule} or
+ *                   {@code workflow_dispatch}), or null when unknown
  */
 public record PromptTestRunRow(Integer prNumber, String prTitle, CiSuite suite, int attempt, String conclusion,
         String htmlUrl, Instant startedAt, Integer cases, Integer failed, Long input, Long output, Long cacheRead,
-        BigDecimal costGbp, BigDecimal costUsd, String usageState, Long inputTotal, Integer cachedPercent) {
+        BigDecimal costGbp, BigDecimal costUsd, String usageState, Long inputTotal, Integer cachedPercent,
+        String event) {
 }

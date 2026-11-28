@@ -1,6 +1,6 @@
 """Token-usage artifact of a paid prompt-regression run (docs/engineering/ci-spend-plan.md, C1).
 
-    python3 -I scripts/prompt-regression-usage.py --suite sky|ask
+    python3 -I scripts/prompt-regression-usage.py --suite sky|ask|smoke
 
 Takes no path arguments: every path is derived from this script's own location (the repository root is two levels
 up), so no caller-supplied text reaches the filesystem. Sums every shard-*.json under
@@ -15,6 +15,10 @@ Prints one totals line to stdout; the workflow appends it to the job summary.
 
 * *.tmp files are ignored (a shard being replaced); a malformed shard is skipped with a warning.
 * "complete" is false when no surefire report exists (the build failed before any test ran).
+
+--suite smoke (the daily real-API smoke, ci-spend-plan.md C4) reads the surefire report of its one test class only. With
+no shard it writes NO file and prints a one-line "no usage recorded" summary: no row means unknown, never zero, so
+nothing uploads and production settles the attempt as UNKNOWN. Sky and ask keep writing a zero-call file.
 
 Always exits 0: the test step owns the job's verdict.
 """
@@ -32,7 +36,11 @@ TARGET = os.path.join(ROOT, "backend", "target")
 SHARDS_DIR = os.path.join(TARGET, "prompt-regression-usage")
 REPORTS_DIR = os.path.join(TARGET, "surefire-reports")
 # A fixed lookup, so the output file name is a constant and never caller-supplied text.
-OUT_NAMES = {"sky": "prompt-regression-usage-sky.json", "ask": "prompt-regression-usage-ask.json"}
+OUT_NAMES = {"sky": "prompt-regression-usage-sky.json", "ask": "prompt-regression-usage-ask.json",
+             "smoke": "prompt-regression-usage-smoke.json"}
+# Which surefire reports a suite counts: the smoke counts its one class, the others every report.
+REPORT_GLOBS = {"smoke": "TEST-*ForecastBatchPipelineRealApiE2ETest.xml"}
+DEFAULT_REPORT_GLOB = "TEST-*.xml"
 
 FIELDS = ("calls", "erroredCalls", "input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
 
@@ -89,11 +97,11 @@ def read_shards(shards_dir):
     return totals
 
 
-def read_reports(reports_dir):
+def read_reports(reports_dir, pattern=DEFAULT_REPORT_GLOB):
     """(cases, failed, any_report): tests, failures plus errors, and whether a readable report exists."""
     cases = failed = 0
     found = False
-    for path in sorted(glob.glob(os.path.join(reports_dir, "TEST-*.xml"))):
+    for path in sorted(glob.glob(os.path.join(reports_dir, pattern))):
         try:
             root = ET.parse(path).getroot()
         except (ET.ParseError, OSError):
@@ -113,10 +121,9 @@ def utc_now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def build(args, env):
+def build(args, env, totals):
     """The schema-1 document as a dict."""
-    totals = read_shards(SHARDS_DIR)
-    cases, failed, found = read_reports(REPORTS_DIR)
+    cases, failed, found = read_reports(REPORTS_DIR, REPORT_GLOBS.get(args.suite, DEFAULT_REPORT_GLOB))
     models = [dict([("model", model)] + [(f, totals[model][f]) for f in FIELDS]) for model in sorted(totals)]
     return {
         "schema": 1,
@@ -147,10 +154,14 @@ def summary_line(doc):
 def main(argv):
     """Entry point."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--suite", required=True, choices=("sky", "ask"))
+    parser.add_argument("--suite", required=True, choices=("sky", "ask", "smoke"))
     args = parser.parse_args(argv)
     out = os.path.join(TARGET, OUT_NAMES[args.suite])
-    doc = build(args, os.environ)
+    totals = read_shards(SHARDS_DIR)
+    if args.suite == "smoke" and not totals:
+        sys.stdout.write("Prompt usage (smoke): no usage recorded, so no usage artifact (the spend is unknown).\n")
+        return 0
+    doc = build(args, os.environ, totals)
     os.makedirs(TARGET, exist_ok=True)
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(doc, handle, indent=2)
