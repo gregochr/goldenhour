@@ -104,10 +104,10 @@ WarningChips.propTypes = {
 };
 
 /** U+2060: forbids a line break on either side, so the {@code ?} door cannot be stranded from the link before it. */
-const WORD_JOINER = '⁠';
+const WORD_JOINER = '\u2060';
 
 /** A non-breaking space and the new-tab arrow, so the arrow never leaves the last word of the link. */
-const NBSP_ARROW = ' ↗';
+const NBSP_ARROW = '\u00a0\u2197';
 
 /**
  * The small source line beside warnings (map-warning-row-plan.md M3): the attribution the licence requires, which is
@@ -153,10 +153,9 @@ export function WarningFooter({
       {stale && (
         <p data-testid="warning-stale">
           {staleLine(lastCheckedAt)}
-          {!showAttribution && guide}
         </p>
       )}
-      {showAttribution && (
+      {(showAttribution || stale) && (
         <p
           data-testid="warning-attribution-line"
           className={guideAtEnd ? 'flex items-baseline justify-between gap-2' : undefined}

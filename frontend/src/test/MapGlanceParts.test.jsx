@@ -14,20 +14,12 @@ import MapBestBetWhy, { MapBestBetPanel } from '../components/map/MapBestBetWhy.
 import RegionsJump from '../components/map/RegionsJump.jsx';
 import WindowSpotSheet from '../components/WindowSpotSheet.jsx';
 import { WindowWarningsBody } from '../components/WindowWarningsBody.jsx';
-import { ATTRIBUTION, response, warning } from './warningsFixture.js';
+import { METOFFICE_URL, response, warning } from './warningsFixture.js';
 
 /**
- * The small parts of glance-to-map-plan.md G1 on their own: the reason pill, the warning toggle and panel, the
- * warning body both surfaces draw, the Regions row's second line and the list's phone frame.
+ * The small parts of glance-to-map-plan.md G1 on their own: the reason pill, the warning body both surfaces draw, the Regions row's second line and the list's phone frame.
  */
 const DATE = '2026-06-15';
-const EVENT = {
-  kind: 'solar', eventType: 'SUNSET', date: DATE, past: false,
-};
-const LOCATIONS = [{
-  id: 7,
-  forecastsByDate: new Map([[DATE, { sunset: { solarEventTime: `${DATE}T20:10:00` } }]]),
-}];
 const span = { validFrom: `${DATE}T00:00:00Z`, validTo: `${DATE}T23:59:00Z` };
 const YELLOW = warning({
   warningId: 'y', weatherTypes: ['WIND'], headline: 'Wind headline', ...span,
@@ -116,14 +108,14 @@ describe('the warning body', () => {
     expect(screen.queryByTestId('warning-attribution')).toBeNull();
   });
 
-  it('WindowWarningsBody with no warning draws no advice link and no attribution, only the stale admission', async () => {
+  it('WindowWarningsBody with no warning draws no advice link, only the stale admission and the Met Office link', async () => {
     await mount(
       response([], { stale: true, lastCheckedAt: `${DATE}T09:05:00Z` }),
       <WindowWarningsBody warnings={[]} />,
     );
     expect(screen.queryByTestId('window-warning')).toBeNull();
     expect(screen.queryByTestId('window-warning-advice-link')).toBeNull();
-    expect(screen.queryByTestId('warning-attribution')).toBeNull();
+    expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
     expect(screen.getByTestId('warning-stale')).toBeInTheDocument();
   });
 });

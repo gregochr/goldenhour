@@ -7732,6 +7732,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               chips, never inside that bar. Chips only: no outline, polygon or shading on the map (style guide
               v1.4). The group's height observer re-places the labels when this row appears or changes. */}
           <MapWarningChips
+            key={activeMapEventId ?? 'none'}
             event={activeMapEvent}
             locations={locations}
             slotIndex={slotIndex}

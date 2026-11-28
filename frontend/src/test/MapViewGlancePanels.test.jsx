@@ -17,7 +17,7 @@ import {
 import { mapViewState } from './mapViewMocks.jsx';
 import { installGlanceHooks } from './mapViewGlanceHarness.jsx';
 import { windowKey } from '../utils/windowKeys.js';
-import { TODAY, TOMORROW, PICK, CARD, cardsByKey } from './mapViewGlanceFixtures.js';
+import { TODAY, TOMORROW, PICK, CARD, AMBER, cardsByKey } from './mapViewGlanceFixtures.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 
 const { door, renderMap } = installGlanceHooks();
@@ -221,6 +221,21 @@ describe('the Map warning row (map-warning-row-plan.md M1-M2)', () => {
     expect(region).toHaveTextContent('Strong winds');
     expect(screen.getByTestId('wf-map-chrome-tl').contains(region)).toBe(true);
     expect(screen.queryByTestId('bottom-sheet-root')).toBeNull();
+  });
+
+  it('folds "+N more warnings" back when the window moves to another event', async () => {
+    const many = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ ...AMBER, warningId: id }));
+    const view = await renderMap({ warnings: many });
+    expect(screen.getAllByTestId('map-warning-row')).toHaveLength(3);
+    fireEvent.click(screen.getByTestId('map-warning-more'));
+    expect(screen.getAllByTestId('map-warning-row')).toHaveLength(5);
+    const sunrise = { ...CARD, key: windowKey(TODAY, 'SUNRISE'), targetType: 'SUNRISE' };
+    await view.again({
+      autoEventType: 'SUNRISE',
+      windowCardsByKey: new Map([[CARD.key, CARD], [sunrise.key, sunrise]]),
+    });
+    expect(screen.getAllByTestId('map-warning-row')).toHaveLength(3);
+    expect(screen.getByTestId('map-warning-more')).toHaveTextContent('+2 more warnings');
   });
 
   it('closes when the window moves to another event, even though the same warning still applies there', async () => {

@@ -50,7 +50,7 @@ export function WarningDetail({
       data-warning-id={warning.warningId}
       className={`flex flex-wrap items-start gap-x-4 gap-y-2 ${frame}`}
     >
-      <div className="flex min-w-[14rem] flex-1 flex-col gap-2">
+      <div className={`flex ${bare ? 'min-w-[9.5rem]' : 'min-w-[14rem]'} flex-1 flex-col gap-2`}>
         {showChip && <div><WarningChip warning={warning} /></div>}
         {warning.headline && (
           <p data-testid="window-warning-headline" className="text-[13px] font-semibold leading-snug text-plex-text">

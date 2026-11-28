@@ -130,7 +130,7 @@ describe('warning lanes on the desktop grid', () => {
       warningFooter={footer({ showAttribution: false, stale: true })}
     />);
     expect(screen.getByTestId('warning-stale')).toHaveTextContent('Last checked');
-    expect(screen.queryByTestId('warning-attribution')).toBeNull();
+    expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
     expect(document.body.textContent).not.toMatch(/no warnings/i);
   });
 

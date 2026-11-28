@@ -211,11 +211,14 @@ describe('MapWarningChips', () => {
     expect(screen.getByTestId('warning-attribution')).toBeInTheDocument();
   });
 
-  it('prints only the stale line when stale and nothing covers the window', async () => {
+  it('prints the stale line then the Met Office link, and no row, when stale and nothing covers the window', async () => {
     await mount(response([], { stale: true, lastCheckedAt: '2026-06-14T09:05:00Z' }));
     expect(screen.queryByTestId('map-warning-row')).toBeNull();
     expect(screen.getByTestId('warning-stale')).toHaveTextContent('Last checked 24 h ago. These may be out of date.');
-    expect(screen.queryByTestId('warning-attribution')).toBeNull();
+    expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
+    const stale = screen.getByTestId('warning-stale');
+    expect(stale.compareDocumentPosition(screen.getByTestId('warning-attribution')))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it.each([

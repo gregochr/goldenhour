@@ -220,7 +220,7 @@ describe('Coming up warning entries', () => {
     expect(stale).toHaveLength(1);
     expect(stale[0]).toHaveTextContent(/Last checked/);
     expect(screen.queryByTestId('warning-stale-link')).toBeNull();
-    expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
+    expect(screen.getAllByTestId('warning-source-link')[0]).toHaveAttribute('href', METOFFICE_URL);
     expect(screen.getByText('Met Office warning')).toBeInTheDocument();
     expect(screen.queryByText(/no warnings|all clear/i)).toBeNull();
   });

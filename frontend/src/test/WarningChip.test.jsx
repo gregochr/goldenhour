@@ -153,10 +153,10 @@ describe('WarningFooter', () => {
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('still says so, never an all-clear, when stale with no warning shown', () => {
+  it('still says so, never an all-clear, and still links to the Met Office, when stale with no warning shown', () => {
     render(<WarningFooter {...base} showAttribution={false} stale />);
     expect(screen.getByTestId('warning-stale')).toHaveTextContent('Last checked 1 h ago. These may be out of date.');
-    expect(screen.queryByTestId('warning-attribution')).toBeNull();
+    expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
   });
 
   it('admits when no check has succeeded yet', () => {
@@ -227,6 +227,6 @@ describe('WarningStrip', () => {
     await mount([], response([], { stale: true }));
     expect(screen.getByTestId('warning-stale')).toBeInTheDocument();
     expect(screen.queryByTestId('warning-chip')).toBeNull();
-    expect(screen.queryByTestId('warning-attribution')).toBeNull();
+    expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
   });
 });

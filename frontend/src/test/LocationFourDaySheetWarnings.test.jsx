@@ -192,7 +192,7 @@ describe('LocationFourDaySheet warnings', () => {
     await mount(response([], { stale: true, lastCheckedAt: '2026-08-14T13:05:00Z' }));
     expect(screen.queryByTestId('warning-chip')).toBeNull();
     expect(screen.getByTestId('warning-stale')).toHaveTextContent('Last checked 1 h ago. These may be out of date.');
-    expect(screen.queryByTestId('warning-attribution')).toBeNull();
+    expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
   });
 
   it('shows nothing at all while the feature is off', async () => {
