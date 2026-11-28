@@ -30,6 +30,7 @@ One screen, read top to bottom in that order. The map is a view opened *from* a 
 | **Empty state** | One dashed hint line that teaches the next action, dismissible, shown until the first save. |
 | **Pro gate** | A `PRO` pill on the control; pressing it opens the worded upsell under it. |
 | **Undo** | Every removal (unbookmark, unwatch) shows a toast with Undo, about 3 s. |
+| **Type** (app, landing and guide) | Newsreader is for headings (h1–h3), the PhotoCast wordmark and the landing hero's one italic tagline. Every sentence you read is IBM Plex Sans (`docs/engineering/landing-guide-plan.md`). |
 
 ## 4. Space budget (phone, 390 × 844)
 | Band | Height | Rule |
