@@ -6456,10 +6456,10 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-plex-text);
   font-family: var(--font-sans);
 }
-/* One Met Office warning in full on the Map (glance-to-map-plan.md G1): hung UNDER the top-left chrome group at the frame
+/* The Best bet reason on the Map (glance-to-map-plan.md G1): hung UNDER the top-left chrome group at the frame
    level, exactly where `.wf-win-panel` hangs, never inside the group (its height would re-place the map's labels and
-   break the 504px label-obstacle bound). Capped, and it scrolls: a warning's full text is long. */
-.wf-warn-panel,
+   break the 504px label-obstacle bound). Capped, and it scrolls. A warning no longer has a panel: it opens in place
+   under its row (map-warning-row-plan.md M2). */
 .wf-bestbet-panel {
   position: absolute;
   top: calc(var(--wf-chrome-tl-h, 36px) + 14px);
@@ -6477,7 +6477,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-plex-text);
   font-family: var(--font-sans);
 }
-.wf-warn-panel-x {
+.wf-bestbet-panel-x {
   float: right;
   margin: 0 0 4px 8px;
   min-width: 44px;
@@ -6489,8 +6489,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   border: 1px solid var(--color-plex-border-light);
   border-radius: 4px;
 }
-.wf-warn-panel-x:hover { color: var(--color-plex-text); }
-.wf-warn-panel-x:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+.wf-bestbet-panel-x:hover { color: var(--color-plex-text); }
+.wf-bestbet-panel-x:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
 .wf-win-panel-head {
   display: grid;
   grid-template-columns: 1fr auto auto;
@@ -8521,7 +8521,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-jump-chip { min-height: 40px; }
 }
 /* The Map's "Best bet · why" pill and its body (glance-to-map-plan.md G1): a row of its own under the window control,
-   inside the top-left group so it shares the control's width bound. Its reason is a frame-level panel hung under the group (`.wf-bestbet-panel`, sharing `.wf-warn-panel`'s placement), never inside
+   inside the top-left group so it shares the control's width bound. Its reason is a frame-level panel hung under the group (`.wf-bestbet-panel`), never inside
    the group, so opening it cannot change `--wf-chrome-tl-h`. */
 .wf-bestbet-pill,
 .wf-list-chip {

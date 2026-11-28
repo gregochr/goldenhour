@@ -38,7 +38,7 @@ import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import BigSeasLine from './map/BigSeasLine.jsx';
 import MapTopicChips from './map/MapTopicChips.jsx';
-import MapWarningChips, { MapWarningPanel, useMapWarnings } from './map/MapWarningChips.jsx';
+import MapWarningChips, { useMapWarnings } from './map/MapWarningChips.jsx';
 import MapTopicStrip from './map/MapTopicStrip.jsx';
 import MapTopicRings from './map/MapTopicRings.jsx';
 import { useChromeTlHeight } from '../hooks/useChromeTlHeight.js';
@@ -1752,12 +1752,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [openMapMenu, setOpenMapMenu] = useState(null);
   /**
-   * The two "why" panels hung under the top-left group (glance-to-map-plan.md G1): the Met Office warning whose full
-   * text is open (by its served id) and the Best bet reason (by the window card's key, so it closes when the window
-   * moves). Exclusive with each other and with every menu in {@code openMapMenu}: opening one closes the rest, and a
-   * menu opening lets them go (the render-time adjustment below), so one Escape takes exactly one layer. A warning the
-   * next poll withdraws simply stops matching and its panel prints nothing. The openers are kept so a close can hand
-   * focus back to the button that opened the panel.
+   * The two "why" layers under the top-left group: the Met Office warning open in place under its row (by its served
+   * id; map-warning-row-plan.md M2) and the Best bet reason panel (by the window card's key, so it closes when the
+   * window moves). Exclusive with each other and with every menu in {@code openMapMenu}: opening one closes the rest,
+   * and a menu opening lets them go (the render-time adjustment below), so one Escape takes exactly one layer. A
+   * warning the next poll withdraws simply stops matching and its region prints nothing. The openers are kept so a
+   * close can hand focus back to the button that opened it.
    */
   const [openWarningId, setOpenWarningId] = useState(null);
   const [bestBetKey, setBestBetKey] = useState(null);
@@ -4164,6 +4164,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [yieldSeenRowId, setYieldSeenRowId] = useState(activeMapEventId);
   if (activeMapEventId !== yieldSeenRowId) {
     setYieldSeenRowId(activeMapEventId);
+    // A warning opened in place belongs to the window it was opened on (map-warning-row-plan.md M2): another event or
+    // date closes it even when the same warning still applies there.
+    setOpenWarningId(null);
     if (tideYieldRowId !== activeMapEventId) setTideYieldRowId(null);
   }
 
@@ -5800,7 +5803,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   function restoreFocusTo(opener) {
     const active = document.activeElement;
-    const lost = !active || active === document.body || Boolean(active.closest?.('.wf-warn-panel, .wf-bestbet-panel'));
+    const lost = !active || active === document.body || Boolean(active.closest?.('.wf-warning-region, .wf-bestbet-panel'));
     if (lost && opener?.isConnected) opener.focus({ preventScroll: true });
   }
   function closeWarning() {
@@ -7729,6 +7732,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               chips, never inside that bar. Chips only: no outline, polygon or shading on the map (style guide
               v1.4). The group's height observer re-places the labels when this row appears or changes. */}
           <MapWarningChips
+            key={activeMapEventId ?? 'none'}
             event={activeMapEvent}
             locations={locations}
             slotIndex={slotIndex}
@@ -7794,18 +7798,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           moves the date — and it goes null. `isSolar` then read false, so the window panel
           printed the NIGHT note over a solar map and an empty line saying no region had a
           "night" answer. */}
-        {/* One warning in full (glance-to-map-plan.md G1): a frame-level sibling of the chrome, never inside the
-            group (its height would re-place the labels), and on a phone a non-modal bottom sheet. */}
+        {/* The Best bet reason (glance-to-map-plan.md G1): a frame-level sibling of the chrome, never inside the
+            group (its height would re-place the labels). A warning opens in place under its row instead
+            (map-warning-row-plan.md M2), so it has no panel here. */}
         {bestBetShown && <MapBestBetPanel pick={selectedCard.pick} onClose={closeBestBet} />}
-        <MapWarningPanel
-          event={activeMapEvent}
-          locations={locations}
-          slotIndex={slotIndex}
-          scoreIndex={scoreIndex}
-          openId={openWarningId}
-          onClose={closeWarning}
-          isMobile={isMobile}
-        />
 
         {windowPanelOpen && activeMapEvent && panelRegionRow && (
           <MapRegionPanel

@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import GuideLink from './guide/GuideLink.jsx';
 import { useWarnings } from '../context/WarningsContext.jsx';
 import {
-  cardMarker, levelClasses, staleLead, warningLabel,
+  cardMarker, levelClasses, staleLine, warningLabel,
 } from '../utils/warnings.js';
 
 /**
@@ -103,12 +103,23 @@ WarningChips.propTypes = {
   className: PropTypes.string,
 };
 
+/** U+2060: forbids a line break on either side, so the {@code ?} door cannot be stranded from the link before it. */
+const WORD_JOINER = '\u2060';
+
+/** A non-breaking space and the new-tab arrow, so the arrow never leaves the last word of the link. */
+const NBSP_ARROW = '\u00a0\u2197';
+
 /**
- * The small source line beside warnings: the attribution the licence requires and a link to the Met Office page,
- * and, when the feed is stale, the plain admission that the warnings may be out of date (plan §8) so an empty
- * list never reads as an all-clear. Render it wherever chips are, and where the feed is stale even with none. It ends
- * with the guide's {@code ?} door (the same on every surface, so the lane, popup, sheet, Coming up and Map all open
- * the same page; with a stale feed it opens the freshness section).
+ * The small source line beside warnings (map-warning-row-plan.md M3): the attribution the licence requires, which is
+ * itself the link to the Met Office warnings page (new tab, followed by an arrow), then the guide's {@code ?} door.
+ * When the feed is stale, a line of its own above says when it was last checked and that the warnings may be out of
+ * date (plan section 8), so an empty list never reads as an all-clear. Render it wherever chips are, and where the feed
+ * is stale even with none. The {@code ?} is the same on every surface, so the lane, popup, sheet, Coming up and Map
+ * all open the same page; with a stale feed it opens the freshness section.
+ *
+ * <p>The attribution's last word, the arrow and the {@code ?} never part across a line (a word joiner holds the
+ * {@code ?} to the link), so nothing is ever stranded. {@code guideAtEnd} instead pushes the {@code ?} to the far
+ * right of a box-wide footer (the Map's).
  *
  * @param {object} props
  * @param {boolean} props.showAttribution whether warnings are shown here (attribution is owed with them)
@@ -117,52 +128,59 @@ WarningChips.propTypes = {
  * @param {string} props.attribution the served attribution line
  * @param {string} props.href the Met Office page
  * @param {string} [props.className] extra classes
+ * @param {boolean} [props.guideAtEnd] pin the {@code ?} to the far right of a full-width footer
  */
 export function WarningFooter({
-  showAttribution, stale, lastCheckedAt, attribution, href, className = '',
+  showAttribution, stale, lastCheckedAt, attribution, href, className = '', guideAtEnd = false,
 }) {
   if (!showAttribution && !stale) return null;
+  const guide = (
+    <GuideLink
+      section={stale ? 'warningsFresh' : 'warnings'}
+      label={stale ? 'How fresh Met Office weather warnings are' : 'About Met Office weather warnings'}
+      className="wf-warning-guide"
+      testId="warning-guide-link"
+    />
+  );
+  const cut = attribution.lastIndexOf(' ');
+  const head = cut > 0 ? attribution.slice(0, cut + 1) : '';
+  const last = cut > 0 ? attribution.slice(cut + 1) : attribution;
   return (
-    <p
+    <div
       data-testid="warning-footer"
       className={`font-mono text-[10px] leading-snug text-plex-text-secondary ${className}`}
     >
       {stale && (
-        <span data-testid="warning-stale">
-          {`${staleLead(lastCheckedAt)} — `}
-          <a
-            data-testid="warning-stale-link"
-            className="underline"
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            check the Met Office
-          </a>
-          {showAttribution ? '. ' : ''}
-        </span>
+        <p data-testid="warning-stale">
+          {staleLine(lastCheckedAt)}
+        </p>
       )}
-      {showAttribution && (
-        <span data-testid="warning-attribution">
-          {`${attribution} · `}
-          <a
-            data-testid="warning-source-link"
-            className="underline"
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read it on the Met Office site
-          </a>
-        </span>
+      {(showAttribution || stale) && (
+        <p
+          data-testid="warning-attribution-line"
+          className={guideAtEnd ? 'flex items-baseline justify-between gap-2' : undefined}
+        >
+          <span data-testid="warning-attribution">
+            <a
+              data-testid="warning-source-link"
+              className="underline"
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {head}
+              <span className="whitespace-nowrap">
+                {last}
+                <span aria-hidden="true">{NBSP_ARROW}</span>
+              </span>
+              <span className="sr-only">, Met Office warnings page, opens in a new tab</span>
+            </a>
+            {!guideAtEnd && WORD_JOINER}
+          </span>
+          {guide}
+        </p>
       )}
-      <GuideLink
-        section={stale ? 'warningsFresh' : 'warnings'}
-        label={stale ? 'How fresh Met Office weather warnings are' : 'About Met Office weather warnings'}
-        className="wf-warning-guide"
-        testId="warning-guide-link"
-      />
-    </p>
+    </div>
   );
 }
 
@@ -173,7 +191,7 @@ export function WarningFooter({
  * @param {object} props
  * @param {boolean} props.showAttribution whether warnings are shown here (attribution is owed with them)
  */
-export function ServedWarningFooter({ showAttribution }) {
+export function ServedWarningFooter({ showAttribution, guideAtEnd = false, className = '' }) {
   const served = useWarnings();
   return (
     <WarningFooter
@@ -182,11 +200,17 @@ export function ServedWarningFooter({ showAttribution }) {
       lastCheckedAt={served.lastCheckedAt}
       attribution={served.attribution}
       href={served.metOfficeUrl}
+      guideAtEnd={guideAtEnd}
+      className={className}
     />
   );
 }
 
-ServedWarningFooter.propTypes = { showAttribution: PropTypes.bool.isRequired };
+ServedWarningFooter.propTypes = {
+  showAttribution: PropTypes.bool.isRequired,
+  guideAtEnd: PropTypes.bool,
+  className: PropTypes.string,
+};
 
 WarningFooter.propTypes = {
   showAttribution: PropTypes.bool.isRequired,
@@ -195,6 +219,7 @@ WarningFooter.propTypes = {
   attribution: PropTypes.string.isRequired,
   href: PropTypes.string.isRequired,
   className: PropTypes.string,
+  guideAtEnd: PropTypes.bool,
 };
 
 /**

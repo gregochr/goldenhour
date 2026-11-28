@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  compareWarnings, joinWords, levelWord, orderWarnings, staleLead, typeWords,
-  warningLabel, warningName, warningsForPlaceAt, warningsForWindow, WARNING_LEVELS,
+  compareWarnings, joinWords, levelWord, orderWarnings, staleLine, typeWords,
+  validityCompact, warningLabel, warningName, warningsForPlaceAt, warningsForWindow, WARNING_LEVELS,
 } from '../utils/warnings.js';
 import { warning } from './warningsFixture.js';
 
@@ -161,29 +161,57 @@ describe('warnings utils', () => {
     });
   });
 
-  describe('staleLead', () => {
+  describe('staleLine', () => {
     afterEach(() => { vi.useRealTimers(); });
 
-    it('words today\'s check as the UK clock alone, or admits no check yet', () => {
+    it('says how long ago the last check was, in minutes, hours and days', () => {
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(new Date('2026-08-14T15:00:00Z'));
-      // 13:05Z on 14 August is 14:05 BST.
-      expect(staleLead('2026-08-14T13:05:00Z')).toBe('Warnings last checked 14:05');
-      expect(staleLead(null)).toBe('Warnings have not been checked yet');
-      expect(staleLead('garbage')).toBe('Warnings have not been checked yet');
+      expect(staleLine('2026-08-14T14:35:00Z')).toBe('Last checked 25 min ago. These may be out of date.');
+      expect(staleLine('2026-08-14T12:05:00Z')).toBe('Last checked 2 h ago. These may be out of date.');
+      expect(staleLine('2026-08-11T12:00:00Z')).toBe('Last checked 3 days ago. These may be out of date.');
     });
 
-    it('names the day when the last check was not today (UK date)', () => {
+    it('never reads a check in the future as negative, and admits no check yet', () => {
       vi.useFakeTimers({ toFake: ['Date'] });
-      vi.setSystemTime(new Date('2026-08-16T09:00:00Z'));
-      expect(staleLead('2026-08-14T13:05:00Z')).toBe('Warnings last checked Fri 14 Aug, 14:05');
+      vi.setSystemTime(new Date('2026-08-14T15:00:00Z'));
+      expect(staleLine('2026-08-14T15:30:00Z')).toBe('Last checked 0 min ago. These may be out of date.');
+      expect(staleLine(null)).toBe('Not checked yet. These may be out of date.');
+      expect(staleLine('garbage')).toBe('Not checked yet. These may be out of date.');
+    });
+  });
+
+  describe('validityCompact', () => {
+    it('prints one UK day once: weekday and clock range', () => {
+      // 03:00Z and 13:00Z on Fri 14 Aug are 04:00 and 14:00 BST.
+      expect(validityCompact({ validFrom: '2026-08-14T03:00:00Z', validTo: '2026-08-14T13:00:00Z' }))
+        .toBe('Fri 04:00\u201314:00');
     });
 
-    it('compares on the UK calendar, not UTC', () => {
-      vi.useFakeTimers({ toFake: ['Date'] });
-      // 23:30Z on the 14th is 00:30 BST on the 15th; "now" is 08:00 BST on the 15th: the same UK day.
-      vi.setSystemTime(new Date('2026-08-15T07:00:00Z'));
-      expect(staleLead('2026-08-14T23:30:00Z')).toBe('Warnings last checked 00:30');
+    it('prints both days when the warning crosses a UK midnight', () => {
+      expect(validityCompact({ validFrom: '2026-08-14T17:00:00Z', validTo: '2026-08-15T11:00:00Z' }))
+        .toBe('Fri 18:00 \u2013 Sat 12:00');
+    });
+
+    it('decides the day on the UK date, not the UTC one (23:30Z in summer is already tomorrow)', () => {
+      expect(validityCompact({ validFrom: '2026-08-14T22:30:00Z', validTo: '2026-08-14T23:30:00Z' }))
+        .toBe('Fri 23:30 \u2013 Sat 00:30');
+      expect(validityCompact({ validFrom: '2026-08-14T23:10:00Z', validTo: '2026-08-14T23:50:00Z' }))
+        .toBe('Sat 00:10\u201300:50');
+    });
+
+    it('follows the clocks across the BST to GMT change (25 Oct 2026)', () => {
+      // 00:30Z on 25 Oct is 01:30 BST; 02:30Z is 02:30 GMT, an hour after the clocks went back at 01:00Z.
+      expect(validityCompact({ validFrom: '2026-10-24T22:00:00Z', validTo: '2026-10-25T02:30:00Z' }))
+        .toBe('Sat 23:00 \u2013 Sun 02:30');
+      expect(validityCompact({ validFrom: '2026-10-25T00:30:00Z', validTo: '2026-10-25T02:30:00Z' }))
+        .toBe('Sun 01:30\u201302:30');
+    });
+
+    it('is null for no warning or an unreadable instant', () => {
+      expect(validityCompact(null)).toBeNull();
+      expect(validityCompact({ validFrom: null, validTo: '2026-08-14T13:00:00Z' })).toBeNull();
+      expect(validityCompact({ validFrom: '2026-08-14T13:00:00Z', validTo: 'garbage' })).toBeNull();
     });
   });
 });

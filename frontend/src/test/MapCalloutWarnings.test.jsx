@@ -221,9 +221,9 @@ describe('MapCallout warnings', () => {
 
   it('shows only the stale line, never a "none" claim, when the feed is stale and the window has no warning', async () => {
     const quiet = { ...LOCATION, id: 99 };
-    await mount(response([YELLOW], { stale: true, lastCheckedAt: `${TODAY}T13:05:00Z` }), { location: quiet });
+    await mount(response([YELLOW], { stale: true, lastCheckedAt: `${TODAY}T07:05:00Z` }), { location: quiet });
     expect(screen.queryByTestId('warning-chip')).toBeNull();
-    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Warnings last checked 14:05');
+    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Last checked 2 h ago. These may be out of date.');
   });
 
   it('shows nothing while the feature is off', async () => {

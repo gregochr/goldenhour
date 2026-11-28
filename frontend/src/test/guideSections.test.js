@@ -175,7 +175,7 @@ describe('the weather warnings guide (docs/engineering/weather-warnings-plan.md,
     ['#ca0a37', '#ff9900', '#ffe923'].forEach((hex) => expect(page).toContain(hex));
     expect(page).toContain('https://www.metoffice.gov.uk/public/weather/warnings/');
     expect(page).toContain('https://www.metoffice.gov.uk/weather/warnings-and-advice/seasonal-advice');
-    expect(page).toContain('Warnings last checked');
+    expect(page).toContain('Last checked');
     expect(page).toContain('never an all-clear');
   });
 

@@ -30,14 +30,15 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
  * Renders the Map on tonight's sunset with the shared fixtures; {@code props} override any of them.
  *
  * @param {{onOpenList: ?Function}} door the shell's List door stand-in, from {@link installGlanceHooks}
- * @param {object} [props] overrides for the view's props
+ * @param {object} [props] overrides for the view's props; {@code warnings} instead sets the served warning list
  * @returns {Promise<object>} the render result plus {@code again(extra)}, which re-renders with extra props
  */
 async function renderGlanceMap(door, props = {}) {
   // Imported on first use, so a test that sets `mapViewState.realSheets` first gets the real `BottomSheet`.
   const { default: MapView } = await import('../components/MapView.jsx');
   let result;
-  getWarnings.mockResolvedValue(response([AMBER]));
+  const { warnings: served = [AMBER], ...viewProps } = props;
+  getWarnings.mockResolvedValue(response(served));
   const locs = locations();
   const element = (extra = {}) => (
     <WarningsProvider>
@@ -50,7 +51,7 @@ async function renderGlanceMap(door, props = {}) {
         regionVerdictIndex={buildRegionVerdictIndex(DAYS)}
         windowCardsByKey={cardsByKey()}
         onOpenList={door.onOpenList}
-        {...props}
+        {...viewProps}
         {...extra}
       />
     </WarningsProvider>

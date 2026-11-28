@@ -9,8 +9,8 @@ import {
  * pill opens and closes its reason panel.
  *
  * <p>No spec leans on the first window (it may be passing) and none asserts a fixed count or star. The window a card
- * opens is read back from the card's own accessible name and the pill's menu, never re-derived. The warning chips'
- * Details toggle runs on the one Met Office warning the seeded fixture carries (`E2eWarningFixture`): a Yellow rain
+ * opens is read back from the card's own accessible name and the pill's menu, never re-derived. The warning
+ * row opens in place on the one Met Office warning the seeded fixture carries (`E2eWarningFixture`): a Yellow rain
  * warning over the Lake District's six places, valid only for the T+1 sunset window, so the spec opens the Map on
  * exactly that window by its `data-ev-id` and no other window shows a warning.
  */
@@ -132,7 +132,7 @@ test.describe('Glance to Map', () => {
     expect(await visibleChips(page).count()).toBeGreaterThan(0);
   });
 
-  test('the warning chip\'s Details toggle opens and closes the warning in full', async ({ page }) => {
+  test('the warning row opens and closes the warning in full, in place', async ({ page }) => {
     test.setTimeout(90_000);
     await loginAndWaitForForecast(page);
     await openMapView(page);
@@ -146,48 +146,40 @@ test.describe('Glance to Map', () => {
     expect(await activeWindowId(page), 'the Map is on the warned window').toBe(target);
 
     const chips = page.getByTestId('map-warning-chips');
-    await expect(chips, 'the seeded warning shows as a chip on the Map').toBeVisible();
+    await expect(chips, 'the seeded warning shows as a row on the Map').toBeVisible();
     await expect(chips).toContainText(/rain/i);
     await expect(page.getByTestId('warning-stale'), 'the seeded feed is fresh').toHaveCount(0);
     await expect(page.getByTestId('wf-map-warnings').getByTestId('warning-attribution')).toBeVisible();
 
-    const toggle = page.getByTestId('map-warning-toggle');
-    await expect(toggle).toHaveCount(1);
-    const panel = page.getByTestId('map-warning-panel');
-    const host = page.getByTestId('map-warning-panel-host');
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(toggle).toHaveText('Details');
-    await expect(panel).toHaveCount(0);
+    const row = page.getByTestId('map-warning-row');
+    await expect(row).toHaveCount(1);
+    const region = page.getByTestId('map-warning-region');
+    await expect(row).toHaveAttribute('aria-expanded', 'false');
+    await expect(row).toHaveAccessibleName(/UK time/);
+    await expect(region).toHaveCount(0);
 
-    // Open, then close with the toggle itself.
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(toggle).toHaveText('Hide');
-    await expect(toggle).toHaveAttribute('aria-controls', 'wf-map-warning-panel');
-    await expect(host.getByTestId('map-warning-panel')).toBeVisible();
-    await expect(panel.getByTestId('window-warning-headline'))
+    // Open in place, then close with the row itself.
+    await row.click();
+    await expect(row).toHaveAttribute('aria-expanded', 'true');
+    await expect(row).toHaveAttribute('aria-controls', /.+/);
+    await expect(region).toBeVisible();
+    await expect(region.getByTestId('window-warning-headline'))
       .toHaveText('Heavy rain may cause travel disruption across the Lake District.');
-    await expect(panel.getByTestId('window-warning-expect'))
+    await expect(region.getByTestId('window-warning-expect'))
       .toContainText('Spray and standing water could make some fell roads and bridges difficult to use.');
+    await expect(region.getByTestId('map-warning-source-link')).toBeVisible();
     await expect(page.getByTestId('wf-map-warnings').getByTestId('warning-attribution')).toBeVisible();
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(toggle).toHaveText('Details');
-    await expect(panel).toHaveCount(0);
+    await row.click();
+    await expect(row).toHaveAttribute('aria-expanded', 'false');
+    await expect(region).toHaveCount(0);
 
-    // Open, then close with the panel's own close button.
-    await toggle.click();
-    await expect(panel).toBeVisible();
-    await page.getByTestId('map-warning-panel-close').click();
-    await expect(panel).toHaveCount(0);
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-
-    // Open, then one Escape closes it (map-tab.md: before anything else) and the chip stays.
-    await toggle.click();
-    await expect(panel).toBeVisible();
+    // Open, then one Escape closes it (map-tab.md: before anything else), focus returns to the row and the row stays.
+    await row.click();
+    await expect(region).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(panel).toHaveCount(0);
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(region).toHaveCount(0);
+    await expect(row).toHaveAttribute('aria-expanded', 'false');
+    await expect(row).toBeVisible();
     await expect(chips).toBeVisible();
     await expect(page.getByTestId('warning-stale')).toHaveCount(0);
   });

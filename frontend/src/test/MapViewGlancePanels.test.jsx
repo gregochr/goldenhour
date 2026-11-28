@@ -17,9 +17,8 @@ import {
 import { mapViewState } from './mapViewMocks.jsx';
 import { installGlanceHooks } from './mapViewGlanceHarness.jsx';
 import { windowKey } from '../utils/windowKeys.js';
-import { TODAY, TOMORROW, PICK, CARD, cardsByKey } from './mapViewGlanceFixtures.js';
+import { TODAY, TOMORROW, PICK, CARD, AMBER, cardsByKey } from './mapViewGlanceFixtures.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
-import { METOFFICE_URL } from './warningsFixture.js';
 
 const { door, renderMap } = installGlanceHooks();
 
@@ -113,123 +112,156 @@ describe('the Regions menu, best first', () => {
   });
 });
 
-describe('the Map warning expand', () => {
-  it('leaves the chip a Met Office link and adds a separate, finger-sized toggle beside it', async () => {
+describe('the Map warning row (map-warning-row-plan.md M1-M2)', () => {
+  it('is one full-width disclosure button per warning, with the chip as text and no link inside it', async () => {
     await renderMap();
-    const chip = screen.getByTestId('warning-chip');
-    expect(chip).toHaveAttribute('href', METOFFICE_URL);
-    const toggle = screen.getByTestId('map-warning-toggle');
-    expect(toggle.contains(chip)).toBe(false);
-    expect(chip.contains(toggle)).toBe(false);
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(toggle.className).toContain('min-h-[32px]');
-    expect(toggle.className).toContain('max-sm:min-h-[44px]');
+    const row = screen.getByTestId('map-warning-row');
+    expect(row.tagName).toBe('BUTTON');
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(row).not.toHaveAttribute('aria-controls');
+    expect(row).toHaveClass('w-full', 'min-h-[36px]');
+    expect(within(row).getByTestId('warning-chip').tagName).toBe('SPAN');
+    expect(row.querySelector('a')).toBeNull();
+    expect(row).toHaveAccessibleName(/Amber warning of snow.*valid .* UK time/);
     expect(screen.getByTestId('warning-attribution')).toBeInTheDocument();
   });
 
-  it('opens the warning in full in a panel under the chrome group, with the attribution printed once', async () => {
+  it('opens the warning in full under its row, inside the box, with the attribution printed once', async () => {
     await renderMap();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
-    const panel = screen.getByTestId('map-warning-panel');
-    const group = screen.getByTestId('wf-map-chrome-tl');
-    expect(group.contains(panel)).toBe(false);
-    expect(panel).toHaveTextContent('Amber warning of snow');
-    expect(screen.getByTestId('window-warning')).toBeInTheDocument();
-    expect(screen.getByTestId('map-warning-toggle')).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByTestId('map-warning-toggle')).toHaveAttribute('aria-controls', panel.id);
+    const row = screen.getByTestId('map-warning-row');
+    fireEvent.click(row);
+    const region = screen.getByTestId('map-warning-region');
+    expect(screen.getByTestId('wf-map-chrome-tl').contains(region)).toBe(true);
+    expect(region).toHaveAttribute('role', 'region');
+    expect(region).toHaveTextContent('UK time');
+    expect(region).toHaveClass('max-h-[300px]', 'max-sm:max-h-[44vh]', 'overflow-y-auto');
+    expect(row.parentElement).toContainElement(region);
+    expect(region).toHaveAccessibleName(/Amber warning of snow/);
+    expect(region).toHaveTextContent('Strong winds');
+    expect(within(region).getByTestId('window-warning')).toBeInTheDocument();
+    expect(within(region).queryByTestId('warning-chip')).toBeNull();
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(row).toHaveAttribute('aria-controls', region.id);
     expect(screen.getAllByTestId('warning-attribution')).toHaveLength(1);
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    fireEvent.click(row);
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
+    expect(row).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('returns focus to the Details toggle when it closes by its button or by Escape', async () => {
+  it('keeps Escape returning focus to the row, and closes before the callout: one press, one layer', async () => {
     await renderMap();
-    const toggle = screen.getByTestId('map-warning-toggle');
-    fireEvent.click(toggle);
-    screen.getByTestId('map-warning-panel-close').focus();
-    fireEvent.click(screen.getByTestId('map-warning-panel-close'));
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
-    expect(document.activeElement).toBe(toggle);
-    fireEvent.click(toggle);
+    const row = screen.getByTestId('map-warning-row');
+    fireEvent.click(row);
+    screen.getByTestId('map-warning-source-link').focus();
+    fireEvent.keyDown(screen.getByTestId('wf-map-pane'), { key: 'Escape' });
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
+    expect(document.activeElement).toBe(row);
+    fireEvent.click(row);
     document.body.focus();
     fireEvent.keyDown(screen.getByTestId('wf-map-pane'), { key: 'Escape' });
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
-    expect(document.activeElement).toBe(toggle);
-  });
-
-  it('closes before the callout on Escape: one press takes exactly one layer', async () => {
-    await renderMap();
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
+    expect(document.activeElement).toBe(row);
     fireEvent.click(screen.getByTestId('map-list-button'));
     await act(async () => { door.onOpenList.mock.calls[0][0].onPick({ locationId: 3, locationName: 'Wastwater' }); });
     expect(await screen.findByTestId('probe-callout-name')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    fireEvent.click(row);
     fireEvent.keyDown(screen.getByTestId('wf-map-pane'), { key: 'Escape' });
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
     expect(screen.getByTestId('probe-callout-name')).toBeInTheDocument();
     fireEvent.keyDown(screen.getByTestId('wf-map-pane'), { key: 'Escape' });
     expect(screen.queryByTestId('probe-callout-name')).toBeNull();
   });
 
-  it('does not steal focus when the panel closes because the reader pressed a menu', async () => {
+  it('does not steal focus when the row closes because the reader pressed a menu', async () => {
     await renderMap();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    fireEvent.click(screen.getByTestId('map-warning-row'));
     const chip = screen.getByTestId('wf-jump-chip');
     chip.focus();
     fireEvent.click(chip);
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
     expect(document.activeElement).toBe(chip);
   });
 
   it('is exclusive with the Regions menu, the window drilldown and the Best bet reason, in both directions', async () => {
     await renderMap();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    fireEvent.click(screen.getByTestId('map-warning-row'));
     fireEvent.click(screen.getByTestId('wf-jump-chip'));
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
     expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    fireEvent.click(screen.getByTestId('map-warning-row'));
     expect(screen.queryByTestId('wf-jump-menu')).toBeNull();
-    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('map-warning-region')).toBeInTheDocument();
     // The drilldown (a value of the same menu state).
     fireEvent.click(screen.getByTestId('wf-win-pill'));
     fireEvent.click(screen.getByTestId('wf-win-more'));
     expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
+    fireEvent.click(screen.getByTestId('map-warning-row'));
     expect(screen.queryByTestId('wf-win-panel')).toBeNull();
-    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('map-warning-region')).toBeInTheDocument();
     // The Best bet reason.
     fireEvent.click(screen.getByTestId('map-best-bet-why'));
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
     expect(screen.getByTestId('map-best-bet-body')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    fireEvent.click(screen.getByTestId('map-warning-row'));
     expect(screen.queryByTestId('map-best-bet-body')).toBeNull();
-    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('map-warning-region')).toBeInTheDocument();
     // A menu closes the Best bet reason too.
     fireEvent.click(screen.getByTestId('map-best-bet-why'));
     fireEvent.click(screen.getByTestId('wf-jump-chip'));
     expect(screen.queryByTestId('map-best-bet-body')).toBeNull();
   });
 
-  it('is a bottom sheet on a phone', async () => {
+  it('is the same in place on a phone: no sheet, no second dialog', async () => {
     mapViewState.isMobile = true;
     await renderMap();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
-    const panel = screen.getByTestId('map-warning-panel');
-    expect(panel).toHaveTextContent('Amber warning of snow');
-    expect(screen.queryByTestId('map-warning-panel-close')).toBeNull();
-    expect(screen.getByTestId('wf-map-chrome-tl').contains(panel)).toBe(false);
+    fireEvent.click(screen.getByTestId('map-warning-row'));
+    const region = screen.getByTestId('map-warning-region');
+    expect(region).toHaveAccessibleName(/Amber warning of snow/);
+    expect(region).toHaveTextContent('Strong winds');
+    expect(screen.getByTestId('wf-map-chrome-tl').contains(region)).toBe(true);
+    expect(screen.queryByTestId('bottom-sheet-root')).toBeNull();
+  });
+
+  it('folds "+N more warnings" back when the window moves to another event', async () => {
+    const many = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ ...AMBER, warningId: id }));
+    const view = await renderMap({ warnings: many });
+    expect(screen.getAllByTestId('map-warning-row')).toHaveLength(3);
+    fireEvent.click(screen.getByTestId('map-warning-more'));
+    expect(screen.getAllByTestId('map-warning-row')).toHaveLength(5);
+    const sunrise = { ...CARD, key: windowKey(TODAY, 'SUNRISE'), targetType: 'SUNRISE' };
+    await view.again({
+      autoEventType: 'SUNRISE',
+      windowCardsByKey: new Map([[CARD.key, CARD], [sunrise.key, sunrise]]),
+    });
+    expect(screen.getAllByTestId('map-warning-row')).toHaveLength(3);
+    expect(screen.getByTestId('map-warning-more')).toHaveTextContent('+2 more warnings');
+  });
+
+  it('closes when the window moves to another event, even though the same warning still applies there', async () => {
+    const view = await renderMap();
+    const row = screen.getByTestId('map-warning-row');
+    fireEvent.click(row);
+    expect(screen.getByTestId('map-warning-region')).toBeInTheDocument();
+    const sunrise = { ...CARD, key: windowKey(TODAY, 'SUNRISE'), targetType: 'SUNRISE' };
+    await view.again({
+      autoEventType: 'SUNRISE',
+      windowCardsByKey: new Map([[CARD.key, CARD], [sunrise.key, sunrise]]),
+    });
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
+    expect(screen.queryByTestId('map-warning-row')?.getAttribute('aria-expanded') ?? 'false').toBe('false');
   });
 });
 
 describe('a Lite reader', () => {
   beforeEach(() => { mapViewState.role = 'LITE_USER'; });
 
-  it('gets the List, the warning expand and the ranked Regions menu as a Pro reader does', async () => {
+  it('gets the List, the warning row and the ranked Regions menu as a Pro reader does', async () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('map-list-button'));
     expect(door.onOpenList).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
-    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('map-warning-row'));
+    expect(screen.getByTestId('map-warning-region')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('wf-jump-chip'));
     expect(screen.getAllByTestId('wf-jump-row')[0]).toHaveTextContent('The Lakes');
   });
@@ -242,16 +274,16 @@ describe('a Lite reader', () => {
 });
 
 describe('a panel cannot outlive the Map pane (glance-to-map review H1)', () => {
-  it('on a phone, hiding the pane closes the warning sheet and it does not return with the pane', async () => {
+  it('on a phone, hiding the pane closes the open warning and it does not return with the pane', async () => {
     mapViewState.isMobile = true;
     const view = await renderMap();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
-    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('map-warning-row'));
+    expect(screen.getByTestId('map-warning-region')).toBeInTheDocument();
     await view.again({ panelShown: false });
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
     await view.again({ panelShown: true });
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
-    expect(screen.getByTestId('map-warning-toggle')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
+    expect(screen.getByTestId('map-warning-row')).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('on a phone, hiding the pane closes the Best bet reason too', async () => {
@@ -276,12 +308,12 @@ describe('a panel cannot outlive the Map pane (glance-to-map review H1)', () => 
     expect(screen.getByTestId(menu)).toBeInTheDocument();
   });
 
-  it('off a phone the warning panel is left exactly as it was (desktop and tablet unchanged)', async () => {
+  it('off a phone the open warning is left exactly as it was (desktop and tablet unchanged)', async () => {
     const view = await renderMap();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
+    fireEvent.click(screen.getByTestId('map-warning-row'));
     await view.again({ panelShown: false });
     await view.again({ panelShown: true });
-    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('map-warning-region')).toBeInTheDocument();
   });
 });
 
@@ -291,17 +323,17 @@ describe('a warning the next poll withdraws (glance-to-map review L4)', () => {
     fireEvent.click(screen.getByTestId('map-list-button'));
     await act(async () => { door.onOpenList.mock.calls[0][0].onPick({ locationId: 3, locationName: 'Wastwater' }); });
     expect(await screen.findByTestId('probe-callout-name')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('map-warning-toggle'));
-    expect(screen.getByTestId('map-warning-panel')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('map-warning-row'));
+    expect(screen.getByTestId('map-warning-region')).toBeInTheDocument();
     // The window moves to a day the warning is not in force: the panel goes, its id must not linger.
     await view.again({ date: TOMORROW });
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
     // One Escape takes the callout, not a phantom warning layer.
     fireEvent.keyDown(screen.getByTestId('wf-map-pane'), { key: 'Escape' });
     expect(screen.queryByTestId('probe-callout-name')).toBeNull();
     // The warning returning with its window stays closed until pressed.
     await view.again({ date: TODAY });
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
-    expect(screen.getByTestId('map-warning-toggle')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('map-warning-region')).toBeNull();
+    expect(screen.getByTestId('map-warning-row')).toHaveAttribute('aria-expanded', 'false');
   });
 });
