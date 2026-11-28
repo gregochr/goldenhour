@@ -107,7 +107,17 @@ jobs:
         with:
           java-version: '25'
           distribution: 'temurin'
-          cache: maven
+
+      # Restore-only Maven cache. setup-java's `cache: maven` also SAVES ~/.m2/repository on a key miss
+      # from whichever job finishes first, and this job never runs surefire, so it would save a cache
+      # without the surefire JUnit provider that every test job then re-downloads from Maven Central
+      # (HTTP 429s). Prefix-match setup-java's `setup-java-<OS>-<arch>-maven-<hash>` keys, never save.
+      - name: Restore Maven cache (restore-only)
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: setup-java-${{ runner.os }}-${{ runner.arch }}-maven-restore-only
+          restore-keys: setup-java-${{ runner.os }}-
 
       - name: Prepare Maven wrapper
         uses: ./.github/actions/maven-wrapper

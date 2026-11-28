@@ -35,7 +35,7 @@ trap 'rm -f "$LOG"' EXIT
 TRANSFER_RE='Could not transfer (artifact|metadata)|Failed to read artifact descriptor|Could not resolve dependencies|could not be resolved'
 CAUSE_RE='status code: (429|5[0-9][0-9])|HTTP Status: (429|5[0-9][0-9])|Too Many Requests|Read timed out|Connect timed out|Connection reset|Premature end of Content-Length|Remote host terminated the handshake|Connection refused|Temporary failure in name resolution'
 # Anything that means the code, not the network, is at fault.
-REAL_FAILURE_RE='COMPILATION ERROR|There are test failures|Tests run:.*(Failures|Errors): [1-9]|Coverage checks have not been met|You have [0-9]+ Checkstyle violation|BugInstance'
+REAL_FAILURE_RE='COMPILATION ERROR|There are test failures|Tests run:.*(Failures|Errors): [1-9]|Coverage checks have not been met|You have [1-9][0-9]* Checkstyle violation|BugInstance size is [1-9]'
 
 is_transient() {
     if grep -Eqi -- "$REAL_FAILURE_RE" "$LOG"; then

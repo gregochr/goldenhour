@@ -122,6 +122,30 @@ echo "[ERROR] Failed to execute goal on project goldenhour: Could not transfer a
 run_case 1
 assert_eq "genuine [ERROR] connection reset: still retried" "3" "$RUNS"
 
+# A passing build prints the zero-count lines of the checks bound into the lifecycle; they are not failures,
+# so a 429 after them (PR 1981: surefire-junit-platform:pom, E2E job) must still be retried.
+PASSING_CHECKS='[INFO] You have 0 Checkstyle violations.
+[INFO] BugInstance size is 0
+[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0
+[INFO] All coverage checks have been met.'
+
+reset_case
+printf '%s\n%s\n' "$PASSING_CHECKS" "$TRANSFER_429" > "$WORK/out.1"
+echo "BUILD SUCCESS" > "$WORK/out.2"
+run_case 1 0
+assert_eq "clean checkstyle/spotbugs/tests then 429: retried" "2" "$RUNS"
+assert_eq "clean checkstyle/spotbugs/tests then 429: exits 0" "0" "$RC"
+
+reset_case
+printf '%s\n%s\n' "[ERROR] You have 3 Checkstyle violations." "$TRANSFER_429" > "$WORK/out.last"
+run_case 1
+assert_eq "non-zero checkstyle violations beside a 429: not retried" "1" "$RUNS"
+
+reset_case
+printf '%s\n%s\n' "[ERROR] You have 10 Checkstyle violations." "$TRANSFER_429" > "$WORK/out.last"
+run_case 1
+assert_eq "ten checkstyle violations beside a 429: not retried" "1" "$RUNS"
+
 bash "$SCRIPTS/mvn-retry.sh" > /dev/null 2>&1
 assert_eq "no command: usage error 2" "2" "$?"
 
