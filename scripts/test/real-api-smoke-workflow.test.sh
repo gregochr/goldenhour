@@ -71,7 +71,7 @@ PY
 
 fact() { printf '%s\n' "$FACTS" | sed -n "s/^$1=//p" | head -1; }
 
-if [ "$(fact yaml)" = "missing" ]; then
+if [[ "$(fact yaml)" = "missing" ]]; then
     echo "  note PyYAML is not installed: structural checks skipped, text checks still run"
 else
     assert_eq "YAML parses" "ok" "$(fact yaml)"

@@ -71,7 +71,6 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -128,9 +127,6 @@ class CiSpendPollServiceTest {
     void setUp() {
         properties.setEnabled(true);
         properties.setGithubToken(TOKEN);
-        // By default the smoke workflow has no runs; tests about it re-stub this.
-        lenient().when(client.listWorkflowRuns(OWNER, REPO, SMOKE_WORKFLOW, CREATED, 100, 1))
-                .thenReturn(noRunsJson());
         service = newService();
         logger = (Logger) LoggerFactory.getLogger(CiSpendPollService.class);
         logs = new ListAppender<>();
@@ -161,7 +157,13 @@ class CiSpendPollServiceTest {
 
     // ---- stubbing helpers ------------------------------------------------------------------------------------
 
+    /** The smoke workflow has no runs. Pinned per test: every poll that gets past the prompt listing reads it. */
+    private void stubNoSmokeRuns() {
+        when(client.listWorkflowRuns(OWNER, REPO, SMOKE_WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
+    }
+
     private void stubList(long runId, int latestAttempt) {
+        stubNoSmokeRuns();
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1))
                 .thenReturn(runsJson(runId, latestAttempt));
     }
@@ -715,6 +717,7 @@ class CiSpendPollServiceTest {
         when(runRepository.findByUsageStateOrderByStartedAtAsc("UNPRICED")).thenReturn(List.of(row));
         when(runRepository.findById(9L)).thenReturn(Optional.of(row));
         when(exchangeRateService.getRate(LocalDate.of(2025, 3, 7))).thenReturn(0.79);
+        stubNoSmokeRuns();
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
 
         SchedulerFireOutcome.Report report = poll();
@@ -743,6 +746,7 @@ class CiSpendPollServiceTest {
         when(runRepository.findById(1L)).thenReturn(Optional.of(stillUnknown));
         when(runRepository.findById(2L)).thenReturn(Optional.empty());
         when(runRepository.findById(3L)).thenReturn(Optional.of(raced));
+        stubNoSmokeRuns();
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
 
         SchedulerFireOutcome.Report report = poll();
@@ -1011,6 +1015,7 @@ class CiSpendPollServiceTest {
     @DisplayName("a second concurrent fire returns at once while one is running")
     void overlapGuard() {
         SchedulerFireOutcome.Report[] inner = new SchedulerFireOutcome.Report[1];
+        stubNoSmokeRuns();
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenAnswer(invocation -> {
             inner[0] = SchedulerFireOutcome.capture(service::poll);
             return noRunsJson();
@@ -1030,6 +1035,7 @@ class CiSpendPollServiceTest {
     @Test
     @DisplayName("a 403 mid-poll ends the poll with one warning; rows already committed stay")
     void forbiddenEndsThePoll() throws Exception {
+        stubNoSmokeRuns();
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(
                 "{\"workflow_runs\":[{\"id\":1,\"run_attempt\":1},{\"id\":2,\"run_attempt\":1}]}");
         stubAttempt(1L, 1, pullRequestAttempt());
@@ -1107,6 +1113,7 @@ class CiSpendPollServiceTest {
     @Test
     @DisplayName("a full page of runs asks for the next page, and an empty page ends the listing")
     void paginatesRuns() {
+        stubNoSmokeRuns();
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(manyRunsJson(1, 100));
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 2)).thenReturn(noRunsJson());
         for (int i = 1; i <= 100; i++) {
@@ -1123,6 +1130,7 @@ class CiSpendPollServiceTest {
     @Test
     @DisplayName("the listing stops at the page cap")
     void pageCap() {
+        stubNoSmokeRuns();
         for (int page = 1; page <= CiSpendPollService.MAX_RUN_PAGES; page++) {
             when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, page))
                     .thenReturn(manyRunsJson(page * 1000, 100));
@@ -1218,6 +1226,7 @@ class CiSpendPollServiceTest {
     @Test
     @DisplayName("both workflow files are listed, the smoke's after the prompt-regression's")
     void listsBothWorkflowFiles() {
+        stubNoSmokeRuns();
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
 
         poll();
@@ -1359,6 +1368,7 @@ class CiSpendPollServiceTest {
         when(runRepository.findByUsageStateOrderByStartedAtAsc("UNPRICED")).thenReturn(List.of(row));
         when(runRepository.findById(9L)).thenReturn(Optional.of(row));
         when(exchangeRateService.getRate(LocalDate.of(2025, 3, 7))).thenReturn(0.79);
+        stubNoSmokeRuns();
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
 
         poll();
@@ -1378,6 +1388,7 @@ class CiSpendPollServiceTest {
         when(runRepository.findByUsageStateOrderByStartedAtAsc("UNPRICED")).thenReturn(List.of(row));
         when(runRepository.findById(9L)).thenReturn(Optional.of(row));
         when(exchangeRateService.getRate(LocalDate.of(2025, 3, 7))).thenReturn(0.79);
+        stubNoSmokeRuns();
         when(client.listWorkflowRuns(OWNER, REPO, WORKFLOW, CREATED, 100, 1)).thenReturn(noRunsJson());
 
         poll();

@@ -160,19 +160,19 @@ def main(argv):
     totals = read_shards(SHARDS_DIR)
     if args.suite == "smoke" and not totals:
         sys.stdout.write("Prompt usage (smoke): no usage recorded, so no usage artifact (the spend is unknown).\n")
-        return 0
+        return
     doc = build(args, os.environ, totals)
     os.makedirs(TARGET, exist_ok=True)
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(doc, handle, indent=2)
         handle.write("\n")
     sys.stdout.write(summary_line(doc))
-    return 0
 
 
 if __name__ == "__main__":
     try:
-        sys.exit(main(sys.argv[1:]))
+        main(sys.argv[1:])
+        sys.exit(0)
     except Exception as exc:  # pylint: disable=broad-except
         # The test step owns the verdict; a reporting failure must never turn a job red.
         sys.stderr.write("warning: usage artifact not written (%s)\n" % type(exc).__name__)
