@@ -1,3 +1,0 @@
-### Changed — cascade tests read resolved custom properties under jsdom 31
-
-jsdom 31 resolves `var()` in `getComputedStyle`, so the cascade tests that asserted the raw declared text (`var(--wf-hc-well)`, `var(--color-plex-text-secondary)` and so on) now assert resolved values. Colour tokens are given their real `@theme` values through a small shared helper (`frontend/src/test/cssTestKit.js`), so each assertion still fails when the wrong rule or token wins; the tests that compared long decimals, percentages and detached-element styles were adjusted to jsdom 31's serialisation. Test-only; no product code changed.
