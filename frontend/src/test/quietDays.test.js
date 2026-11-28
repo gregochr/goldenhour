@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { QUIET_AT_MOST, isQuietDay, topicLaneCount } from '../utils/quietDays.js';
+import {
+  QUIET_AT_MOST, isFoldedQuiet, isQuietDay, topicLaneCount,
+} from '../utils/quietDays.js';
 
 /**
  * A matrix day holding the given windows (a bare rating, or null for a served-but-unscored window). A missing window is
@@ -88,5 +90,14 @@ describe('topicLaneCount', () => {
   it('is zero for no lanes', () => {
     expect(topicLaneCount('2026-11-25', undefined)).toBe(0);
     expect(topicLaneCount('2026-11-25', [])).toBe(0);
+  });
+});
+
+describe('isFoldedQuiet', () => {
+  it('is true only for a quiet day the reader has not opened', () => {
+    const quiet = new Set(['2026-11-25']);
+    expect(isFoldedQuiet('2026-11-25', quiet, new Set())).toBe(true);
+    expect(isFoldedQuiet('2026-11-25', quiet, new Set(['2026-11-25']))).toBe(false);
+    expect(isFoldedQuiet('2026-11-26', quiet, new Set())).toBe(false);
   });
 });

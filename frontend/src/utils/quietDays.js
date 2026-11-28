@@ -64,3 +64,16 @@ export function isQuietDay(day, lanes = {}) {
 export function topicLaneCount(date, topicLanes) {
   return (topicLanes || []).filter((lane) => onDay(lane, date)).length;
 }
+
+/**
+ * Whether a day body is folded away (the `hidden` attribute): a quiet day the reader has not opened. The markup and the
+ * heat-map gate measured card share this one predicate, so the gate never waits on a well that measures 0.
+ *
+ * @param {string} date an ISO date
+ * @param {Set<string>} quietDates the quiet days
+ * @param {Set<string>} quietOpen the quiet days the reader has opened
+ * @returns {boolean} true when the day body is hidden
+ */
+export function isFoldedQuiet(date, quietDates, quietOpen) {
+  return quietDates.has(date) && !quietOpen.has(date);
+}
