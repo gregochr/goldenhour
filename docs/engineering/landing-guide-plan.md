@@ -42,6 +42,14 @@ four paragraphs) → final CTA. L6 one menu on every landing and guide page: Pla
 FAQ · Start free; the phone `secbar` stays on the home page only, in the new order. L7 the #platforms band
 becomes one line under the hero CTA: "In your browser now · iPad and iPhone apps in development".
 
+**As built (L, 2026-11-28).** The hero shots are the guide's own phone shots (`guide/shots/this-week-phone.webp`,
+`map-phone.webp`, 2×, taken after the screen-spec changes), referenced in place so a G3 retake updates both. With
+only the handoff's cuts the page measured 10,875 / 9,274 px, so these were added to meet the targets: a two-column
+hero from 1024 px; #plan keeps only the Further ahead shot (`shot-week.webp` duplicated the hero and is deleted);
+the place-sheet figure under #features is deleted (`shot-detail.webp`); G2's pricing change (five bullets a card,
+"Compare Lite and Pro in full →", `landingPricing.test.js`) moved here from phase G; the phone section gap is 72 px.
+Result: 8,795 px at 1280 and 7,859 px at 390.
+
 Kept as is: honest-claims wording, pricing ("to be announced"), the final CTA, the footer.
 Acceptance: home page under 9,000 px at 1280 and under 8,000 px at 390, measured and reported in the PR.
 
@@ -54,7 +62,7 @@ walk-through), `this-week.html` (`#this-week`, `#your-places`, `#days`, `#window
 every moved `planning.html#id` to its new page, keeping `?embed=1`. Updated with it: `frontend/src/utils/guide.js`,
 `guideSections.test.js`, `guide-search.js` (PAGES), the hub cards and every cross-link; a test asserts every id
 the app links to exists on its page. `planning.html` under 6,000 px.
-G2 the landing pricing cards keep five bullets each and link to the hub's Lite/Pro table ("Compare Lite and
+G2 (built in phase L) the landing pricing cards keep five bullets each and link to the hub's Lite/Pro table ("Compare Lite and
 Pro in full →"); a test compares the Pro feature names on the two.
 G3 the new pages take the screen-spec shots as each screen-spec PR lands (`screen-spec.md` §8).
 
