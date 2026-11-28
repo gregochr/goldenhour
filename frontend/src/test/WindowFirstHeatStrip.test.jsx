@@ -6063,6 +6063,60 @@ describe('WindowFirstHeatStrip — quiet days fold (screen-spec.md D5)', () => {
     );
   });
 
+  describe('the measuring gate when the first day is folded (production 2026-11-28)', () => {
+    /** Like `withMeasuredThumbs`, but a well inside a `[hidden]` body measures 0, as a browser reports for display: none. */
+    async function withLayout(px, run) {
+      const original = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
+      Object.defineProperty(Element.prototype, 'clientWidth', {
+        configurable: true,
+        get() { return this.closest?.('[hidden]') ? 0 : px; },
+      });
+      try {
+        await run();
+      } finally {
+        if (original) Object.defineProperty(Element.prototype, 'clientWidth', original);
+        else delete Element.prototype.clientWidth;
+      }
+    }
+    const painted = () => new Set(drawGeo.mock.calls.map((call) => call[0]));
+    const cardCanvases = (date) => [...document.querySelectorAll(`[data-testid="wf-heat-card"][data-date="${date}"] canvas`)];
+
+    it.each([['a phone', true], ['desktop and tablet', false]])(
+      'on %s: today folded as a quiet day does not stop the later days being drawn',
+      async (_name, mobile) => {
+        useIsMobile.mockReturnValue(mobile);
+        await withLayout(160, async () => {
+          drawGeo.mockClear();
+          await strip();
+          expect(screen.getAllByTestId('wf-quiet-fold').length).toBeGreaterThan(0);
+          expect(document.querySelector(`[data-testid="wf-heat-card"][data-date="${D4}"]`).closest('[hidden]')).not.toBeNull();
+          const open = cardCanvases(D6);
+          expect(open.length).toBeGreaterThan(0);
+          open.forEach((canvas) => expect(painted().has(canvas)).toBe(true));
+        });
+      },
+    );
+
+    it.each([['a phone', true], ['desktop and tablet', false]])(
+      'on %s: with every day folded nothing crashes or draws, and opening a fold draws that day',
+      async (_name, mobile) => {
+        useIsMobile.mockReturnValue(mobile);
+        await withLayout(160, async () => {
+          drawGeo.mockClear();
+          await strip({ cards: WEEK.filter((card) => card.date === D4 || card.date === D5) });
+          expect(screen.getAllByTestId('wf-quiet-fold')).toHaveLength(2);
+          expect(drawGeo).not.toHaveBeenCalled();
+
+          await act(async () => { fireEvent.click(screen.getAllByTestId('wf-quiet-fold')[0]); });
+
+          const opened = cardCanvases(D4);
+          expect(opened.length).toBeGreaterThan(0);
+          opened.forEach((canvas) => expect(painted().has(canvas)).toBe(true));
+        });
+      },
+    );
+  });
+
   describe('focus never drops to the body (plan 1)', () => {
     /** Lets a test change one day's served rating after mount, as a refreshed forecast would. */
     let setD4Rating;

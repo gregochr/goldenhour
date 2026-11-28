@@ -25,7 +25,9 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { daysOut, fieldBloomAllowed, fieldConfidence, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
-import { NO_QUIET_OPEN, isQuietDay, topicLaneCount } from '../utils/quietDays.js';
+import {
+  NO_QUIET_OPEN, isFoldedQuiet, isQuietDay, topicLaneCount,
+} from '../utils/quietDays.js';
 import StarFigure from './shared/StarFigure.jsx';
 import { buildFourDayTiles, buildGlanceLanes } from '../utils/fourDayTiles.js';
 import {
@@ -1076,7 +1078,7 @@ export default function WindowFirstHeatStrip({
           id={bodyIdOf(day.date, slot)}
           className="wf-day-body"
           data-date={day.date}
-          hidden={quiet && !quietOpen.has(day.date)}
+          hidden={isFoldedQuiet(day.date, quietDates, quietOpen)}
         >
           {node}
         </div>
@@ -1580,14 +1582,20 @@ export default function WindowFirstHeatStrip({
    *
    * <p>⚠️ And never an AWAY card: it mounts no canvas (see {@code renderCard}), so a key that named one would
    * wait on a ref that never arrives, spend the thirty-frame budget and leave <em>every</em> heat map blank.
+   *
+   * <p>⚠️ And never a card inside a FOLDED quiet day: its body is {@code hidden}, so its well measures 0, the gate
+   * reads TOO_SMALL for the whole thirty-frame budget, gives up, and {@code paint} never runs. Production 2026-11-28:
+   * today folded as a quiet day and every thumbnail stayed black. A fold that opens changes this key (and
+   * {@code measureAndPaint}'s identity), which re-runs the hook's paint effect.
    */
   const measureKey = useMemo(() => {
     for (const day of matrix.days) {
+      if (isFoldedQuiet(day.date, quietDates, quietOpen)) continue;
       if (day.am && !day.am.away) return day.am.key;
       if (day.pm && !day.pm.away) return day.pm.key;
     }
     return null;
-  }, [matrix]);
+  }, [matrix, quietDates, quietOpen]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaintNow,
@@ -2520,7 +2528,7 @@ export default function WindowFirstHeatStrip({
                   className="wf-day-body"
                   data-date={day.date}
                   data-testid={quiet ? 'wf-quiet-body' : undefined}
-                  hidden={quiet && !quietOpen.has(day.date)}
+                  hidden={isFoldedQuiet(day.date, quietDates, quietOpen)}
                 >
                   {body}
                 </div>
