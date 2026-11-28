@@ -88,7 +88,7 @@ describe('ProUpsellDoor guide prop', () => {
     const trigger = screen.getByTestId('d-trigger');
     fireEvent.click(trigger);
     fireEvent.click(screen.getByTestId('d-guide'));
-    expect(mockOpenGuide).toHaveBeenCalledWith('planning', 'bestbet', expect.any(Object));
+    expect(mockOpenGuide).toHaveBeenCalledWith('this-week', 'bestbet', expect.any(Object));
     // The popover closes on focus-out, so the link is gone by the time the guide closes.
     expect(mockOpenGuide.mock.calls[0][2].returnFocus()).toBe(trigger);
   });

@@ -55,7 +55,7 @@ Acceptance: home page under 9,000 px at 1280 and under 8,000 px at 390, measured
 
 ## G, guide (PR 3)
 
-G1 `planning.html` splits into the overview (`#screen`, `#top`, `#lens`, `#away`, `#tips` plus a short
+G1 `planning.html` splits into the overview (`#screen`, `#how`, `#top`, `#lens`, `#away`, `#tips` plus a short
 walk-through), `this-week.html` (`#this-week`, `#your-places`, `#days`, `#windows`, `#open`, `#bestbet`) and
 `further-ahead.html` (`#further-ahead`, `#topics`, `#new`, `#filters`, `#entries`, `#tides`, `#actions`,
 `#watch-a-date`). `#find` and `#warnings` become two sentences and a link each. `guide/moved.js` redirects

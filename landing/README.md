@@ -6,7 +6,7 @@ Plain static HTML, one stylesheet and two small scripts. **No build step, no bun
 ```
 index.html              the marketing page
 faq.html                privacy.html   terms.html   acknowledgements.html
-guide/                  the user guide: nine pages, guide.css, guide.js, guide-search.js, shots/*.webp
+guide/                  the user guide: twelve pages (plus two redirect stubs), guide.css, guide.js, guide-search.js, shots/*.webp
 photocast.css           the shared skin for all five pages
 home.css                rules for index.html only (kept apart: they style bare elements like section)
 viewer.js               the screenshot viewer (index.html only; plain JS, no dependencies)
@@ -124,11 +124,11 @@ Deploy the landing site before any app release that opens the guide panel; until
 
 **Section-id contract.** The app opens exactly these `page#section` ids, and a frontend test checks
 each exists in `guide/`. Rename one here and it must change in the app too: `planning#lens`,
-`planning#bestbet`, `reading-the-forecast#fixed`, `reading-the-forecast#colour`,
-`reading-the-forecast#fiery`, `planning#new`, `planning#topics`, `planning#tides`, `map#window`,
+`this-week#bestbet`, `reading-the-forecast#fixed`, `reading-the-forecast#colour`,
+`reading-the-forecast#fiery`, `further-ahead#new`, `further-ahead#topics`, `further-ahead#tides`, `map#window`,
 `map#filters`, `map#hot-topics`, `map#tide`, `night-sky#alerts`, `night-sky#aurora-map`,
 `ask-photocast#typed`, `settings#sub-regions`, `settings#drive`, `settings#radius`, plus the pages
-`planning`, `map`, `ask-photocast`, `settings`.
+`planning`, `this-week`, `further-ahead`, `map`, `ask-photocast`, `settings`.
 
 **Retired pages (one screen, O4a).** `at-a-glance.html` and `coming-up.html` are now redirect stubs
 (a meta refresh plus `moved.js`, which keeps the old `#section`, mapping `coming-up#list` and `#watchlist`
@@ -136,7 +136,13 @@ to `#further-ahead` and `#your-places`, and the `?embed=1`). Both became `planni
 which carries every id the two pages had. They are not in `GUIDE_PAGES` or the search index. **Deploy the landing
 site (`release-landing.sh`) before any app build that links `planning.html`**, or those in-app links 404.
 
-**Filling a placeholder screenshot.** Placeholders (`map#shot-tide-match`, `planning#shot-warn-coming-up`,
+**The planning split (landing-guide-plan G1).** `planning.html` keeps the overview; the This week and Further
+ahead sections moved to `this-week.html` and `further-ahead.html`. `moved.js` (loaded early by `planning.html`)
+holds the one map of moved ids and redirects `planning.html#<id>` (also on `hashchange`), keeping the query
+string, and the two retired stubs go straight to the page that holds the id. Deploy the landing site before any
+app build that links `this-week` or `further-ahead`.
+
+**Filling a placeholder screenshot.** Placeholders (`map#shot-tide-match`, `further-ahead#shot-warn-coming-up`,
 `night-sky#shot-banner`) are `<figure id="shot-…">`
 blocks holding a `<div class="ph">`. Add the WebP to `guide/shots/`, replace the `ph` div with an
 `<img src="shots/name.webp" width height alt>` like its neighbours, and deploy; no `COPY` line is needed.
