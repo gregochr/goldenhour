@@ -366,6 +366,16 @@ that download warm-up retries; the real Maven command that follows is never retr
 (CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and `Prompt regression — ask`). The workflow's name still says
 "approval-gated" because it is the check name and `prompt-regression-workflow.test.sh` pins it; the gate itself is off (below).
 
+⚠️ **CI does not cover Far-Term's model (owner rule, 2026-11-28; CLAUDE.md step 6).** The sky job runs on `SKY_MODEL`
+(Sonnet 5.5, the Near-Term model), but production's Batch Far-Term (T+2/T+3) runs on Haiku 4.5, and Haiku turns any cap in
+text sent with every request into a general rule (`haiku-local-caps-plan.md` §1). #1967 put a FOGBOUND cap on the shared
+schema; CI and the Sonnet ValleyMist run were green, and on Haiku the `st-marys-7apr` clear sky fell from 3★ to 1★ on 8 of 8
+runs until #1970 took the cap off. So a PR that changes the sky system prompt, `PromptBuilder`'s user message or
+`buildOutputConfig()` asks, in a "Before merge (owner-run)" section of its body, for the owner's Haiku 4.5 Sky-Rating Eval
+(Operations → Sky Eval, 8 runs per fixture), and does not merge until the owner reports it: every fixture in band and none
+worse than on `main`. A single CI run on Haiku was considered and rejected: Haiku varies too much run to run for one draw to
+decide anything.
+
 - **The smoke (owner, 2026-11-27).** The paid jobs run only when the `run-prompt-regression` label is added to the PR (remove and
   re-add it to rerun); never on a push. The session adds the label once, as the last step before merge, when Codex is clean on
   the PR head (the same moment auto-merge is enabled), then reports the result and never awaits it. A PR smoke is the sky quick
