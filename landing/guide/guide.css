@@ -27,7 +27,7 @@
 .g-sec ol.steps li{counter-increment:s;font-size:15.5px;color:var(--ink-soft);padding-left:34px;position:relative}
 .g-sec ol.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:22px;height:22px;border-radius:50%;border:1px solid var(--rule-2);font-family:var(--mono);font-size:11px;color:var(--ink);display:flex;align-items:center;justify-content:center}
 .ui{font-family:var(--mono);font-size:.86em;color:var(--ink);background:var(--card);border:1px solid var(--rule);border-radius:5px;padding:1px 6px;white-space:nowrap}
-.g-lede{font-size:18px!important;color:var(--ink)!important;font-family:var(--serif);line-height:1.5}
+.g-lede{font-size:17px!important;color:var(--ink)!important;font-family:var(--body);line-height:1.5}
 /* screenshot slots: user supplies the real captures */
 .shot{margin:18px 0 22px;max-width:760px}
 .shot .ph{aspect-ratio:16/9;border:1px solid var(--rule);border-radius:var(--r);background:repeating-linear-gradient(135deg,var(--ground-2) 0 10px,var(--card) 10px 20px);display:flex;align-items:center;justify-content:center;padding:20px;text-align:center}

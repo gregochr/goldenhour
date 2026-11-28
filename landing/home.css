@@ -18,7 +18,7 @@
 section{padding:104px 0 0}
 .shead{display:grid;gap:18px;max-width:760px}
 .shead h2{font-size:clamp(34px,5vw,56px);letter-spacing:-.025em}
-.shead .dateline{font-family:var(--disp);font-style:italic;font-size:21px;color:var(--ink)}
+.shead .dateline{font-family:var(--body);font-style:italic;font-size:16px;color:var(--ink)}
 .shead p{font-size:17.5px;color:var(--ink-soft);max-width:640px}
 .shead p+p{margin-top:-6px}
 /* field */
@@ -35,7 +35,7 @@ section{padding:104px 0 0}
 .step.result .cap .t{display:grid;gap:8px}
 .step.result .cap .b{display:grid;gap:12px}
 .step.result .credit{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
-.step.result .reflect{font-family:var(--disp);font-style:italic;font-size:19px;line-height:1.45;color:var(--ink)}
+.step.result .reflect{font-family:var(--body);font-style:italic;font-size:16px;line-height:1.45;color:var(--ink)}
 /* features */
 .feats{margin-top:44px;border-top:1px solid var(--rule)}
 .feat{display:grid;grid-template-columns:64px minmax(0,1fr);gap:0 24px;padding:30px 0;border-bottom:1px solid var(--rule);align-items:start}
@@ -43,7 +43,7 @@ section{padding:104px 0 0}
 .feat h3{font-size:27px;margin-bottom:10px}
 .feat p{font-size:16px;color:var(--ink-soft);max-width:640px}
 .feat p+p{margin-top:10px}
-.feat p.q{font-family:var(--disp);font-style:italic;font-size:19px;color:var(--ink)}
+.feat p.q{font-family:var(--body);font-style:italic;font-size:16px;color:var(--ink-soft)}
 .feat .more{font-size:14.5px}
 .plan-more{margin-top:24px;font-size:14.5px}
 .plan-figs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:56px;align-items:start}
@@ -72,7 +72,7 @@ html:has(.viewer[open]){overflow:hidden}
 .story{background:var(--ground-2);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin-top:104px;padding:88px 0}
 .story-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:56px;align-items:start}
 .story-grid h2{font-size:clamp(34px,4.4vw,48px);letter-spacing:-.025em}
-.story-grid p{font-family:var(--serif);font-size:19px;line-height:1.6;color:var(--ink-soft);margin-bottom:18px}
+.story-grid p{font-family:var(--body);font-size:17px;line-height:1.65;color:var(--ink-soft);margin-bottom:18px}
 .story-grid p:last-child{margin-bottom:0;color:var(--ink)}
 .story-grid p.beat{color:var(--ink)}
 /* pricing */
