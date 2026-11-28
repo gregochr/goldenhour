@@ -244,10 +244,10 @@ describe('MapWarningChips', () => {
     expect(screen.queryByTestId('warning-chip')).toBeNull();
   });
 
-  it('does not take pointer events on its row, and adds no width of its own to the chrome group', async () => {
+  it('does not take pointer events on its row, and asks the chrome group for 24rem, no less than the group and no more than its cap', async () => {
     await mount(response([YELLOW]));
     const row = screen.getByTestId('wf-map-warnings-row');
-    expect(row).toHaveClass('pointer-events-none', 'w-0', 'min-w-full');
+    expect(row).toHaveClass('pointer-events-none', 'w-[24rem]', 'min-w-full', 'max-w-full');
     expect(screen.getByTestId('wf-map-warnings')).toHaveClass('pointer-events-auto');
   });
 });

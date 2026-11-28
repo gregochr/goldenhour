@@ -114,10 +114,12 @@ WarningRegion.propTypes = {
  * is not a hot topic), so it shares the group's width bound and label obstacle, and the group's height observer
  * ({@code useChromeTlHeight}) re-places the labels and the panels hung under the group whenever this row appears,
  * disappears, opens or changes height. The wrapper is {@code pointer-events: none} and the box {@code auto}, so the gaps
- * never swallow a map drag. The wrapper is {@code width: 0; min-width: 100%}: it takes the width the control and the
- * topic chips already give the (shrink-to-fit) group and contributes none of its own, so a long warning wraps inside the
- * group and can never widen the label obstacle (the measured 504px bound in {@code index.css}); the box is
- * {@code w-full} of it.
+ * never swallow a map drag. The wrapper is {@code width: 24rem; min-width: 100%; max-width: 100%}: it asks the
+ * (shrink-to-fit) group for 384px, never less than the group already is (the width of the window control when the
+ * control is in the group), and never more than the group's own cap (left and right stretched on a phone,
+ * {@code calc(100% - 308px)} on a laptop), so a wide laptop, where the control sits in the screen head and the group is
+ * only as wide as the topic pill, still gives the row room, and it can never widen the label obstacle past the
+ * measured 504px bound in {@code index.css}; the box is {@code w-full} of it.
  *
  * <p>No geometry, outline or shading is ever drawn on the map for a warning: the Met Office style guide v1.4 forbids
  * overlaying warning geometry with other information (plan section 12), so the text row is the whole map presence.
@@ -215,7 +217,7 @@ export default function MapWarningChips({
     </div>
   );
   return (
-    <div className="pointer-events-none w-0 min-w-full" data-testid="wf-map-warnings-row">
+    <div className="pointer-events-none w-[24rem] min-w-full max-w-full" data-testid="wf-map-warnings-row">
       <div
         data-testid="wf-map-warnings"
         className="pointer-events-auto mt-1 w-full overflow-hidden rounded-[10px] border border-plex-border-light bg-plex-surface/90"

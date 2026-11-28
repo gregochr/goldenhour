@@ -386,8 +386,9 @@ link. When the feed is stale the stale line prints (with its date if not today's
 nothing prints, never "no warnings" or an all-clear. A warning never changes a rating, the heat field, a verdict or a pick.
 
 **Layout.** The chrome group is shrink-to-fit with a measured 504px label-obstacle bound (`index.css`). The row is
-`pointer-events: none; width: 0; min-width: 100%` with an auto-pointer box inside, so it takes the width the window control and topic
-chips already give the group and **adds none of its own** (a long warning wraps; the obstacle's width cannot change), and its gaps do
+`pointer-events: none; width: 24rem; min-width: 100%; max-width: 100%` with an auto-pointer box inside: it asks the group for 384px (so a wide
+laptop, where the window control is in the screen head and the group is only as wide as the topic pill, still gives the row room), never less than the group (the
+control's width when the control is in the group) and never more than the group's own cap, so the obstacle stays inside its 504px bound, and its gaps do
 not swallow map drags. Height changes (a chip arriving, leaving, wrapping, the stale line) are published by `useChromeTlHeight`'s
 `ResizeObserver` as `--wf-chrome-tl-h` and its repaint nonce, which re-places `MapLabels` and the panels hung under the group. **An open
 `MapCallout` measures that group as its top band bar**, so the same nonce is passed to it as `chromeKey` and sits in its repaint
