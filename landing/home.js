@@ -27,7 +27,7 @@
       var el = document.getElementById(a.getAttribute('href').slice(1));
       if (el) targets.push({ link: a, el: el });
     });
-    var watch = all('#plan, #field, #platforms, #story, .close').concat(targets.map(function (t) { return t.el; }));
+    var watch = all('#plan, #field, #story, .close').concat(targets.map(function (t) { return t.el; }));
     var HEADER = 112;
 
     function update() {
