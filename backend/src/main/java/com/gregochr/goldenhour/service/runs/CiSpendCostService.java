@@ -198,7 +198,8 @@ public class CiSpendCostService {
                     row.getConclusion(), url, row.getStartedAt(), row.getCases(), row.getFailed(),
                     in, tokens ? sum(row, CiSpendModelUsageEntity::getOutputTokens) : null, cached,
                     known ? RunFx.pence(RunFx.gbp(row.getCostMicroDollars(), row.getExchangeRateGbpPerUsd())) : null,
-                    known ? RunFx.dollars(row.getCostMicroDollars()) : null, state, inTotal, cachedPercent));
+                    known ? RunFx.dollars(row.getCostMicroDollars()) : null, state, inTotal, cachedPercent,
+                    row.getEvent()));
         }
         rows.sort(Comparator.comparing(PromptTestRunRow::startedAt)
                 .thenComparing(PromptTestRunRow::suite).thenComparingInt(PromptTestRunRow::attempt));

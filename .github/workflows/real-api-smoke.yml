@@ -6,6 +6,12 @@ name: Real API Smoke
 # response parsing still benefits from real coverage. Daily cron is the right
 # cadence: catches Anthropic schema/response drift within 24 hours, never blocks
 # a merge, costs ~1-2 batches/day in API spend.
+#
+# The test's token usage is recorded (docs/engineering/ci-spend-plan.md, C4) into a
+# `prompt-regression-usage-smoke-<attempt>` artifact of token counts and run identifiers only,
+# which production prices at the Batch rate on Runs > Cost trends. A run that recorded nothing
+# (an inconclusive batch, or a failed submit) uploads no artifact: that is "usage unknown",
+# never zero.
 
 on:
   schedule:
@@ -33,6 +39,10 @@ jobs:
     # signal we are trying to preserve.
     timeout-minutes: 320
 
+    env:
+      PROMPT_REGRESSION_USAGE_DIR: ${{ github.workspace }}/backend/target/prompt-regression-usage
+      HEAD_SHA: ${{ github.sha }}
+
     defaults:
       run:
         working-directory: backend
@@ -40,6 +50,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # working-directory: . because the job default (backend) does not exist before checkout in the first place.
+      - name: Record start time
+        working-directory: .
+        run: echo "STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -75,6 +90,21 @@ jobs:
               echo "failure, but this run verified nothing. Investigate if it repeats."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Write usage
+        if: always()
+        working-directory: .
+        run: |
+          python3 -I scripts/prompt-regression-usage.py --suite smoke >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload usage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-regression-usage-smoke-${{ github.run_attempt }}
+          path: backend/target/prompt-regression-usage-smoke.json
+          retention-days: 90
+          if-no-files-found: ignore
 
       - name: Upload surefire reports on failure
         if: failure()

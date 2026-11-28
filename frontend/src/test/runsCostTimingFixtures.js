@@ -167,16 +167,15 @@ export const overnightTiming = (over = {}) => timingResponse({
 });
 
 /** One served {@code testing.types} row (CostTestingType). */
+const TESTING_TYPE_FIXTURES = {
+  SKY: { label: 'CI tests · sky', lastGbp: 2.64, priorGbp: 1.1, deltaGbp: 1.54, deltaPercent: 140, lastRuns: 9, priorRuns: 4, perRunChangePercent: 7 },
+  ASK: { label: 'CI tests · ask', lastGbp: 0.76, priorGbp: 0.52, deltaGbp: 0.24, deltaPercent: 46, lastRuns: 5, priorRuns: 3, perRunChangePercent: -12 },
+  SMOKE: { label: 'CI tests · smoke', lastGbp: 0.02, priorGbp: 0.01, deltaGbp: 0.01, deltaPercent: 100, lastRuns: 7, priorRuns: 7, perRunChangePercent: 0 },
+};
+
 export const testingType = (suite, over = {}) => ({
   suite,
-  label: suite === 'SKY' ? 'Prompt tests · sky' : 'Prompt tests · ask',
-  lastGbp: suite === 'SKY' ? 2.64 : 0.76,
-  priorGbp: suite === 'SKY' ? 1.1 : 0.52,
-  deltaGbp: suite === 'SKY' ? 1.54 : 0.24,
-  deltaPercent: suite === 'SKY' ? 140 : 46,
-  lastRuns: suite === 'SKY' ? 9 : 5,
-  priorRuns: suite === 'SKY' ? 4 : 3,
-  perRunChangePercent: suite === 'SKY' ? 7 : -12,
+  ...TESTING_TYPE_FIXTURES[suite],
   unknownRuns: 0,
   costComplete: true,
   ...over,

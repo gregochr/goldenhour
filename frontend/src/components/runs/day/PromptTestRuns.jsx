@@ -6,11 +6,17 @@ import {
 /** The outcome's colour: green for a pass, coral for a failure, quiet for anything else. */
 const OUTCOME_TONE = { ok: 'text-plex-ok', bad: 'text-plex-coral', quiet: 'text-plex-text-secondary' };
 
-/** The suite's short word for a row ({@code sky} or {@code ask}). */
+/** The suite's short word for a row ({@code sky}, {@code ask} or {@code smoke}). */
 const suiteWord = (suite) => String(suite).toLowerCase();
 
+/** A row with no PR: a scheduled run is the daily smoke, anything else was started by hand. */
+const identityText = (row) => {
+  if (row.prNumber != null) return `PR #${row.prNumber}`;
+  return row.event === 'schedule' ? 'Daily smoke' : 'Manual run';
+};
+
 /**
- * One CI prompt-regression run: the PR and title (or "Manual run"), the suite, the outcome, the cost (or why there is
+ * One CI test run: the PR and title (or "Daily smoke" / "Manual run"), the suite, the outcome, the cost (or why there is
  * none) and a link to the GitHub run, with the cases, tokens and attempt in a line beneath. A phone (639px and under)
  * wraps the line onto its own row.
  */
@@ -23,7 +29,7 @@ function PromptTestRow({ row, index }) {
       data-testid={`runs-day-prompt-test-${index}`}
     >
       <span className="font-mono text-test-sky" data-testid={`runs-day-prompt-test-${index}-pr`}>
-        {row.prNumber != null ? `PR #${row.prNumber}` : 'Manual run'}
+        {identityText(row)}
       </span>
       <span className="min-w-0 justify-self-start text-left text-plex-text max-[639px]:col-span-full max-[639px]:row-start-2">
         {row.prNumber != null && row.prTitle ? `${row.prTitle} ` : ''}
@@ -73,7 +79,7 @@ export default function PromptTestRuns({ runs }) {
     >
       <h3 id="runs-day-prompt-tests-heading" className="flex items-center gap-2 text-[14px] font-semibold text-plex-text">
         <i className={`size-2.5 shrink-0 rounded-xs ${TEST_SWATCH.SKY}`} aria-hidden="true" />
-        Prompt test runs
+        CI test runs
       </h3>
       <ul className="mt-2">
         {runs.map((row, i) => <PromptTestRow key={`${row.startedAt}-${row.suite}-${row.attempt}-${i}`} row={row} index={i} />)}

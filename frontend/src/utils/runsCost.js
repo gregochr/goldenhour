@@ -257,10 +257,10 @@ export function bucketSeries(values, max) {
   return buckets;
 }
 
-// ── CI prompt-regression spend (ci-spend-plan.md C3) ─────────────────────────────────────────────────────────────
+// ── CI test spend (ci-spend-plan.md C3, C4) ─────────────────────────────────────────────────────────────
 
-/** The two CI suites, in stack order (sky, then ask), the keys of {@code testing.days[].byType}. */
-export const TEST_SUITES = ['SKY', 'ASK'];
+/** The CI suites, in stack order (sky, ask, then the daily smoke), the keys of {@code testing.days[].byType}. */
+export const TEST_SUITES = ['SKY', 'ASK', 'SMOKE'];
 
 /**
  * The hatched swatch of each suite (chip, table, headline). Each class names its colour token in full: Tailwind v4
@@ -269,6 +269,7 @@ export const TEST_SUITES = ['SKY', 'ASK'];
 export const TEST_SWATCH = {
   SKY: 'border border-test-sky bg-[repeating-linear-gradient(135deg,var(--color-test-sky)_0_3px,transparent_3px_6px)]',
   ASK: 'border border-test-ask bg-[repeating-linear-gradient(135deg,var(--color-test-ask)_0_3px,transparent_3px_6px)]',
+  SMOKE: 'border border-test-smoke bg-[repeating-linear-gradient(135deg,var(--color-test-smoke)_0_3px,transparent_3px_6px)]',
 };
 
 /**
@@ -283,8 +284,8 @@ export function testingOf(data) {
 }
 
 /**
- * The testing headline line as text runs, outside the app's own sentence: {@code Plus £3.40 on prompt tests
- * (14 runs, was £1.62)}, or in all time {@code Plus £3.40 on prompt tests since 3 Mar 2026}, with the number of runs
+ * The testing headline line as text runs, outside the app's own sentence: {@code Plus £3.40 on CI tests
+ * (14 runs, was £1.62)}, or in all time {@code Plus £3.40 on CI tests since 3 Mar 2026}, with the number of runs
  * whose usage is unknown appended.
  *
  * @param {object} data the served {@code RunCostResponse} with a testing block
@@ -292,7 +293,7 @@ export function testingOf(data) {
  */
 export function testingLine(data) {
   const { totals } = data.testing;
-  const runs = [{ text: 'Plus ' }, { text: formatGbp(totals.lastGbp), bold: true }, { text: ' on prompt tests' }];
+  const runs = [{ text: 'Plus ' }, { text: formatGbp(totals.lastGbp), bold: true }, { text: ' on CI tests' }];
   if (data.allTime === true) {
     runs.push({ text: ` since ${sinceLabel(data.firstDay)}` });
   } else {
@@ -320,7 +321,7 @@ export function testingWhyText(row) {
  * A suite's daily values over all the served days, for its sparkline.
  *
  * @param {object} data the served {@code RunCostResponse} with a testing block
- * @param {string} suite {@code SKY} or {@code ASK}
+ * @param {string} suite {@code SKY}, {@code ASK} or {@code SMOKE}
  * @returns {number[]} one value per app day (the testing days are dense and in the same order), prior period first
  */
 export function testingSeries(data, suite) {
@@ -339,7 +340,7 @@ export function testingDayMap(data) {
 }
 
 /**
- * The outcome words of a prompt test run: passed, "N failed", failed, cancelled, or the raw value.
+ * The outcome words of a CI test run: passed, "N failed", failed, cancelled, or the raw value.
  *
  * @param {object} row the served prompt test run
  * @returns {{text: string, tone: 'ok'|'bad'|'quiet'}} the words and their tone
@@ -367,7 +368,7 @@ export function compactTokens(n) {
 }
 
 /**
- * The meta line of a prompt test run: {@code 42 cases · 0 failed · 612k in · 38k out · 71% cached · attempt 1}. A
+ * The meta line of a CI test run: {@code 42 cases · 0 failed · 612k in · 38k out · 71% cached · attempt 1}. A
  * figure the server did not have is left out (never a zero). The input total and cached share are served.
  *
  * @param {object} row the served prompt test run
@@ -387,7 +388,7 @@ export function promptTestMeta(row) {
 }
 
 /**
- * The cost cell of a prompt test run: pounds, or "usage unknown" / "unpriced", never a zero that was not measured.
+ * The cost cell of a CI test run: pounds, or "usage unknown" / "unpriced", never a zero that was not measured.
  *
  * @param {object} row the served prompt test run
  * @returns {string} the text

@@ -447,6 +447,131 @@ The mock is `CI Spend.html`, in the handoff.
 
 The Runs and Cost trends section of the reference docs (`platform.md`, admin features) and `api-endpoints.md`.
 
+## C4: the daily real-API smoke
+
+The scheduled `Real API Smoke` workflow (`real-api-smoke.yml`, 06:00 UTC, job `Real API completion smoke`, step
+`Run real-API E2E test`) runs `ForecastBatchPipelineRealApiE2ETest`. That test sends one Haiku request a day through
+the Anthropic **Batch** API with the production `AnthropicClient` bean, so C1's `RecordingAnthropicApiClient` never
+sees it. The owner asked for its spend on the page too (2026-11-28). It becomes a third suite, `smoke`, with the same
+invariants: it never touches an app figure, the server prices it, and identity comes only from the GitHub API.
+
+### Recording (test sources and workflow)
+- The test gains an `@AfterEach` that runs on pass, failure and the inconclusive skip. When
+  `PROMPT_REGRESSION_USAGE_DIR` is set, it reads the container's `api_call_log` rows with `isBatch` true and token
+  counts present. It records each one in a `PromptUsageRecorder`, keyed on the model's API id
+  (`evaluationModel` → its model id), as `TokenUsage(input, output, cacheCreation, cacheRead, 0)`. Batch requests
+  carry no 1-hour cache writes. It writes a shard only when at least one row exists.
+- **No row means unknown, never £0.** The inconclusive case is a batch still SUBMITTED, which Anthropic bills later.
+  A failed submit spends nothing, but we cannot tell the two apart. Either way the script writes no usage file, so no
+  artifact uploads, and C2's one-hour grace settles the attempt as `UNKNOWN` ("usage unknown"). This is the honest
+  state.
+- `scripts/prompt-regression-usage.py` accepts `--suite smoke`. It reads the surefire XML for that one class, and
+  with no shard it writes nothing and prints a one-line "no usage recorded" summary. Sky and ask keep their current
+  behaviour exactly, including the zero-call file.
+- `real-api-smoke.yml`:
+  - It sets `PROMPT_REGRESSION_USAGE_DIR` on the job and adds "Record start time" after checkout
+    (`working-directory: .`), as in C1.
+  - "Write usage" (`python3 -I scripts/prompt-regression-usage.py --suite smoke >> "$GITHUB_STEP_SUMMARY"`) and
+    "Upload usage" (artifact `prompt-regression-usage-smoke-${{ github.run_attempt }}`, retention 90,
+    `if-no-files-found: ignore`) both run under `if: always()`.
+  - The job and step names, the timeout, concurrency, the inconclusive flagging and both notifiers stay unchanged.
+  - The existing surefire upload stays `if: failure()`.
+
+### Pricing and polling (backend)
+- **Batch rate by suite, never by artifact.** The poller prices a `smoke` row with
+  `calculateCostMicroDollars(model, usage, true)`. Batch is a property of the suite, fixed in code. An artifact field
+  claiming batch would let a run halve its own price, so the artifact schema does not change (still schema 1).
+- **`CiSuite.SMOKE("smoke", "Real API smoke")`.**
+  - The poller's `SuiteSpec` gains the suite's workflow file and a batch flag: sky and ask use
+    `prompt-regression.yml`, and smoke uses `real-api-smoke.yml`.
+  - `listRuns` lists each distinct workflow file in turn, sharing the call budget.
+  - An attempt matches only the suites of its own workflow file.
+  - `suites_ran` may now hold `smoke` (it still fits in `VARCHAR(16)`).
+- The `photocast.ci-spend.workflow-file` key is **removed**, since the files are fixed per suite in code. Unknown
+  keys are ignored, so a stale setting does no harm. `configuration.md` says so.
+- No migration: `suite` is `VARCHAR(16)` and the unique key already includes it.
+- Identity: a `schedule` run has no PR, and the PR lookup already runs only for `pull_request` events. The served
+  `PromptTestRunRow` gains `event`.
+
+### Page wording and the third suite (frontend)
+- With a smoke in the group, "Prompt tests" is no longer true. Rename what the user sees:
+  - the chip and its ChipGroup become **"CI tests"**;
+  - the Day view section becomes **"CI test runs"**;
+  - the chart and tooltip labels become `CI tests · sky`, `CI tests · ask` and `CI tests · smoke`;
+  - the headline line and the table's Testing section follow the same wording.
+- No API field names change (`testing`, `promptTestRuns` stay).
+- Suites are driven from the served `testing.types` order wherever possible, and the hardcoded SKY/ASK maps gain
+  SMOKE:
+  - `TEST_SUITES`, `TEST_SWATCH`, the chart's fill, tint, stroke and label maps, `CostChangeTable`'s map, and one
+    more `HatchPattern`;
+  - a new `--color-test-smoke` token in `index.css` `@theme static`, distinct from sky and ask in both themes.
+- A Day row with no PR reads **"Daily smoke"** when `event` is `schedule` and "Manual run" otherwise. The suite word
+  is `smoke`.
+
+### Tests
+- **Script:** `--suite smoke` with shards writes a priced file; with none it writes no file and exits 0.
+- **Workflow:** the shell test asserts the new `real-api-smoke.yml` steps by exact name, their `if: always()`, the
+  artifact name, and that the notifiers are unchanged.
+- **Poller:**
+  - It lists both workflow files.
+  - A smoke attempt is priced at the batch rate: assert the exact micro-dollars against
+    `CostCalculator(model, usage, true)`.
+  - A smoke run with no artifact becomes UNKNOWN after the grace.
+  - A sky job name inside a `real-api-smoke.yml` run is not matched.
+- **Read side:** a SMOKE type and day series, and `event` on the row.
+- **Frontend:**
+  - three hatched suites, with the new labels;
+  - "Daily smoke" against "Manual run";
+  - the average line unchanged with the layer on.
+- **Isolation:** `CiSpendIsolationIntegrationTest` still holds, now with a smoke row seeded.
+- The real-API test's own assertions are not changed. Only the `@AfterEach` is added.
+
+### Docs
+- `pipeline.md`, `configuration.md`, `platform.md`, `api-endpoints.md` (`event`), the ledger's Testing section
+  (the daily smoke is now tracked, at the batch rate) and a `changelog.d/` entry.
+
+### Review folds (2026-11-28, two read-only reviewers; these override the bullets above where they differ)
+- **Record inside the existing cleanup.** The test already has `@AfterEach clearDataAfterTest()`, which starts with
+  `apiCallLogRepository.deleteAll()`. JUnit does not order two `@AfterEach` methods. So recording happens at the top
+  of that method: `try { record } finally { the existing deletes }`.
+- **Recording never throws.**
+  - Null token columns are treated as 0.
+  - Any `RuntimeException` is caught and logged.
+  - Reason: an exception here would turn an inconclusive skip or a pass into an error, firing the "parse broke"
+    notifier.
+- **1-hour cache.** The smoke's request uses `buildForecastRequest`, the plain path with no 1-hour TTL, so
+  `cacheWrite1h` is 0 for this test. Other batch paths do use the 1-hour TTL, and `api_call_log` cannot store it, so
+  the recording is valid only for this request. A code comment says so.
+- **The batch flag lives in `applyPricing`.** `applyPricing` works out batch from `row.getSuite()` through
+  `SuiteSpec`, so `repriceUnpriced` prices a smoke row at the batch rate too. Test the reprice path for smoke.
+- **PR number only for `pull_request`.** `identityOf` takes `pull_requests[0]` for any event. GitHub fills it for a
+  `workflow_dispatch` on an open PR's branch. Set `prNumber` (and the title) only when the event is `pull_request`.
+  Test a `workflow_dispatch` that carries `pull_requests`.
+- **Rate snapshot.** A smoke row's stored per-Mtok rates are the standard ones, beside a halved cost. Document this in
+  `pipeline.md`; nothing in `src/main` reads the snapshot.
+- **Labels are served.** `CiSuite` labels become "CI tests · sky", "CI tests · ask" and "CI tests · smoke" (the
+  chart and table use the served label). Update the backend tests that pin them.
+- **More strings to rename:**
+  - `DailySpendChart` aria-label ", including CI tests";
+  - the legend "Hatched = CI tests…";
+  - `CostChangeTable` "Testing · CI tests" (wording is the builder's choice, but it must not say prompt regression
+    only);
+  - `runsCost.js` " on CI tests";
+  - `platform.md`'s C3 bullet.
+- **Removing `workflow-file` touches:** `CiSpendProperties` (field and `toString`), `CiSpendPropertiesTest`,
+  `application-example.yml`, and `listRuns`. `processAttempt` must receive each run's workflow file so it matches only
+  that workflow's suites.
+- **Workflow paths:**
+  - `PROMPT_REGRESSION_USAGE_DIR: ${{ github.workspace }}/backend/target/prompt-regression-usage`;
+  - the Upload `path: backend/target/prompt-regression-usage-smoke.json` (`uses:` steps ignore the default
+    working directory);
+  - set `HEAD_SHA: ${{ github.sha }}`;
+  - the script adds `smoke` to `OUT_NAMES` and to its `choices`.
+- **Colour token.** `--color-test-*` is defined once, since the app has a single dark scheme. Add
+  `--color-test-smoke` beside the others.
+- **Call budget.** A poll that runs out of calls in `prompt-regression.yml` leaves the smoke runs for the next poll.
+  This is accepted.
+
 ## Not doing
 
 - Push from CI to production (a write surface and a CI credential on production).

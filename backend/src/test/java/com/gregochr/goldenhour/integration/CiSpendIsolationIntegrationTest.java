@@ -75,11 +75,13 @@ class CiSpendIsolationIntegrationTest extends HttpIntegrationTestBase {
         // Two completed app runs with a priced cost, one yesterday and one ten days earlier.
         jobRunIds.add(appRun(yesterday, 3_000_000L));
         jobRunIds.add(appRun(yesterday.minusDays(10), 1_500_000L));
-        // CI: a priced sky run and an unknown ask run yesterday, a re-run of sky, and one ten days back.
+        // CI: a priced sky run and an unknown ask run yesterday, a re-run of sky, one ten days back, and the smoke.
         ciRun(1L, 1, "sky", yesterday.atTime(10, 0), CiSpendRunEntity.STATE_KNOWN, 2_000_000L, 0.79, true);
         ciRun(1L, 1, "ask", yesterday.atTime(10, 5), CiSpendRunEntity.STATE_UNKNOWN, null, null, false);
         ciRun(1L, 2, "sky", yesterday.atTime(14, 0), CiSpendRunEntity.STATE_KNOWN, 500_000L, 0.79, true);
         ciRun(2L, 1, "ask", yesterday.minusDays(10).atTime(9, 0), CiSpendRunEntity.STATE_KNOWN, 800_000L, 0.79, true);
+        // The daily real-API smoke (C4): a third suite, priced like any other row once stored.
+        ciRun(3L, 1, "smoke", yesterday.atTime(6, 5), CiSpendRunEntity.STATE_KNOWN, 100_000L, 0.79, true);
     }
 
     @AfterEach
@@ -175,16 +177,17 @@ class CiSpendIsolationIntegrationTest extends HttpIntegrationTestBase {
         String day = body("/api/admin/runs/day?date=" + yesterday);
 
         assertThat(JsonPath.<Double>read(cost, "$.totals.lastGbp")).isGreaterThan(0.0);
-        assertThat(JsonPath.<Integer>read(cost, "$.testing.totals.runs")).isEqualTo(4);
+        assertThat(JsonPath.<Integer>read(cost, "$.testing.totals.runs")).isEqualTo(5);
         assertThat(JsonPath.<Integer>read(cost, "$.testing.totals.unknownRuns")).isEqualTo(1);
         assertThat(JsonPath.<Integer>read(cost, "$.testing.days.length()"))
                 .isEqualTo(JsonPath.<Integer>read(cost, "$.days.length()"));
-        assertThat(JsonPath.<List<String>>read(cost, "$.testing.types[*].suite")).containsExactly("SKY", "ASK");
-        assertThat(JsonPath.<Integer>read(all, "$.testing.totals.runs")).isEqualTo(4);
-        assertThat(JsonPath.<Integer>read(day, "$.promptTestRuns.length()")).isEqualTo(3);
-        assertThat(JsonPath.<List<Integer>>read(day, "$.promptTestRuns[*].attempt")).containsExactly(1, 1, 2);
+        assertThat(JsonPath.<List<String>>read(cost, "$.testing.types[*].suite"))
+                .containsExactly("SKY", "ASK", "SMOKE");
+        assertThat(JsonPath.<Integer>read(all, "$.testing.totals.runs")).isEqualTo(5);
+        assertThat(JsonPath.<Integer>read(day, "$.promptTestRuns.length()")).isEqualTo(4);
+        assertThat(JsonPath.<List<Integer>>read(day, "$.promptTestRuns[*].attempt")).containsExactly(1, 1, 1, 2);
         assertThat(JsonPath.<List<String>>read(day, "$.promptTestRuns[*].usageState"))
-                .containsExactly("KNOWN", "UNKNOWN", "KNOWN");
+                .containsExactly("KNOWN", "KNOWN", "UNKNOWN", "KNOWN");
         assertThat(JsonPath.<Integer>read(day, "$.filterCounts.ALL")).isGreaterThanOrEqualTo(1);
 
         ciRuns.deleteAll();

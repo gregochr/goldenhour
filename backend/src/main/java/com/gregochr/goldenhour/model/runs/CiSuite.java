@@ -4,15 +4,17 @@ import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * The two paid CI prompt-regression suites, in stack order (sky, then ask). Never a {@link RunDeepType}: CI spend is
- * counted apart from the app's.
+ * The paid CI test suites, in stack order (sky, ask, then the daily real-API smoke). Never a {@link RunDeepType}: CI
+ * spend is counted apart from the app's.
  */
 public enum CiSuite {
 
     /** The sky-rating prompt regression. */
-    SKY("sky", "Prompt tests · sky"),
+    SKY("sky", "CI tests · sky"),
     /** The Ask PhotoCast prompt regression. */
-    ASK("ask", "Prompt tests · ask");
+    ASK("ask", "CI tests · ask"),
+    /** The daily real-API smoke (one Batch request a day). The poller prices it at the Batch rate. */
+    SMOKE("smoke", "CI tests · smoke");
 
     private final String code;
     private final String label;
@@ -25,7 +27,7 @@ public enum CiSuite {
     /**
      * The value stored in {@code ci_spend_run.suite}.
      *
-     * @return {@code sky} or {@code ask}
+     * @return {@code sky}, {@code ask} or {@code smoke}
      */
     public String code() {
         return code;

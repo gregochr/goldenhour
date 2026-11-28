@@ -45,10 +45,10 @@ const rangeOptions = (short) => COST_RANGES.map((range) => {
  * The testing layer's pattern fills and strokes, one class set per suite. Whole class names, so Tailwind's scanner
  * keeps each colour token (a name built at runtime would be pruned).
  */
-const TEST_FILL = { SKY: 'fill-test-sky', ASK: 'fill-test-ask' };
-const TEST_TINT = { SKY: 'fill-test-sky/20', ASK: 'fill-test-ask/20' };
-const TEST_STROKE = { SKY: 'stroke-test-sky', ASK: 'stroke-test-ask' };
-const TEST_LABEL = { SKY: 'Prompt tests · sky', ASK: 'Prompt tests · ask' };
+const TEST_FILL = { SKY: 'fill-test-sky', ASK: 'fill-test-ask', SMOKE: 'fill-test-smoke' };
+const TEST_TINT = { SKY: 'fill-test-sky/20', ASK: 'fill-test-ask/20', SMOKE: 'fill-test-smoke/20' };
+const TEST_STROKE = { SKY: 'stroke-test-sky', ASK: 'stroke-test-ask', SMOKE: 'stroke-test-smoke' };
+const TEST_LABEL = { SKY: 'CI tests · sky', ASK: 'CI tests · ask', SMOKE: 'CI tests · smoke' };
 
 /** One suite's hatch: a faint tint under 2.5px diagonal stripes, in the suite's own colour token. */
 function HatchPattern({ id, tint, stripe }) {
@@ -125,7 +125,7 @@ export default function DailySpendChart({
     const hoveredTesting = withTesting ? testingDays.get(hovered.date) ?? null : null;
     const testLines = hoveredTesting ? TEST_SUITES.filter((suite) => Number(hoveredTesting.byType?.[suite] ?? 0) > 0) : [];
     // Below the type lines: [Selected], [App], Total. The App line appears only with the testing layer, where the
-    // Total is the app and the prompt tests together.
+    // Total is the app and the CI tests together.
     const footer = [];
     if (showSelected) {
       footer.push({ key: 'selected', label: 'Selected', value: formatGbp(subtotal(hovered)), testId: 'runs-cost-tooltip-selected' });
@@ -220,9 +220,9 @@ export default function DailySpendChart({
           {testing && (
             <>
               <ChipDivider testId="runs-cost-testing-divider" />
-              <ChipGroup label="Prompt tests">
+              <ChipGroup label="CI tests">
                 <Chip
-                  label="Prompt tests"
+                  label="CI tests"
                   nowrap
                   swatchClass={TEST_SWATCH.SKY}
                   on={showTesting}
@@ -246,13 +246,14 @@ export default function DailySpendChart({
           viewBox={`0 0 ${viewW} ${HEIGHT}`}
           className="h-auto w-full"
           role="group"
-          aria-label={`${allTime ? `Daily spend by type since ${since}` : `Daily spend by type over the last ${range} days`}${withTesting ? ', including prompt tests' : ''}`}
+          aria-label={`${allTime ? `Daily spend by type since ${since}` : `Daily spend by type over the last ${range} days`}${withTesting ? ', including CI tests' : ''}`}
           data-testid="runs-cost-svg"
         >
           {withTesting && (
             <defs>
-              <HatchPattern id={`${patternId}-sky`} tint={TEST_TINT.SKY} stripe={TEST_FILL.SKY} />
-              <HatchPattern id={`${patternId}-ask`} tint={TEST_TINT.ASK} stripe={TEST_FILL.ASK} />
+              {TEST_SUITES.map((suite) => (
+                <HatchPattern key={suite} id={`${patternId}-${suite.toLowerCase()}`} tint={TEST_TINT[suite]} stripe={TEST_FILL[suite]} />
+              ))}
             </defs>
           )}
           {Array.from({ length: 5 }, (_, i) => scale.step * i).map((value) => (
@@ -370,7 +371,7 @@ export default function DailySpendChart({
         )}
         {testing && (
           <p className="mt-1 font-mono text-[10.5px] text-plex-text-muted" data-testid="runs-cost-testing-note">
-            Hatched = prompt tests (CI), counted separately from the app. Off by default.
+            Hatched = CI tests, counted separately from the app. Off by default.
           </p>
         )}
       </div>

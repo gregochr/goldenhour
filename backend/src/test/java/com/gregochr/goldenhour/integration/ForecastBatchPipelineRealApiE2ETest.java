@@ -26,6 +26,8 @@ import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
 import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
+import com.gregochr.goldenhour.testsupport.promptusage.BatchUsageRecording;
+import com.gregochr.goldenhour.testsupport.promptusage.PromptUsageRecorder;
 import org.awaitility.Awaitility;
 import org.awaitility.core.ConditionTimeoutException;
 import org.junit.jupiter.api.AfterEach;
@@ -159,15 +161,35 @@ class ForecastBatchPipelineRealApiE2ETest {
 
     @AfterEach
     void clearDataAfterTest() {
-        // forecast_score references locations (fk_score_location) — clear it first.
-        apiCallLogRepository.deleteAll();
-        cachedEvaluationRepository.deleteAll();
-        forecastBatchRepository.deleteAll();
-        forecastScoreRepository.deleteAll();
-        locationRepository.deleteAll();
-        // V191: a sub-region's region_id FK is RESTRICT, so the areas go before the regions.
-        areaRepository.deleteAll();
-        regionRepository.deleteAll();
+        try {
+            recordSpendForCi();
+        } finally {
+            // forecast_score references locations (fk_score_location) — clear it first.
+            apiCallLogRepository.deleteAll();
+            cachedEvaluationRepository.deleteAll();
+            forecastBatchRepository.deleteAll();
+            forecastScoreRepository.deleteAll();
+            locationRepository.deleteAll();
+            // V191: a sub-region's region_id FK is RESTRICT, so the areas go before the regions.
+            areaRepository.deleteAll();
+            regionRepository.deleteAll();
+        }
+    }
+
+    /**
+     * Records this test's batch spend for the CI usage artifact (docs/engineering/ci-spend-plan.md, C4). It runs on
+     * pass, failure and the inconclusive skip, before the rows are deleted, and never throws. Valid only for this
+     * test's request, which has no 1-hour cache write ({@code api_call_log} cannot store one). With no row nothing
+     * is recorded, so no usage artifact is uploaded: an unfinished batch is unknown spend, never zero.
+     */
+    private void recordSpendForCi() {
+        try {
+            if (PromptUsageRecorder.shared().shardPath() != null) {
+                BatchUsageRecording.record(apiCallLogRepository.findAll(), PromptUsageRecorder.shared());
+            }
+        } catch (RuntimeException e) {
+            System.err.println("smoke usage not recorded: " + e.getClass().getSimpleName());
+        }
     }
 
     @Test

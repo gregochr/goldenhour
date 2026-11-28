@@ -57,10 +57,10 @@ describe('testingOf', () => {
 });
 
 describe('testingLine', () => {
-  it('reads "Plus £3.40 on prompt tests (14 runs, was £1.62)"', () => {
+  it('reads "Plus £3.40 on CI tests (14 runs, was £1.62)"', () => {
     const data = costResponse();
     data.testing = testingBlock(data);
-    expect(text(testingLine(data))).toBe('Plus £3.40 on prompt tests (14 runs, was £1.62)');
+    expect(text(testingLine(data))).toBe('Plus £3.40 on CI tests (14 runs, was £1.62)');
     expect(testingLine(data)[1]).toEqual({ text: '£3.40', bold: true });
   });
 
@@ -69,13 +69,13 @@ describe('testingLine', () => {
     data.testing = testingBlock(data, {}, {
       totals: { ...testingBlock(data).totals, runs: 1, unknownRuns: 2 },
     });
-    expect(text(testingLine(data))).toBe('Plus £3.40 on prompt tests (1 run, was £1.62) · 2 usage unknown');
+    expect(text(testingLine(data))).toBe('Plus £3.40 on CI tests (1 run, was £1.62) · 2 usage unknown');
   });
 
   it('all time says "since" and has no "was"', () => {
     const data = costAllTime(10);
     data.testing = testingBlock(data, {}, { totals: { ...testingBlock(data).totals, unknownRuns: 1 } });
-    expect(text(testingLine(data))).toBe('Plus £3.40 on prompt tests since 23 Oct 2026 · 1 usage unknown');
+    expect(text(testingLine(data))).toBe('Plus £3.40 on CI tests since 23 Oct 2026 · 1 usage unknown');
   });
 });
 
@@ -124,6 +124,7 @@ describe('testing series and totals', () => {
   it('the swatch classes name their colour token in full', () => {
     expect(TEST_SWATCH.SKY).toContain('var(--color-test-sky)');
     expect(TEST_SWATCH.ASK).toContain('var(--color-test-ask)');
+    expect(TEST_SWATCH.SMOKE).toContain('var(--color-test-smoke)');
   });
 });
 

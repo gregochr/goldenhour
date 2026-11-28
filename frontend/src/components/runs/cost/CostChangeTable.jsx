@@ -78,6 +78,7 @@ Change.propTypes = { delta: PropTypes.oneOfType([PropTypes.number, PropTypes.str
 const TEST_SPARK = {
   SKY: { fill: 'fill-test-sky', tint: 'fill-test-sky/20', stroke: 'stroke-test-sky' },
   ASK: { fill: 'fill-test-ask', tint: 'fill-test-ask/20', stroke: 'stroke-test-ask' },
+  SMOKE: { fill: 'fill-test-smoke', tint: 'fill-test-smoke/20', stroke: 'stroke-test-smoke' },
 };
 
 /** A suite's daily sparkline, hatched like its chart bars (an SVG pattern with its own id), the prior half faint. */
@@ -122,7 +123,7 @@ TestingSparkline.propTypes = {
 
 /**
  * The table's testing block, shown only when a testing block is served: the {@code App subtotal} row (the app's own
- * served totals, so the page's figures stay today's), a {@code TESTING · CI PROMPT REGRESSION} group row (one cell
+ * served totals, so the page's figures stay today's), a {@code TESTING · CI TESTS} group row (one cell
  * spanning the grid, so it survives the narrow layout), one inert row per suite (no toggle: the testing layer does not
  * follow the picked app types), the {@code Testing subtotal} and the {@code Total} of both. In all time there is no prior
  * period, so only Spend and the sparkline.
@@ -155,7 +156,7 @@ function TestingRows({ data, allTime }) {
       </div>
       <div className={`${grid} border-b border-dashed border-plex-border-light pb-1.5 pt-4`} role="row" data-testid="runs-cost-testing-group">
         <span role="cell" className="col-span-full font-mono text-[10px] uppercase tracking-[0.14em] text-plex-text-muted">
-          Testing {'·'} CI prompt regression
+          Testing {'·'} CI tests
         </span>
       </div>
       {testing.types.map((row) => {

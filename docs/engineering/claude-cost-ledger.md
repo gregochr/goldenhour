@@ -348,13 +348,19 @@ at the foot of `cost-queries/measured-costs.sql`.
   `ForecastTaskCollector` and `ScheduledBatchEvaluationService` still force-evaluate far-out cells because their
   ratings feed `PlanWindowProjector`. That spend is a separate line and stays.
 
-## Testing (CI prompt regression) (2026-11-27, `ci-spend-plan.md`)
+## Testing (CI tests: prompt regression and the daily smoke) (2026-11-27, `ci-spend-plan.md`)
 
 The two paid CI jobs (`Prompt regression — sky`, `Prompt regression — ask`) call real Claude on a **separate,
 spend-capped key** (`PROMPT_REGRESSION_ANTHROPIC_API_KEY`), not the production key. That spend is not in `api_call_log`,
 so none of the figures above include it. From C2 the production host pulls the token counts each job uploads, prices
 them with `CostCalculator` (non-batch rates, the same table as the app) and stores them in `ci_spend_run`; Runs › Cost
-trends shows them as a **Testing** group beside the app's figures and never inside them (C3). CI spend follows pull
+trends shows them as a **Testing** group beside the app's figures and never inside them (C3). From C4 the daily
+real-API smoke (`real-api-smoke.yml`, one Haiku request a day through the **Batch** API with the production client) is
+tracked too, as a third suite `smoke`: its token counts come from the test's own `api_call_log` batch rows (the
+recorder never sees the production client), and the poller prices it at the **Batch rate** (half price), a property
+of the suite fixed in code and never read from the artifact. A smoke that recorded nothing (an inconclusive batch
+still processing, or a failed submit) uploads no artifact and settles as "usage unknown", never £0; Anthropic bills a
+still-processing batch later, so that day's spend is under-counted until it is seen on the console. CI spend follows pull
 requests, not the schedule, so a busy week of development must never read as "the app got dearer".
 
 - **What it costs.** No measured figure yet: measured figures arrive once `ci_spend_poll` has run against real

@@ -47,11 +47,6 @@ public class CiSpendProperties {
             message = "must be owner/name")
     private String repository = "gregochr/goldenhour";
 
-    /** The workflow file whose runs are read. */
-    @NotBlank
-    @Pattern(regexp = "[A-Za-z0-9_.-]+\\.ya?ml", message = "must be a workflow file name ending .yml or .yaml")
-    private String workflowFile = "prompt-regression.yml";
-
     /** How many days back to look for workflow runs. Set 90 once to backfill. */
     @Min(1)
     @Max(90)
@@ -121,7 +116,7 @@ public class CiSpendProperties {
     @Override
     public String toString() {
         return "CiSpendProperties[enabled=" + enabled + ", tokenConfigured=" + hasToken()
-                + ", repository=" + repository + ", workflowFile=" + workflowFile
+                + ", repository=" + repository
                 + ", lookbackDays=" + lookbackDays + ", maxCallsPerPoll=" + maxCallsPerPoll + "]";
     }
 }
