@@ -5,6 +5,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.42.6] - 2026-11-28
+
+### Changed — the Map's weather warning is one tidy row you open in place
+
+Each Met Office warning on the Map is now a single full-width row (the level and type as text, when it runs in UK time, and a chevron) in a box the width of the event bar, instead of a link chip with a separate Details button that wrapped and sat alone on a phone. Press the row to open the full warning directly under it (one at a time, scrolling past 300 px, 44vh on a phone); Escape or the chevron closes it and returns focus to the row, and changing the sunrise or sunset closes it. More than three warnings show a `+N more warnings` row. The side panel, the phone sheet and the Details button are gone, so there is one less stacked dialog. The row's validity is shorter (`Fri 04:00–14:00`), with the full date and "UK time" in the opened text.
+
+The Met Office credit line is now one line on every surface: the attribution itself is the link to the Met Office warnings page, followed by an arrow and the guide `?`, so nothing is stranded on a second line. "Read it on the Met Office site" now appears only inside an opened Map warning, and a stale feed says "Last checked 3 h ago. These may be out of date." on a line of its own. The user guide's weather warnings and map pages describe the new row.
+
+### Changed — landing and guide body text is all IBM Plex Sans
+
+Running text on the marketing site and the guide is now IBM Plex Sans throughout; Newsreader is kept for headings, the wordmark and the hero tagline. A Vitest guard fails if a serif face creeps back onto body copy.
+
+### Changed — a tighter landing page: one explainer, a phone hero, one menu
+
+The home page now reads hero, Plan a shoot, From the field, "What only PhotoCast does." (five items: two scores, tide at the light, Ask PhotoCast, northern lights, Met Office warnings), Pricing, Questions, a shorter story and the closing invitation. The hero says its piece once and shows This week on a phone beside the map view a card opens; "What do the stars mean?" is the first question in the FAQ; the Where-to-use-it band is one line under the hero button. Every landing and guide page now shares one menu: Plan a shoot, Pricing, Guide, FAQ, Start free, and the phone section bar stays on the home page only. The old map screenshot and the replaced copy and styles are gone.
+
+On desktop the hero is two columns, text left and the phone pair right. The Plan a shoot section keeps only the Further ahead screenshot, and the closer-look place-sheet screenshot is gone.
+
+The pricing cards keep five bullets each and link to the guide hub's Lite and Pro table ("Compare Lite and Pro in full"); a test keeps the bullets in agreement with that table.
+
+### Docs — sky prompt changes wait for the owner's Haiku eval
+
+A PR that changes the sky prompt, its user message or the output schema now waits for the owner's Haiku 4.5 Sky-Rating Eval
+before it merges. CI's prompt regression runs on Sonnet only, while Batch Far-Term runs on Haiku 4.5; #1967 merged with
+CI green and dropped a Haiku clear sky from 3★ to 1★ until #1970 fixed it. The rule is in CLAUDE.md step 6 and
+`dev-and-testing.md`.
+
+### Changed — the Planning a shoot guide is split into three pages
+
+The Planning a shoot guide was one 19,000 px page of 21 sections. It is now an overview (`planning.html`, with a
+new short "How a shoot is planned" walk-through), a This week page (`this-week.html`) and a Further ahead page
+(`further-ahead.html`), each section moved with its id and screenshots intact. The Find and Weather warnings
+sections on the overview shrink to two sentences and a link to their own guides, and the two warning screenshots
+sit with the lanes in This week and the entries in Further ahead. `guide/moved.js` now redirects every old
+`planning.html#id` to its new page, keeping `?embed=1`, and sends the retired `coming-up.html` and
+`at-a-glance.html` stubs straight to the page that holds the section. The app's guide doors for Best bet and the
+Further ahead topics, new arrivals and tides open the new pages, and the hub, the guide search and the
+cross-links follow. New tests check that every moved id exists on its page and not on `planning.html`, that the
+redirect resolves as described, and that every internal landing link resolves to a real page and id.
+
+### Added — the daily real-API smoke's spend on Runs › Cost trends
+
+The `Real API Smoke` workflow now records the tokens its one Batch request spends and uploads them as a small
+`prompt-regression-usage-smoke-<attempt>` artifact, and the hourly `ci_spend_poll` job reads, prices (at the Batch
+rate, half price) and stores it as a third CI suite, `smoke`. Cost trends and the Day view show it beside the sky and
+ask prompt tests, still apart from the app's own figures, and the page now calls the group "CI tests" (the chart chip,
+tooltip and table, and "CI test runs" on the Day view, where a scheduled run with no PR reads "Daily smoke"). A day on
+which the batch was still processing, or never submitted, shows "usage unknown" rather than £0. The
+`photocast.ci-spend.workflow-file` setting is gone: each suite's workflow file is fixed in code, and a stale setting is
+ignored. A `workflow_dispatch` run started on a pull request's branch no longer takes that PR's number.
+
+### Fixed — CI retries Maven Central 429s again, and test-skipping jobs no longer poison the Maven cache
+
+`scripts/mvn-retry.sh` treated the passing line `You have 0 Checkstyle violations.` (and SpotBugs'
+`BugInstance size is 0`) as a real failure, so any build that ran checkstyle never retried a Maven Central
+HTTP 429. Only a non-zero count counts now. Separately, the Accessibility scan, CodeQL and the weekly mutation
+run (none of which run surefire) no longer save the shared `setup-java` Maven cache; they restore it only, so a
+cache saved without the surefire JUnit provider stops forcing every test job to re-download it from Central.
+
 ## [v2.42.5] - 2026-11-28
 
 ### Fixed — the card maps no longer go black when today folds as a quiet day
