@@ -16,13 +16,11 @@ const pages = [
 
 const mastheads = pages.filter((p) => p.html.includes('<header class="mast">'));
 
+const dom = (html) => new DOMParser().parseFromString(html, 'text/html');
+
 function menuOf(html) {
-  const header = html.slice(html.indexOf('<header class="mast">'), html.indexOf('</header>'));
-  const nav = header.match(/<nav(?![^>]*secbar)[^>]*>([\s\S]*?)<\/nav>/)[1];
-  return [...nav.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map((m) => ({
-    text: m[2].trim(),
-    href: m[1].match(/href="([^"]*)"/)[1],
-  }));
+  const nav = dom(html).querySelector('header.mast nav:not(.secbar)');
+  return [...nav.querySelectorAll('a')].map((a) => ({ text: a.textContent.trim(), href: a.getAttribute('href') }));
 }
 
 function expectedMenu({ rel, depth }) {
@@ -54,25 +52,25 @@ describe('landing masthead menu', () => {
   });
 
   it('points every home page section-bar link at a section that exists', () => {
-    const home = pages.find((p) => p.rel === 'index.html').html;
-    const bar = home.match(/<nav class="secbar"[^>]*>([\s\S]*?)<\/nav>/)[1];
-    const hrefs = [...bar.matchAll(/href="#([^"]+)"/g)].map((m) => m[1]);
+    const doc = dom(pages.find((p) => p.rel === 'index.html').html);
+    const hrefs = [...doc.querySelectorAll('nav.secbar a')].map((a) => a.getAttribute('href').slice(1));
     expect(hrefs).toEqual(['plan', 'field', 'features', 'pricing', 'faq']);
-    hrefs.forEach((id) => expect(home).toContain(`id="${id}"`));
+    hrefs.forEach((id) => expect(doc.getElementById(id), id).not.toBeNull());
   });
 });
 
 describe('landing/index.html images', () => {
-  const home = pages.find((p) => p.rel === 'index.html').html;
+  const doc = dom(pages.find((p) => p.rel === 'index.html').html);
 
   it('gives every image non-empty alt text', () => {
-    const imgs = [...home.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
+    const imgs = [...doc.querySelectorAll('img')];
     expect(imgs.length).toBeGreaterThan(0);
-    imgs.forEach((tag) => expect(tag).toMatch(/\balt="[^"]+"/));
+    imgs.forEach((img) => expect((img.getAttribute('alt') || '').trim(), img.getAttribute('src')).not.toBe(''));
   });
 
   it('has every local image and zoom target on disk', () => {
-    const refs = [...home.matchAll(/<(?:img src|a class="zoom" href)="([^"#?]+)"/g)].map((m) => m[1]);
+    const refs = [...doc.querySelectorAll('img[src], a.zoom[href]')]
+      .map((el) => (el.getAttribute('src') || el.getAttribute('href')).split(/[#?]/)[0]);
     expect(refs.length).toBeGreaterThan(0);
     refs.filter((r) => !/^https?:/.test(r)).forEach((r) => {
       expect(existsSync(resolve(LANDING, r)), r).toBe(true);

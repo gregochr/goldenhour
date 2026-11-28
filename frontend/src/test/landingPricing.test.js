@@ -4,21 +4,24 @@ import { resolve } from 'node:path';
 
 /**
  * Keeps the landing pricing cards (five bullets each) in agreement with the guide hub's Lite and Pro table
- * (docs/engineering/landing-guide-plan.md, G2). Reads `landing/` from disk.
+ * (docs/engineering/landing-guide-plan.md, G2). Reads `landing/` from disk and parses it with the DOM.
  */
 const LANDING = resolve(__dirname, '../../../landing');
-const home = readFileSync(resolve(LANDING, 'index.html'), 'utf8');
-const hub = readFileSync(resolve(LANDING, 'guide/index.html'), 'utf8');
-
-const strip = (h) => h.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+const parse = (file) => new DOMParser().parseFromString(readFileSync(resolve(LANDING, file), 'utf8'), 'text/html');
+const homeDoc = parse('index.html');
+const hubDoc = parse('guide/index.html');
+const text = (el) => el.textContent.replace(/\s+/g, ' ').trim();
 
 function cardBullets(tier) {
-  const card = home.split('<div class="price">').slice(1).find((c) => c.includes(`<div class="tier">${tier}</div>`));
-  return [...card.split('</ul>')[0].matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => strip(m[1]));
+  const card = [...homeDoc.querySelectorAll('.price')].find((c) => text(c.querySelector('.tier')) === tier);
+  expect(card, `${tier} card`).toBeDefined();
+  return [...card.querySelectorAll('ul li')].map(text);
 }
 
-const rows = [...hub.slice(hub.indexOf('id="lite-pro"')).matchAll(/<tr><td>([\s\S]*?)<\/td><td>([\s\S]*?)<\/td><td>([\s\S]*?)<\/td>/g)]
-  .map((m) => ({ feature: strip(m[1]), lite: strip(m[2]), pro: strip(m[3]) }));
+const rows = [...hubDoc.querySelectorAll('#lite-pro tbody tr')].map((tr) => {
+  const cells = [...tr.querySelectorAll('td')].map(text);
+  return { feature: cells[0], lite: cells[1], pro: cells[2] };
+});
 
 function row(phrase) {
   const found = rows.filter((r) => r.feature.includes(phrase));
@@ -74,8 +77,10 @@ describe('landing pricing cards against the guide hub table', () => {
   });
 
   it('links "Compare Lite and Pro in full" at an id that exists on the hub', () => {
-    const m = home.match(/<a href="guide\/index\.html#([^"]+)">Compare Lite and Pro in full →<\/a>/);
-    expect(m).not.toBeNull();
-    expect(hub).toContain(`id="${m[1]}"`);
+    const link = [...homeDoc.querySelectorAll('a')].find((a) => text(a) === 'Compare Lite and Pro in full →');
+    expect(link).toBeDefined();
+    const [page, id] = link.getAttribute('href').split('#');
+    expect(page).toBe('guide/index.html');
+    expect(hubDoc.getElementById(id)).not.toBeNull();
   });
 });
