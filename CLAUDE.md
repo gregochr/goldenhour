@@ -58,6 +58,9 @@ plans and this file may be written by the planning session.)
    (the session adds it as the last step, once Codex is clean on the head), as a smoke (sky quick check +
    `AskPromptRegressionTest`); the full suites run from a manual `workflow_dispatch` with `scope=full`. They spend real
    Anthropic money; skipped is normal. Never block a merge on them; report a red run in the PR summary.
+   **One extra gate (owner, 2026-11-28):** a PR that changes the sky prompt, its user message or the output schema
+   waits for the owner's Haiku 4.5 Sky-Rating Eval (Operations → Sky Eval, 8 runs) before it merges. Ask for it in the
+   PR body: CI runs Sonnet only, Far-Term runs on Haiku 4.5, and #1967 broke Haiku with CI green (`dev-and-testing.md`).
 7. **Multi-phase plans repeat steps 2–6 for each phase**: one PR per phase, each branched from the
    updated `main` after the previous phase merged.
 
