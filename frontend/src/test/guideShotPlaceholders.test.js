@@ -18,7 +18,7 @@ const PLACEHOLDERS = {
 };
 /** Placeholders replaced by a real capture: the figure id stays, the `.ph` block becomes a WebP the page can load. */
 const REAL_IMAGES = {
-  map: { 'shot-warn-map-chips': 'warn-map-chips.webp', 'shot-warn-callout': 'warn-callout.webp' },
+  map: { 'shot-warn-map-chips': 'warn-map-chips.webp', 'shot-warn-map-open': 'warn-map-open.webp','shot-warn-callout': 'warn-callout.webp' },
   planning: { 'shot-open': 'open-map.webp', 'shot-warn-lanes': 'this-week-warning.webp' },
 };
 const REAL_CASES = Object.entries(REAL_IMAGES).flatMap(([page, m]) => Object.entries(m).map(([id, file]) => [page, id, file]));

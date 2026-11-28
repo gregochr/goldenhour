@@ -21,6 +21,7 @@ page links to it. `frontend/src/test/guideShotPlaceholders.test.js` pins the ids
 | `shot-warn-stale` | weather-warnings.html (#fresh) | The line "Warnings last checked HH:MM — check the Met Office" under the warning area | Desktop; needs the feed unreachable for about ten minutes (stop the poller or block the feed host) |
 | `shot-warn-ask` | weather-warnings.html (#where) | An Ask answer that carries a warning card with dates and the Met Office credit | Desktop with Ask open beside the Map; 375px phone if it reads better |
 | `shot-warn-map-chips` | map.html (#warnings) | The chip row under the topic chips for a sunrise or sunset window | Desktop Map; 375px phone as an alternate |
+| `shot-warn-map-open` | map.html (#warnings) | The same row opened in place: validity, headline, what to expect, the matrix and the credit | Desktop Map |
 | `shot-warn-callout` | map.html (#warnings) | A location callout carrying a warning chip | Desktop Map |
 | `shot-warn-coming-up` | coming-up.html (#warnings) | A "Met Office warning" entry showing "Raised from ..." and "Updated" | Desktop Coming up |
 
