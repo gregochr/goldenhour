@@ -12,8 +12,6 @@ COPY photocast.css /usr/share/nginx/html/
 COPY home.css /usr/share/nginx/html/
 COPY viewer.js /usr/share/nginx/html/
 COPY home.js /usr/share/nginx/html/
-COPY shot-detail.webp /usr/share/nginx/html/
-COPY shot-week.webp /usr/share/nginx/html/
 COPY shot-ahead.webp /usr/share/nginx/html/
 COPY field-map.webp /usr/share/nginx/html/
 COPY field-decide.webp /usr/share/nginx/html/

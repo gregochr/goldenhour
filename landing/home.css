@@ -8,6 +8,8 @@
 .fig{margin:56px 0 0;border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--ground-2);padding:14px}
 .fig img{display:block;width:100%;height:auto;border:1px solid var(--rule);border-radius:11px;background:var(--card)}
 .figcap{font-family:var(--mono);font-size:12px;line-height:1.65;letter-spacing:.02em;color:var(--ink-soft);padding:14px 6px 4px;max-width:640px}
+.avail{margin-top:22px;font-size:15.5px;color:var(--ink-soft)}
+@media(min-width:1024px){.hero-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,500px);gap:48px;align-items:start}.hero-grid .fig{margin:26px 0 0}.hero h1{font-size:clamp(56px,5.6vw,80px)}}
 .pair{display:flex;justify-content:center;align-items:flex-start;gap:16px}
 .pair a{flex:0 1 280px;min-width:0}
 .pair a+a{margin-top:36px}
@@ -44,8 +46,9 @@ section{padding:104px 0 0}
 .feat p+p{margin-top:10px}
 .feat .more{font-size:14.5px}
 .plan-more{margin-top:24px;font-size:14.5px}
-.plan-figs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:56px;align-items:start}
-.plan-figs .fig{margin:0}
+.plan-grid{display:block}
+.plan-grid>.fig{margin:40px 0 0}
+@media(min-width:821px){.plan-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:40px;align-items:start}.plan-grid>.fig{margin:44px 0 0}}
 .zoom{display:block;cursor:zoom-in;text-decoration:none}
 .zoom:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:12px}
 .viewer{padding:0;border:0;margin:0;width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;background:transparent}
@@ -133,7 +136,6 @@ html{scroll-padding-top:120px}
 .steps{grid-template-columns:minmax(0,1fr)}
 .step.result .cap{grid-template-columns:minmax(0,1fr)}
 .story-grid{grid-template-columns:minmax(0,1fr);gap:28px}
-.plan-figs{grid-template-columns:minmax(0,1fr);margin-top:40px}
 .feat{grid-template-columns:minmax(0,1fr);gap:6px}
 .feat .n{padding-top:0}
 }
