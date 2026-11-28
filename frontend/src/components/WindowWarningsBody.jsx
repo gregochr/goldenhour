@@ -29,17 +29,26 @@ TextBlock.propTypes = {
   children: PropTypes.node,
 };
 
-/** One warning in full: the style guide's required text, status, validity, places and the matrix. */
-export function WarningDetail({ warning, counts = null, showChip = true }) {
+/**
+ * One warning in full: the style guide's required text, status, validity, places and the matrix.
+ *
+ * <p>{@code showChip} false leaves the chip out where the surface already prints it (the Map's row); {@code bare}
+ * drops the card's own border and padding where the surface already boxes it (the Map's expanded region);
+ * {@code showValidity} false leaves the validity line to a surface that prints it first.
+ */
+export function WarningDetail({
+  warning, counts = null, showChip = true, bare = false, showValidity = true,
+}) {
   const lines = placeCountLines(counts, warning.warningId);
   const expect = Array.isArray(warning.whatToExpect) ? warning.whatToExpect.filter((t) => t && t.trim()) : [];
-  const validity = validityText(warning);
+  const validity = showValidity ? validityText(warning) : null;
+  const frame = bare ? '' : 'rounded border border-plex-border-light p-2.5';
   return (
     <article
       data-testid="window-warning"
       data-level={warning.level}
       data-warning-id={warning.warningId}
-      className="flex flex-wrap items-start gap-x-4 gap-y-2 rounded border border-plex-border-light p-2.5"
+      className={`flex flex-wrap items-start gap-x-4 gap-y-2 ${frame}`}
     >
       <div className="flex min-w-[14rem] flex-1 flex-col gap-2">
         {showChip && <div><WarningChip warning={warning} /></div>}
@@ -49,7 +58,7 @@ export function WarningDetail({ warning, counts = null, showChip = true }) {
           </p>
         )}
         <TextBlock
-          title="Update"
+          title="What's changed"
           testId="window-warning-update"
           text={warning.updated === true ? warning.updateDescription : null}
         />
@@ -82,6 +91,8 @@ WarningDetail.propTypes = {
   warning: PropTypes.object.isRequired,
   counts: PropTypes.arrayOf(PropTypes.object),
   showChip: PropTypes.bool,
+  bare: PropTypes.bool,
+  showValidity: PropTypes.bool,
 };
 
 /** The style guide's optional "What should I do" link, to the Met Office's own advice page. */

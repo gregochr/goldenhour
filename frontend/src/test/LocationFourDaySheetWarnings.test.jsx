@@ -191,7 +191,7 @@ describe('LocationFourDaySheet warnings', () => {
     vi.setSystemTime(new Date('2026-08-14T15:00:00Z'));
     await mount(response([], { stale: true, lastCheckedAt: '2026-08-14T13:05:00Z' }));
     expect(screen.queryByTestId('warning-chip')).toBeNull();
-    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Warnings last checked 14:05');
+    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Last checked 1 h ago. These may be out of date.');
     expect(screen.queryByTestId('warning-attribution')).toBeNull();
   });
 

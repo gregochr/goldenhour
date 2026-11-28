@@ -183,7 +183,7 @@ describe('the warning lane', () => {
 
   it('prints the stale admission, never an all-clear, when the feed is stale and nothing applies', async () => {
     await mount(response([], { stale: true }));
-    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Warnings last checked');
+    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Last checked');
     expect(screen.queryByTestId('wf-warning-lane')).toBeNull();
     expect(document.body.textContent).not.toMatch(/no warnings/i);
   });

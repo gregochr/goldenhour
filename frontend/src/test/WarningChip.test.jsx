@@ -105,24 +105,63 @@ describe('WarningFooter', () => {
   });
   afterEach(() => { vi.useRealTimers(); });
 
-  it('prints the attribution and the Met Office link where warnings are shown', () => {
+  it('prints the served attribution verbatim AS the link to the Met Office overview, new tab, then an arrow', () => {
     render(<WarningFooter {...base} showAttribution />);
-    expect(screen.getByTestId('warning-attribution')).toHaveTextContent(ATTRIBUTION);
-    expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
+    const link = screen.getByRole('link', {
+      name: 'Met Office Weather Warnings \u00a9 Crown Copyright 2026, Met Office warnings page, opens in a new tab',
+    });
+    expect(link).toBe(screen.getByTestId('warning-source-link'));
+    expect(link).toHaveAttribute('href', METOFFICE_URL);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link.textContent).toContain('Met Office Weather Warnings \u00a9 Crown Copyright 2026');
+    expect(link.textContent).toContain('\u2197');
     expect(screen.queryByTestId('warning-stale')).toBeNull();
   });
 
-  it('says the warnings may be out of date when stale, with the last check in UK time', () => {
+  it('no longer prints "Read it on the Met Office site" or "check the Met Office"', () => {
+    render(<WarningFooter {...base} showAttribution stale />);
+    expect(screen.queryByText(/Read it on the Met Office site/)).toBeNull();
+    expect(screen.queryByText(/check the Met Office/)).toBeNull();
+    expect(screen.queryByTestId('warning-stale-link')).toBeNull();
+  });
+
+  it('holds the last word, the arrow and the ? together, so nothing is stranded', () => {
+    render(<WarningFooter {...base} showAttribution />);
+    const nowrap = screen.getByTestId('warning-source-link').querySelector('.whitespace-nowrap');
+    expect(nowrap).toHaveTextContent('2026');
+    expect(nowrap).toHaveTextContent('\u2197');
+    // A word joiner sits between the link and the ?, so the ? cannot start a line of its own.
+    const line = screen.getByTestId('warning-attribution');
+    expect(line.textContent.endsWith('\u2060')).toBe(true);
+    expect(screen.getByTestId('warning-guide-link')).toBeInTheDocument();
+  });
+
+  it('pins the ? to the far right when the footer is box-wide (the Map)', () => {
+    render(<WarningFooter {...base} showAttribution guideAtEnd />);
+    expect(screen.getByTestId('warning-attribution-line')).toHaveClass('flex', 'justify-between');
+    expect(screen.getByTestId('warning-attribution').textContent.endsWith('\u2060')).toBe(false);
+  });
+
+  it('says the warnings may be out of date on a line of its own above the attribution when stale', () => {
+    render(<WarningFooter {...base} showAttribution stale />);
+    const stale = screen.getByTestId('warning-stale');
+    expect(stale).toHaveTextContent('Last checked 1 h ago. These may be out of date.');
+    expect(stale.tagName).toBe('P');
+    expect(screen.getByTestId('warning-attribution-line').tagName).toBe('P');
+    expect(stale.compareDocumentPosition(screen.getByTestId('warning-attribution')))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('still says so, never an all-clear, when stale with no warning shown', () => {
     render(<WarningFooter {...base} showAttribution={false} stale />);
-    expect(screen.getByTestId('warning-stale'))
-      .toHaveTextContent('Warnings last checked 14:05 — check the Met Office');
-    expect(screen.getByTestId('warning-stale-link')).toHaveAttribute('href', METOFFICE_URL);
+    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Last checked 1 h ago. These may be out of date.');
     expect(screen.queryByTestId('warning-attribution')).toBeNull();
   });
 
-  it('carries both lines when stale warnings are shown', () => {
+  it('admits when no check has succeeded yet', () => {
     render(<WarningFooter {...base} showAttribution stale lastCheckedAt={null} />);
-    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Warnings have not been checked yet');
+    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Not checked yet. These may be out of date.');
     expect(screen.getByTestId('warning-attribution')).toBeInTheDocument();
   });
 

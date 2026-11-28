@@ -11,7 +11,6 @@ vi.mock('../api/warningsApi.js', () => ({ getWarnings: vi.fn() }));
 import { getWarnings } from '../api/warningsApi.js';
 import { WarningsProvider } from '../context/WarningsContext.jsx';
 import MapBestBetWhy, { MapBestBetPanel } from '../components/map/MapBestBetWhy.jsx';
-import MapWarningChips, { MapWarningPanel } from '../components/map/MapWarningChips.jsx';
 import RegionsJump from '../components/map/RegionsJump.jsx';
 import WindowSpotSheet from '../components/WindowSpotSheet.jsx';
 import { WindowWarningsBody } from '../components/WindowWarningsBody.jsx';
@@ -91,7 +90,7 @@ describe('MapBestBetWhy', () => {
   });
 });
 
-describe('the warning expand', () => {
+describe('the warning body', () => {
   beforeEach(() => {
     getWarnings.mockReset();
     vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
@@ -103,90 +102,6 @@ describe('the warning expand', () => {
     getWarnings.mockResolvedValue(served);
     await act(async () => { render(<WarningsProvider>{ui}</WarningsProvider>); });
   }
-
-  it('draws no toggle when the parent offers none (the chips as they were)', async () => {
-    await mount(response([YELLOW]), <MapWarningChips event={EVENT} locations={LOCATIONS} />);
-    expect(screen.getByTestId('warning-chip')).toBeInTheDocument();
-    expect(screen.queryByTestId('map-warning-toggle')).toBeNull();
-  });
-
-  it('gives each warning its own toggle, named for it, beside a chip that stays a link', async () => {
-    const onToggle = vi.fn();
-    await mount(
-      response([YELLOW, RED]),
-      <MapWarningChips event={EVENT} locations={LOCATIONS} openId="r" onToggle={onToggle} />,
-    );
-    const toggles = screen.getAllByTestId('map-warning-toggle');
-    expect(toggles).toHaveLength(2);
-    expect(toggles[0]).toHaveAccessibleName(/Hide details of Red warning of rain/);
-    expect(toggles[0]).toHaveAttribute('aria-expanded', 'true');
-    expect(toggles[0]).toHaveAttribute('aria-controls', 'wf-map-warning-panel');
-    expect(toggles[1]).toHaveAccessibleName(/Show details of Yellow warning of wind/);
-    expect(toggles[1]).toHaveAttribute('aria-expanded', 'false');
-    expect(toggles[1]).not.toHaveAttribute('aria-controls');
-    fireEvent.click(toggles[1]);
-    expect(onToggle).toHaveBeenCalledWith('y', toggles[1]);
-    screen.getAllByTestId('warning-chip').forEach((chip) => expect(chip.tagName).toBe('A'));
-  });
-
-  it('draws no toggle on the stale-only line, and keeps the stale admission', async () => {
-    await mount(
-      response([], { stale: true, lastCheckedAt: `${DATE}T09:05:00Z` }),
-      <MapWarningChips event={EVENT} locations={LOCATIONS} onToggle={vi.fn()} />,
-    );
-    expect(screen.queryByTestId('map-warning-toggle')).toBeNull();
-    expect(screen.getByTestId('warning-stale')).toBeInTheDocument();
-  });
-
-  it('keeps the attribution on screen with the panel closed', async () => {
-    await mount(
-      response([YELLOW]),
-      <MapWarningChips event={EVENT} locations={LOCATIONS} onToggle={vi.fn()} />,
-    );
-    expect(screen.getByTestId('warning-attribution')).toHaveTextContent(ATTRIBUTION);
-  });
-
-  it('prints the panel for the open warning', async () => {
-    await mount(
-      response([YELLOW]),
-      <MapWarningPanel event={EVENT} locations={LOCATIONS} openId="y" onClose={vi.fn()} />,
-    );
-    expect(screen.getByTestId('map-warning-panel')).toHaveTextContent('Wind headline');
-    // The chips beside it print the attribution; the panel does not print it a second time.
-    expect(screen.queryByTestId('warning-attribution')).toBeNull();
-  });
-
-  it.each([
-    ['no id open', { openId: null }, response([YELLOW])],
-    ['an id that is not in force', { openId: 'gone' }, response([YELLOW])],
-    ['the feature off', { openId: 'y' }, response([YELLOW], { enabled: false })],
-    ['a night', { openId: 'y', event: { ...EVENT, kind: 'astro' } }, response([YELLOW])],
-  ])('prints no panel for %s', async (_name, props, served) => {
-    await mount(
-      served,
-      <MapWarningPanel event={EVENT} locations={LOCATIONS} onClose={vi.fn()} {...props} />,
-    );
-    expect(screen.queryByTestId('map-warning-panel')).toBeNull();
-  });
-
-  it('closes from its own button on desktop', async () => {
-    const onClose = vi.fn();
-    await mount(
-      response([YELLOW]),
-      <MapWarningPanel event={EVENT} locations={LOCATIONS} openId="y" onClose={onClose} />,
-    );
-    fireEvent.click(screen.getByTestId('map-warning-panel-close'));
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('is the same body in a phone sheet', async () => {
-    await mount(
-      response([YELLOW]),
-      <MapWarningPanel event={EVENT} locations={LOCATIONS} openId="y" onClose={vi.fn()} isMobile />,
-    );
-    expect(screen.getByTestId('map-warning-panel')).toHaveTextContent('Wind headline');
-    expect(screen.queryByTestId('map-warning-panel-close')).toBeNull();
-  });
 
   it('WindowWarningsBody draws every warning, the advice link and the footer', async () => {
     await mount(response([YELLOW, RED]), <WindowWarningsBody warnings={[YELLOW, RED]} />);

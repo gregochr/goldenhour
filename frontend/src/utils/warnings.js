@@ -1,4 +1,4 @@
-import { formatDayClockUk, formatEventTimeUk } from './conversions.js';
+import { formatDayClockUk } from './conversions.js';
 import { ukDateStr } from './mapDates.js';
 import { appNow } from './rewind.js';
 import { warningInputsFor } from './locationSheet.js';
@@ -244,21 +244,23 @@ export function warningsForMapWindow(served, {
 }
 
 /**
- * The stale-feed sentence (plan §8): "Warnings last checked 14:05" or, when no check has succeeded, the plain
- * admission. The caller appends the "check the Met Office" link.
+ * The stale-feed sentence (plan section 8, map-warning-row-plan.md M3): "Last checked 3 h ago. These may be out of
+ * date." or, when no check has succeeded, "Not checked yet. These may be out of date." It stands on its own line above
+ * the attribution, so an empty list never reads as an all-clear. The ago is measured against {@code appNow()}.
  *
  * @param {?string} lastCheckedAt the served instant, or null
  * @returns {string}
  */
-export function staleLead(lastCheckedAt) {
-  if (!lastCheckedAt) return 'Warnings have not been checked yet';
-  const checked = new Date(lastCheckedAt);
-  if (Number.isNaN(checked.getTime())) return 'Warnings have not been checked yet';
-  // Today's clock alone is unambiguous; an earlier day needs its day named, or "14:05" reads as today.
-  const text = ukDateStr(checked) === ukDateStr(appNow())
-    ? formatEventTimeUk(lastCheckedAt)
-    : formatDayClockUk(lastCheckedAt);
-  return `Warnings last checked ${text}`;
+export function staleLine(lastCheckedAt) {
+  const tail = 'These may be out of date.';
+  const checked = lastCheckedAt ? new Date(lastCheckedAt) : null;
+  if (!checked || Number.isNaN(checked.getTime())) return `Not checked yet. ${tail}`;
+  const minutes = Math.max(0, Math.floor((appNow().getTime() - checked.getTime()) / 60000));
+  let ago;
+  if (minutes < 60) ago = `${minutes} min`;
+  else if (minutes < 48 * 60) ago = `${Math.floor(minutes / 60)} h`;
+  else ago = `${Math.floor(minutes / (24 * 60))} days`;
+  return `Last checked ${ago} ago. ${tail}`;
 }
 
 /**
@@ -459,6 +461,32 @@ export function validityShort(warning) {
     return `${from}\u2013${to.slice(to.lastIndexOf(', ') + 2)}`;
   }
   return `${from} \u2013 ${to}`;
+}
+
+/**
+ * A warning's validity in its most compact form, for the Map's warning row (map-warning-row-plan.md M4). The map's
+ * event bar already shows the date and a warning runs about a week ahead at most, so the weekday alone is unambiguous.
+ * UK time throughout (the row's accessible name says so); the UK civil day decides, never the UTC one.
+ *
+ * <p>The same UK day prints once: {@code "Fri 04:00\u201314:00"}. Two UK days print both:
+ * {@code "Fri 18:00 \u2013 Sat 12:00"}.
+ *
+ * @param {object} warning a served {@code WarningDto}
+ * @returns {?string} null when either instant is missing or unreadable
+ */
+export function validityCompact(warning) {
+  if (!warning) return null;
+  const fromMs = instantMs(warning.validFrom);
+  const toMs = instantMs(warning.validTo);
+  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return null;
+  const from = formatDayClockUk(warning.validFrom);
+  const to = formatDayClockUk(warning.validTo);
+  if (from == null || to == null) return null;
+  const weekdayClock = (text) => `${text.slice(0, 3)} ${text.slice(text.lastIndexOf(', ') + 2)}`;
+  if (ukDateStr(new Date(fromMs)) === ukDateStr(new Date(toMs))) {
+    return `${weekdayClock(from)}\u2013${to.slice(to.lastIndexOf(', ') + 2)}`;
+  }
+  return `${weekdayClock(from)} \u2013 ${weekdayClock(to)}`;
 }
 
 /**

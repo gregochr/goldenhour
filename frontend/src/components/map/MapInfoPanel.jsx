@@ -2,10 +2,10 @@ import React from 'react';
 import PropTypes from 'prop-types';
 
 /**
- * The frame the Map's two "why" panels share (glance-to-map-plan.md G1): the Met Office warning in full and the Best
- * bet reason. A capped panel hung under the top-left chrome group at the frame level (`.wf-warn-panel`, or
- * `.wf-bestbet-panel` for the reason, which share one placement rule in `index.css`) with a Close button that is a
- * finger-sized target. The caller owns what it says and when it is open.
+ * The frame of the Map's Best bet reason panel (glance-to-map-plan.md G1): a capped panel hung under the top-left
+ * chrome group at the frame level (`.wf-bestbet-panel` in `index.css`) with a Close button that is a finger-sized
+ * target. The caller owns what it says and when it is open. (A warning no longer has a panel: it opens in place under
+ * its row, map-warning-row-plan.md M2.)
  *
  * @param {object} props
  * @param {string} props.className the panel's placement class
@@ -19,7 +19,7 @@ export default function MapInfoPanel({
 }) {
   return (
     <div className={className} data-testid={hostTestId}>
-      <button type="button" data-testid={closeTestId} className="wf-warn-panel-x font-mono" onClick={onClose}>
+      <button type="button" data-testid={closeTestId} className="wf-bestbet-panel-x font-mono" onClick={onClose}>
         Close
       </button>
       {children}

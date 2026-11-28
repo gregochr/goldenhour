@@ -218,9 +218,9 @@ describe('Coming up warning entries', () => {
 
     const stale = screen.getAllByTestId('warning-stale');
     expect(stale).toHaveLength(1);
-    expect(stale[0]).toHaveTextContent(/Warnings last checked/);
-    expect(within(screen.getByTestId('warning-stale')).getByTestId('warning-stale-link'))
-      .toHaveAttribute('href', METOFFICE_URL);
+    expect(stale[0]).toHaveTextContent(/Last checked/);
+    expect(screen.queryByTestId('warning-stale-link')).toBeNull();
+    expect(screen.getByTestId('warning-source-link')).toHaveAttribute('href', METOFFICE_URL);
     expect(screen.getByText('Met Office warning')).toBeInTheDocument();
     expect(screen.queryByText(/no warnings|all clear/i)).toBeNull();
   });
@@ -228,7 +228,7 @@ describe('Coming up warning entries', () => {
   it('a stale feed with no warning entry still says so, so an empty list is not read as an all-clear', async () => {
     await mount(response([], { stale: true, lastCheckedAt: null }), { entries: [meteor()], counts: null });
 
-    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Warnings have not been checked yet');
+    expect(screen.getByTestId('warning-stale')).toHaveTextContent('Not checked yet. These may be out of date.');
     expect(screen.queryByText('Met Office warning')).toBeNull();
   });
 
