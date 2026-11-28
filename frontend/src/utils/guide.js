@@ -2,7 +2,7 @@
  * The in-app guide's addressing: where the pages live, what they are called, and which sections the
  * app opens (docs/engineering/user-guide-plan.md, G2).
  *
- * <p>The guide is twelve static pages on the landing site (`landing/guide/`), shown in an iframe with
+ * <p>The guide is fourteen static pages on the landing site (`landing/guide/`), shown in an iframe with
  * `?embed=1`. A copy change is a landing deploy, not an app release; an id rename is a frontend test
  * failure (`guideSections.test.js` reads `landing/guide/*.html`).
  */
@@ -41,6 +41,8 @@ export const GUIDE_PAGES = Object.freeze({
   'getting-started': 'Getting started',
   'reading-the-forecast': 'Reading the forecast',
   planning: 'Planning a shoot',
+  'this-week': 'This week',
+  'further-ahead': 'Further ahead',
   map: 'Map',
   'weather-warnings': 'Weather warnings',
   'night-sky': 'Aurora and night sky',
@@ -62,13 +64,13 @@ export const SCREEN_GUIDE = Object.freeze({
  */
 export const GUIDE_SECTIONS = Object.freeze({
   lens: Object.freeze({ page: 'planning', section: 'lens' }),
-  bestBet: Object.freeze({ page: 'planning', section: 'bestbet' }),
+  bestBet: Object.freeze({ page: 'this-week', section: 'bestbet' }),
   fixed: Object.freeze({ page: 'reading-the-forecast', section: 'fixed' }),
   colour: Object.freeze({ page: 'reading-the-forecast', section: 'colour' }),
   fiery: Object.freeze({ page: 'reading-the-forecast', section: 'fiery' }),
-  furtherAheadNew: Object.freeze({ page: 'planning', section: 'new' }),
-  furtherAheadTopics: Object.freeze({ page: 'planning', section: 'topics' }),
-  furtherAheadTides: Object.freeze({ page: 'planning', section: 'tides' }),
+  furtherAheadNew: Object.freeze({ page: 'further-ahead', section: 'new' }),
+  furtherAheadTopics: Object.freeze({ page: 'further-ahead', section: 'topics' }),
+  furtherAheadTides: Object.freeze({ page: 'further-ahead', section: 'tides' }),
   mapWindow: Object.freeze({ page: 'map', section: 'window' }),
   mapFilters: Object.freeze({ page: 'map', section: 'filters' }),
   mapHotTopics: Object.freeze({ page: 'map', section: 'hot-topics' }),

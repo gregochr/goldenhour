@@ -101,7 +101,7 @@ Each D below is one change. Files are starting points; the planner confirms them
 - After each PR, re-run the import-graph orphan check and grep, and keep deleting until clean. **Never lower `vite.config.js` coverage thresholds.**
 
 ## 8. Guides and landing (part of every PR that changes what a reader sees)
-- **`planning.html`** (the screen guide): the bookmark mark and its words (D1), Your places vs Watching (D2), the best in the heading (D3), the map header's light times and the motion (D4, in a sentence), quiet days (D5), the collapsing lens (D6), the empty hint (D8). Update its screenshots.
+- **`planning.html`, `this-week.html` and `further-ahead.html`** (the screen guide, split in landing-guide-plan G1: the overview, the This week sections `#this-week` to `#bestbet` and the Further ahead sections `#further-ahead` to `#watch-a-date`; `guide/moved.js` holds the map of moved ids): the bookmark mark and its words (D1), Your places vs Watching (D2), the best in the heading (D3), the map header's light times and the motion (D4, in a sentence), quiet days (D5), the collapsing lens (D6), the empty hint (D8). Update its screenshots.
 - **`your-places.html`:** the bookmark, places only; watched dates live in Further ahead and move into This week.
 - **`map.html`:** the header with the window's blue and golden hour.
 - **`finding-places.html`:** Find's resting group uses the bookmark.

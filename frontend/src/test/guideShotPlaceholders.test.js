@@ -14,12 +14,12 @@ const shotIds = (html) => [...html.matchAll(/<figure[^>]*\sid="(shot-[^"]+)"/g)]
 
 const PLACEHOLDERS = {
   'weather-warnings': ['shot-warn-stale', 'shot-warn-ask'],
-  planning: ['shot-warn-coming-up'],
+  'further-ahead': ['shot-warn-coming-up'],
 };
 /** Placeholders replaced by a real capture: the figure id stays, the `.ph` block becomes a WebP the page can load. */
 const REAL_IMAGES = {
   map: { 'shot-warn-map-chips': 'warn-map-chips.webp', 'shot-warn-callout': 'warn-callout.webp' },
-  planning: { 'shot-open': 'open-map.webp', 'shot-warn-lanes': 'this-week-warning.webp' },
+  'this-week': { 'shot-open': 'open-map.webp', 'shot-warn-lanes': 'this-week-warning.webp' },
 };
 const REAL_CASES = Object.entries(REAL_IMAGES).flatMap(([page, m]) => Object.entries(m).map(([id, file]) => [page, id, file]));
 const CASES = Object.entries(PLACEHOLDERS).flatMap(([page, ids]) => ids.map((id) => [page, id]));
